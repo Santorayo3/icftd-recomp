@@ -43,6 +43,17 @@ brightness pulse over an already-drawn picture. Bounding the loop by the picture
 "opaque where colour != key", limited to the picture's planes. `key = 15` on `IT.win` is the
 orange frame around the title, `key = 4` on `SkyT.win`, `key = 0` on most sprite art.
 
+**3. The sky is a copper gradient, not a picture.** `SkyT.win` is an empty 320x72 record (26
+bytes of header, no pixel data) - it only marks the rectangle. `main.pal` carries a ramp at
+entries 16..31 (`#330044` `#440055` `#550055` `#660055` `#770044` `#880033` `#990033` `#990022`
+`#aa0000` `#bb1100` `#cc3300` `#ee4433` `#ff6633` `#ff8844` `#ffaa77` `#ffdd77`), and the
+original rewrites the colour once per scanline band from a copper list. Mapping every sky row of
+a reference frame to its nearest palette entry recovers the list: constant 16 down to row 31,
+then 16,17,...,23 over the next ~42 rows of the 72-row rectangle, alternating between
+neighbours every second line. `DrawCopperSky` reproduces that with indices from the same palette,
+so no per-scanline palette is needed. The module that builds the real list is in OPEN, which is
+not decompiled - the shape is measured from `out\cap-early-320`.
+
 ## The frame loop (`FUN_0001d2c6`, called from `FUN_0001d3a2`)
 
 ```c
