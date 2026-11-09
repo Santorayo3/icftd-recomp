@@ -143,14 +143,22 @@ static void PublishLive(void)
     }
 }
 
-/* FUN_0001D87C: 32 colours of a .pal asset (3 bytes, components in the high nibbles). */
+/* FUN_0001D87C: 32 colours of a .pal asset (3 bytes, components in the high nibbles).
+ * A command may also name a picture, whose palette hangs off the bitmap in the original
+ * (bitmap + 0x38); the pack stores it as the picture header's palette entry. */
 static void PaletteFromAsset(s32 index, u16 *dst)
 {
     u8 buf[MV_PAL_COLOURS * 3];
     u32 n, i;
+    pic_hdr hdr;
 
     memset(dst, 0, MV_PAL_COLOURS * sizeof(u16));
     if (index < 0) return;
+    if (pak_type(rt_pack, index) == PAK_PICTURE)
+    {
+        if (!pic_header(rt_pack, index, &hdr)) return;
+        index = (s32)hdr.palette;
+    }
     n = pal_read(rt_pack, index, buf, MV_PAL_COLOURS);
     for (i = 0; i < n && i < MV_PAL_COLOURS; i++)
         dst[i] = (u16)(((buf[i * 3 + 0] >> 4) << 8) |
@@ -302,7 +310,10 @@ static mv_node *NewNode(void)
     n->asset = -1;
     n->pic = -1;
     n->vscale = 1;
-    n->channel = 0x88888888u;
+    /* Straight copy until op 0x10 says otherwise: the loader sets this per picture
+     * (move_bitmap + 0x34), the pack does not carry it, and 0x88888888 would mean
+     * "keep the destination", i.e. draw nothing. */
+    n->channel = 0x76543210u;
     return n;
 }
 
