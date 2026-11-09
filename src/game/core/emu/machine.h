@@ -1,0 +1,43 @@
+/* The emulated Amiga machine: memory map, chipset stub, and the Musashi hooks.
+ *
+ * Phase A of docs\recomp-architecture.md: get the original `dshell` executing, then grow the
+ * chipset and the exec/graphics/dos shims until it reaches its first LoadView.
+ */
+#ifndef EMU_MACHINE_H
+#define EMU_MACHINE_H
+
+#include "types.h"
+#include "mem.h"
+
+/* Memory map: the flattened dshell image is linked at 0 (A4 = 0x29A56 is baked into the code,
+ * so the base must stay 0). The stack sits at 0x80000 and the fake library bases at the top. */
+#define EMU_RAM_SIZE     0x00100000u
+#define EMU_STACK_TOP    0x00080000u
+#define EMU_LIB_BASE     0x000E0000u
+#define EMU_LIB_STRIDE   0x00002000u
+#define EMU_LIB_SLOTS    8
+#define EMU_LIB_SPAN     0x00001000u      /* how far below a base a jmp (d16,A6) may land */
+
+typedef struct emu_machine
+{
+    emu_mem mem;
+    u16     custom[0x100 / 2];            /* 0xDFF000..0xDFF0FF, raw */
+    u32     libraryBase[EMU_LIB_SLOTS];
+    int     libraries;
+    long    insns;
+    int     trace;
+} emu_machine;
+
+int  emu_init(emu_machine *m);
+void emu_shutdown(emu_machine *m);
+int  emu_load_image(emu_machine *m, u32 addr, const char *path);
+u32  emu_library_new(emu_machine *m);
+u32  emu_run(emu_machine *m, long maxInsns);
+int  emu_library_of(emu_machine *m, u32 pc, s32 *lvo);
+
+/* Sets PC/A7/A4 to the state the exporter documents and runs from there. */
+void emu_boot(u32 entry, u32 a4);
+
+extern emu_machine *emu_current;
+
+#endif

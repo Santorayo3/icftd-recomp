@@ -46,3 +46,8 @@ out/
 *.swp
 Thumbs.db
 .DS_Store
+
+# Watcom scratch and the Musashi opcode generator binary
+__wcl_*.lnk
+third_party/musashi/m68kmake.exe
+
