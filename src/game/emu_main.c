@@ -24,17 +24,19 @@ int main(int argc, char **argv)
     u32 entry = DEFAULT_ENTRY;
     long insns = 1000;
     int i, rc = 1, trace = 0, haveEntry = 0;
+    u32 watch = 0;
 
     for (i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--trace") == 0) { trace = 1; continue; }
+        if (strcmp(argv[i], "--watch") == 0 && i + 1 < argc) { watch = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (image == 0) { image = argv[i]; continue; }
         if (!haveEntry) { entry = (u32)strtoul(argv[i], 0, 0); haveEntry = 1; continue; }
         insns = strtol(argv[i], 0, 0);
     }
     if (image == 0)
     {
-        printf("usage: icftd-emu <image> [<entry>] [<insns>] [--trace]\n");
+        printf("usage: icftd-emu <image> [<entry>] [<insns>] [--trace] [--watch <pc>]\n");
         return 1;
     }
 
@@ -42,6 +44,7 @@ int main(int argc, char **argv)
     if (!emu_load_image(&m, EMU_IMAGE_BASE, image)) { printf("emu: cannot load %s\n", image); emu_shutdown(&m); return 1; }
 
     m.trace = trace;
+    m.watch = watch;
 
     printf("emu: %s loaded, entry 0x%lx, A4 0x%lx, %ld instruction(s)\n",
            image, (unsigned long)entry, (unsigned long)DEFAULT_A4, insns);

@@ -117,7 +117,8 @@ static const char *libraryName[EMU_LIB_SLOTS] = {
     "exec.library", "graphics.library", "dos.library", "intuition.library",
     "audio.device", "timer.device", "mathffp.library", "icon.library",
     "layers.library", "translator.library", "gadtools.library", "mathieeesingbas.library",
-    "console.device", "input.device", "ciaa.resource", "resource"
+    "console.device", "input.device", "ciaa.resource", "resource",
+    "diskfont.library", "utility.library", "version.library", "keymap.library"
 };
 #define EMU_LIB_RESOURCE 15                  /* the catch-all base OpenResource returns */
 
@@ -264,8 +265,15 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
                 if (nameAddr == 0) nameAddr = m68k_get_reg(0, M68K_REG_A1);
                 read_cstr(nameAddr, name, (int)sizeof(name));
                 idx = library_index_of(name);
-                if (idx < 0) { printf("emu: OpenLibrary(\"%s\") - unknown library\n", name); }
-                else result = m->libraryBase[idx];
+                if (idx < 0)
+                {
+                    /* Never return NULL: on real hardware every one of these opens, and a null
+                     * base turns into a jump through -30 into zeroed memory. A generic base keeps
+                     * the boot moving so the next real gap shows up. */
+                    printf("emu: OpenLibrary(\"%s\") - not modelled, generic base\n", name);
+                    idx = EMU_LIB_RESOURCE;
+                }
+                result = m->libraryBase[idx];
             }
             break;
         case -414:                               /* CloseLibrary */
@@ -527,6 +535,39 @@ u32 emu_run(emu_machine *m, long maxInsns)
         u32 pc = m68k_get_reg(0, M68K_REG_PC);
         s32 lvo = 0;
 
+        if (m->watch != 0 && pc == m->watch)
+        {
+            int k;
+            printf("emu: watch hit %06lx, recent PCs:", (unsigned long)pc);
+            for (k = 0; k < 16; k++)
+                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
+            printf("\n");
+        }
+        m->ring[m->ringPos++ & 15] = pc;
+        if ((m68k_get_reg(0, M68K_REG_A7) & 1) != 0 || m68k_get_reg(0, M68K_REG_A7) < 0x1000u)
+        {
+            int k;
+            printf("emu: stack pointer went bad (%06lx) at pc %06lx - recent PCs:\n     ",
+                   (unsigned long)m68k_get_reg(0, M68K_REG_A7), (unsigned long)pc);
+            for (k = 0; k < 16; k++)
+                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
+            printf("\n");
+            return pc;
+        }
+        if (pc < EMU_IMAGE_BASE)
+        {
+            int k;
+            printf("emu: PC ran below the image at %06lx - recent PCs:\n     ",
+                   (unsigned long)pc);
+            for (k = 0; k < 16; k++)
+                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
+            printf("\n      A6=%06lx A5=%06lx A4=%06lx D0=%08lx\n",
+                   (unsigned long)m68k_get_reg(0, M68K_REG_A6),
+                   (unsigned long)m68k_get_reg(0, M68K_REG_A5),
+                   (unsigned long)m68k_get_reg(0, M68K_REG_A4),
+                   (unsigned long)m68k_get_reg(0, M68K_REG_D0));
+            return pc;
+        }
         if (emu_library_of(m, pc, &lvo) >= 0)
         {
             int lib = emu_library_of(m, pc, &lvo);
