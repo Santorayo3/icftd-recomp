@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------- game data --
+# "It Came from the Desert" is copyrighted. Nothing that is game artwork, that
+# contains it, or that was decoded from it may be committed.
+
+# Original Amiga floppy images - the user has to supply these.
+/disks/*
+!/disks/README.md
+
+# Everything decoded from the images: extracted filesystems, PNG previews and
+# the runtime pack.  Rebuilt on first start (see src/game/core/assets.c).
+/assets/*
+!/assets/README.md
+/export/
+
+# WinUAE reference captures of the original game.
+/ref/
+
+# Ghidra project, decompiled C and disassembly - derived from the game program.
+/re/
+
+# ------------------------------------------------------------- build output --
+bin/
+obj/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.map
+*.bmp
+*.ppm
+out/
+
+# Belt and braces: the data formats, wherever they end up.
+*.adf
+*.ipf
+*.art
+*.pak
+*.idx8
+
+# ---------------------------------------------------------- editor and OS ----
+.vs/
+.vscode/
+*.user
+*.swp
+Thumbs.db
+.DS_Store
