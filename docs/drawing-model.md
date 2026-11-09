@@ -60,10 +60,61 @@ Corollary for the loader: a picture record may carry **no pixel data at all**. `
 yields a full `w x h` bitmap with zeroed planes, and the channel is what makes it visible, so a
 short decode is not an error - `LoadPicture` zero-fills and keeps the record.
 
-Open question for later: for a *forced* plane the original's blitter path sets `BLTCON0 = 0xB00
-| 0xCA` (USEC off) with `A` = the mask and `BLTBDAT` = the constant, i.e. the forced value is
-`mask & constant` rather than "the whole rectangle". Over art whose mask is all-ones (the sky)
-the two readings agree; over a sprite with holes they do not. Left as is until a case turns up.
+**The mask itself (`FUN_0001E504`, built through the blitter).** It is one bit per pixel per
+picture, built the first time the bitmap is drawn and cached at `bitmap+0x30`
+(`FUN_0001D5CE` only calls it while that word is 0). It compares the picture's own colour with
+the key using two tables in the data hunk: `DAT_000265BE` expands `key & 0xF` into a 16-bit
+pattern and `DAT_000265DE` holds eight minterms per plane count. Dumped:
+
+```
+DAT_000265DE  planes=1: f0 0f f0 0f f0 0f f0 0f
+              planes=2: fc cf f3 3f fc cf f3 3f
+              planes=3: fe ef fb bf fd df f7 7f
+```
+
+For a 3-plane picture, entry `key & 7` has exactly **one zero bit**, at the position that
+encodes that colour - i.e. `mask = 0` where the pixel's colour equals the key and 1 everywhere
+else. Only the low planes take part (the table stops at three planes plus an optional second
+pass for plane 3), so the palette-bank bit (plane 4) is not compared.
+
+**The blit (`FUN_0001E8C8`) uses that mask for every plane it touches.** It loops over the
+*destination's* plane count (`byte[+5]` of the screen struct = 5), one channel nibble per plane:
+
+* `8` → no blitter setup at all for that plane, destination kept
+* `0..7` → source plane `nibble` with minterm `0xCA`, `A` = mask: 1 writes the source bit,
+  0 keeps the destination bit. If the picture has no such plane the constant path is used.
+* `9..15` → constant path, value `nibble & 1`.
+
+The constant path is still gated by the mask - it shares the same `A` pointer - which matters:
+`LandBack.win` carries the channel `CCCCC210`, so planes 3 and 4 are forced to 0, and without the
+gate its transparent rows would clear the sky's bank bit and the whole horizon would collapse to
+indices 0..15. Verified by flipping the rule and watching exactly that happen.
+
+## Paint order and the screen buffer
+
+`Move_Walk` (`FUN_0001FA02`) is one pass over the child list:
+
+```c
+for (n = list; n; n = n->next) {
+    if (script node) { Move_StepScript(n); Move_Walk(n->child, base + n->x, base + n->y, ..); }
+    else             { Move_DrawNode(n, base + n->x, base + n->y, ..); }
+    if (!frozen) { vx += ax; vy += ay; x += vx; y += vy; }
+}
+```
+
+* list order **is** paint order - the first node is painted first, so it ends up behind;
+* the list is kept sorted by the command's priority (`p3 >> 16`) at insert time;
+* a parent's commands run before its children are painted;
+* velocity is integrated *after* the node is visited, so a frame shows the position the node had
+  when the frame began.
+
+`FUN_0001D00A` (vector slot 81) allocates the two rasters, and clears them once. The frame loop
+`FUN_0001D2C6` is: tick → `FUN_0001D1DA` → counter++, and `FUN_0001D1DA` only applies the palette
+(slot 91 = `FUN_0001D7C4`) and swaps the raster and view pointers. `os_graphics_BltClear` has
+exactly one call site in the whole binary, inside `FUN_0001D00A`. There is therefore **no
+per-frame clear**: a transparent pixel keeps whatever the buffer already held. The port still
+clears each frame, because with the clear removed the band described below simply carries content
+instead of being black and the frame gate has no reference for that yet.
 
 ## The frame loop (`FUN_0001d2c6`, called from `FUN_0001d3a2`)
 
