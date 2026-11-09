@@ -39,6 +39,7 @@ typedef struct mv_cmd
 {
     u8  opcode;
     u8  flag;
+    s16 idx;                    /* raw asset index from the record, may address a label */
     s32 asset;                  /* index into mv_script.asset, -1 = none */
     u32 p1, p2, p3;             /* the three 32-bit arguments, 16.16 where it matters */
 } mv_cmd;

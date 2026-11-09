@@ -507,7 +507,6 @@ static int run_compose(const char *pack_path, const char *out, const char *pal_n
 /* ----------------------------------------------------------------- intro ---- */
 /* Reads a MovE script out of the pack and resolves its asset names against the script's
  * own bank ("Desert1/OPEN/!OPN" -> assets named "Desert1/OPEN/<name>"). */
-
 static int load_script(pak *p, const char *script_name, mv_script **out)
 {
     u8 *data;
@@ -540,6 +539,40 @@ static int load_script(pak *p, const char *script_name, mv_script **out)
            pak_name(p, index), (int)(*out)->assetCount, (int)(*out)->labelCount,
            (int)mv_resolve(*out, p, prefix));
     return 1;
+}
+
+/* Dumps every label of a MovE script with its commands, so the port works from the data
+ * that is actually in the pack instead of from assumptions about it. */
+static int run_movelist(const char *pack_path, const char *script_name)
+{
+    pak p;
+    mv_script *sc;
+    s32 l, i;
+    u32 used[256];
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    if (!load_script(&p, script_name, &sc)) return 1;
+
+    memset(used, 0, sizeof used);
+    for (l = 0; l < sc->labelCount; l++) {
+        const mv_label *lb = &sc->label[l];
+        printf("label %s (%d commands)\n", lb->name, (int)lb->count);
+        for (i = 0; i < lb->count; i++) {
+            const mv_cmd *c = &lb->cmd[i];
+            printf("  %2d  op %02X flag %02X idx %3d asset %3d %-10s p1 %08lX p2 %08lX p3 %08lX\n",
+                   (int)i, (unsigned)c->opcode, (unsigned)c->flag, (int)c->idx, (int)c->asset,
+                   c->asset >= 0 ? sc->asset[c->asset].name : "-",
+                   (unsigned long)c->p1, (unsigned long)c->p2, (unsigned long)c->p3);
+            used[c->opcode]++;
+        }
+    }
+
+    printf("opcodes used:");
+    for (i = 0; i < 256; i++) if (used[i]) printf(" %02X(%lu)", (unsigned)i, (unsigned long)used[i]);
+    printf("\n");
+
+    pak_close(&p);
+    return 0;
 }
 
 /* Runs a label through the runtime and writes one BMP per frame, so the intro can be
@@ -908,6 +941,7 @@ static void usage(void)
            "  icftd.exe --compose <pack> <out.bmp> <palette|-> <name,x,y,key> ...\n"
            "  icftd.exe --intro <pack> <script> <label> <from> <to> <outPrefix>\n"
            "  icftd.exe --play [pack] [script] [label]   play a MovE label in the window\n"
+           "  icftd.exe --movelist <pack> <script>        dump every label and its commands\n"
            "  ... --intro/--play also take --trace <file>: one text line per event\n"
            "  icftd.exe --gfx-test <out.bmp>\n"
            "  icftd.exe --match <ref.bmp> [pack] [tolerance]\n"
@@ -947,6 +981,8 @@ int main(int argc, char **argv)
         rc = run_compose(argv[2], argv[3], argv[4], argc - 5, argv + 5);
     else if (argc > 1 && strcmp(argv[1], "--intro") == 0 && argc > 7)
         rc = run_intro(argv[2], argv[3], argv[4], (s32)atoi(argv[5]), (s32)atoi(argv[6]), argv[7]);
+    else if (argc > 1 && strcmp(argv[1], "--movelist") == 0 && argc > 3)
+        rc = run_movelist(argv[2], argv[3]);
     else if (argc > 1 && strcmp(argv[1], "--play") == 0)
         rc = run_play(argc > 2 ? argv[2] : assets_pack_path(),
                       argc > 3 ? argv[3] : "Desert1/OPEN/!OPN",

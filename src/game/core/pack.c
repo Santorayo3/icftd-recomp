@@ -91,6 +91,33 @@ void pak_close(pak *p)
     p->count = 0;
 }
 
+/* AmigaDOS is case-insensitive, and the packs are cut from it: the script asks for
+ * "LandBack.win" while the file is "Landback.win". Hash the folded name, then fall back to
+ * a folded comparison over the name table when the folded hash is not in the index (packs
+ * written before this folding existed still resolve). */
+static u32 pak_hash_folded(const char *name)
+{
+    u32 h = 2166136261UL;
+    while (*name) {
+        u8 c = (u8)*name++;
+        if (c >= 'A' && c <= 'Z') c = (u8)(c + 32);
+        h ^= c;
+        h *= 16777619UL;
+    }
+    return h;
+}
+
+static int pak_name_eq(const char *a, const char *b)
+{
+    for (;;) {
+        u8 ca = (u8)*a++, cb = (u8)*b++;
+        if (ca >= 'A' && ca <= 'Z') ca = (u8)(ca + 32);
+        if (cb >= 'A' && cb <= 'Z') cb = (u8)(cb + 32);
+        if (ca != cb) return 0;
+        if (ca == 0) return 1;
+    }
+}
+
 s32 pak_find(const pak *p, const char *name)
 {
     u32 h, i;
@@ -98,6 +125,12 @@ s32 pak_find(const pak *p, const char *name)
     h = pak_hash(name);
     for (i = 0; i < p->count; i++)
         if (p->entries[i].hash == h) return (s32)i;
+
+    h = pak_hash_folded(name);
+    for (i = 0; i < p->count; i++)
+        if (p->entries[i].hash == h) return (s32)i;
+    for (i = 0; i < p->count; i++)
+        if (pak_name_eq(pak_name(p, (s32)i), name)) return (s32)i;
     return -1;
 }
 

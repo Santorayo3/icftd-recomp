@@ -29,6 +29,8 @@ typedef struct mv_node
     s32  vscale;                /* +0x3c, 1 = normal */
     s32  prio;                  /* +0x0a: draw order */
     s32  src_x, src_y, src_w, src_h;   /* +0x30 .. +0x36 */
+    u8   key;                  /* transparent colour (bitmap->maskSource in the original) */
+    s32  planes;               /* planes the bitmap has; nibbles beyond this keep the dest */
 
     const mv_label *label;
     s32  pc;
@@ -51,6 +53,8 @@ static u8  pal_rgb[MV_PAL_COLOURS * 3];
 
 static s32 frozen;                         /* DAT_00026740 */
 static s32 screen_depth = 5;               /* DAT_0002C10A */
+static s32 move_step = 1;                  /* DAT_0002C112 */
+static s32 blend_table;                    /* DAT_0002C318 */
 static s32 trace;                          /* MV_TRACE=1 in the environment */
 static FILE *trace_fp;                     /* --trace <file> in the command line */
 static mv_node *root;
@@ -229,13 +233,17 @@ const u8 *mv_palette(void) { return pal_rgb; }
 /* --------------------------------------------------------------- the blit ---- */
 
 /* Channel i takes source plane `nibble` when nibble < 8, keeps the destination when
- * nibble == 8 and is forced to 0/1 when nibble > 8 (FUN_0001E8C8's plane loop). */
-static u8 ChannelBlend(u8 src, u8 dst, u32 channel)
+ * nibble == 8 and is forced to 0/1 when nibble > 8 (FUN_0001E8C8's plane loop). Only the
+ * planes the bitmap has are touched: the original folds the depth into the mask it hands
+ * the blitter (g_planeOrMask[g_screenDepth] | channel & g_planeAndMask[...]), which is why
+ * a 4-plane picture with 0xCCCD3210 keeps plane 4 instead of forcing it on. */
+static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
 {
     u8 out = dst;
     s32 i;
 
-    for (i = 0; i < screen_depth && i < 8; i++)
+    if (planes > screen_depth) planes = screen_depth;
+    for (i = 0; i < planes && i < 8; i++)
     {
         s32 nib = (s32)(channel & 0xF);
         s32 bit;
@@ -273,9 +281,13 @@ static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
         {
             s32 pxx = dx + i;
             s32 sx = n->src_x + i;
+            u8  sp;
             if (pxx < 0 || pxx >= gfx_w || sx < 0 || sx >= n->w) continue;
-            gfx_fb[py * gfx_w + pxx] =
-                ChannelBlend(n->px[sy * n->w + sx], gfx_fb[py * gfx_w + pxx], n->channel);
+            sp = n->px[sy * n->w + sx];
+            /* Move_DrawNode blits minterm 0xCA through bitmap->maskSource: transparent
+             * pixels are not written at all. */
+            if (sp == n->key) continue;
+            gfx_fb[py * gfx_w + pxx] = ChannelBlend(sp, gfx_fb[py * gfx_w + pxx], n->channel, n->planes);
         }
     }
 }
@@ -311,6 +323,7 @@ static void LoadPicture(mv_node *n)
     }
     n->src_w = n->w;
     n->src_h = n->h;
+    n->planes = hdr.planes ? (s32)hdr.planes : 5;
     n->hot_x = (s32)hdr.hot_x;
     n->hot_y = (s32)hdr.hot_y;
 }
@@ -363,6 +376,16 @@ static void DropChildren(mv_node *parent, s32 asset)
     }
 }
 
+/* A command's asset index addresses one table in the original: pictures first, then the
+ * labels of the script (MAIN creates its children by label index, e.g. 64 -> label 14).
+ * Returns the label index for such an entry, or -1 when the index is a picture. */
+static s32 LabelForIndex(const mv_script *s, s32 idx)
+{
+    if (s == NULLP || idx < s->assetCount) return -1;
+    idx -= s->assetCount;
+    return (idx >= 0 && idx < s->labelCount) ? idx : -1;
+}
+
 /* PORTED: 0001f89c (the opcode switch; 0001f2ae tail-calls it) - executes one command;
  * returns 0 when it blocked (a wait). Opcodes that are still unknown are reported by
  * name, never silently ignored. */
@@ -382,21 +405,42 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
     switch (c->opcode)
     {
     case 0x01:                                   /* draw: create/find, then place */
-        if (c->asset < 0) return 1;
-        o = FindChild(self, c->asset);
-        if (o == NULLP)
+        if (c->asset < 0 && c->idx < script->assetCount) return 1;
         {
-            o = NewNode();
-            if (o == NULLP) return 1;
-            o->asset = c->asset;
-            o->pic = script->asset[c->asset].pic;
-            o->prio = (s32)(c->p3 >> 16);
-            LoadPicture(o);
-            InsertChild(self, o);
+            s32 li = LabelForIndex(script, c->idx);
+            o = FindChild(self, c->idx);
+            if (o == NULLP)
+            {
+                o = NewNode();
+                if (o == NULLP) return 1;
+                o->asset = c->idx;
+                o->prio = (s32)(c->p3 >> 16);
+                if (li >= 0)
+                {
+                    o->label = &script->label[li];
+                    o->pc = 0;
+                    o->wait = 0;
+                    Tracef("f%d node a=%d label=%s prio=%d", (int)frame_count, (int)c->idx,
+                           o->label->name, (int)o->prio);
+                }
+                else
+                {
+                    o->pic = script->asset[c->asset].pic;
+                    LoadPicture(o);
+                }
+                InsertChild(self, o);
+            }
+            else if (li >= 0)
+            {
+                /* the original resets a re-created script child to its first command */
+                o->pc = 0;
+                o->wait = 0;
+                DropChildren(o, -1);
+            }
+            o->x = (s32)c->p1;
+            o->y = (s32)c->p2;
+            o->vx = o->vy = o->ax = o->ay = 0;
         }
-        o->x = (s32)c->p1;
-        o->y = (s32)c->p2;
-        o->vx = o->vy = o->ax = o->ay = 0;
         return 1;
 
     case 0x02:                                   /* delete one object */
@@ -412,10 +456,38 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         if (o != NULLP) { o->vx = (s32)c->p1; o->vy = (s32)c->p2; o->ax = o->ay = 0; }
         return 1;
 
+    case 0x05:                                   /* place via the OS math helpers */
+        /* The original computes x and y with three library thunks (0x2199e/0x219a8/
+         * 0x219b2); the LVOs are not identified yet, so the command is reported and
+         * skipped instead of guessed. Used by Meteor (1x) and Volcano (2x). */
+        printf("move: opcode 0x05 (math-driven place) not ported, asset %d skipped\n",
+               (int)c->asset);
+        return 1;
+
+    case 0x06:                                   /* set acceleration */
+        o = FindChild(self, c->asset);
+        if (o != NULLP) { o->ax = (s32)c->p1; o->ay = (s32)c->p2; }
+        return 1;
+
+    case 0x07:                                   /* global step divider */
+        move_step = (s32)(c->p1 >> 16);
+        if (move_step == 0) move_step = 1;
+        return 1;
+
     case 0x08:                                   /* wait n frames */
         self->wait = (s32)(c->p1 >> 16);
-        if (self->wait <= 0) self->wait = 0;
         return 0;
+
+    case 0x09:                                   /* wait until absolute frame n */
+        {
+            s32 target = (s32)(c->p1 >> 16);
+            if (target != frame_count)
+            {
+                self->wait = target - frame_count;
+                return 0;
+            }
+        }
+        return 1;
 
     case 0x0C:                                   /* palette from the asset, instantly */
         if (c->asset >= 0) PaletteFromAsset(script->asset[c->asset].pic, pal_want);
@@ -429,6 +501,10 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         fade_frames = (s32)(c->p1 >> 16);
         fade_divider = (s32)(c->p2 >> 16);
         fade_pending = 1;
+        return 1;
+
+    case 0x0E:                                   /* restart this label */
+        self->pc = -1;
         return 1;
 
     case 0x0F:                                   /* blit depth */
@@ -465,6 +541,20 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         }
         return 1;
 
+    case 0x14:                                   /* reset the per-plane blend table */
+        /* FUN_0001db1e fills the plane-select bytes in order and sets the mode flag;
+         * ChannelBlend builds those tables implicitly, so only the flag is kept. */
+        blend_table = 1;
+        return 1;
+
+    case 0x15:                                   /* drop the per-plane blend table */
+        blend_table = 0;
+        return 1;
+
+    case 0x16:                                   /* jump to command n of this label */
+        self->pc = (s32)(c->p1 >> 16) - 1;
+        return 1;
+
     case 0x17:                                   /* fill the wanted palette with one colour */
         {
             s32 i;
@@ -473,6 +563,41 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         pal_dirty = 1;
         fade_pending = 0;
         fade_armed = 0;
+        return 1;
+
+    case 0x18:                                   /* fade every colour to one value */
+        {
+            s32 i;
+            u16 colour = (u16)c->p1;
+            for (i = 0; i < MV_PAL_COLOURS; i++) pal_target[i] = colour;
+        }
+        fade_frames = (s32)(c->p2 >> 16);
+        fade_divider = (s32)(c->p3 >> 16);
+        fade_pending = 1;
+        return 1;
+
+    case 0x19:                                   /* swap two wanted colours */
+        {
+            s32 a = (s32)(c->p1 >> 16), b = (s32)(c->p2 >> 16);
+            if (a >= 0 && a < MV_PAL_COLOURS && b >= 0 && b < MV_PAL_COLOURS)
+            {
+                u16 t = pal_want[a];
+                pal_want[a] = pal_want[b];
+                pal_want[b] = t;
+                pal_dirty = 1;
+            }
+        }
+        return 1;
+
+    case 0x1A:                                   /* set one wanted colour */
+        {
+            s32 i = (s32)(c->p1 >> 16);
+            if (i >= 0 && i < MV_PAL_COLOURS)
+            {
+                pal_want[i] = (u16)c->p2;
+                pal_dirty = 1;
+            }
+        }
         return 1;
 
     default:
@@ -484,15 +609,23 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
 /* PORTED: 0001f95c - run commands until one waits or the label ends. */
 static void StepScript(mv_node *self)
 {
-    s32 run = 1;
+    s32 guard = 0;
 
     if (self->wait > 0) self->wait--;
-    if (self->wait > 0) run = 0;
-    while (run)
+    if (self->wait > 0) return;
+    if (self->label == NULLP) return;
+    while (self->pc < self->label->count)
     {
-        if (self->label == NULLP || self->pc >= self->label->count) break;
-        run = Exec(self, &self->label->cmd[self->pc]);
+        s32 again = Exec(self, &self->label->cmd[self->pc]);
         self->pc++;
+        if (!again) return;
+        /* 0x0E restarts the label in the same frame; without a wait that never ends. */
+        if (++guard > 4096)
+        {
+            printf("move: label %s loops without a wait - stopped this frame\n",
+                   self->label->name);
+            return;
+        }
     }
 }
 
@@ -569,6 +702,7 @@ int mv_parse(const u8 *d, u32 size, mv_script *s)
             s32 idx;
             if (p + 16 > size) return 0;
             idx = (s32)(s16)Be16(d, p);
+            cmd->idx = (s16)idx;
             cmd->asset = (idx >= 0 && idx < s->assetCount) ? idx : -1;
             cmd->flag = d[p + 2];
             cmd->opcode = d[p + 3];

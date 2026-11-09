@@ -25,27 +25,44 @@ an *interpreter* reason, so the interpreter is no longer the bottleneck. The two
 
 ## Work items, in order
 
-1. ~~`ref\manifest.csv` + `tools\verify-frames.ps1`~~ **Done** — three data rows (room, scene,
-   logo), `verify-scene.ps1` is a wrapper, step is in the gate. Adding a scene is one CSV row.
-2. ~~`--trace` in the recomp~~ **Done** — `icftd.exe --intro/--play ... --trace <file>`
-   writes one text line per command, palette load, draw and frame (no addresses, so it diffs),
-   `tools\trace-diff.ps1` explains a mismatch, and `kind=trace` manifest rows compare a whole
-   animation exactly (61 frames = 212 lines = one gate row). Details: `docs/harness.md`.
-3. **The 2-pixel lead the trace found** (half a session). The trace places the intro logo at
-   `dst=39,44` / `273,88` / `92,97`; the accepted WinUAE capture only matches those assets two
-   pixels lower (composing at the trace coordinates differs by 4,364 px, at +2 by 26). The
-   scene row matches exactly, so the capture is not offset - the runtime places the logo 2 px
-   high. Next step is the ground truth, not a fudge: decompile the Amiga art loader that fills
-   `move_bitmap` and compare its header words with the SMS record our pack stores (`Sms.cs`
-   reads the hotspot from +12/+14, `Move_DrawNode` subtracts it). A `hotY` of -2 would explain
-   it exactly.
-4. **Annotation pass for the globals** (one session, mostly curation). The worklist is now
-   data: `rleaf out\leaves.txt --os-basic --reads --ledger out\leaf-ledger.csv` then
+0. **The intro cinematic runs** (done this session, not yet finished visually). `--intro <pack>
+   Desert1/OPEN/!OPN MAIN 0 740 prefix` walks the real timeline: MAIN instantiates its children
+   by *label index* (64 -> label 14 = Logo, 69 -> Sky, 54 -> Clouds, 63 -> Land, 59 ->
+   Explosion, 72 -> Titles, 60 -> Fade1), each child runs its own label and instantiates
+   grandchildren, so the whole tree is the engine's own structure. All opcodes the script uses
+   are ported except **0x05** (3 sites: Meteor 1x, Volcano 2x - it calls three Amiga library
+   thunks at 0x2199e/0x219a8/0x219b2 that are not identified yet).
+   What is still wrong is *compositing*: the frame at 455 shows the sky and the IT logo but
+   leaves an orange panel and a black lower third. Fixing it needs the loader's mask/channel
+   semantics, which are not in the pack yet (see item 3).
+   Also found and fixed: AmigaDOS is case-insensitive (`LandBack.win` vs `landback.win`,
+   `Main.pal` vs `main.pal`), so `pak_find` now folds case - 46 of 50 assets resolved before,
+   50 of 50 now.
+
+1. ~~`ref\manifest.csv` + `tools\verify-frames.ps1`~~ **Done** — five data rows now (room,
+   scene, logo, intro-logo trace, intro-main trace), `verify-scene.ps1` is a wrapper.
+2. ~~`--trace` in the recomp~~ **Done** — see `docs/harness.md`; `intro-main` pins 1153 trace
+   lines (which label is created when, where every object is placed, which palette loads).
+3. **The 2-pixel lead is solved**: the standalone `Logo` label sits at y=44 because it has no
+   parent; through MAIN the node y is 2, so the engine draws it at 46 - exactly what the WinUAE
+   capture shows. The lesson is in the data: always play the label through its driver.
+   What replaces it as the next visual task is the mask/channel model below.
+4. **The mask/channel model** (the next visual task, half a session). `Move_DrawNode` blits with
+   minterm 0xCA through `bitmap->maskSource` and a channel already folded with
+   `g_planeOrMask[g_screenDepth] | channel & g_planeAndMask[g_screenDepth]`, so a picture is
+   only written where the mask says so and only on the planes it has. The port now skips the
+   transparent colour (key 0) and limits the blend to `min(depth, picture planes)`, which
+   removed the flat beige panel from the IT logo, but overlapping layers are still wrong (the
+   frame at 455 keeps an orange surround and a black lower third). Ground truth to fetch: the
+   Amiga art loader that builds `move_bitmap` (maskSource + per-plane tables at `+0x38`) - not
+   `Move_DrawNode`, which is already transcribed faithfully.
+5. **Annotation pass for the globals** (one session, mostly curation). The worklist is now
+   `rleaf out\leaves.txt --os-basic --reads --ledger out\leaf-ledger.csv` then
    `tools\global-heat.ps1`, which ranks engine-state words by how many functions read and
    write them. Name the top ~40 in `docs\annotations.csv`, run
    `tools\ghidra\run-ghidra.ps1 -Annotated` (~1 min) and re-measure with
    `tools\decompile-quality.ps1`. Target: the 154 `state` functions become readable.
-5. **Then S0/S1 in volume**, with the rule that a port is done when `tools\port-diff.ps1` has
+6. **Then S0/S1 in volume**, with the rule that a port is done when `tools\port-diff.ps1` has
    an adapter for it and it passes. No adapter means it is not a port yet.
 
 ## Deliberate decision still open
