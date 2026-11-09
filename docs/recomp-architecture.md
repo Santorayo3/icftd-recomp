@@ -31,14 +31,38 @@ Phase A *looks* like an emulator and is not one:
 | 68000 interpreter (Musashi, `src\game\core\emu`) | **no** | scaffolding: boots the original binary today, and afterwards is the oracle that proves each translated function faithful |
 | translated C, one function per file (`recomp\`) | **yes** | the game's code |
 | exec / graphics / dos shims (`L1`) | **yes** | the platform layer - ~40 library entries this game calls |
-| chipset model: blitter, copper, bitplanes, CIA, Paula (`L0`) | **yes, necessarily** | the game writes hardware registers directly, so a native port must implement that hardware in software; N64Recomp's runtime does the same for RDP/RSP and nobody calls it an emulator |
+| chipset model (`L0`) | **only the audio path** | see below: this game never touches the video hardware |
 | `platform.h` win32 / dos (`L3`) | **yes** | window, input, files, heap, 50 Hz clock |
 
-After Phase B the executable contains **no 68k instruction decoding**. It is translated C calling
+After Phase B the executable contains **no 68j instruction decoding**. It is translated C calling
 L0/L1/L3, which is exactly the shape of a native recompiled port.
 
 We are also not building a general Amiga emulator: no floppy emulation, no Kickstart, no AmigaOS -
 only the library entries and chipset features this one game uses.
+
+### The video hardware does not have to be implemented at all
+
+Measured over the whole 137 KB binary, the only direct custom-chip accesses are:
+
+```
+$DFF0A0  6x   AUDx pointer/length  (audio channel setup)
+$DFF096  1x   DMACON               (audio DMA enable)
+```
+
+No blitter, no copper, no bitplane, sprite or DMA register is ever touched. Every pixel goes
+through `graphics.library`, every display change through a `View`/`ColorMap`. So the shipped
+platform layer is a **chunky software renderer**, not a chipset emulator:
+
+* `BltBitMap` / `BltClear` / `RectFill` / `Area*` / `Text` draw straight into an 8-bit chunky
+  framebuffer - no bitplanes, no minterms at runtime, no scanline timing;
+* `ColorMap` gives the 32-colour palette; the copper list `MrgCop` would build is irrelevant
+  because the palette is per-frame, not per-scanline;
+* audio keeps a Paula-shaped API but can be a software mixer or a Sound Blaster driver.
+
+That is why a 486 is a realistic target: a frame is at most a few hundred thousand byte copies
+(320x200 = 64,000 pixels; a couple of screens of overdraw is ~200 KB per frame, ~10 MB/s at
+50 Hz), while the translated game code itself runs at roughly the original instruction rate.
+VGA mode 13h or VESA 8bpp both fit; double buffering needs Mode X or VESA linear.
 
 Why Phase B is not optional even though a modern PC runs the interpreter 50x faster than an A500:
 
