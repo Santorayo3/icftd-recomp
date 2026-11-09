@@ -601,6 +601,76 @@ static int run_intro(const char *pack_path, const char *script_name, const char 
     return 0;
 }
 
+/* ----------------------------------------------------------- the game start ---- */
+/* What `icftd.exe` with no arguments does: the intro, in the window, at 50 Hz, from the
+ * script's own driver label. MAIN instantiates Logo, then Sky/Clouds/Land/Explosion/Titles/
+ * Fade1 on its timeline, so this is the engine's sequence and not a demo of the runtime. */
+
+#define START_SCRIPT "Desert1/OPEN/!OPN"
+#define START_LABEL  "MAIN"
+#define START_TAIL   400        /* frames to keep running after MAIN's last command */
+
+static int run_start(const char *pack_path)
+{
+    pak p;
+    mv_script *sc;
+    input_state in;
+    char title[64];
+    s32 tail = -1, shown = -1;
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    if (!load_script(&p, START_SCRIPT, &sc)) return 1;
+    if (!mv_start(&p, sc, START_LABEL)) {
+        printf("no such label: %s\n", START_LABEL);
+        return 1;
+    }
+
+    plat_set_title("It Came from the Desert");
+    gfx_clear(0);
+    plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
+    plat_present();
+    printf("intro: %s / %s - ESC quits\n", START_SCRIPT, START_LABEL);
+
+    for (;;) {
+        plat_frame_sync();
+        if (!plat_pump(&in)) break;
+        if (in.pressed[KEY_ESCAPE]) break;
+
+        if (tail < 0) {
+            gfx_clear(0);
+            mv_tick();
+            plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
+            plat_present();
+            if (mv_done()) {
+                tail = START_TAIL;
+                printf("intro: script finished at frame %d, holding %d frames\n",
+                       (int)mv_frame(), START_TAIL);
+            }
+        }
+        else if (tail > 0) {
+            gfx_clear(0);
+            mv_tick();
+            plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
+            plat_present();
+            tail--;
+            if (tail == 0) printf("intro: end of what is ported (frame %d) - ESC quits\n",
+                                  (int)mv_frame());
+        }
+        else {
+            plat_present();          /* hold the last frame */
+        }
+
+        if (mv_frame() / 25 != shown) {
+            shown = (s32)mv_frame() / 25;
+            sprintf(title, "It Came from the Desert - frame %d", (int)mv_frame());
+            plat_set_title(title);
+        }
+    }
+    printf("stopped after %d frame(s)\n", (int)mv_frame());
+    pak_close(&p);
+    return 0;
+}
+
 /* Plays a label in the window at the Amiga's 50 Hz, looping when it ends. */
 static int run_play(const char *pack_path, const char *script_name, const char *label)
 {
@@ -923,6 +993,7 @@ static int cmd_match(int argc, char **argv)
 static int needs_default_pack(int argc, char **argv)
 {
     if (argc <= 1) return 1;
+    if (strcmp(argv[1], "--trace") == 0) return 1;      /* the start mode with a trace */
     if (strcmp(argv[1], "--browse") == 0 || strcmp(argv[1], "--checksum") == 0) return argc <= 2;
     if (strcmp(argv[1], "--play") == 0) return argc <= 2;
     if (strcmp(argv[1], "--match") == 0) return argc <= 3 || (argv[3][0] >= '0' && argv[3][0] <= '9');
@@ -932,7 +1003,7 @@ static int needs_default_pack(int argc, char **argv)
 static void usage(void)
 {
     printf("icftd - It Came from the Desert recompilation\n"
-           "  icftd.exe                     play (decodes assets from disks\\ on first start)\n"
+           "  icftd.exe                     play the intro (start of the game)\n"
            "  icftd.exe --browse [pack]     step through every picture in the pack\n"
            "  icftd.exe --convert           rebuild assets\\game.pak from disks\\*.adf\n"
            "  icftd.exe --checksum [pack]   print a hash per picture (tools/verify-pack.ps1)\n"
@@ -993,8 +1064,8 @@ int main(int argc, char **argv)
         rc = cmd_match(argc, argv);
     else if (argc > 1 && strcmp(argv[1], "--demo") == 0)
         rc = run_demo();
-    else if (argc <= 1)
-        rc = run_browse(assets_pack_path());
+    else if (argc <= 1 || (trace_path != NULLP && argc <= 3))
+        rc = run_start(assets_pack_path());
     else {
         usage();
         rc = 1;

@@ -67,8 +67,8 @@ powershell -ExecutionPolicy Bypass -File tools\gamepack.ps1 -Verbose
 ## Running
 
 ```powershell
-bin\win32\icftd.exe                            # start; assets decoded on first run
-bin\win32\icftd.exe --play                     # run the intro's MovE logo label (ESC quits)
+bin\win32\icftd.exe                            # the intro: logo, then the cinema timeline
+bin\win32\icftd.exe --play                     # one MovE label, looping (ESC quits)
 bin\win32\icftd.exe --browse                   # M1: step through every picture
 bin\win32\icftd.exe --gfx-test out\gfx.bmp     # M2: exercise every drawing primitive
 bin\win32\icftd.exe --match ref\scene1.bmp     # M2: which picture is this frame?
@@ -76,7 +76,13 @@ bin\win32\icftd.exe --match ref\scene1.bmp     # M2: which picture is this frame
 # the MovE runtime, directly
 bin\win32\icftd.exe --play assets\game.pak Desert1\OPEN\!OPN Logo
 bin\win32\icftd.exe --intro assets\game.pak Desert1\OPEN\!OPN Logo 40 200 out\mv\
+bin\win32\icftd.exe --movelist assets\game.pak Desert1\OPEN\!OPN   # every label + opcode
 ```
+
+With no arguments the game plays `Desert1/OPEN/!OPN` label `MAIN` at 50 Hz: MAIN creates the
+`Logo` child, then Sky, Clouds, Land, Explosion, Titles and Fade1 on its own timeline, so what
+is on screen is the engine's sequence rather than a demo of the runtime. `--trace <file>` works
+for this mode too (`icftd.exe --trace out\start.txt`) and logs one text line per event.
 
 Browse keys: right/space/enter next, left previous, up/down ±10 pictures, ESC quit.
 
@@ -143,7 +149,7 @@ See `docs/model.md` for the files, their columns and the caveats.
 | extraction + Ghidra decompilation | done (752 functions, no undefined bytes) |
 | M1 asset pack (`game.pak`) + picture browser | done — 547 pictures, 0 mismatches |
 | M2 video parity + Amiga graphics subset | done — blitter, palette engine, display list |
-| M3 MovE runtime (intro) | **in progress** — `Logo` label runs: fade-in, `Flash2` shimmer sweep, bit-plane flash, fade to `LogoL`. `--play` shows it at 50 Hz |
+| M3 MovE runtime (intro) | **in progress** — the whole `!OPN` timeline runs from `MAIN` (logo, sky, clouds, land, titles, volcano), all opcodes except 0x05; transparency and per-plane channels come from the picture headers (`docs\drawing-model.md`) |
 | program model + annotation loop | done — 750 functions, 27 778 refs, 3 437 typed field accesses; 77 functions and 19 globals named from evidence, 3 structs reach the decompiler *and* the C port |
 | audio, DOS 16-bit | postponed |
 
