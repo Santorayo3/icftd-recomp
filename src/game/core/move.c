@@ -260,8 +260,13 @@ static const u32 plane_and_mask[8] = {
  *                        blitter falls through to the constant path
  *   nibble >  8          force the plane to `nibble & 1`
  * That is why a 3-plane sprite can carry 0x8888D888: nibbles 0..2 keep the destination and
- * nibble 3 sets bit 3, which is the logo's shine. */
-static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
+ * nibble 3 sets bit 3, which is the logo's shine.
+ *
+ * `masked` is the picture's own transparency mask (FUN_0001E504: 1 wherever the source colour
+ * differs from the key). Every plane write obeys it, the constant path included: with a 0 mask
+ * across LandBack's transparent rows the constant would otherwise clear the sky's plane 4 and
+ * the whole horizon would collapse. */
+static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes, s32 masked)
 {
     u32 folded = plane_or_mask[screen_depth & 7] | (channel & plane_and_mask[screen_depth & 7]);
     u8 out = dst;
@@ -273,6 +278,7 @@ static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
         s32 bit;
         folded >>= 4;
         if (nib == 8) continue;
+        if (!masked) continue;                         /* mask 0 -> destination kept */
         bit = (nib < 8 && nib < planes) ? (s32)((src >> nib) & 1) : (nib & 1);
         out = (u8)((out & ~(1 << i)) | ((u32)bit << i));
     }
@@ -283,7 +289,6 @@ static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
 static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
 {
     s32 dx, dy, scale, rows, i, j;
-    s32 zero = 0;
 
     if (n->px == NULLP) return;
     dx = ((base_x + n->x + 0x8000) >> 16) - n->hot_x;
@@ -309,17 +314,13 @@ static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
             u8  sp, out;
             if (pxx < 0 || pxx >= gfx_w || sx < 0 || sx >= n->w) continue;
             sp = n->px[sy * n->w + sx];
-            /* Move_DrawNode blits minterm 0xCA through bitmap->maskSource: transparent
-             * pixels are not written at all. */
-            if (sp == n->key) continue;
-            out = ChannelBlend(sp, gfx_fb[py * gfx_w + pxx], n->channel, n->planes);
-            if (out == 0) zero++;
+            /* Move_DrawNode blits minterm 0xCA through bitmap->maskSource: the mask is 0
+             * where the source colour equals the key, and only the source planes obey it. */
+            out = ChannelBlend(sp, gfx_fb[py * gfx_w + pxx], n->channel, n->planes,
+                               sp != n->key);
             gfx_fb[py * gfx_w + pxx] = out;
         }
     }
-    if (zero != 0)
-        Tracef("f%d zero a=%d n=%d rows=%d,%d", (int)frame_count, (int)n->asset, (int)zero,
-               (int)dy, (int)(dy + rows - 1));
 }
 
 /* ------------------------------------------------------------- the script --- */
