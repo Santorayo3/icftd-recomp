@@ -240,24 +240,39 @@ const u8 *mv_palette(void) { return pal_rgb; }
 
 /* --------------------------------------------------------------- the blit ---- */
 
-/* Channel i takes source plane `nibble` when nibble < 8, keeps the destination when
- * nibble == 8 and is forced to 0/1 when nibble > 8 (FUN_0001E8C8's plane loop). Only the
- * planes the bitmap has are touched: the original folds the depth into the mask it hands
- * the blitter (g_planeOrMask[g_screenDepth] | channel & g_planeAndMask[...]), which is why
- * a 4-plane picture with 0xCCCD3210 keeps plane 4 instead of forcing it on. */
+/* g_planeOrMask / g_planeAndMask from the image (0x26718 / 0x266f4), indexed by the
+ * screen depth: above the depth every plane is "keep" (nibble 8), and the AND mask keeps
+ * only the depth's own nibbles of the node channel. */
+static const u32 plane_or_mask[8] = {
+    0x88888888u, 0x88888880u, 0x88888800u, 0x88888000u,
+    0x88880000u, 0x88800000u, 0x88000000u, 0x80000000u
+};
+static const u32 plane_and_mask[8] = {
+    0x00000000u, 0x0000000fu, 0x000000ffu, 0x00000fffu,
+    0x0000ffffu, 0x000fffffu, 0x00ffffffu, 0x0fffffffu
+};
+
+/* FUN_0001E8C8's plane loop. It walks the *destination's* planes (the screen depth), one
+ * channel nibble each, after folding the node channel with the two mask tables:
+ *   nibble == 8          leave the destination plane alone (no blit for that plane)
+ *   nibble <  8          take source plane `nibble`; if the bitmap has no such plane the
+ *                        blitter falls through to the constant path
+ *   nibble >  8          force the plane to `nibble & 1`
+ * That is why a 3-plane sprite can carry 0x8888D888: nibbles 0..2 keep the destination and
+ * nibble 3 sets bit 3, which is the logo's shine. */
 static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
 {
+    u32 folded = plane_or_mask[screen_depth & 7] | (channel & plane_and_mask[screen_depth & 7]);
     u8 out = dst;
     s32 i;
 
-    if (planes > screen_depth) planes = screen_depth;
-    for (i = 0; i < planes && i < 8; i++)
+    for (i = 0; i < screen_depth && i < 8; i++)
     {
-        s32 nib = (s32)(channel & 0xF);
+        s32 nib = (s32)(folded & 0xF);
         s32 bit;
-        channel >>= 4;
+        folded >>= 4;
         if (nib == 8) continue;
-        bit = (nib < 8) ? (s32)((src >> nib) & 1) : (nib & 1);
+        bit = (nib < 8 && nib < planes) ? (s32)((src >> nib) & 1) : (nib & 1);
         out = (u8)((out & ~(1 << i)) | ((u32)bit << i));
     }
     return out;
