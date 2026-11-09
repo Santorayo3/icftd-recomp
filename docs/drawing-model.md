@@ -51,8 +51,9 @@ original rewrites the colour once per scanline band from a copper list. Mapping 
 a reference frame to its nearest palette entry recovers the list: constant 16 down to row 31,
 then 16,17,...,23 over the next ~42 rows of the 72-row rectangle, alternating between
 neighbours every second line. `DrawCopperSky` reproduces that with indices from the same palette,
-so no per-scanline palette is needed. The module that builds the real list is in OPEN, which is
-not decompiled - the shape is measured from `out\cap-early-320`.
+so no per-scanline palette is needed. The ramp above is measured from `out\cap-early-320`; the
+code that drives it is in dshell, not in a separate module - see `docs/code-inventory.md`
+(OPEN is a resource bank and holds no code).
 
 ## The frame loop (`FUN_0001d2c6`, called from `FUN_0001d3a2`)
 
