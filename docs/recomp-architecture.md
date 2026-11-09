@@ -130,12 +130,56 @@ the architecture.
 
 ## Phases
 
-* **A - it runs.** Interpreter in C (`src/game/core/emu/`), L0/L1 shims, AmigaDOS load of `dshell`,
-  50 Hz interrupt, framebuffer to `platform.h`. Deliverable: `icftd.exe --emu` plays the original.
-* **B - it runs fast.** Static translation of `dshell`'s 750 functions to C (N64Recomp design:
-  literal instruction-to-C, `jsr` to a call, `jsr (d16,A6)` to an LVO dispatch, jump tables to
-  `switch`), validated function-by-function against the interpreter.
-* **C - it is a port.** Front end, scaling, widescreen, then the mod seams above.
+### A - it runs (in progress, ~80% of the plumbing done)
+
+Done: Musashi vendored; image flattened at 0x4000; `src\game\core\emu\{mem,machine}.c` with
+memory map, custom-register stub, named library bases, per-library LVO dispatch, `--watch`,
+fail-fast dumps with disassembly, exit sentinel. Shims cover most of exec and dos, and the whole
+graphics setup path. The binary executes ~3M instructions and reaches `graphics.library` init.
+
+Remaining, in order:
+
+1. **`main` returns 20 after 16,880 instructions at frame 0.** Last calls before the exit are an
+   unhandled `-78` on `icon.library` and `-6`/`-18`/`-12` on the generic resource base (the trio a
+   **DOS handler** answers, not a resource). Add the *return address* to the unhandled-LVO print -
+   that names the code path immediately - then fix whatever those calls need.
+2. **50 Hz interrupt model.** `WaitTOF` currently just bumps a counter. Needed: a tick that posts
+   the vblank message (`exec` software interrupt + the `AddIntServer` chain) and the input events,
+   so `WaitPort`/`GetMsg` in the main loop return.
+3. **`graphics.BltBitMap` / `BltClear` / `RectFill` / `Area*` / `Text`, plus `LoadView` →
+   present.** Render into our *chunky* framebuffer: read the planar `BitMap` (BytesPerRow @0,
+   Rows @2, Depth @5, plane pointers @8+4n), convert with the `ColorMap` table, blit with the
+   minterm/key rules the game passes. `LoadView` chains View → ViewPort (@0) → RasInfo (@38) →
+   BitMap (@4); presenting is a plane→chunky conversion of the two rasters.
+4. Milestone: **the intro plays from the original binary.** Then `--emu` becomes the reference
+   implementation the translator is measured against.
+
+### B - it runs fast (the recompilation proper)
+
+Static translation of `dshell`'s 750 functions (137,816 bytes) to C, in the N64Recomp shape:
+
+* **Input**: `export\code\dshell4k\dshell.img`, function boundaries from `re\model\functions.csv`
+  (entry + size per function) and the disassembly in `re\disasm\dshell.asm`. The exporter already
+  contains a 68000 interpreter (`src\assetExport\Cpu68k\`) - the translator is the same decoder
+  that emits text instead of executing.
+* **Output**: `src\recomp\fn_<addr>.c`, one function per file, plus `fn_table.c` (sorted address
+  table for indirect calls) and a `cpu_t` context struct (`u32 d[8], a[8], pc; u16 sr;` plus the
+  memory accessors shared with the emulator).
+* **ABI**: literal instruction-to-C (`ctx->d[4] = add32(ctx->d[4], 0x20)`), `bsr/jsr <const>` →
+  a direct C call, `rts` → `return`, `jsr (d16,A6)` → `os_call(cpu, d16)`, computed jumps →
+  `cpu_jump(cpu, target)` which looks the address up in `fn_table` and falls back to the
+  interpreter for anything not translated yet.
+* **Incremental by construction**: the interpreter stays as the fallback, so partially translated
+  builds run. Translate hot code first (`Move_Walk`, `Move_StepScript`, `Move_DrawNode`, the
+  scene/game loops); the DOS build eventually needs all of it.
+* **Validation**: for each function, run interpreter and translated C on identical fixtures
+  (registers + touched memory hash). The C# `rcmp`/`rleaf` machinery already produces fixtures;
+  the generated C gets the same treatment. Whole-game check: the frame hashes of the translated
+  run must equal those of the pure-interpreter run.
+
+### C - it is a port
+
+Front end, scaling, widescreen, then the mod seams above.
 
 ## MS-DOS specifics to respect from day one
 
