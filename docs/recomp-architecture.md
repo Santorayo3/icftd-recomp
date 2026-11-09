@@ -21,6 +21,31 @@ Three goals, in priority order:
 
 The rule: **no human writes game logic.** L0/L1 are ours and are written once; L2 is mechanical.
 
+## What ships, and what is scaffolding
+
+This is a recompilation, not an emulator port. The distinction is worth stating explicitly because
+Phase A *looks* like an emulator and is not one:
+
+| piece | in the shipped game? | role |
+|---|---|---|
+| 68000 interpreter (Musashi, `src\game\core\emu`) | **no** | scaffolding: boots the original binary today, and afterwards is the oracle that proves each translated function faithful |
+| translated C, one function per file (`recomp\`) | **yes** | the game's code |
+| exec / graphics / dos shims (`L1`) | **yes** | the platform layer - ~40 library entries this game calls |
+| chipset model: blitter, copper, bitplanes, CIA, Paula (`L0`) | **yes, necessarily** | the game writes hardware registers directly, so a native port must implement that hardware in software; N64Recomp's runtime does the same for RDP/RSP and nobody calls it an emulator |
+| `platform.h` win32 / dos (`L3`) | **yes** | window, input, files, heap, 50 Hz clock |
+
+After Phase B the executable contains **no 68k instruction decoding**. It is translated C calling
+L0/L1/L3, which is exactly the shape of a native recompiled port.
+
+We are also not building a general Amiga emulator: no floppy emulation, no Kickstart, no AmigaOS -
+only the library entries and chipset features this one game uses.
+
+Why Phase B is not optional even though a modern PC runs the interpreter 50x faster than an A500:
+
+1. **DOS.** An interpreter cannot reach period-correct DOS speeds; translated C can.
+2. **Moddability.** Phase C needs named, readable, replaceable functions.
+3. **The product.** Shipping an interpreter would be shipping an emulator.
+
 ## Why this satisfies the three goals
 
 *Fidelity* comes from L2 being the original machine code. Transparency, channel folding, paint
