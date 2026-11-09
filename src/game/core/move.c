@@ -492,12 +492,23 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         if (o != NULLP) { o->vx = (s32)c->p1; o->vy = (s32)c->p2; o->ax = o->ay = 0; }
         return 1;
 
-    case 0x05:                                   /* place via the OS math helpers */
-        /* The original computes x and y with three library thunks (0x2199e/0x219a8/
-         * 0x219b2); the LVOs are not identified yet, so the command is reported and
-         * skipped instead of guessed. Used by Meteor (1x) and Volcano (2x). */
-        printf("move: opcode 0x05 (math-driven place) not ported, asset %d skipped\n",
-               (int)c->asset);
+    case 0x05:                                   /* aim a child at a point: velocity = delta / frames */
+        /* PORTED: 0001f3de. child = FUN_0001dd6e(script->child, idx, flag); if it exists,
+         * vx = (p1 - x) / n, vy = (p2 - y) / n with n = p3 >> 16, ax = ay = 0.  The divide is
+         * a single-precision one (the original pushes LVO -36 IEEESPFlt, -84 IEEESPDiv and
+         * -30 IEEESPFix), so the truncation happens on the float result, not on the integer
+         * quotient. */
+        o = FindChild(self, c->idx, (s32)c->flag);
+        if (o != NULLP)
+        {
+            s32 n = (s32)(c->p3 >> 16);
+            if (n != 0)
+            {
+                o->vx = (s32)((float)((s32)c->p1 - o->x) / (float)n);
+                o->vy = (s32)((float)((s32)c->p2 - o->y) / (float)n);
+            }
+            o->ax = o->ay = 0;
+        }
         return 1;
 
     case 0x06:                                   /* set acceleration */

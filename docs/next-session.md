@@ -30,8 +30,9 @@ an *interpreter* reason, so the interpreter is no longer the bottleneck. The two
    by *label index* (64 -> label 14 = Logo, 69 -> Sky, 54 -> Clouds, 63 -> Land, 59 ->
    Explosion, 72 -> Titles, 60 -> Fade1), each child runs its own label and instantiates
    grandchildren, so the whole tree is the engine's own structure. All opcodes the script uses
-   are ported except **0x05** (3 sites: Meteor 1x, Volcano 2x - it calls three Amiga library
-   thunks at 0x2199e/0x219a8/0x219b2 that are not identified yet).
+   are ported; 0x05 (3 sites: Meteor 1x, Volcano 2x) turned out to be
+   `child->vx/vy = (target - pos) / (p3>>16)` with `ax = ay = 0`, computed in single precision
+   through `IEEESPFlt`/`IEEESPDiv`/`IEEESPFix` (LVOs -36/-84/-30 at 0x219a8/0x219b2/0x2199e).
    What is still wrong is *compositing*: the frame at 455 shows the sky and the IT logo but
    leaves an orange panel and a black lower third. Fixing it needs the loader's mask/channel
    semantics, which are not in the pack yet (see item 3).
