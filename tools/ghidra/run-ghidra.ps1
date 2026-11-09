@@ -28,6 +28,8 @@ param(
     [int]$AnalysisTimeout = 3600,
     [switch]$PrepOnly,
     [switch]$ExportOnly,
+    [switch]$ModelOnly,
+    [switch]$Annotated,
     [switch]$KeepProject,
     [switch]$NoAnalysis
 )
@@ -47,7 +49,7 @@ try {
 
     # The project is rebuilt from the flattened image on every run, so start clean unless
     # the caller wants to keep interactive annotations made in the Ghidra GUI.
-    if (-not $KeepProject -and -not $ExportOnly) {
+    if (-not $KeepProject -and -not $ExportOnly -and -not $ModelOnly -and -not $Annotated) {
         Remove-Item (Join-Path $prj "$ProjectName.rep") -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item (Join-Path $prj "$ProjectName.rep*") -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item (Join-Path $prj "$ProjectName.gpr") -Force -ErrorAction SilentlyContinue
@@ -81,10 +83,50 @@ try {
     $codeTargets = Join-Path $out 'code-hunk-targets.txt'
     $decompOut = Join-Path $out 'decomp_all\dshell'
     $asmOut = Join-Path $out 'disasm'
-    New-Item -ItemType Directory -Force -Path $asmOut | Out-Null
+    $modelOut = Join-Path $out 'model'
+    New-Item -ItemType Directory -Force -Path $asmOut, $modelOut | Out-Null
 
     $analysisFlag = @()
     if ($NoAnalysis) { $analysisFlag = @('-noanalysis') }
+
+    if ($Annotated) {
+        # Apply docs/structs.csv + docs/annotations.csv, then regenerate everything that
+        # depends on the decompiler having types. No re-analysis: instant feedback.
+        $structCsv = (Resolve-Path 'docs\structs.csv').Path
+        $annotCsv = (Resolve-Path 'docs\annotations.csv').Path
+        $args2 = @($common + @(
+            '-process', 'dshell.img',
+            '-postScript', 'ApplyAnnotations.java', $structCsv, $annotCsv,
+            '-postScript', 'DecompileAll.java', $decompOut,
+            '-postScript', 'ProgramStats.java', (Join-Path $out 'stats.txt'),
+            '-postScript', 'ExportModel.java', $modelOut,
+            '-postScript', 'FieldMap.java', $modelOut, '60',
+            '-noanalysis'
+        ))
+        & $gh @args2
+        if ($LASTEXITCODE -ne 0) { throw "analyzeHeadless failed with exit code $LASTEXITCODE" }
+        Write-Host "annotated   : docs\annotations.csv, docs\structs.csv"
+        Write-Host "decompiled  : $decompOut"
+        Write-Host "model       : $modelOut"
+        exit 0
+    }
+
+    if ($ModelOnly) {
+        # Structured model of the analysed program: functions, xrefs, globals,
+        # strings, types and the decompiler's field map. No analysis, no re-decompile.
+        $modelOut = Join-Path $out 'model'
+        New-Item -ItemType Directory -Force -Path $modelOut | Out-Null
+        $args3 = @($common + @(
+            '-process', 'dshell.img',
+            '-postScript', 'ExportModel.java', $modelOut,
+            '-postScript', 'FieldMap.java', $modelOut, '60',
+            '-noanalysis'
+        ))
+        & $gh @args3
+        if ($LASTEXITCODE -ne 0) { throw "analyzeHeadless failed with exit code $LASTEXITCODE" }
+        Write-Host "model       : $modelOut"
+        exit 0
+    }
 
     if ($ExportOnly) {
         # Re-run only the export scripts on the already analysed program (fast).
@@ -116,6 +158,8 @@ try {
         '-postScript', 'DecompileAll.java', $decompOut,
         '-postScript', 'DumpListing.java', (Join-Path $asmOut 'dshell.asm'), (Join-Path $asmOut 'dshell.data.txt'),
         '-postScript', 'ProgramStats.java', (Join-Path $out 'stats.txt'),
+        '-postScript', 'ExportModel.java', $modelOut,
+        '-postScript', 'FieldMap.java', $modelOut, '60',
         '-overwrite', '-okToDelete'
     ) + $analysisFlag)
     & $gh @args1
@@ -125,6 +169,7 @@ try {
     Write-Host "prep report : $prepReport"
     Write-Host "decompiled  : $decompOut"
     Write-Host "disassembly : $asmOut"
+    Write-Host "model       : $modelOut"
 }
 finally {
     Pop-Location

@@ -145,14 +145,16 @@ u32 pak_read(const pak *p, s32 index, void *dst, u32 len)
 
 u32 pic_header(const pak *p, s32 index, pic_hdr *hdr)
 {
-    u8 raw[8];
+    u8 raw[12];
     if (hdr == NULLP || pak_type(p, index) != PAK_PICTURE) return 0;
-    if (pak_read(p, index, raw, 8) != 8) return 0;
+    if (pak_read(p, index, raw, 12) != 12) return 0;
     hdr->w = (u16)((raw[0] << 8) | raw[1]);
     hdr->h = (u16)((raw[2] << 8) | raw[3]);
     hdr->palette = (u16)((raw[4] << 8) | raw[5]);
     hdr->planes = raw[6];
     hdr->flags = raw[7];
+    hdr->hot_x = (s16)((raw[8] << 8) | raw[9]);
+    hdr->hot_y = (s16)((raw[10] << 8) | raw[11]);
     return 1;
 }
 
@@ -162,7 +164,7 @@ u32 pic_pixels(const pak *p, s32 index, const pic_hdr *hdr, u8 *dst, u32 len)
     if (hdr == NULLP || dst == NULLP) return 0;
     need = (u32)hdr->w * (u32)hdr->h;
     if (need > len) need = len;
-    return plat_read(p->file, p->entries[index].offset + 8, dst, need);
+    return plat_read(p->file, p->entries[index].offset + 12, dst, need);
 }
 
 u32 pic_rows(const pak *p, s32 index, const pic_hdr *hdr, u32 first_row, u32 rows,
@@ -174,7 +176,7 @@ u32 pic_rows(const pak *p, s32 index, const pic_hdr *hdr, u32 first_row, u32 row
     need = (u32)hdr->w * rows;
     if (need > len) { rows = len / hdr->w; need = (u32)hdr->w * rows; }
     if (rows == 0) return 0;
-    return plat_read(p->file, p->entries[index].offset + 8 + (u32)hdr->w * first_row,
+    return plat_read(p->file, p->entries[index].offset + 12 + (u32)hdr->w * first_row,
                      dst, need);
 }
 

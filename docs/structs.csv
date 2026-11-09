@@ -1,0 +1,39 @@
+# Structure definitions applied to the Ghidra database by tools/ghidra/scripts/ApplyAnnotations.java
+# Columns: struct,total size,offset,type,name,comment
+# Types: u8 s8 u16 s16 u32 s32 void, "name*" for a pointer to another structure, "u16[32]" for arrays.
+# Gaps are left as undefined; only fields with evidence are listed.
+#
+# Evidence for move_node: FUN_0001dcb0 (allocates 0x3e bytes and fills it),
+# FUN_0001dbd0 (DrawNode reads it), FUN_0001fa02 (Walk integrates it),
+# FUN_0001f95c (StepScript walks it). Offsets are the ones those functions use.
+struct,size,offset,type,name,comment
+move_node,0x3e,0x00,move_node*,next,next node in the display list
+move_node,0x3e,0x04,move_asset*,asset,source asset (picture or script)
+move_node,0x3e,0x08,u16,id,id copied from the creation request; children are found by it
+move_node,0x3e,0x0a,s16,priority,insert position: the list is kept sorted by this
+move_node,0x3e,0x0c,s16,screenX,recomputed by DrawNode every frame
+move_node,0x3e,0x0e,s16,screenY,recomputed by DrawNode every frame
+move_node,0x3e,0x10,s32,x,16.16 fixed point
+move_node,0x3e,0x14,s32,y,16.16 fixed point
+move_node,0x3e,0x18,s32,vx,16.16
+move_node,0x3e,0x1c,s32,vy,16.16
+move_node,0x3e,0x20,s32,ax,16.16
+move_node,0x3e,0x24,s32,ay,16.16
+move_node,0x3e,0x28,s16,wait,frames before the script may run again
+move_node,0x3e,0x2a,s16,pc,next command index
+move_node,0x3e,0x2c,move_node*,child,child list for a script node
+move_node,0x3e,0x30,u16,srcX,source rectangle
+move_node,0x3e,0x32,u16,srcY,
+move_node,0x3e,0x34,u16,srcW,defaults to the asset width
+move_node,0x3e,0x36,u16,srcH,defaults to the asset height
+move_node,0x3e,0x38,u32,channel,bit mask ANDed with the plane table before blitting
+move_node,0x3e,0x3c,s16,vscale,vertical scale, 1 = normal
+move_asset,0x38,0x0b,u8,flags,bit 0 = leaf with a bitmap; bit 1 = do not recurse
+move_asset,0x38,0x0c,move_bitmap*,bitmap,bitmap header (script assets keep a command count here)
+move_bitmap,0x38,0x00,u16,width,
+move_bitmap,0x38,0x02,u16,height,
+move_bitmap,0x38,0x08,s16,hotX,x offset subtracted when placing
+move_bitmap,0x38,0x0a,s16,hotY,y offset subtracted when placing
+move_bitmap,0x38,0x0c,u8,pixels,pixel data starts here; passed as the blitter source base
+move_bitmap,0x38,0x30,u32,maskSource,read as a dword and passed to the blitter
+move_bitmap,0x38,0x34,u32,channel,default channel mask copied into move_node.channel

@@ -6,6 +6,10 @@
     A fixed reference setup matters for the M2 acceptance test: the same chipset, the same
     memory and the same disks every time, so a capture can be repeated later.
 
+    The timing block is not optional.  Without cycle-exact blits the game's own blitter code
+    (BLTCON0 = A&B|C, dest == source) reads planes the blitter is still writing, and every
+    picture comes out as noise with the right palette and the right position.
+
     Launch with:   E:\Meine Programme\WinUAE\winuae64.exe -f tools\icftd.uae
 
     Screen geometry is deliberately left at WinUAE's defaults (the game sets its own View), so a
@@ -19,7 +23,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Rom,
     [string]$Out = "tools\icftd.uae",
     [string]$DiskDir = "disks",
-    [string]$WinUAE = "E:\Meine Programme\WinUAE"
+    [string]$WinUAE = "E:\Meine Programme\WinUAE",
+    [int]$FloppySpeed = 100          # 100 = stock drive; 800 makes captures iterate much faster
 )
 $ErrorActionPreference = 'Stop'
 
@@ -37,21 +42,55 @@ $lines.Add('config_description=ICFTD reference (A500, OCS, 1MB chip)')
 $lines.Add('use_gui=no')
 $lines.Add("kickstart_rom_file=$romFull")
 $lines.Add('cpu_type=68000')
+$lines.Add('cpu_model=68000')
 $lines.Add('cpu_compatible=true')
-$lines.Add('cpu_speed=max')
 $lines.Add('cpu_24bit_addressing=true')
+# Timing: the WinUAE "A500" quickstart set. `cpu_speed=max`, or a 68000 running in the
+# 68020-only "memory cycle exact" mode, makes the CPU outrun the blitter - the game's
+# own blit routine (BLTCON0 = A&B|C with dest == source) then reads half-written planes
+# and every picture turns into noise at the right position and palette.
+$lines.Add('cpu_speed=real')
+$lines.Add('cpu_cycle_exact=true')
+$lines.Add('cpu_memory_cycle_exact=true')
+$lines.Add('cycle_exact=cpu')
+$lines.Add('blitter_cycle_exact=true')
+$lines.Add('copper_cycle_exact=true')
+$lines.Add('immediate_blits=false')
+$lines.Add('waiting_blits=automatic')
 $lines.Add('chipset=ocs')
-$lines.Add('chipmem_size=2')          # 1 MB; the value is in half-megabyte units
-$lines.Add('bogomem_size=0')
+$lines.Add('chipset_compatible=A500')
+# Exactly the WinUAE Quickstart "A500 / 1.3 ROM, OCS, 512 KB Chip + 512 KB Slow RAM
+# (most common)" layout the game is played with.  chipmem_size is in 512 KB units,
+# bogomem_size in 256 KB units - 1 + 2 is 512 KB + 512 KB, and 1 + 1 (768 KB total)
+# makes the boot loader stop with "Unable to load dshell: Error code 103".
+$lines.Add('chipmem_size=1')
+$lines.Add('bogomem_size=2')
 $lines.Add('fastmem_size=0')
 $lines.Add('z3mem_size=0')
+$lines.Add('collision_level=playfields')
 $lines.Add('gfx_framerate=1')
 $lines.Add('gfx_fullscreen_amiga=false')
+# DirectDraw (0). WinUAE's D3D9 output is intercepted by the ReShade d3d9.dll that ships in
+# the emulator folder, which garbles both the visible picture and desktop grabs.
+$lines.Add('gfx_display=0')
+$lines.Add('gfx_display_rtg=0')
+# Fixed window size, so a grab is always the same 720x568 rectangle (the game area sits at
+# x 58..697, y 88..487 - see tools\ref-frame.ps1).
+$lines.Add('gfx_width=720')
+$lines.Add('gfx_height=568')
+$lines.Add('gfx_width_windowed=720')
+$lines.Add('gfx_height_windowed=568')
+$lines.Add('gfx_x_windowed=200')
+$lines.Add('gfx_y_windowed=150')
 $lines.Add('gfx_correct_aspect=false')
 $lines.Add('window_statusbar=false')
-$lines.Add('sound_output=none')
+$lines.Add('sound_output=exact')
+$lines.Add('sound_channels=stereo')
+$lines.Add('sound_frequency=44100')
+$lines.Add('sound_interpol=anti')
 $lines.Add('joyport0=mouse')
 $lines.Add('joyport1=none')
+$lines.Add("floppy_speed=$FloppySpeed")
 for ($i = 0; $i -lt 4; $i++) {
     if ($i -lt $diskPaths.Count) {
         $p = $diskPaths[$i]

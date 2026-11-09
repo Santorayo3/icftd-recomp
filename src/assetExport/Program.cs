@@ -203,26 +203,16 @@ internal static class Program
                 Console.WriteLine($"{Path.GetFileName(args[4])}: {new FileInfo(args[4]).Length} bytes ({args[2]})");
                 return 0;
             }
-            case "smsprobe":
+            case "smsinfo":
             {
-                // <bank> <record> [planes]: rank data starts and layouts by edge density.
+                // <bank> <record...>: how the engine's loader reads these records.
                 var bank = new ResBank(File.ReadAllBytes(args[1]));
-                var e = bank.Find(args[2]) ?? throw new Exception($"no resource {args[2]}");
-                var rec = Lz.Unpack(bank.Slice(e), out _) ?? bank.Slice(e);
-                int planes = args.Length > 3 ? int.Parse(args[3]) : (rec[16] & 0x0F);
-                if (planes == 0) planes = 5;
-                Console.WriteLine($"{e.Name}: {planes} planes, {rec.Length} bytes");
-                Console.Write(Sms.Probe(rec, planes));
-                return 0;
-            }
-            case "smsfit":
-            {
-                // <bank> <record>: which data start decodes to the smoothest picture?
-                var bank = new ResBank(File.ReadAllBytes(args[1]));
-                var e = bank.Find(args[2]) ?? throw new Exception($"no resource {args[2]}");
-                var rec = Lz.Unpack(bank.Slice(e), out _) ?? bank.Slice(e);
-                Console.WriteLine($"{e.Name}: {Sms.Fit(rec, out int bestStart, out int bestPal)}");
-                if (bestStart >= 0) Console.WriteLine($"  best start {bestStart} (palette {bestPal} bytes)");
+                foreach (string name in args.Skip(2))
+                {
+                    var e = bank.Find(name) ?? throw new Exception($"no resource {name}");
+                    var rec = Lz.Unpack(bank.Slice(e), out _) ?? bank.Slice(e);
+                    Console.WriteLine($"{e.Name,-14} {rec.Length,7}B  {Sms.Describe(rec)}");
+                }
                 return 0;
             }
             case "handles":
@@ -263,6 +253,48 @@ internal static class Program
                 int n = Pack.Build(args[1], args[2], out string report, verbose);
                 Console.Write(report);
                 return n > 0 ? 0 : 1;
+            }
+            case "movedump":
+            {
+                // <pakFile> [nameFilter] [maxCommands]: print every MovE script's structure.
+                var d = File.ReadAllBytes(args[1]);
+                if (BitConverter.ToUInt32(d, 0) != Pack.Magic) throw new Exception("not a game.pak");
+                int count = BitConverter.ToUInt16(d, 6);
+                int entriesAt = (int)BitConverter.ToUInt32(d, 8);
+                int namesAt = (int)BitConverter.ToUInt32(d, 0x10);
+                int namesSize = (int)BitConverter.ToUInt32(d, 0x14);
+                var names = new List<string>();
+                for (int p = namesAt; p < namesAt + namesSize;)
+                {
+                    int end = Array.IndexOf(d, (byte)0, p);
+                    if (end < 0) break;
+                    names.Add(System.Text.Encoding.ASCII.GetString(d, p, end - p));
+                    p = end + 1;
+                }
+
+                string filter = args.Length > 2 ? args[2] : "";
+                int maxCmd = args.Length > 3 ? int.Parse(args[3]) : 8;
+                int ok = 0, bad = 0;
+                for (int i = 0; i < count; i++)
+                {
+                    int o = entriesAt + i * 16;
+                    int off = (int)BitConverter.ToUInt32(d, o + 4);
+                    int size = (int)BitConverter.ToUInt32(d, o + 8);
+                    if (d[o + 12] != Pack.TypeScript) continue;
+                    string name = i < names.Count ? names[i] : "?";
+                    if (filter != "" && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                    var body = d.AsSpan(off, size).ToArray();
+                    var script = MoveScript.Parse(body, out string error);
+                    if (script is null) { Console.WriteLine($"{name}: PARSE FAILED - {error}"); bad++; }
+                    else
+                    {
+                        Console.Write(script.Dump(name, maxCmd));
+                        if (error != "") Console.WriteLine($"    ! {error}");
+                        ok++;
+                    }
+                }
+                Console.WriteLine($"scripts: {ok} parsed, {bad} failed");
+                return bad == 0 ? 0 : 1;
             }
             case "pakinfo":
             {
@@ -540,7 +572,9 @@ internal static class Program
                   : rec.Length > 6 + Sms.HeaderSize && rec[6] == 'S' && rec[7] == 'M' && rec[8] == 'S' ? 6 + Sms.HeaderSize
                   : -1;
         if (start < 0 || rec.Length <= start + 48) return null;
-        int colours = (rec.Length - start) / 3;
+        // FUN_0001D87C converts exactly 0x20 colours; the block is 128 bytes (96 of colour,
+        // 32 unused) and anything after it is the record's pixel data, not palette.
+        int colours = Math.Min(Sms.PaletteColours, (rec.Length - start) / 3);
         var pal = new byte[colours * 3];
         Buffer.BlockCopy(rec, start, pal, 0, pal.Length);
         return pal;

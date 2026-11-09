@@ -68,9 +68,14 @@ powershell -ExecutionPolicy Bypass -File tools\gamepack.ps1 -Verbose
 
 ```powershell
 bin\win32\icftd.exe                            # start; assets decoded on first run
+bin\win32\icftd.exe --play                     # run the intro's MovE logo label (ESC quits)
 bin\win32\icftd.exe --browse                   # M1: step through every picture
 bin\win32\icftd.exe --gfx-test out\gfx.bmp     # M2: exercise every drawing primitive
 bin\win32\icftd.exe --match ref\scene1.bmp     # M2: which picture is this frame?
+
+# the MovE runtime, directly
+bin\win32\icftd.exe --play assets\game.pak Desert1\OPEN\!OPN Logo
+bin\win32\icftd.exe --intro assets\game.pak Desert1\OPEN\!OPN Logo 40 200 out\mv\
 ```
 
 Browse keys: right/space/enter next, left previous, up/down ±10 pictures, ESC quit.
@@ -94,8 +99,37 @@ powershell -ExecutionPolicy Bypass -File tools\make-winuae-config.ps1 -Rom "<kic
 powershell -ExecutionPolicy Bypass -File tools\freeze-frame.ps1 -Title WinUAE -Out ref\title.png
 ```
 
+## Program model (struct archaeology)
+
+Ghidra's view of the program is exported as data, not text, so "what is `param_2 + 0x38`"
+is a query:
+
+```powershell
+# regenerate re\model\*.csv from the saved project (no re-analysis)
+powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1 -ModelOnly
+
+powershell -ExecutionPolicy Bypass -File tools\fieldmap.ps1 FUN_0001DBD0    # fields in one function
+powershell -ExecutionPolicy Bypass -File tools\fieldmap.ps1 -Offset 0x38    # who touches 0x38
+
+# apply docs\structs.csv + docs\annotations.csv, then re-decompile with types (~1 min)
+powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1 -Annotated
+
+powershell -ExecutionPolicy Bypass -File tools\structs.ps1       # -> src\game\core\structs.h, docs\structs.md
+powershell -ExecutionPolicy Bypass -File tools\coverage.ps1      # coverage + next work queue
+powershell -ExecutionPolicy Bypass -File tools\decompile-quality.ps1   # did the decompile get better?
+```
+
+See `docs/model.md` for the files, their columns and the caveats.
+
 ## Where to start reading
 
+* `docs/next-session.md` — **what is being built right now**: the 68k differential harness,
+  its fixture format, validation order and acceptance criteria
+* `docs/scaling-plan.md` — **how this project is worked from here on**: framework, tooling,
+  sweep order, verification gates, metrics
+* `docs/model.md` — the exported program model (`re/model/*.csv`), the field map and the
+  annotation loop (`docs/structs.csv` + `docs/annotations.csv`)
+* `docs/structs.md` — the original structs, generated from `docs/structs.csv`
 * `docs/recomp-plan.md` — what exists, what the engine looks like, the milestone plan
 * `re/README.md` — the Ghidra setup, dshell memory layout (A4 = 0x29A56), known artifacts
 * `src/assetExport/amiga_formats.md` — disk, hunk, resource and picture formats
@@ -108,8 +142,15 @@ powershell -ExecutionPolicy Bypass -File tools\freeze-frame.ps1 -Title WinUAE -O
 | M0 toolchain + framebuffer skeleton | done, both binaries build |
 | extraction + Ghidra decompilation | done (752 functions, no undefined bytes) |
 | M1 asset pack (`game.pak`) + picture browser | done — 547 pictures, 0 mismatches |
-| M2 video parity + Amiga graphics subset | **done** — `Desert2/BACKS/!B28` reproduces the WinUAE reference frame with 0 differing pixels |
+| M2 video parity + Amiga graphics subset | done — blitter, palette engine, display list |
+| M3 MovE runtime (intro) | **in progress** — `Logo` label runs: fade-in, `Flash2` shimmer sweep, bit-plane flash, fade to `LogoL`. `--play` shows it at 50 Hz |
+| program model + annotation loop | done — 750 functions, 27 778 refs, 3 437 typed field accesses; 77 functions and 19 globals named from evidence, 3 structs reach the decompiler *and* the C port |
 | audio, DOS 16-bit | postponed |
+
+The next phase is not "another animation": it is the framework and tooling described in
+`docs/scaling-plan.md`, after which whole subsystems are ported and verified by a 68k
+differential harness instead of by eye. That harness is the current work item — see
+`docs/next-session.md`.
 
 ## What is not in git
 

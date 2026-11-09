@@ -186,13 +186,16 @@ internal static class Pack
 
     static byte[] PicturePayload(Sms.Picture pic, int palId)
     {
-        var d = new byte[8 + pic.Indices.Length];
+        var d = new byte[12 + pic.Indices.Length];
         d[0] = (byte)(pic.Width >> 8); d[1] = (byte)pic.Width;
         d[2] = (byte)(pic.Height >> 8); d[3] = (byte)pic.Height;
         d[4] = (byte)(palId >> 8); d[5] = (byte)palId;
         d[6] = (byte)pic.Planes;
         d[7] = 0;
-        Buffer.BlockCopy(pic.Indices, 0, d, 8, pic.Indices.Length);
+        /* hot spot, as the SMS header words at +12/+14: FUN_0001DBD0 subtracts it */
+        d[8] = (byte)(pic.HotX >> 8); d[9] = (byte)pic.HotX;
+        d[10] = (byte)(pic.HotY >> 8); d[11] = (byte)pic.HotY;
+        Buffer.BlockCopy(pic.Indices, 0, d, 12, pic.Indices.Length);
         return d;
     }
 

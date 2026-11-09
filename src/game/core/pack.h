@@ -72,6 +72,7 @@ typedef struct {
     u16 palette;      /* pack index of the palette entry */
     u8  planes;
     u8  flags;
+    s16 hot_x, hot_y; /* subtracted from the object's position, like the record's +12/+14 */
 } pic_hdr;
 
 /* Reads the 8-byte picture header. Returns 0 on failure or a type mismatch. */

@@ -1,0 +1,117 @@
+# Annotations applied to the Ghidra database by tools/ghidra/scripts/ApplyAnnotations.java
+#
+# Columns: addr,kind,name,ret,params,datatype,comment
+#   kind=func    ret = return type, params = '|' separated types (empty = leave as is)
+#   kind=global  datatype = type of the data at addr (u16[32], move_node*, s16, ...)
+#
+# Rule for this file: only what is *evidenced*. Every entry below is backed by a function
+# whose behaviour is already reproduced in src/game/core/move.c or src/game/core/amiga/,
+# or by a global whose use is visible in the decompiled C. Nothing is guessed.
+
+# ---------------- MovE display list -------------------------------------------------
+0001dbd0,func,Move_DrawNode,void,move_node*|s32|s32|s32,,"places one node: screen pos = (base+x)>>16 - hot spot, then one blit"
+0001fa02,func,Move_Walk,void,move_node*|s32|s32|s32,,"recursive per-frame walk: script nodes step and recurse, leaves draw, then integrate"
+0001f95c,func,Move_StepScript,s32,move_node*,,"advance one command when wait == 0; returns 1 when the script finished"
+0001f2ae,func,Move_ExecCommand,void,,,"runs the command at the node's pc (tail call into the opcode switch)"
+0001f89c,func,Move_DispatchOpcode,void,,,"the opcode switch; opcode arrives in D0, command record on the stack"
+0001dcb0,func,Move_CreateNode,move_node*,move_node**|move_asset*|u32,,"allocates 0x3e bytes, fills it from the asset, inserts by priority"
+
+# ---------------- assets ------------------------------------------------------------
+0001ec42,func,Sms_Load,,,,"reads the SMS header (magic, size, w, h, hot spot, plane mask, palette), see src/assetExport/Sms.cs"
+0002011a,func,Sms_Unpack,,,,"RLE decoder, column-major with stride; see src/assetExport/Sms.cs"
+
+# ---------------- globals -----------------------------------------------------------
+00029cd8,global,g_palWant,u16[32],,,"32 colour words the engine is fading towards"
+000298d2,global,g_palLive,u16[32],,,"the 32 words currently published to the hardware"
+00029964,global,g_palTarget,u16[32],,,"fade destination"
+0002c156,global,g_fadeWork,s16[96],,,"per-component (3 per colour) fade accumulators"
+0002c216,global,g_fadeDelta,s16[96],,,"per-component step"
+0002c31a,global,g_fadeFrames,s16,,
+0002c31c,global,g_fadeDivider,s16,,
+0002c31e,global,g_fadeTick,s16,,
+00029922,global,g_fadeArmed,s16,,
+000299a6,global,g_fadePending,s16,,
+0002c110,global,g_palDirty,s16,,
+00026740,global,g_moveFrozen,s16,,"when non-zero the walk still draws but does not integrate position"
+0002c10a,global,g_screenDepth,s16,,"index into the plane mask tables (used as *4 in DrawNode)"
+0002c52c,global,g_moveIdle,s16,,"set by StepScript when the script is waiting"
+00029914,global,g_moveScript,move_node*,,"the script node currently being stepped"
+
+# ---------------- Amiga library stubs (identified in docs/os-calls.csv from the LVO) ---
+21400,func,os_dos_Close,,,,calls dos.Close LVO -36
+21410,func,os_dos_CurrentDir,,,,calls dos.CurrentDir LVO -126
+2141c,func,os_dos_DateStamp,,,,calls dos.DateStamp LVO -192
+21428,func,os_dos_Delay,,,,calls dos.Delay LVO -198
+21434,func,os_dos_Info,,,,calls dos.Info LVO -114
+21442,func,os_dos_Input,,,,calls dos.Input LVO -54
+2144e,func,os_dos_Lock,,,,calls dos.Lock LVO -84
+2145c,func,os_dos_Open,,,,calls dos.Open LVO -30
+2146a,func,os_dos_Output,,,,calls dos.Output LVO -60
+21476,func,os_dos_Read,,,,calls dos.Read LVO -42
+21488,func,os_dos_Seek,,,,calls dos.Seek LVO -66
+2149a,func,os_dos_UnLock,,,,calls dos.UnLock LVO -90
+214aa,func,os_dos_Write,,,,calls dos.Write LVO -48
+214b8,func,os_exec_AddIntServer,,,,calls exec.AddIntServer LVO -168
+214c6,func,os_exec_Alert,,,,calls exec.Alert LVO -108
+214de,func,os_exec_CloseDevice,,,,calls exec.CloseDevice LVO -450
+214ee,func,os_exec_CloseLibrary,,,,calls exec.CloseLibrary LVO -414
+215cc,func,os_exec_AddPort,,,,calls exec.AddPort LVO -354
+215d8,func,os_exec_AllocSignal,,,,calls exec.AllocSignal LVO -330
+21690,func,os_exec_AllocMem,,,,calls exec.AllocMem LVO -198
+2169e,func,os_exec_DoIO,,,,calls exec.DoIO LVO -456
+216b8,func,os_exec_FindTask,,,,calls exec.FindTask LVO -294
+216c4,func,os_exec_Forbid,,,,calls exec.Forbid LVO -132
+216d0,func,os_exec_FreeMem,,,,calls exec.FreeMem LVO -210
+216e0,func,os_exec_FreeSignal,,,,calls exec.FreeSignal LVO -336
+216ec,func,os_exec_GetMsg,,,,calls exec.GetMsg LVO -372
+2170a,func,os_exec_OpenDevice,,,,calls exec.OpenDevice LVO -444
+21724,func,os_exec_OpenLibrary,,,,calls exec.OpenLibrary LVO -552
+21734,func,os_exec_OpenResource,,,,calls exec.OpenResource LVO -498
+21744,func,os_exec_RemIntServer,,,,calls exec.RemIntServer LVO -174
+21752,func,os_exec_RemPort,,,,calls exec.RemPort LVO -360
+2175e,func,os_exec_ReplyMsg,,,,calls exec.ReplyMsg LVO -378
+2176a,func,os_exec_WaitPort,,,,calls exec.WaitPort LVO -384
+21776,func,os_graphics_AreaDraw,,,,calls graphics.AreaDraw LVO -258
+21788,func,os_graphics_AreaEnd,,,,calls graphics.AreaEnd LVO -264
+21794,func,os_graphics_AreaMove,,,,calls graphics.AreaMove LVO -252
+217a6,func,os_graphics_BltClear,,,,calls graphics.BltClear LVO -300
+217b8,func,os_graphics_CBump,,,,calls graphics.CBump LVO -366
+217c4,func,os_graphics_CloseFont,,,,calls graphics.CloseFont LVO -78
+217d0,func,os_graphics_CMove,,,,calls graphics.CMove LVO -372
+217e2,func,os_graphics_CWait,,,,calls graphics.CWait LVO -378
+217f4,func,os_graphics_DisownBlitter,,,,calls graphics.DisownBlitter LVO -462
+217fc,func,os_graphics_Draw,,,,calls graphics.Draw LVO -246
+2180e,func,os_graphics_FreeColorMap,,,,calls graphics.FreeColorMap LVO -576
+2181a,func,os_graphics_FreeCprList,,,,calls graphics.FreeCprList LVO -564
+21826,func,os_graphics_FreeVPortCopLists,,,,calls graphics.FreeVPortCopLists LVO -540
+21832,func,os_graphics_GetColorMap,,,,calls graphics.GetColorMap LVO -570
+2183e,func,os_graphics_InitArea,,,,calls graphics.InitArea LVO -282
+21850,func,os_graphics_InitBitMap,,,,calls graphics.InitBitMap LVO -390
+21862,func,os_graphics_InitRastPort,,,,calls graphics.InitRastPort LVO -198
+2186e,func,os_graphics_InitTmpRas,,,,calls graphics.InitTmpRas LVO -468
+21880,func,os_graphics_InitView,,,,calls graphics.InitView LVO -360
+2188c,func,os_graphics_InitVPort,,,,calls graphics.InitVPort LVO -204
+21898,func,os_graphics_LoadView,,,,calls graphics.LoadView LVO -222
+218a4,func,os_graphics_MakeVPort,,,,calls graphics.MakeVPort LVO -216
+218b2,func,os_graphics_Move,,,,calls graphics.Move LVO -240
+218c4,func,os_graphics_MrgCop,,,,calls graphics.MrgCop LVO -210
+218d0,func,os_graphics_OwnBlitter,,,,calls graphics.OwnBlitter LVO -456
+218d8,func,os_graphics_RectFill,,,,calls graphics.RectFill LVO -306
+218ea,func,os_graphics_SetAPen,,,,calls graphics.SetAPen LVO -342
+218fa,func,os_graphics_SetDrMd,,,,calls graphics.SetDrMd LVO -354
+2190a,func,os_graphics_SetFont,,,,calls graphics.SetFont LVO -66
+2191a,func,os_graphics_Text,,,,calls graphics.Text LVO -60
+21934,func,os_graphics_TextLength,,,,calls graphics.TextLength LVO -54
+21948,func,os_graphics_WaitBlit,,,,calls graphics.WaitBlit LVO -228
+21950,func,os_graphics_WaitBOVP,,,,calls graphics.WaitBOVP LVO -402
+2195c,func,os_graphics_WaitTOF,,,,calls graphics.WaitTOF LVO -270
+
+# ---------------- engine call pointers and plane tables (see Move_DrawNode) --------
+00021c80,global,g_engineFindChild,u32,,,"called as (short list, short id) -> child node; Move_DispatchOpcode case 1/4/5"
+00021c92,global,g_engineBlit,u32,,,"the blit entry point used by Move_DrawNode (13 arguments)"
+00026718,global,g_planeOrMask,u32[8],,,"indexed by g_screenDepth; ORed into the blit mask"
+000266f4,global,g_planeAndMask,u32[8],,,"indexed by g_screenDepth; ANDed with move_node.channel"
+
+# ---------------- MovE list maintenance (evidence: Move_DispatchOpcode cases 2 and 3) --
+0001dd96,func,Move_DeleteChild,void,move_node**|move_asset*|u32,,"opcode 2: removes the child with this asset id from the list"
+0001de42,func,Move_FreeChildren,void,move_node*,,"opcode 3: frees the whole child list and zeroes the head"

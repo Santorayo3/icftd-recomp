@@ -107,9 +107,9 @@ static int make_dib(void)
     bi->bmiHeader.biBitCount = 8;
     bi->bmiHeader.biCompression = BI_RGB;
     for (i = 0; i < PAL_ENTRIES; i++) {
-        bi->bmiColors[i].rgbRed = (BYTE)i;
-        bi->bmiColors[i].rgbGreen = (BYTE)i;
-        bi->bmiColors[i].rgbBlue = (BYTE)i;
+        bi->bmiColors[i].rgbRed = 0;
+        bi->bmiColors[i].rgbGreen = 0;
+        bi->bmiColors[i].rgbBlue = 0;
         bi->bmiColors[i].rgbReserved = 0;
     }
 
@@ -129,9 +129,9 @@ static int make_dib(void)
         lp->palVersion = 0x300;
         lp->palNumEntries = PAL_ENTRIES;
         for (i = 0; i < PAL_ENTRIES; i++) {
-            lp->palPalEntry[i].peRed = (BYTE)i;
-            lp->palPalEntry[i].peGreen = (BYTE)i;
-            lp->palPalEntry[i].peBlue = (BYTE)i;
+            lp->palPalEntry[i].peRed = 0;
+            lp->palPalEntry[i].peGreen = 0;
+            lp->palPalEntry[i].peBlue = 0;
             lp->palPalEntry[i].peFlags = 0;
         }
         g_pal = CreatePalette(lp);
@@ -181,6 +181,7 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
 {
     u32 i;
     PALETTEENTRY pe[PAL_ENTRIES];
+    RGBQUAD q[PAL_ENTRIES];
     HDC dc;
 
     if (!g_pal || first >= PAL_ENTRIES) return;
@@ -190,8 +191,15 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
         pe[i].peGreen = rgb[i * 3 + 1];
         pe[i].peBlue = rgb[i * 3 + 2];
         pe[i].peFlags = 0;
+        q[i].rgbRed = rgb[i * 3 + 0];
+        q[i].rgbGreen = rgb[i * 3 + 1];
+        q[i].rgbBlue = rgb[i * 3 + 2];
+        q[i].rgbReserved = 0;
     }
     SetPaletteEntries(g_pal, first, count, pe);
+    /* A DIB section is blitted through its own colour table, not through the
+     * HPALETTE, so both have to be updated or the window shows greys. */
+    if (g_memdc) SetDIBColorTable(g_memdc, first, count, q);
     dc = GetDC(g_hwnd);
     SelectPalette(dc, g_pal, FALSE);
     RealizePalette(dc);

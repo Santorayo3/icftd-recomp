@@ -16,7 +16,9 @@
 #include "gfx.h"
 #include "pack.h"
 #include "assets.h"
+#include "move.h"
 #include "amiga/graphics.h"
+#include "amiga/blitter.h"
 
 static u8 palette[PAL_ENTRIES * 3];
 static s32 box_x = 100, box_y = 80, box_dx = 2, box_dy = 1;
@@ -294,7 +296,9 @@ static int write_bmp(const char *path, const u8 *fb, const u8 *pal)
     return 1;
 }
 
-static int run_shot(const char *pack_path, s32 index, const char *out)
+static s32 entry_arg(const pak *p, const char *s);
+
+static int run_shot(const char *pack_path, const char *what, const char *out)
 {
     pak p;
     pic_hdr hdr;
@@ -305,14 +309,12 @@ static int run_shot(const char *pack_path, s32 index, const char *out)
     band = (u8 *)plat_alloc(BAND_BYTES);
     if (band == NULLP) { printf("out of memory\n"); pak_close(&p); return 1; }
 
-    if (index < 0) {
+    found = entry_arg(&p, what);
+    if (found < 0) {
         for (i = 0; i < (s32)p.count; i++)
             if (pak_type(&p, i) == PAK_PICTURE) { found = i; break; }
     }
-    else {
-        found = index;
-    }
-    if (!pic_header(&p, found, &hdr)) { printf("no such picture: %d\n", (int)index); return 1; }
+    if (!pic_header(&p, found, &hdr)) { printf("no such picture: %s\n", what); return 1; }
 
     {
         u32 colours = pal_read(&p, (s32)hdr.palette, palette, PAL_ENTRIES);
@@ -326,6 +328,283 @@ static int run_shot(const char *pack_path, s32 index, const char *out)
     plat_free(band);
     return 0;
 }
+
+/* -------------------------------------------------------------- M3 scene ---- */
+/* Backdrop plus one sprite, composited with the engine's own blit routine: minterm 0xCA
+ * with a 1-bit cookie-cut mask built from the transparent colour, exactly like
+ * FUN_0001E8C8.  First target: !B28 + TWIN at (2,135) with key 28 = ref\scene1.bmp. */
+
+static s32 entry_arg(const pak *p, const char *s)
+{
+    if (s[0] >= '0' && s[0] <= '9') return (s32)atoi(s);
+    return pak_find(p, s);
+}
+
+static agfx_bitmap *load_bitmap(pak *p, s32 index, pic_hdr *hdr, u8 *band, u32 band_bytes)
+{
+    agfx_bitmap *bm;
+    u32 rows_per_band, y;
+
+    if (!pic_header(p, index, hdr)) return NULLP;
+    bm = agfx_bitmap_alloc((s32)hdr->w, (s32)hdr->h, (u16)(hdr->planes ? hdr->planes : 5), 0);
+    if (bm == NULLP) return NULLP;
+
+    rows_per_band = band_bytes / hdr->w;
+    if (rows_per_band == 0) { agfx_bitmap_free(bm); return NULLP; }
+    for (y = 0; y < hdr->h; y += rows_per_band) {
+        u32 rows = hdr->h - y < rows_per_band ? hdr->h - y : rows_per_band;
+        if (pic_rows(p, index, hdr, y, rows, band, band_bytes) != rows * hdr->w) {
+            agfx_bitmap_free(bm);
+            return NULLP;
+        }
+        memcpy(bm->pixels + y * (u32)bm->stride, band, rows * hdr->w);
+    }
+    return bm;
+}
+
+static int run_scene(const char *pack_path, const char *backdrop, const char *overlay,
+                     s32 x, s32 y, s32 key, const char *out, const char *pal_name)
+{
+    pak p;
+    pic_hdr bhdr, ohdr;
+    agfx_bitmap screen, *bm = NULLP;
+    agfx_blit_job job;
+    u8 *band = NULLP, *mask = NULLP;
+    s32 bi, oi;
+    u32 painted;
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    band = (u8 *)plat_alloc(BAND_BYTES);
+    if (band == NULLP) { printf("out of memory\n"); pak_close(&p); return 1; }
+
+    bi = entry_arg(&p, backdrop);
+    oi = entry_arg(&p, overlay);
+    bm = load_bitmap(&p, oi, &ohdr, band, BAND_BYTES);
+    if (bm == NULLP) { printf("no such picture: %s\n", overlay); return 1; }
+
+    if (bi >= 0 && pic_header(&p, bi, &bhdr)) {
+        if (pal_read(&p, (s32)bhdr.palette, palette, PAL_ENTRIES) == 0)
+            memset(palette, 0, sizeof palette);
+        gfx_clear(0);
+        draw_picture(&p, bi, &bhdr, band, BAND_BYTES);
+    }
+    else if (strcmp(backdrop, "-") == 0) {
+        /* No backdrop: the intro draws the logo straight onto a cleared screen. */
+        bhdr = ohdr;
+        if (pal_read(&p, (s32)ohdr.palette, palette, PAL_ENTRIES) == 0)
+            memset(palette, 0, sizeof palette);
+        gfx_clear(0);
+    }
+    else {
+        printf("no such picture: %s\n", backdrop);
+        return 1;
+    }
+
+    if (pal_name != NULLP) {
+        s32 pi = entry_arg(&p, pal_name);
+        if (pi < 0 || pal_read(&p, pi, palette, PAL_ENTRIES) == 0) {
+            printf("no such palette: %s\n", pal_name);
+            return 1;
+        }
+    }
+
+    mask = agfx_mask_from_key(bm, (u8)key);
+    if (mask == NULLP) { printf("out of memory\n"); return 1; }
+
+    agfx_bitmap_from_fb(&screen);
+    memset(&job, 0, sizeof job);
+    job.src = bm;
+    job.dst = &screen;
+    job.dx = (s16)x;
+    job.dy = (s16)y;
+    job.w = (s16)bm->width;
+    job.h = (s16)bm->height;
+    job.mask = mask;
+    job.mask_stride = agfx_mask_stride(bm->width);
+    painted = agfx_blit(&job);
+
+    if (!write_bmp(out, gfx_fb, palette)) { printf("cannot write '%s'\n", out); return 1; }
+    printf("%s + %s at %d,%d key %d (%lu px) -> %s\n",
+           bi >= 0 ? pak_name(&p, bi) : "-", pak_name(&p, oi), (int)x, (int)y, (int)key,
+           (unsigned long)painted, out);
+
+    plat_free(mask);
+    agfx_bitmap_free(bm);
+    plat_free(band);
+    pak_close(&p);
+    return 0;
+}
+
+/* --------------------------------------------------------------- compose ---- */
+/* Draws a list of objects over a cleared screen: a frame of a script sequence, built
+ * from the coordinates the script itself uses.  Specs are "name,x,y,key" and are blitted
+ * in the order given, exactly like FUN_0001F89C does for MovE command 1. */
+
+static int run_compose(const char *pack_path, const char *out, const char *pal_name,
+                       int count, char **specs)
+{
+    pak p;
+    pic_hdr hdr;
+    agfx_bitmap screen, *bm;
+    agfx_blit_job job;
+    u8 *band, *mask;
+    char name[128];
+    s32 i, x, y, key, index, pal_done = 0;
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    band = (u8 *)plat_alloc(BAND_BYTES);
+    if (band == NULLP) { printf("out of memory\n"); pak_close(&p); return 1; }
+
+    memset(palette, 0, sizeof palette);
+    if (strcmp(pal_name, "-") != 0) {
+        s32 pi = entry_arg(&p, pal_name);
+        if (pi < 0 || pal_read(&p, pi, palette, PAL_ENTRIES) == 0) {
+            printf("no such palette: %s\n", pal_name);
+            return 1;
+        }
+    }
+    gfx_clear(0);
+    agfx_bitmap_from_fb(&screen);
+
+    for (i = 0; i < count; i++) {
+        if (sscanf(specs[i], "%127[^,],%ld,%ld,%ld", name, &x, &y, &key) != 4) {
+            printf("bad object spec '%s' (want name,x,y,key)\n", specs[i]);
+            return 1;
+        }
+        index = entry_arg(&p, name);
+        bm = load_bitmap(&p, index, &hdr, band, BAND_BYTES);
+        if (bm == NULLP) { printf("no such picture: %s\n", name); return 1; }
+        if (pal_name[0] == '-' && !pal_done) {
+            pal_done = 1;
+            if (pal_read(&p, (s32)hdr.palette, palette, PAL_ENTRIES) == 0)
+                memset(palette, 0, sizeof palette);
+        }
+        mask = agfx_mask_from_key(bm, (u8)key);
+        if (mask == NULLP) { printf("out of memory\n"); return 1; }
+
+        memset(&job, 0, sizeof job);
+        job.src = bm;
+        job.dst = &screen;
+        job.dx = (s16)x;
+        job.dy = (s16)y;
+        job.w = (s16)bm->width;
+        job.h = (s16)bm->height;
+        job.mask = mask;
+        job.mask_stride = agfx_mask_stride(bm->width);
+        agfx_blit(&job);
+
+        plat_free(mask);
+        agfx_bitmap_free(bm);
+    }
+
+    if (!write_bmp(out, gfx_fb, palette)) { printf("cannot write '%s'\n", out); return 1; }
+    printf("composed %d object(s) -> %s\n", count, out);
+    plat_free(band);
+    pak_close(&p);
+    return 0;
+}
+
+/* ----------------------------------------------------------------- intro ---- */
+/* Reads a MovE script out of the pack and resolves its asset names against the script's
+ * own bank ("Desert1/OPEN/!OPN" -> assets named "Desert1/OPEN/<name>"). */
+
+static int load_script(pak *p, const char *script_name, mv_script **out)
+{
+    u8 *data;
+    u32 size;
+    s32 index = entry_arg(p, script_name);
+    char prefix[96];
+    const char *slash;
+
+    if (index < 0 || pak_type(p, index) != PAK_SCRIPT) {
+        printf("no such script: %s\n", script_name);
+        return 0;
+    }
+    size = pak_size(p, index);
+    data = (u8 *)plat_alloc(size + 4u);
+    *out = (mv_script *)plat_alloc(sizeof(mv_script));
+    if (data == NULLP || *out == NULLP) { printf("out of memory\n"); return 0; }
+    if (pak_read(p, index, data, size) != size) { printf("short read\n"); return 0; }
+    if (!mv_parse(data, size, *out)) { printf("cannot parse %s\n", script_name); return 0; }
+    plat_free(data);
+
+    slash = strrchr(script_name, '/');
+    if (slash != NULLP) {
+        u32 n = (u32)(slash - script_name) + 1u;
+        if (n >= sizeof prefix) n = sizeof prefix - 1;
+        memcpy(prefix, script_name, n);
+        prefix[n] = 0;
+    } else prefix[0] = 0;
+
+    printf("%s: %d assets, %d labels, %d assets resolved\n",
+           pak_name(p, index), (int)(*out)->assetCount, (int)(*out)->labelCount,
+           (int)mv_resolve(*out, p, prefix));
+    return 1;
+}
+
+/* Runs a label through the runtime and writes one BMP per frame, so the intro can be
+ * compared frame by frame against a WinUAE capture. */
+static int run_intro(const char *pack_path, const char *script_name, const char *label,
+                     s32 from, s32 to, const char *prefix)
+{
+    pak p;
+    mv_script *sc;
+    s32 f;
+    char out[256];
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    if (!load_script(&p, script_name, &sc)) return 1;
+    if (!mv_start(&p, sc, label)) { printf("no such label: %s\n", label); return 1; }
+
+    for (f = 0; f <= to; f++) {
+        if (f > 0) gfx_clear(0);
+        mv_tick();
+        if (f < from) continue;
+        sprintf(out, "%s%04d.bmp", prefix, (int)f);
+        if (!write_bmp(out, gfx_fb, (u8 *)mv_palette())) { printf("cannot write '%s'\n", out); return 1; }
+        if (f == from || f == to) mv_report();
+    }
+    printf("intro: frames %d..%d -> %s%%04d.bmp\n", (int)from, (int)to, prefix);
+    return 0;
+}
+
+/* Plays a label in the window at the Amiga's 50 Hz, looping when it ends. */
+static int run_play(const char *pack_path, const char *script_name, const char *label)
+{
+    pak p;
+    mv_script *sc;
+    input_state in;
+    s32 hold = 0;
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    if (!load_script(&p, script_name, &sc)) return 1;
+    if (!mv_start(&p, sc, label)) { printf("no such label: %s\n", label); return 1; }
+
+    plat_set_title("It Came from the Desert - MovE intro");
+    gfx_clear(0);
+    plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
+    plat_present();
+    printf("playing %s / %s - ESC quits\n", script_name, label);
+
+    for (;;) {
+        plat_frame_sync();
+        if (!plat_pump(&in)) break;
+        if (in.pressed[KEY_ESCAPE]) break;
+
+        gfx_clear(0);
+        mv_tick();
+        plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
+        plat_present();
+
+        /* the label runs out after the collapse: hold the last frame, then start over */
+        if (mv_done()) {
+            if (++hold > 75) { hold = 0; mv_start(&p, sc, label); }
+        } else hold = 0;
+    }
+    printf("stopped after %d frame(s)\n", (int)mv_frame());
+    return 0;
+}
+
 
 /* ------------------------------------------------------------ M2 self test ---- */
 /* Exercises every primitive the original's graphics calls need, into one image that can
@@ -612,6 +891,7 @@ static int needs_default_pack(int argc, char **argv)
 {
     if (argc <= 1) return 1;
     if (strcmp(argv[1], "--browse") == 0 || strcmp(argv[1], "--checksum") == 0) return argc <= 2;
+    if (strcmp(argv[1], "--play") == 0) return argc <= 2;
     if (strcmp(argv[1], "--match") == 0) return argc <= 3 || (argv[3][0] >= '0' && argv[3][0] <= '9');
     return 0;
 }
@@ -623,7 +903,11 @@ static void usage(void)
            "  icftd.exe --browse [pack]     step through every picture in the pack\n"
            "  icftd.exe --convert           rebuild assets\\game.pak from disks\\*.adf\n"
            "  icftd.exe --checksum [pack]   print a hash per picture (tools/verify-pack.ps1)\n"
-           "  icftd.exe --shot <pack> <index> <out.bmp>\n"
+           "  icftd.exe --shot <pack> <index|name> <out.bmp>\n"
+           "  icftd.exe --scene <pack> <backdrop|-> <sprite> <x> <y> <key> <out.bmp> [palette]\n"
+           "  icftd.exe --compose <pack> <out.bmp> <palette|-> <name,x,y,key> ...\n"
+           "  icftd.exe --intro <pack> <script> <label> <from> <to> <outPrefix>\n"
+           "  icftd.exe --play [pack] [script] [label]   play a MovE label in the window\n"
            "  icftd.exe --gfx-test <out.bmp>\n"
            "  icftd.exe --match <ref.bmp> [pack] [tolerance]\n"
            "  icftd.exe --demo              M0 demo (palette ramp)\n");
@@ -648,7 +932,18 @@ int main(int argc, char **argv)
     else if (argc > 1 && strcmp(argv[1], "--checksum") == 0)
         rc = run_checksum(argc > 2 ? argv[2] : assets_pack_path());
     else if (argc > 1 && strcmp(argv[1], "--shot") == 0 && argc > 4)
-        rc = run_shot(argv[2], (s32)atoi(argv[3]), argv[4]);
+        rc = run_shot(argv[2], argv[3], argv[4]);
+    else if (argc > 1 && strcmp(argv[1], "--scene") == 0 && argc > 8)
+        rc = run_scene(argv[2], argv[3], argv[4], (s32)atoi(argv[5]), (s32)atoi(argv[6]),
+                       (s32)atoi(argv[7]), argv[8], argc > 9 ? argv[9] : NULLP);
+    else if (argc > 1 && strcmp(argv[1], "--compose") == 0 && argc > 5)
+        rc = run_compose(argv[2], argv[3], argv[4], argc - 5, argv + 5);
+    else if (argc > 1 && strcmp(argv[1], "--intro") == 0 && argc > 7)
+        rc = run_intro(argv[2], argv[3], argv[4], (s32)atoi(argv[5]), (s32)atoi(argv[6]), argv[7]);
+    else if (argc > 1 && strcmp(argv[1], "--play") == 0)
+        rc = run_play(argc > 2 ? argv[2] : assets_pack_path(),
+                      argc > 3 ? argv[3] : "Desert1/OPEN/!OPN",
+                      argc > 4 ? argv[4] : "Logo");
     else if (argc > 1 && strcmp(argv[1], "--gfx-test") == 0 && argc > 2)
         rc = run_gfx_test(argv[2]);
     else if (argc > 1 && strcmp(argv[1], "--match") == 0 && argc > 2)

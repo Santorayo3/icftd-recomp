@@ -492,17 +492,82 @@ The **DOS original** (already analysed in earlier sessions) is a second referenc
 
 ## 12. Handoff (2026-11-09)
 
-M0, M1 and M2 are done and verified; start M3 with these facts:
+M0, M1 and M2 are done and verified; **M3 is under way: the intro logo frame is
+reproduced**.
 
-* Nothing is in flight - the tree builds and all tests pass:
-  `src\game\build.ps1 -Target win32`; `icftd.exe --checksum` (547 pictures, 0 mismatches);
-  `icftd.exe --gfx-test out\gfx.bmp`; `icftd.exe --match ref\room.bmp 16` → `!B28`, 0 differing.
-* M3's diff target is `ref\scene1.bmp` = `Desert2/BACKS/!B28` + the narration box (currently
-  75.09 % matching; the box is the missing 24.9 %).
-* **First task**: find the overlay/gameplay code. The shell hunk has no `BltBitMap` at all, so
-  the scene renderer must be loaded from the data banks at run time. Start at
-  `re/decomp_all/dshell/functions/000002f4_FUN_000002f4.c` (file open + disk swap) and its
-  callers, and check whether a `MovE` script can carry executable code.
+* Nothing is in flight: `src\game\build.ps1 -Target win32` (and `-Target dos`),
+  `tools\verify-pack.ps1` → 547 pictures / 0 mismatches, `tools\verify-scene.ps1` →
+  `room` 0, `scene` 0 and `logo` 26/64000 differing pixels at tolerance 16.
+* **There is no overlay.** The whole game is in the dshell hunk: no register-indirect jump
+  exists anywhere, and `BltBitMap` is never called — `FUN_0001E8C8` programs the blitter
+  registers itself (`BLTCON0 = shift<<12 | USEA/USEB/USEC/USED | 0xCA`, channel A = 1-bit
+  cookie-cut mask, destination bottom-up with negative modulos). `MovE` scripts are data
+  (tag, name table, label table, body) and cannot carry code.
+* `core/amiga/blitter.[ch]` ports that routine. `icftd.exe --scene <pack> <backdrop|->
+  <sprite> <x> <y> <key> <out.bmp> [palette]` drives it, and
+  `icftd.exe --compose <pack> <out.bmp> <palette|-> name,x,y,key ...` draws a whole list
+  of objects over a cleared screen.
+* **SMS pictures are decoded exactly**, not heuristically: `src/assetExport/Sms.cs` is a
+  port of `FUN_0001EC42` (descriptor + optional 128-byte palette) and `FUN_0002011A`
+  (the RLE walk). The pieces that were previously guessed wrong:  * the data starts at `+26`, or at `+154` when `word(+24) & 0xFF00 != 0` (the palette is
+    exactly 128 bytes: 32 colours × 3 bytes, components in the high nibbles);
+  * `RowBytes(w) = ((w + (w&7 ? 8 : 0) + ((w&0x800) ? 8 : 0)) >> 3)` — ceil(w/8), *not*
+    16-bit aligned (this differs for w = 132, 17, 7, 114, …);
+  * `+20` holds one nibble per plane (LSB first): 8/0xC = plane not stored, all zeros;
+    0xD = not stored, all ones; anything else = stored, and the bit position is the
+    declared plane index, so only `stored` planes are in the stream;
+  * the stream is walked column by column with stride `RowBytes`, in one of two orders
+    selected by the low byte of the palette flag — `(column, plane, row)` when it is 0,
+    `(plane, column, row)` otherwise.
+  With that, `Lgo4` (132×5) turns out to be the **"PRESENTS"** line, `Lgo1` the
+  CINEMAWARE word and `Lgo2` the (R) mark; `Lgo3` (190×17) is the same word as an outline.
+* `ref\logo.bmp` is reproduced by `--compose` of `Lgo1` (39,46), `Lgo2` (273,90) and
+  `Lgo4` (92,99) with `LogoFlash.pal`: **26 of 64000 pixels differ**, all inside the 7×8
+  (R) mark. Note the **+2**: the intro renders objects two lines below the script's y,
+  which is not yet traced to an instruction in the render path.
+* The MovE opcodes are decoded (`FUN_0001F89C`); see §4 of `icftd-original`-style notes in
+  the repo memory: 1 draw, 2/3 delete, 8 wait, 0xC set palette, 0xD fade palette,
+  0x10 set the object's blit mask, 0x11 set its frame, 0x17 fill the palette with one
+  colour, 0x18 the same for the second palette, 0x19 swap entries, 0x1A set one entry.
+* **The intro runs**: `core/move.[ch]` ports the display-list engine (`FUN_0001FA02` walk,
+  `FUN_0001F95C` command step, `FUN_0001DBD0` blit, the four palette arrays and the fade in
+  `FUN_0001D8F4`/`FUN_0001D96E`). `icftd.exe --intro <pack> <script> <label> <from> <to>
+  <prefix>` runs a label and writes one BMP per frame; `MV_TRACE=1` prints every command.
+  `Desert1/OPEN/!OPN` `Logo` reproduces the sequence: 20 frames black, the three objects,
+  a 40-frame fade to `LogoD` (the word appears because `LogoD` is lit at 9..16 and the
+  objects are drawn with channel 3 forced to 1), the instant `LogoFlash`, the masks
+  flipping to channel 3 = 0, `Flash2` flying right, then the fade to `LogoL`.
+  The bit-plane selector is what makes the "shimmer": command 0x10 sets a 32-bit mask
+  whose nibbles feed the blitter per destination plane (< 8 = source plane, 8 = leave the
+  destination, > 8 = force 0/1).
+* **Exporter fix**: `.pal` records are 32 colours of 3 bytes after the 26-byte header
+  (`FUN_0001D87C` converts exactly 0x20). `PaletteOf` used to copy the whole record tail,
+  which dragged in the record's pixel data and the neighbouring record — `LogoD.Pal` came
+  out with a stray copy of `LogoFlash`'s colours and 43 entries.
+* **Hot spots**: `FUN_0001DBD0` places an object at `pos - hotspot`, hotspot = the record's
+  header words at +12/+14 (`Flash2.win` has (44,44), the centre of its 45x45 patch). The
+  pack's picture payload grew from 8 to 12 bytes to carry them, and `move.c` uses them.
+  Without this the flash swept *below* the word instead of across it.
+* **Draw order**: `FUN_0001DCB0` inserts a new object into the child list **sorted by a
+  priority word** (the high half of a command's third argument); equal priorities keep
+  creation order. The renderer walks that order, so a later/higher-priority object
+  composites on top. `move.c` appended in creation order before this was understood, which
+  left the flash *under* the logo.
+* The shimmer itself is `Flash2.win`: created at (0,89) with velocity (+5,0) and channel
+  selector `0x8888D888` - planes 0..2 are left alone and plane 3 is forced to 1, so it
+  draws no pixels of its own; it brightens whatever is underneath inside its 45x45 window.
+  `LogoFlash.pal`'s colours 8..15 are the pale variant of 0..7, so the word lights up as
+  the window sweeps across it.
+* The narration box is driven by `FUN_00005EAC(scene, mode)`: anchor y 245 → 155 in
+  accelerating steps (open) / 155 → 275 (close), position `(160.0, y)` on a 16.16 grid,
+  screen position `(160 - hotspotX, y - hotspotY)` with the record's hot spot at +12/+14.
+* Reference capture is automated (see `tools\`): `make-winuae-config.ps1` (stock A500:
+  512 KB chip + 512 KB slow — the memory layout is what makes WinUAE render correctly),
+  `winuae-capture.ps1` (run through a VS Code task), `capture-analyse.ps1`, `ref-frame.ps1`.
+  `ref\logo.bmp`, `ref\desert1.bmp`, `ref\desert2.bmp` hold the intro.
+* **Next**: the MovE runtime — find the object render path (the +2 offset and the 0xCA
+  minterm call), then run the `Logo` label end to end and reproduce the shine, the
+  sparkle and the `LogoD → LogoFlash → LogoL` fade, then the desert parallax.
 * Keep `docs/os-calls.csv` / `docs/engine-slots.csv` in sync (`tools\analyse-os-calls.ps1`)
   and add new `core` sources to `src/game/build.ps1`'s `$srcsCore` list.
 
@@ -545,3 +610,29 @@ The game data is copyrighted and stays outside the repository, exactly as today:
 and `assets/` are inputs, `game.pak` is built locally, and no extracted art, music or text is
 committed. A release is a folder with the exe plus a generated pack, produced by the user
 from their own disks.
+
+---
+
+## 14. Scaling up: framework, tooling and sweeps
+
+**Read [`docs/scaling-plan.md`](scaling-plan.md).** It is the executable version of this
+section: the end goal (a reusable engine library plus sweeps of 20–50 original functions per
+session), the three pillars that make that possible, the tooling to build, the subsystem
+sweep order with exit criteria, the metrics to steer by and the risks.
+
+Short version, because it changes how this project must be worked:
+
+* The asset pipeline is done and provably correct. The bottleneck is now **the cost of one
+  function port**, which is high only because every port is re-derived from anonymous Ghidra
+  C and validated by looking at a frame.
+* Pillar A: a **68000 interpreter in the asset exporter** (`rcmp`) that runs the original
+  function on a fixture and diffs its memory against the C port. Feasible because dshell is a
+  single 137 KB hunk with no indirect jumps and all OS access through the vector table.
+* Pillar B: **machine-readable registry** — `docs/annotations.csv` → generated
+  `docs/functions.csv`, structs → generated `structs.h`, coverage derived from `PORTED:` tags.
+* Pillar C: **engine skeleton** under `core/{sys,mov,gfx,game}` + a fixed six-step port
+  recipe. No new code goes into `main.c`.
+* Sweeps: S0 helpers → S1 state/IO → S2 graphics → S3 finish the display layer (the intro end
+  to end) → S4 narration/UI → S5 adventure shell → S6 arcade games → S7 audio.
+* Every sweep must pass: `rcmp` byte-identical on all touched functions, the emulator frame
+  references, and the existing `verify-pack` / `verify-scene` gates.
