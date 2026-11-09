@@ -14,8 +14,8 @@
 #include "m68k.h"
 #include "machine.h"
 
-#define DEFAULT_ENTRY 0x0000E4u        /* FUN_000000e4, the game entry */
-#define DEFAULT_A4    0x00029A56u
+#define DEFAULT_ENTRY EMU_ENTRY
+#define DEFAULT_A4    EMU_A4
 
 int main(int argc, char **argv)
 {
@@ -39,7 +39,7 @@ int main(int argc, char **argv)
     }
 
     if (!emu_init(&m)) { printf("emu: out of memory\n"); return 1; }
-    if (!emu_load_image(&m, 0, image)) { printf("emu: cannot load %s\n", image); emu_shutdown(&m); return 1; }
+    if (!emu_load_image(&m, EMU_IMAGE_BASE, image)) { printf("emu: cannot load %s\n", image); emu_shutdown(&m); return 1; }
 
     m.trace = trace;
 

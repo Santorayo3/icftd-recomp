@@ -11,6 +11,12 @@
 
 /* Memory map: the flattened dshell image is linked at 0 (A4 = 0x29A56 is baked into the code,
  * so the base must stay 0). The stack sits at 0x80000 and the fake library bases at the top. */
+/* The image is flattened at 0x4000, not 0: address 4 must hold AbsExecBase, and at base 0 the
+ * code hunk overlaps it (the cstart's `movea.l 4.w,a6` would read code). A4 and the entry are
+ * therefore shifted by the same amount from the base-0 values the exporter/Ghidra model uses. */
+#define EMU_IMAGE_BASE   0x00004000u
+#define EMU_ENTRY        0x00004000u
+#define EMU_A4           0x0002DA56u      /* 0x4000 + 0x29A56 */
 #define EMU_RAM_SIZE     0x00100000u
 #define EMU_STACK_TOP    0x00080000u
 #define EMU_LIB_BASE     0x000E0000u
@@ -24,6 +30,7 @@ typedef struct emu_machine
     u16     custom[0x100 / 2];            /* 0xDFF000..0xDFF0FF, raw */
     u32     libraryBase[EMU_LIB_SLOTS];
     int     libraries;
+    u32     imageTop;                     /* first byte past the loaded image */
     long    insns;
     int     trace;
 } emu_machine;
