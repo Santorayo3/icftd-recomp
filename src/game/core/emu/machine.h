@@ -19,12 +19,25 @@
 #define EMU_A4           0x0002DA56u      /* 0x4000 + 0x29A56 */
 #define EMU_RAM_SIZE     0x00100000u
 #define EMU_STACK_TOP    0x00080000u
+#define EMU_EXIT_PC      0x00000200u      /* sentinel return address: the program ended */
 #define EMU_LIB_BASE     0x000E0000u
 #define EMU_LIB_STRIDE   0x00002000u
 #define EMU_LIB_SLOTS    20
 /* Must be smaller than EMU_LIB_STRIDE, or a call is attributed to the wrong library. The
  * deepest LVO the game uses is -576 (FreeColorMap), so 0x1000 is ample. */
 #define EMU_LIB_SPAN     0x00000F00u
+
+#define EMU_MAX_FILES 16
+
+/* One dos.library handle: a host file plus a cursor. Read-only for now; the game only ever
+ * reads its data banks. */
+typedef struct emu_file
+{
+    void *f;                              /* plat_file* */
+    u32   size;
+    u32   pos;
+    u32   addr;                           /* the FileHandle block; dos returns addr>>2 */
+} emu_file;
 
 typedef struct emu_machine
 {
@@ -38,6 +51,9 @@ typedef struct emu_machine
     u32     watch;                        /* PC to report on: dumps the recent PC ring */
     u32     ring[16];                     /* last executed PCs, for --watch */
     int     ringPos;
+    const char *dataDir;                  /* where the extracted disk folders live */
+    emu_file files[EMU_MAX_FILES];        /* dos.library handles */
+    u32     frame;                        /* 50 Hz tick counter */
     long    insns;
     int     trace;
 } emu_machine;

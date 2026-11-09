@@ -66,6 +66,126 @@ unsigned int m68k_read_disassembler_8(unsigned int a)  { return emu_read8(&emu_c
 unsigned int m68k_read_disassembler_16(unsigned int a) { return emu_read16(&emu_current->mem, a); }
 unsigned int m68k_read_disassembler_32(unsigned int a) { return emu_read32(&emu_current->mem, a); }
 
+/* --- host filesystem behind dos.library ---------------------------------------------------- */
+/* The game asks for AmigaDOS names like "Desert1:OPEN". The extracted disk folders on the host
+ * hold exactly those files, so a volume becomes a directory: Desert1 -> <dataDir>\disk1. A real
+ * OFS/FFS reader over the ADFs replaces this later; the shim interface will not change. */
+
+static int emu_volume_index(const char *name)
+{
+    /* "Desert1:" .. "Desert3:" case-insensitively; anything else falls back to a search. */
+    if ((name[0] == 'D' || name[0] == 'd') &&
+        (name[1] == 'E' || name[1] == 'e') &&
+        (name[2] == 'S' || name[2] == 's') &&
+        (name[3] == 'E' || name[3] == 'e') &&
+        (name[4] == 'R' || name[4] == 'r') &&
+        (name[5] == 'T' || name[5] == 't') &&
+        name[6] >= '1' && name[6] <= '3' && (name[7] == ':' || name[7] == '/'))
+        return name[6] - '1';
+    return -1;
+}
+
+static void emu_path_after_volume(const char *name, char *out, int max)
+{
+    const char *p = name;
+    int i = 0;
+
+    while (*p != 0 && *p != ':' && *p != '/') p++;
+    if (*p != 0) p++;
+    while (*p == '/' || *p == '\\') p++;
+    while (*p != 0 && i < max - 1)
+    {
+        char c = *p++;
+        if (c == '/') c = '\\';                 /* AmigaDOS dir separator -> host */
+        out[i++] = c;
+    }
+    out[i] = 0;
+}
+
+static u32 emu_file_open(emu_machine *m, const char *name)
+{
+    char path[256], rel[192];
+    int vol, slot;
+
+    for (slot = 0; slot < EMU_MAX_FILES; slot++)
+        if (m->files[slot].f == 0) break;
+    if (slot >= EMU_MAX_FILES) return 0;
+
+    emu_path_after_volume(name, rel, (int)sizeof(rel));
+    if (rel[0] == 0) return 0;
+
+    vol = emu_volume_index(name);
+    if (vol >= 0)
+        sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
+    else
+        sprintf(path, "%s\\%s", m->dataDir, rel);
+
+    m->files[slot].f = plat_open(path);
+    if (m->files[slot].f == 0 && vol >= 0)
+    {                                           /* the file may sit on another disk */
+        int d;
+        for (d = 1; d <= 3 && m->files[slot].f == 0; d++)
+        {
+            sprintf(path, "%s\\disk%d\\%s", m->dataDir, d, rel);
+            m->files[slot].f = plat_open(path);
+        }
+    }
+    if (m->files[slot].f == 0) return 0;
+
+    m->files[slot].size = plat_size(m->files[slot].f);
+    m->files[slot].pos = 0;
+    /* AmigaDOS hands out BPTRs (address >> 2) and callers may dereference the handle, so give it
+     * a real 44-byte FileHandle block in the heap. */
+    m->files[slot].addr = emu_alloc(44);
+    if (m->files[slot].addr == 0)
+    {
+        plat_close((plat_file *)m->files[slot].f);
+        m->files[slot].f = 0;
+        return 0;
+    }
+    emu_write32(&m->mem, m->files[slot].addr + 0, 0);
+    emu_write32(&m->mem, m->files[slot].addr + 36, 0);   /* fh_Args */
+    emu_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg1 */
+    if (m->trace)
+        printf("     open \"%s\" -> %s (%lu bytes, handle %06lX)\n", name, path,
+               (unsigned long)m->files[slot].size, (unsigned long)m->files[slot].addr);
+    return m->files[slot].addr >> 2;
+}
+
+static emu_file *emu_file_of(emu_machine *m, u32 bptr)
+{
+    u32 addr = bptr << 2;
+    int i;
+
+    if (bptr == 0) return 0;
+    for (i = 0; i < EMU_MAX_FILES; i++)
+        if (m->files[i].f != 0 && m->files[i].addr == addr) return &m->files[i];
+    return 0;
+}
+
+static void emu_file_close(emu_machine *m, u32 fh)
+{
+    emu_file *f = emu_file_of(m, fh);
+    if (f == 0) return;
+    plat_close((plat_file *)f->f);
+    f->f = 0;
+}
+
+static u32 emu_file_read(emu_machine *m, u32 fh, u32 buf, u32 len)
+{
+    emu_file *f = emu_file_of(m, fh);
+    u32 got;
+
+    if (f == 0 || buf == 0 || len == 0) return 0;
+    if (len > f->size - f->pos) len = f->size - f->pos;
+    if (len > 0x8000u) len = 0x8000u;
+    if (len == 0) return 0;
+
+    got = plat_read((plat_file *)f->f, f->pos, m->mem.base + buf, len);
+    f->pos += got;
+    return got;
+}
+
 /* --- library shims ------------------------------------------------------------------------ */
 
 /* LVOs the game uses, from docs\os-calls.csv. Names only, for the trace. */
@@ -320,6 +440,20 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -138:                               /* Permit */
             result = 0;
             break;
+        case -444:                               /* OpenDevice(name, unit, iob, flags) */
+            {
+                char name[64];
+                read_cstr(arg32(sp, 0), name, (int)sizeof(name));
+                if (m->trace) printf("     device \"%s\"\n", name);
+                result = m->libraryBase[5];      /* timer.device */
+            }
+            break;
+        case -450:                               /* CloseDevice */
+            result = 0;
+            break;
+        case -456:                               /* DoIO(iob) - no device timing yet */
+            result = 0;
+            break;
         case -108:                               /* Alert(code) - never returns */
             printf("emu: ALERT 0x%lX - the original halted here\n",
                    (unsigned long)arg32(sp, 0));
@@ -336,16 +470,58 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -60:                                /* Output() */
             result = 0;                          /* file handle 0 = the console */
             break;
+        case -30:                                /* Open(name, mode) */
+            {
+                char name[192];
+                read_cstr(arg32(sp, 0), name, (int)sizeof(name));
+                result = emu_file_open(m, name);
+            }
+            break;
+        case -36:                                /* Close(fh) */
+            emu_file_close(m, arg32(sp, 0));
+            result = 0;
+            break;
+        case -42:                                /* Read(fh, buf, len) */
+            result = emu_file_read(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
+            break;
+        case -48:                                /* Write(fh, buf, len) - never used for output */
+            result = arg32(sp, 2);
+            break;
+        case -66:                                /* Seek(fh, offset, mode) */
+            {
+                emu_file *f = emu_file_of(m, arg32(sp, 0));
+                s32 off = (s32)arg32(sp, 1);
+                s32 mode = (s32)arg32(sp, 2);
+                if (f != 0)
+                {
+                    s32 base = mode == -1 ? (s32)f->size : (mode == 1 ? (s32)f->pos : 0);
+                    s32 np = base + off;
+                    if (np < 0) np = 0;
+                    f->pos = (u32)np;
+                    result = (u32)np;
+                }
+            }
+            break;
         case -126:                               /* CurrentDir(lock) */
             result = 0xFFFFFFFFu;                /* DOSTRUE */
             break;
-        case -84:                                /* Lock(name, mode) - no filesystem yet */
-            result = 0;
+        case -84:                                /* Lock(name, mode) - no directory support yet */
+            result = 1;                          /* a token the game can hand back */
             break;
         case -90:                                /* UnLock */
-        case -36:                                /* Close */
-        case -56:                                /* Close? */
             result = 0;
+            break;
+        case -192:                               /* DateStamp(ds) */
+            {
+                u32 ds = arg32(sp, 0);
+                if (ds != 0)
+                {
+                    emu_write32(&m->mem, ds + 0, 0);
+                    emu_write32(&m->mem, ds + 4, 0);
+                    emu_write32(&m->mem, ds + 8, 0);
+                }
+                result = ds;
+            }
             break;
         default:
             goto unhandled;
@@ -376,6 +552,9 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -564:                               /* FreeCprList */
         case -540:                               /* FreeVPortCopLists */
         case -270:                               /* WaitTOF */
+            m->frame++;                          /* one vblank elapsed */
+            result = 0;
+            break;
         case -228:                               /* WaitBlit */
         case -456:                               /* OwnBlitter */
         case -462:                               /* DisownBlitter */
@@ -523,6 +702,26 @@ int emu_library_of(emu_machine *m, u32 pc, s32 *lvo)
     return -1;
 }
 
+/* Dumps the PC ring with disassembly, for the fail-fast checks below. */
+static void emu_dump_ring(emu_machine *m)
+{
+    char text[128];
+    int k;
+
+    for (k = 0; k < 16; k++)
+    {
+        u32 pc = m->ring[(m->ringPos + k) & 15];
+        if (pc == 0) continue;
+        m68k_disassemble(text, pc, M68K_CPU_TYPE_68000);
+        printf("      %06lx  %s\n", (unsigned long)pc, text);
+    }
+    printf("      A6=%06lx A5=%06lx D0=%08lx D1=%08lx\n",
+           (unsigned long)m68k_get_reg(0, M68K_REG_A6),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A5),
+           (unsigned long)m68k_get_reg(0, M68K_REG_D0),
+           (unsigned long)m68k_get_reg(0, M68K_REG_D1));
+}
+
 u32 emu_run(emu_machine *m, long maxInsns)
 {
     char text[128];
@@ -544,28 +743,24 @@ u32 emu_run(emu_machine *m, long maxInsns)
             printf("\n");
         }
         m->ring[m->ringPos++ & 15] = pc;
+        if (pc == EMU_EXIT_PC)
+        {
+            printf("emu: the program returned, D0=%08lx (frame %lu, %ld instructions)\n",
+                   (unsigned long)m68k_get_reg(0, M68K_REG_D0), (unsigned long)m->frame,
+                   (unsigned long)m->insns);
+            return pc;
+        }
         if ((m68k_get_reg(0, M68K_REG_A7) & 1) != 0 || m68k_get_reg(0, M68K_REG_A7) < 0x1000u)
         {
-            int k;
-            printf("emu: stack pointer went bad (%06lx) at pc %06lx - recent PCs:\n     ",
+            printf("emu: stack pointer went bad (%06lx) at pc %06lx:\n",
                    (unsigned long)m68k_get_reg(0, M68K_REG_A7), (unsigned long)pc);
-            for (k = 0; k < 16; k++)
-                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
-            printf("\n");
+            emu_dump_ring(m);
             return pc;
         }
         if (pc < EMU_IMAGE_BASE)
         {
-            int k;
-            printf("emu: PC ran below the image at %06lx - recent PCs:\n     ",
-                   (unsigned long)pc);
-            for (k = 0; k < 16; k++)
-                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
-            printf("\n      A6=%06lx A5=%06lx A4=%06lx D0=%08lx\n",
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A6),
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A5),
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A4),
-                   (unsigned long)m68k_get_reg(0, M68K_REG_D0));
+            printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
+            emu_dump_ring(m);
             return pc;
         }
         if (emu_library_of(m, pc, &lvo) >= 0)
@@ -601,7 +796,13 @@ void emu_boot(u32 entry, u32 a4)
     m68k_set_cpu_type(M68K_CPU_TYPE_68000);
     m68k_pulse_reset();
     m68k_set_reg(M68K_REG_PC, entry);
-    m68k_set_reg(M68K_REG_A7, EMU_STACK_TOP);
+    m68k_set_reg(M68K_REG_A7, EMU_STACK_TOP - 4);
     m68k_set_reg(M68K_REG_A4, a4);
     m68k_set_reg(M68K_REG_SR, 0x2700);
+    /* The hunk loader would have called us, so leave a return address the program can rts to.
+     * The DOS loader does the same: the entry code ends with `rts`. */
+    emu_current->mem.base[(EMU_STACK_TOP - 4) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 24);
+    emu_current->mem.base[(EMU_STACK_TOP - 3) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 16);
+    emu_current->mem.base[(EMU_STACK_TOP - 2) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 8);
+    emu_current->mem.base[(EMU_STACK_TOP - 1) & 0xFFFFF] = (u8)EMU_EXIT_PC;
 }

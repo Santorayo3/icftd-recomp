@@ -1,0 +1,9 @@
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139): Warning! W131: No prototype found for function 'emu_alloc'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(287): Error! E1062: Inconsistent return type for function 'emu_alloc'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(287): Note! I2003: source conversion type is 'unsigned long'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(287): Note! I2004: target conversion type is 'int'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(287): Note! I2002: 'emu_alloc' defined in: E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139)
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139): Error! E1071: Type of parameter 1 does not agree with previous definition
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139): Note! I2003: source conversion type is 'int'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139): Note! I2004: target conversion type is 'unsigned long'
+E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(139): Note! I2002: 'emu_alloc' defined in: E:\Meine Programme\Unity\Projects\icftd-recomp\src\game\core\emu\machine.c(286)
