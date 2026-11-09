@@ -589,8 +589,8 @@ static int run_intro(const char *pack_path, const char *script_name, const char 
     if (!load_script(&p, script_name, &sc)) return 1;
     if (!mv_start(&p, sc, label)) { printf("no such label: %s\n", label); return 1; }
 
+    gfx_clear(0);          /* the original clears once at startup (FUN_0001d00a), never per frame */
     for (f = 0; f <= to; f++) {
-        if (f > 0) gfx_clear(0);
         mv_tick();
         if (f < from) continue;
         sprintf(out, "%s%04d.bmp", prefix, (int)f);
@@ -673,8 +673,8 @@ static int run_start_frames(const char *pack_path, s32 from, s32 to, const char 
     if (!mv_start(&p, sc, START_LABEL)) { printf("no such label: %s\n", START_LABEL); return 1; }
     intro_start();
 
+    gfx_clear(0);          /* the original clears once at startup (FUN_0001d00a), never per frame */
     for (f = 0; f <= to; f++) {
-        if (f > 0) gfx_clear(0);
         if (intro_tick(0) && !over) {
             over = 1;
             printf("intro: finished at frame %d\n", (int)intro_frame());

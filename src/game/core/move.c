@@ -283,6 +283,7 @@ static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
 static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
 {
     s32 dx, dy, scale, rows, i, j;
+    s32 zero = 0;
 
     if (n->px == NULLP) return;
     dx = ((base_x + n->x + 0x8000) >> 16) - n->hot_x;
@@ -290,11 +291,11 @@ static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
     scale = n->vscale == 0 ? 1 : (n->vscale < 0 ? -n->vscale : n->vscale);
     rows = n->src_h / scale;
 
-    Tracef("f%d draw a=%d name=%s dst=%d,%d src=%d,%d size=%dx%d scale=%d ch=%08lX",
+    Tracef("f%d draw a=%d name=%s dst=%d,%d src=%d,%d size=%dx%d scale=%d ch=%08lX key=%d pl=%d",
            (int)frame_count, (int)n->asset,
            (n->asset >= 0 && script != NULLP) ? script->asset[n->asset].name : "-",
            (int)dx, (int)dy, (int)n->src_x, (int)n->src_y, (int)n->src_w, (int)rows,
-           (int)scale, (unsigned long)n->channel);
+           (int)scale, (unsigned long)n->channel, (int)n->key, (int)n->planes);
 
     for (j = 0; j < rows; j++)
     {
@@ -305,15 +306,20 @@ static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
         {
             s32 pxx = dx + i;
             s32 sx = n->src_x + i;
-            u8  sp;
+            u8  sp, out;
             if (pxx < 0 || pxx >= gfx_w || sx < 0 || sx >= n->w) continue;
             sp = n->px[sy * n->w + sx];
             /* Move_DrawNode blits minterm 0xCA through bitmap->maskSource: transparent
              * pixels are not written at all. */
             if (sp == n->key) continue;
-            gfx_fb[py * gfx_w + pxx] = ChannelBlend(sp, gfx_fb[py * gfx_w + pxx], n->channel, n->planes);
+            out = ChannelBlend(sp, gfx_fb[py * gfx_w + pxx], n->channel, n->planes);
+            if (out == 0) zero++;
+            gfx_fb[py * gfx_w + pxx] = out;
         }
     }
+    if (zero != 0)
+        Tracef("f%d zero a=%d n=%d rows=%d,%d", (int)frame_count, (int)n->asset, (int)zero,
+               (int)dy, (int)(dy + rows - 1));
 }
 
 /* ------------------------------------------------------------- the script --- */
