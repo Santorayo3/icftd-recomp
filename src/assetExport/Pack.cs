@@ -22,7 +22,7 @@ namespace ICFTD.AmigaExport;
 internal static class Pack
 {
     public const uint Magic = 0x50464349;      // 'I','C','F','P'
-    public const ushort Version = 1;
+    public const ushort Version = 2;
 
     public const byte TypePicture = 1;
     public const byte TypePalette = 2;
@@ -186,7 +186,7 @@ internal static class Pack
 
     static byte[] PicturePayload(Sms.Picture pic, int palId)
     {
-        var d = new byte[12 + pic.Indices.Length];
+        var d = new byte[20 + pic.Indices.Length];
         d[0] = (byte)(pic.Width >> 8); d[1] = (byte)pic.Width;
         d[2] = (byte)(pic.Height >> 8); d[3] = (byte)pic.Height;
         d[4] = (byte)(palId >> 8); d[5] = (byte)palId;
@@ -195,7 +195,12 @@ internal static class Pack
         /* hot spot, as the SMS header words at +12/+14: FUN_0001DBD0 subtracts it */
         d[8] = (byte)(pic.HotX >> 8); d[9] = (byte)pic.HotX;
         d[10] = (byte)(pic.HotY >> 8); d[11] = (byte)pic.HotY;
-        Buffer.BlockCopy(pic.Indices, 0, d, 12, pic.Indices.Length);
+        /* Sms_Load stores the key word at bitmap+6 (the blitter mask is built from it)
+         * and the plane channel at bitmap+0x34 (the node's default channel). */
+        d[12] = (byte)(pic.Key >> 8); d[13] = (byte)pic.Key;
+        d[14] = (byte)(pic.Channel >> 24); d[15] = (byte)(pic.Channel >> 16);
+        d[16] = (byte)(pic.Channel >> 8); d[17] = (byte)pic.Channel;
+        Buffer.BlockCopy(pic.Indices, 0, d, 20, pic.Indices.Length);
         return d;
     }
 

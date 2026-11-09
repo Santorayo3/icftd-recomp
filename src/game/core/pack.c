@@ -36,7 +36,8 @@ u32 pak_open(pak *p, const char *path)
     if (plat_size(p->file) < 0x18) { pak_close(p); return 0; }
     if (plat_read(p->file, 0, header, 0x18) != 0x18) { pak_close(p); return 0; }
     if (le32(header) != PAK_MAGIC) { pak_close(p); return 0; }
-    if (le16(header + 4) != 1) { pak_close(p); return 0; }
+    /* v2 added the picture key and channel; a v1 pack would render wrong, so it is refused. */
+    if (le16(header + 4) != 2) { pak_close(p); return 0; }
 
     p->count = le16(header + 6);
     entries_at = le32(header + 8);
@@ -178,9 +179,9 @@ u32 pak_read(const pak *p, s32 index, void *dst, u32 len)
 
 u32 pic_header(const pak *p, s32 index, pic_hdr *hdr)
 {
-    u8 raw[12];
+    u8 raw[PIC_HDR_BYTES];
     if (hdr == NULLP || pak_type(p, index) != PAK_PICTURE) return 0;
-    if (pak_read(p, index, raw, 12) != 12) return 0;
+    if (pak_read(p, index, raw, PIC_HDR_BYTES) != PIC_HDR_BYTES) return 0;
     hdr->w = (u16)((raw[0] << 8) | raw[1]);
     hdr->h = (u16)((raw[2] << 8) | raw[3]);
     hdr->palette = (u16)((raw[4] << 8) | raw[5]);
@@ -188,6 +189,9 @@ u32 pic_header(const pak *p, s32 index, pic_hdr *hdr)
     hdr->flags = raw[7];
     hdr->hot_x = (s16)((raw[8] << 8) | raw[9]);
     hdr->hot_y = (s16)((raw[10] << 8) | raw[11]);
+    hdr->key = (u16)((raw[12] << 8) | raw[13]);
+    hdr->channel = ((u32)raw[14] << 24) | ((u32)raw[15] << 16) |
+                   ((u32)raw[16] << 8) | (u32)raw[17];
     return 1;
 }
 
@@ -197,7 +201,7 @@ u32 pic_pixels(const pak *p, s32 index, const pic_hdr *hdr, u8 *dst, u32 len)
     if (hdr == NULLP || dst == NULLP) return 0;
     need = (u32)hdr->w * (u32)hdr->h;
     if (need > len) need = len;
-    return plat_read(p->file, p->entries[index].offset + 12, dst, need);
+    return plat_read(p->file, p->entries[index].offset + PIC_HDR_BYTES, dst, need);
 }
 
 u32 pic_rows(const pak *p, s32 index, const pic_hdr *hdr, u32 first_row, u32 rows,
@@ -209,7 +213,8 @@ u32 pic_rows(const pak *p, s32 index, const pic_hdr *hdr, u32 first_row, u32 row
     need = (u32)hdr->w * rows;
     if (need > len) { rows = len / hdr->w; need = (u32)hdr->w * rows; }
     if (rows == 0) return 0;
-    return plat_read(p->file, p->entries[index].offset + 12 + (u32)hdr->w * first_row,
+    return plat_read(p->file,
+                     p->entries[index].offset + PIC_HDR_BYTES + (u32)hdr->w * first_row,
                      dst, need);
 }
 

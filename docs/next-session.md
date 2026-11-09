@@ -56,15 +56,15 @@ an *interpreter* reason, so the interpreter is no longer the bottleneck. The two
    parent; through MAIN the node y is 2, so the engine draws it at 46 - exactly what the WinUAE
    capture shows. The lesson is in the data: always play the label through its driver.
    What replaces it as the next visual task is the mask/channel model below.
-4. **The mask/channel model** (the next visual task, half a session). `Move_DrawNode` blits with
-   minterm 0xCA through `bitmap->maskSource` and a channel already folded with
-   `g_planeOrMask[g_screenDepth] | channel & g_planeAndMask[g_screenDepth]`, so a picture is
-   only written where the mask says so and only on the planes it has. The port now skips the
-   transparent colour (key 0) and limits the blend to `min(depth, picture planes)`, which
-   removed the flat beige panel from the IT logo, but overlapping layers are still wrong (the
-   frame at 455 keeps an orange surround and a black lower third). Ground truth to fetch: the
-   Amiga art loader that builds `move_bitmap` (maskSource + per-plane tables at `+0x38`) - not
-   `Move_DrawNode`, which is already transcribed faithfully.
+4. **The mask/channel model is solved** - see `docs\drawing-model.md`. Ground truth: `Sms_Load`
+   (0x1EC42, reached from the picture loader through vector slot 98) copies the SMS header's
+   key word (+18) to `bitmap+6` and its channel (+20) to `bitmap+0x34`; `FUN_0001d5ce` builds
+   the 1-bit mask lazily with the Amiga blitter (`FUN_0001e504`), opaque where colour != key;
+   `Move_DrawNode` blits minterm 0xCA with it. The pack now carries both fields (version 2),
+   and the purple panels / beige box in the intro and end screens are gone.
+   Still to verify per scene: whether `g_planeOrMask/AndMask[depth]` does more than limit the
+   planes to `min(depth, picture planes)` - every frame checked so far agrees with the simpler
+   rule.
 5. **Annotation pass for the globals** (one session, mostly curation). The worklist is now
    `rleaf out\leaves.txt --os-basic --reads --ledger out\leaf-ledger.csv` then
    `tools\global-heat.ps1`, which ranks engine-state words by how many functions read and

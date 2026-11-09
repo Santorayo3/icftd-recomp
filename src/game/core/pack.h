@@ -73,9 +73,14 @@ typedef struct {
     u8  planes;
     u8  flags;
     s16 hot_x, hot_y; /* subtracted from the object's position, like the record's +12/+14 */
+    u16 key;          /* transparent colour: Sms_Load stores it at bitmap + 6 */
+    u32 channel;      /* default plane channel: Sms_Load stores it at bitmap + 0x34 */
 } pic_hdr;
 
-/* Reads the 8-byte picture header. Returns 0 on failure or a type mismatch. */
+#define PIC_HDR_BYTES 20u
+
+/* Reads the picture header. Returns 0 on failure, a type mismatch or a pack written
+ * before the key/channel fields existed (rebuild it with --convert). */
 u32 pic_header(const pak *p, s32 index, pic_hdr *hdr);
 
 /* Reads the pixel bytes of a picture (w*h, one byte per pixel) into dst. */

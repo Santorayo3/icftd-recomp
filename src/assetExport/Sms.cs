@@ -46,6 +46,8 @@ internal static class Sms
     {
         public int Width, Height, Planes, Colours;
         public int HotX, HotY;                         /* header words at +12 / +14 */
+        public int Key;                                /* header word at +18: transparent colour */
+        public uint Channel;                           /* header long at +20: default plane channel */
         public byte[] Indices = Array.Empty<byte>();
         public byte[] Palette = Array.Empty<byte>();   // 3 bytes per colour, nibble << 4
         public byte[] Planes8Bit = Array.Empty<byte>();
@@ -76,8 +78,7 @@ internal static class Sms
         int palFlag = Be16(rec, 24);
         bool hasPalette = (palFlag & 0xFF00) != 0;
         var sb = new System.Text.StringBuilder();
-        sb.Append($"{w}x{h} planes={planes} mask={mask:X8} palFlag={palFlag:X4} ");
-        sb.Append(hasPalette ? "palette " : "no palette ");
+        sb.Append($"{w}x{h} planes={planes} mask={mask:X8} palFlag={palFlag:X4} ");        sb.Append($" key={Be16(rec, 18)}");        sb.Append(hasPalette ? "palette " : "no palette ");
         int stored = 0;
         for (int i = 0; i < planes && i < 8; i++)
         {
@@ -109,6 +110,8 @@ internal static class Sms
         var pic = new Picture { Width = w, Height = h, Planes = planes, Indices = new byte[w * h] };
         pic.HotX = (short)Be16(rec, 12);
         pic.HotY = (short)Be16(rec, 14);
+        pic.Key = Be16(rec, 18);
+        pic.Channel = (uint)Be32(rec, 20);
 
         // Palette: 32 colours of 3 bytes, each component in the high nibble of its byte.
         if (hasPalette)

@@ -310,10 +310,9 @@ static mv_node *NewNode(void)
     n->asset = -1;
     n->pic = -1;
     n->vscale = 1;
-    /* Straight copy until op 0x10 says otherwise: the loader sets this per picture
-     * (move_bitmap + 0x34), the pack does not carry it, and 0x88888888 would mean
-     * "keep the destination", i.e. draw nothing. */
-    n->channel = 0x76543210u;
+    /* LoadPicture replaces these with the picture's own key and channel (Sms_Load puts
+     * them at bitmap+6 and bitmap+0x34); this is only the state before a picture exists. */
+    n->channel = 0x88888888u;
     return n;
 }
 
@@ -335,6 +334,8 @@ static void LoadPicture(mv_node *n)
     n->src_w = n->w;
     n->src_h = n->h;
     n->planes = hdr.planes ? (s32)hdr.planes : 5;
+    n->key = (u8)hdr.key;
+    n->channel = hdr.channel;
     n->hot_x = (s32)hdr.hot_x;
     n->hot_y = (s32)hdr.hot_y;
 }
