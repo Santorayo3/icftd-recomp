@@ -168,7 +168,12 @@ static u32 emu_alloc(u32 bytes)
     bytes = (bytes + 7u) & ~7u;
     p = heapTop;
     heapTop = (heapTop + bytes + 7u) & ~7u;
-    if (heapTop > EMU_HEAP_TOP) return 0;
+    if (heapTop > EMU_HEAP_TOP)
+    {
+        printf("emu: heap exhausted asking for %lu bytes (top %06lX)\n",
+               (unsigned long)bytes, (unsigned long)(heapTop - bytes));
+        return 0;
+    }
     return p;
 }
 
@@ -333,6 +338,74 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -36:                                /* Close */
         case -56:                                /* Close? */
             result = 0;
+            break;
+        default:
+            goto unhandled;
+        }
+    }
+    else if (lib == 1)                           /* graphics.library */
+    {
+        switch (lvo)
+        {
+        case -360:                               /* InitView(view) */
+        case -204:                               /* InitVPort(vp) */
+        case -390:                               /* InitBitMap(bm, depth, w, h) */
+        case -198:                               /* InitRastPort(rp) */
+        case -282:                               /* InitArea */
+        case -468:                               /* InitTmpRas */
+        case -342:                               /* SetAPen */
+        case -366:                               /* CBump */
+        case -240:                               /* Move */
+        case -246:                               /* Draw */
+        case -252:                               /* AreaMove */
+        case -258:                               /* AreaDraw */
+        case -264:                               /* AreaEnd */
+        case -306:                               /* RectFill */
+        case -300:                               /* BltClear */
+        case -30:                                /* BltBitMap */
+        case -216:                               /* MakeVPort */
+        case -210:                               /* MrgCop */
+        case -564:                               /* FreeCprList */
+        case -540:                               /* FreeVPortCopLists */
+        case -270:                               /* WaitTOF */
+        case -228:                               /* WaitBlit */
+        case -456:                               /* OwnBlitter */
+        case -462:                               /* DisownBlitter */
+        case -576:                               /* FreeColorMap */
+            result = 0;
+            break;
+        case -570:                               /* GetColorMap(entries) */
+            {
+                int n = (int)arg32(sp, 0);
+                u32 cm, table;
+                if (n <= 0 || n > 256) n = 32;
+                cm = emu_alloc(20);              /* Node(14) + Flags + Count + Table */
+                table = emu_alloc((u32)n * 4u);
+                emu_write8(&m->mem, cm + 14, 0);
+                emu_write8(&m->mem, cm + 15, (u8)n);
+                emu_write32(&m->mem, cm + 16, table);
+                result = cm;
+                if (m->trace)
+                    printf("     colormap %d entries at %06lX table %06lX\n", n,
+                           (unsigned long)cm, (unsigned long)table);
+            }
+            break;
+        case -222:                               /* LoadView(view) */
+            {
+                u32 v = arg32(sp, 0);
+                u32 vp, k;
+                m->view = v;
+                vp = emu_read32(&m->mem, v);
+                if (m->trace)
+                {
+                    printf("emu: LoadView view=%06lX vp=%06lX\n",
+                           (unsigned long)v, (unsigned long)vp);
+                    for (k = 0; k < 14; k++)
+                        printf("     vp+%02lX = %08lX\n", (unsigned long)(k * 4),
+                               (unsigned long)emu_read32(&m->mem, vp + k * 4));
+                }
+                result = 0;
+            }
             break;
         default:
             goto unhandled;

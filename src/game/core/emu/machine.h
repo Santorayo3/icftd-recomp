@@ -22,7 +22,9 @@
 #define EMU_LIB_BASE     0x000E0000u
 #define EMU_LIB_STRIDE   0x00002000u
 #define EMU_LIB_SLOTS    16
-#define EMU_LIB_SPAN     0x00010000u      /* a call may land up to 64 KB below its base */
+/* Must be smaller than EMU_LIB_STRIDE, or a call is attributed to the wrong library. The
+ * deepest LVO the game uses is -576 (FreeColorMap), so 0x1000 is ample. */
+#define EMU_LIB_SPAN     0x00000F00u
 
 typedef struct emu_machine
 {
@@ -32,6 +34,7 @@ typedef struct emu_machine
     int     libraries;
     u32     imageTop;                     /* first byte past the loaded image */
     u32     signals;                      /* next signal number handed out */
+    u32     view;                         /* last View passed to LoadView */
     long    insns;
     int     trace;
 } emu_machine;
