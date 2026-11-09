@@ -279,58 +279,11 @@ static u8 ChannelBlend(u8 src, u8 dst, u32 channel, s32 planes)
     return out;
 }
 
-/* The intro's sky is not a picture. `SkyT.win` is an empty 320x72 placeholder and the palette
- * (main.pal) carries a ramp at entries 16..31 (dark purple #330044 to yellow #ffdd77). The
- * original leaves a flat fill in that rectangle and rewrites the colour per scanline band from
- * its copper list, which is why a capture shows a stepped ramp with a one-line dither.
- *
- * The module that builds that list lives in OPEN, which is not decompiled yet, so the shape
- * below is measured from the reference capture (out\cap-early-320): mapping every sky row to
- * its nearest palette entry gives a constant 16 down to row 31, then 16,17,...,23 over the next
- * ~42 rows of the 72-row rectangle, alternating between neighbours every other line. Rows
- * above are the same fill with clouds drawn over them. */
-static void DrawCopperSky(const mv_node *n, s32 dx, s32 dy)
-{
-    s32 rows = n->src_h, i, j;
-    s32 start, span;
-
-    if (rows <= 0) rows = n->h;
-    start = rows * 43 / 100;
-    span = rows * 58 / 100;
-    if (span <= 0) span = 1;
-    for (j = 0; j < rows; j++)
-    {
-        s32 py = dy + j;
-        s32 step, idx;
-        if (py < 0 || py >= gfx_h) continue;
-        step = j < start ? 0 : ((j - start) * 8) / span;
-        if (step > 7) step = 7;
-        if (step < 7 && (py & 1)) step++;          /* the copper's one-line dither */
-        idx = 16 + step;
-        for (i = 0; i < n->src_w; i++)
-        {
-            s32 pxx = dx + i;
-            if (pxx < 0 || pxx >= gfx_w) continue;
-            gfx_fb[py * gfx_w + pxx] = (u8)idx;
-        }
-    }
-}
-
 /* PORTED: 0001dbd0 - place one node: screen position from the 16.16 base, then blend it */
 static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
 {
     s32 dx, dy, scale, rows, i, j;
 
-    if (n->px == NULLP && n->h > 0)
-    {
-        /* an empty placeholder marks a copper-gradient area instead of drawing pixels */
-        dx = ((base_x + n->x + 0x8000) >> 16) - n->hot_x;
-        dy = ((base_y + n->y + 0x8000) >> 16) - n->hot_y;
-        Tracef("f%d sky a=%d dst=%d,%d h=%d", (int)frame_count, (int)n->asset, (int)dx, (int)dy,
-               (int)n->h);
-        DrawCopperSky(n, dx, dy);
-        return;
-    }
     if (n->px == NULLP) return;
     dx = ((base_x + n->x + 0x8000) >> 16) - n->hot_x;
     dy = ((base_y + n->y + 0x8000) >> 16) - n->hot_y;
@@ -382,18 +335,11 @@ static mv_node *NewNode(void)
 static void LoadPicture(mv_node *n)
 {
     pic_hdr hdr;
+    u32 want;
 
     if (n->pic < 0 || !pic_header(rt_pack, n->pic, &hdr)) return;
     n->w = (s32)hdr.w;
     n->h = (s32)hdr.h;
-    n->px = (u8 *)plat_alloc((u32)(n->w * n->h) + 4u);
-    if (n->px == NULLP) return;
-    if (pic_pixels(rt_pack, n->pic, &hdr, n->px, (u32)(n->w * n->h)) != (u32)(n->w * n->h))
-    {
-        plat_free(n->px);
-        n->px = NULLP;
-        return;
-    }
     n->src_w = n->w;
     n->src_h = n->h;
     n->planes = hdr.planes ? (s32)hdr.planes : 5;
@@ -401,6 +347,16 @@ static void LoadPicture(mv_node *n)
     n->channel = hdr.channel;
     n->hot_x = (s32)hdr.hot_x;
     n->hot_y = (s32)hdr.hot_y;
+
+    want = (u32)(n->w * n->h);
+    n->px = (u8 *)plat_alloc(want + 4u);
+    if (n->px == NULLP) return;
+    memset(n->px, 0, want);
+    /* A record may carry no pixel data at all - SkyT.win is a 320x72, 3-plane record whose
+     * planes are all zero. Sms_Load still yields a full bitmap there, and the channel is what
+     * makes it visible (planes 0..3 forced to 0, plane 4 to 1), so a short decode is not an
+     * error: the missing bytes stay zero. */
+    pic_pixels(rt_pack, n->pic, &hdr, n->px, want);
 }
 
 /* Children are identified by asset *and* the command's flag byte: the scripts put a second

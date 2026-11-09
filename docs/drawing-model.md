@@ -43,17 +43,27 @@ brightness pulse over an already-drawn picture. Bounding the loop by the picture
 "opaque where colour != key", limited to the picture's planes. `key = 15` on `IT.win` is the
 orange frame around the title, `key = 4` on `SkyT.win`, `key = 0` on most sprite art.
 
-**3. The sky is a copper gradient, not a picture.** `SkyT.win` is an empty 320x72 record (26
-bytes of header, no pixel data) - it only marks the rectangle. `main.pal` carries a ramp at
-entries 16..31 (`#330044` `#440055` `#550055` `#660055` `#770044` `#880033` `#990033` `#990022`
-`#aa0000` `#bb1100` `#cc3300` `#ee4433` `#ff6633` `#ff8844` `#ffaa77` `#ffdd77`), and the
-original rewrites the colour once per scanline band from a copper list. Mapping every sky row of
-a reference frame to its nearest palette entry recovers the list: constant 16 down to row 31,
-then 16,17,...,23 over the next ~42 rows of the 72-row rectangle, alternating between
-neighbours every second line. `DrawCopperSky` reproduces that with indices from the same palette,
-so no per-scanline palette is needed. The ramp above is measured from `out\cap-early-320`; the
-code that drives it is in dshell, not in a separate module - see `docs/code-inventory.md`
-(OPEN is a resource bank and holds no code).
+**3. The sky is two pictures, not a copper gradient.** The `Sky` label of `!OPN` spawns exactly
+two children (no palette command anywhere in it):
+
+| node | picture | w x h | planes | channel from `op 10` | result |
+|---|---|---|---|---|---|
+| `SkyT.win` | 27 bytes, **all three planes zero** | 320x72 | 3 | `888DCCCC` | planes 0..3 forced 0, plane 4 forced 1 -> flat index **16** |
+| `SkyB.win` | 2446 bytes, dithered art | 320x34 | 3 | `888D3210` | planes 0..2 from the picture, plane 3 (`3` -> no such plane) and plane 4 (`D`) forced 1 -> indices **24..31** |
+
+`SkyT` therefore paints a flat `#330044` rectangle and `SkyB` paints the dithered orange ramp
+over its lower third; the "copper gradient" was an artefact of reading a capture. The port now
+runs both through the ordinary channel blit, and the row histogram of the rendered `Sky` label
+matches the table above (flat 16, then 24/25, 25/26, ..., 31 with a two-line dither).
+
+Corollary for the loader: a picture record may carry **no pixel data at all**. `Sms_Load` still
+yields a full `w x h` bitmap with zeroed planes, and the channel is what makes it visible, so a
+short decode is not an error - `LoadPicture` zero-fills and keeps the record.
+
+Open question for later: for a *forced* plane the original's blitter path sets `BLTCON0 = 0xB00
+| 0xCA` (USEC off) with `A` = the mask and `BLTBDAT` = the constant, i.e. the forced value is
+`mask & constant` rather than "the whole rectangle". Over art whose mask is all-ones (the sky)
+the two readings agree; over a sprite with holes they do not. Left as is until a case turns up.
 
 ## The frame loop (`FUN_0001d2c6`, called from `FUN_0001d3a2`)
 
