@@ -59,6 +59,31 @@ while (1) {
 So: walk, flip, count - one step per vblank (50 Hz), and the display shows the *previous*
 frame because of the double buffer (`DAT_00026612` / `DAT_0002660e` swap every frame).
 
+## Measured timing (reference capture, 2026-11-09)
+
+`tools\winuae-capture.ps1` (the config now renders **320x256**, so a grab is already the game's
+own pixel grid) plus `tools\capture-frames.ps1 -Crop 0,0,320,200` and `tools\cap-timeline.ps1`
+give a brightness profile of the real intro. Comparing it with our own 1200-frame render:
+
+| event | original | port | script frame |
+|---|---|---|---|
+| logo first appears | 40.0 s | 0.4 s | 20 |
+| desert backdrop at full brightness | 43.5 s | 4.1 s | ~171-204 |
+| fade to black | 74.3 s | 9.8 s | 448 + 40 |
+| Load Game screen | 78.0 s | - | - |
+
+The **early pacing matches**: logo -> desert is 3.54 s in the original and 3.68 s in the port,
+i.e. 171 script frames at ~48 Hz. One MovE step per vblank is right.
+
+The **later phases do not**: the original takes 34.3 s from the logo to black, the port 9.4 s.
+The script frames are identical (448), so the original is running at roughly **10 Hz** there.
+The MovE loop is one iteration per vblank *only if it can keep up*, and with the full desert,
+the cloud panning and the palette work a 7 MHz A500 cannot. Our software renderer is much
+faster, so it advances one script frame per 20 ms and the cinematic plays ~3.7x too fast.
+
+Reproducing that faithfully needs a cost model for the blitter (the hardware-model pillar).
+Until then `move.c` paces at 50 Hz: correct for the light phases, too fast for the heavy ones.
+
 ## Consequences for the port
 
 * `pack.h`'s `pic_hdr` carries `key` and `channel` (`PIC_HDR_BYTES` 20); the pack is version 2

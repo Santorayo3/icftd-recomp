@@ -59,6 +59,15 @@ try {
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
     Get-ChildItem -LiteralPath $OutDir -Filter 'f*.png' | Remove-Item -Force -ErrorAction SilentlyContinue
 
+    # A leftover instance makes the new one exit immediately and leaves a window nobody owns,
+    # so the capture waits on a process that is already gone. Always start from zero.
+    $strays = @(Get-Process winuae64 -ErrorAction SilentlyContinue)
+    if ($strays.Count -gt 0) {
+        "killing $($strays.Count) stray winuae64 instance(s)"
+        $strays | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+
     "starting $exe -f `"$cfg`""
     $proc = Start-Process -FilePath $exe -ArgumentList @('-f', "`"$cfg`"") -PassThru
 
@@ -129,6 +138,15 @@ try {
     $centre = @{ X = $box.X + [int]($box.W / 2); Y = $box.Y + [int]($box.H / 2) }
 
     while ($sw.ElapsedMilliseconds -lt $DurationMs) {
+        # The emulator quitting on its own (a crash, or a stray instance stealing the window)
+        # must end the capture cleanly: the task has to return, so this is not an exception.
+        $proc.Refresh()
+        if ($proc.HasExited) {
+            "winuae64 exited on its own after $($sw.ElapsedMilliseconds) ms (code $($proc.ExitCode))"
+            $manifest.Add("$n,$($sw.ElapsedMilliseconds),,exited")
+            break
+        }
+
         $t = [int]$sw.ElapsedMilliseconds
         $event = ''
 
@@ -172,6 +190,21 @@ try {
     }
 }
 finally {
-    if ($proc -and -not $NoKill -and -not $proc.HasExited) { try { $proc.Kill() } catch { } }
+    # Always leave the machine as we found it: this script owns the emulator while it runs.
+    # WinUAE can re-spawn itself (it restarts the process on some display/config changes), so a
+    # single kill is not enough - sweep by image name until nothing is left.
+    if (-not $NoKill) {
+        if ($proc -and -not $proc.HasExited) { try { $proc.Kill() } catch { } }
+        for ($i = 0; $i -lt 20; $i++) {
+            $left = @(Get-Process winuae64 -ErrorAction SilentlyContinue)
+            if ($left.Count -eq 0) { break }
+            if ($i -eq 0) { "killing $($left.Count) winuae64 instance(s) left behind" }
+            & taskkill.exe /F /T /IM winuae64.exe 2>&1 | Out-Null
+            Start-Sleep -Milliseconds 250
+        }
+        $still = @(Get-Process winuae64 -ErrorAction SilentlyContinue)
+        if ($still.Count -gt 0) { "WARNING: $($still.Count) winuae64 instance(s) survived the kill" }
+        elseif ($proc) { "winuae64 closed" }
+    }
     Pop-Location
 }

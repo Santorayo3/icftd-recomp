@@ -74,12 +74,13 @@ $lines.Add('gfx_fullscreen_amiga=false')
 # the emulator folder, which garbles both the visible picture and desktop grabs.
 $lines.Add('gfx_display=0')
 $lines.Add('gfx_display_rtg=0')
-# Fixed window size, so a grab is always the same 720x568 rectangle (the game area sits at
-# x 58..697, y 88..487 - see tools\ref-frame.ps1).
-$lines.Add('gfx_width=720')
-$lines.Add('gfx_height=568')
-$lines.Add('gfx_width_windowed=720')
-$lines.Add('gfx_height_windowed=568')
+# Native PAL window (320x256 = the whole visible Amiga frame). Rendering at 1:1 means a grab is
+# already the game's own pixel grid, so a reference frame needs no rescaling - only the 320x200
+# game area has to be cropped out of it (tools\capture-frames.ps1 -Crop).
+$lines.Add('gfx_width=320')
+$lines.Add('gfx_height=256')
+$lines.Add('gfx_width_windowed=320')
+$lines.Add('gfx_height_windowed=256')
 $lines.Add('gfx_x_windowed=200')
 $lines.Add('gfx_y_windowed=150')
 $lines.Add('gfx_correct_aspect=false')
