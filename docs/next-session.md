@@ -38,6 +38,15 @@ an *interpreter* reason, so the interpreter is no longer the bottleneck. The two
    Also found and fixed: AmigaDOS is case-insensitive (`LandBack.win` vs `landback.win`,
    `Main.pal` vs `main.pal`), so `pak_find` now folds case - 46 of 50 assets resolved before,
    50 of 50 now.
+   Correction to a commit message: `Desert1/OPEN/!LOS`, `!WIN` and `!WN2` are the *lose/win
+   end sequences* (their labels are `BringInEnd`/`CreditUnit`, the art is `TheE.win` = "The
+   End" and `Credits.win`), not the Load Game screen. They render now; the frame at 20 shows the
+   ant, the landscape, the banner and scrolling credits, with purple panels where a picture's
+   transparent index is not 0 - the same mask/model gap as above.
+   **The Load Game screen is not a MovE script in the pack** (the pack's 108 scripts are listed
+   by `--movelist`), so it belongs to the `OPEN` module's own code, which has never been
+   analysed. Reaching it means decompiling `OPEN` (a separate Amiga hunk executable) or
+   modelling that UI directly.
 
 1. ~~`ref\manifest.csv` + `tools\verify-frames.ps1`~~ **Done** — five data rows now (room,
    scene, logo, intro-logo trace, intro-main trace), `verify-scene.ps1` is a wrapper.
