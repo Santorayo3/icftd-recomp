@@ -908,6 +908,7 @@ static void usage(void)
            "  icftd.exe --compose <pack> <out.bmp> <palette|-> <name,x,y,key> ...\n"
            "  icftd.exe --intro <pack> <script> <label> <from> <to> <outPrefix>\n"
            "  icftd.exe --play [pack] [script] [label]   play a MovE label in the window\n"
+           "  ... --intro/--play also take --trace <file>: one text line per event\n"
            "  icftd.exe --gfx-test <out.bmp>\n"
            "  icftd.exe --match <ref.bmp> [pack] [tolerance]\n"
            "  icftd.exe --demo              M0 demo (palette ramp)\n");
@@ -916,7 +917,12 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     int rc;
+    const char *trace_path = NULLP;
+    int i;
 
+    /* --trace <file> is a modifier, so it may sit anywhere after the mode. */
+    for (i = 1; i + 1 < argc; i++)
+        if (strcmp(argv[i], "--trace") == 0) { trace_path = argv[i + 1]; break; }
     /* Assets live outside the repository, so they are resolved (and decoded on a
      * fresh install) before the window opens. */
     if (argc > 1 && strcmp(argv[1], "--convert") == 0)
@@ -926,6 +932,7 @@ int main(int argc, char **argv)
 
     if (!plat_init("It Came from the Desert - recomp")) return 1;
     gfx_init(plat_framebuffer(), SCREEN_W, SCREEN_H);
+    mv_trace_open(trace_path);
 
     if (argc > 1 && strcmp(argv[1], "--browse") == 0)
         rc = run_browse(argc > 2 ? argv[2] : assets_pack_path());
@@ -958,5 +965,6 @@ int main(int argc, char **argv)
     }
 
     plat_shutdown();
+    mv_trace_close();
     return rc;
 }

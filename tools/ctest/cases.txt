@@ -1,0 +1,10 @@
+# Cases the C port can replay: original address -> fixture -> optional random ranges.
+#
+#   addr      fixture                              random (hex addr:len, empty = fixed input)
+#
+# The third column names fields to fill from --seed. Only put fields there where every value
+# is a legal input: randomising a pointer or a loop counter turns the case into a runaway.
+0001a47c  ref/fixtures/0001a47c-neg.json  0x60004:0x2
+00020810  ref/fixtures/00020810-strcpy.json
+00020820  ref/fixtures/00020820-strlen.json
+000208a4  ref/fixtures/000208a4-memset.json  0x6000b:0x1

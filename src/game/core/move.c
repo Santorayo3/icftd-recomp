@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "types.h"
 #include "platform.h"
@@ -51,14 +52,57 @@ static u8  pal_rgb[MV_PAL_COLOURS * 3];
 static s32 frozen;                         /* DAT_00026740 */
 static s32 screen_depth = 5;               /* DAT_0002C10A */
 static s32 trace;                          /* MV_TRACE=1 in the environment */
+static FILE *trace_fp;                     /* --trace <file> in the command line */
 static mv_node *root;
 static mv_script *script;
 static pak *rt_pack;
 static s32 frame_count;
 
+/* ---------------------------------------------------------------- trace ---- */
+/* One event per line, "f<frame> <kind> key=value ...", no pointers and no addresses, so
+ * two runs (and two builds) can be diffed with any text tool.  tools\trace-diff.ps1 knows
+ * the kinds; tools\verify-frames.ps1 compares a trace row byte for byte. */
+
+static void Tracef(const char *fmt, ...)
+{
+    va_list ap;
+    if (trace_fp == NULLP) return;
+    va_start(ap, fmt);
+    vfprintf(trace_fp, fmt, ap);
+    va_end(ap);
+    fputc('\n', trace_fp);
+}
+
+void mv_trace_open(const char *path)
+{
+    if (path == NULLP) return;
+    if (trace_fp != NULLP) fclose(trace_fp);
+    trace_fp = fopen(path, "w");
+    if (trace_fp == NULLP) { printf("cannot write trace '%s'\n", path); return; }
+    fprintf(trace_fp, "# icftd move trace v1\n");
+}
+
+void mv_trace_close(void)
+{
+    if (trace_fp == NULLP) return;
+    fclose(trace_fp);
+    trace_fp = NULLP;
+}
+
+void mv_trace_note(const char *text) { Tracef("%s", text); }
+
+/* FNV-1a over the 32 published RGB triples: one number per frame instead of 96. */
+static u32 PaletteHash(void)
+{
+    u32 h = 2166136261UL, i;
+    for (i = 0; i < (u32)sizeof pal_rgb; i++) { h ^= pal_rgb[i]; h *= 16777619UL; }
+    return h;
+}
+
 /* ---------------------------------------------------------------- helpers ---- */
 
 static u16 Be16(const u8 *d, u32 o) { return (u16)((d[o] << 8) | d[o + 1]); }
+
 static u32 Be32(const u8 *d, u32 o)
 {
     return ((u32)d[o] << 24) | ((u32)d[o + 1] << 16) | ((u32)d[o + 2] << 8) | d[o + 3];
@@ -112,6 +156,8 @@ static void PaletteFromAsset(s32 index, u16 *dst)
         printf("  pal from entry %d (%s): %d colours, first %02X%02X%02X %02X%02X%02X\n",
                (int)index, index >= 0 ? pak_name(rt_pack, index) : "-", (int)n,
                buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+    Tracef("f%d palsrc entry=%d name=%s n=%d", (int)frame_count, (int)index,
+           index >= 0 ? pak_name(rt_pack, index) : "-", (int)n);
 }
 
 /* FUN_0001D8F4: delta = (live - target) / frames. */
@@ -211,6 +257,12 @@ static void DrawNode(const mv_node *n, s32 base_x, s32 base_y)
     dy = ((base_y + n->y + 0x8000) >> 16) - n->hot_y;
     scale = n->vscale == 0 ? 1 : (n->vscale < 0 ? -n->vscale : n->vscale);
     rows = n->src_h / scale;
+
+    Tracef("f%d draw a=%d name=%s dst=%d,%d src=%d,%d size=%dx%d scale=%d ch=%08lX",
+           (int)frame_count, (int)n->asset,
+           (n->asset >= 0 && script != NULLP) ? script->asset[n->asset].name : "-",
+           (int)dx, (int)dy, (int)n->src_x, (int)n->src_y, (int)n->src_w, (int)rows,
+           (int)scale, (unsigned long)n->channel);
 
     for (j = 0; j < rows; j++)
     {
@@ -322,6 +374,10 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         printf("  f%d op %02X asset %d p1 %08X p2 %08X\n",
                (int)frame_count, (unsigned)c->opcode, (int)c->asset,
                (unsigned)c->p1, (unsigned)c->p2);
+    Tracef("f%d cmd label=%s a=%d op=%02X p1=%08lX p2=%08lX p3=%08lX",
+           (int)frame_count, self->label != NULLP ? self->label->name : "-", (int)c->asset,
+           (unsigned)c->opcode, (unsigned long)c->p1, (unsigned long)c->p2,
+           (unsigned long)c->p3);
 
     switch (c->opcode)
     {
@@ -567,6 +623,8 @@ int mv_start(pak *p, mv_script *s, const char *labelName)
     if (root == NULLP) return 0;
     root->label = &s->label[l];
     frame_count = 0;
+    Tracef("start label=%s assets=%d labels=%d", s->label[l].name,
+           (int)s->assetCount, (int)s->labelCount);
     return 1;
 }
 
@@ -582,6 +640,9 @@ void mv_tick(void)
     Walk(root, 0, 0);
     PaletteApply();
     if (fade_armed) FadeStep();
+    Tracef("f%d end depth=%d fade=%d armed=%d pal=%08lX",
+           (int)frame_count, (int)screen_depth, (int)fade_frames, (int)fade_armed,
+           (unsigned long)PaletteHash());
     frame_count++;
 }
 

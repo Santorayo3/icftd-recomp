@@ -24,6 +24,12 @@ internal static class Program
 
         switch (cmd)
         {
+            case "rcmp":
+                return Cpu68k.Harness.Rcmp(args);
+            case "rrun":
+                return Cpu68k.Harness.Rrun(args);
+            case "rleaf":
+                return Cpu68k.Harness.Rleaf(args);
             case "export":
             {
                 string diskDir = args[1], outDir = args[2];
@@ -203,9 +209,23 @@ internal static class Program
                 Console.WriteLine($"{Path.GetFileName(args[4])}: {new FileInfo(args[4]).Length} bytes ({args[2]})");
                 return 0;
             }
-            case "smsinfo":
+            case "smsfile":
             {
-                // <bank> <record...>: how the engine's loader reads these records.
+                // <recordFile>: decode a bare SMS record, one plane per line, for fixture diffs.
+                byte[] rec = File.ReadAllBytes(args[1]);
+                var pic = Sms.Decode(rec) ?? throw new Exception($"{args[1]}: not a decodable SMS record");
+                Console.WriteLine($"{Path.GetFileName(args[1])}  {Sms.Describe(rec)}");
+                Console.WriteLine($"rowBytes {Sms.RowBytes(pic.Width)} colours {pic.Colours}");
+                int rowBytes = Sms.RowBytes(pic.Width);
+                for (int p = 0; p < pic.Planes8Bit.Length / (rowBytes * pic.Height); p++)
+                {
+                    var plane = pic.Planes8Bit.AsSpan(p * rowBytes * pic.Height, rowBytes * pic.Height);
+                    Console.WriteLine($"plane{p} {Convert.ToHexString(plane).ToLowerInvariant()}");
+                }
+                return 0;
+            }
+            case "smsinfo":
+            {                // <bank> <record...>: how the engine's loader reads these records.
                 var bank = new ResBank(File.ReadAllBytes(args[1]));
                 foreach (string name in args.Skip(2))
                 {

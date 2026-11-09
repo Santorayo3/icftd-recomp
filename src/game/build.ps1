@@ -56,7 +56,7 @@ $env:Path = (Join-Path $WatcomHome 'binnt64') + ';' + $env:Path
 
 function Q([string]$p) { '"' + $p + '"' }
 
-$srcsCore = @('main.c', 'assets.c', 'gfx.c', 'pack.c', 'move.c', 'amiga\graphics.c', 'amiga\blitter.c') | ForEach-Object { Q (Join-Path $core $_) }
+$srcsCore = @('main.c', 'assets.c', 'gfx.c', 'pack.c', 'move.c', 'sys\helpers.c', 'amiga\graphics.c', 'amiga\blitter.c') | ForEach-Object { Q (Join-Path $core $_) }
 
 function Invoke-Target([string]$name, [string[]]$cmd, [string]$outDir) {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
@@ -64,11 +64,15 @@ function Invoke-Target([string]$name, [string[]]$cmd, [string]$outDir) {
     Write-Host "=== $name ==="
     Write-Host ($cmd -join ' ')
     Push-Location $outDir
+    # Watcom writes warnings to stderr; with 'Stop' PowerShell would turn those into a
+    # terminating error even though the build succeeded. Judge by the exit code instead.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
-        & $cmd[0] @($cmd[1..($cmd.Count - 1)])
+        & $cmd[0] @($cmd[1..($cmd.Count - 1)]) 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "$name build failed with exit code $LASTEXITCODE" }
     }
-    finally { Pop-Location }
+    finally { $ErrorActionPreference = $prevEap; Pop-Location }
 }
 
 # The game decodes the user's disks itself, so it needs the exporter as a plain exe
@@ -89,9 +93,12 @@ function Publish-Converter([string]$dest) {
     }
     Write-Host ""
     Write-Host "=== asset exporter ==="
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & dotnet publish (Join-Path $src 'ICFTD.AmigaExport.csproj') -c Release -r win-x64 `
         --self-contained true -p:PublishSingleFile=true -p:AssemblyName=icftd-export `
-        -p:DebugType=none -o (Split-Path -Parent $dest) --nologo -v:q
+        -p:DebugType=none -o (Split-Path -Parent $dest) --nologo -v:q 2>&1 | Out-Host
+    $ErrorActionPreference = $prevEap
     if ($LASTEXITCODE -ne 0) { throw "publishing the asset exporter failed" }
     Write-Host "-> $dest"
 }

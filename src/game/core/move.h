@@ -87,4 +87,10 @@ const u8 *mv_palette(void);
 
 void mv_report(void);
 
+/* Text trace of a run (--trace): one line per command, draw, palette load and frame, no
+ * addresses, so two runs diff as plain text. */
+void mv_trace_open(const char *path);
+void mv_trace_close(void);
+void mv_trace_note(const char *text);
+
 #endif

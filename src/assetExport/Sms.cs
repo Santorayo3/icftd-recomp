@@ -198,6 +198,7 @@ internal static class Sms
                 }
                 pic.Indices[py * w + px] = (byte)v;
             }
+        pic.Planes8Bit = bits[..total];   // packed planes, as the engine lays them out in memory
         return pic;
     }
 

@@ -4,6 +4,11 @@
 time": the goal is a reusable engine library plus the tooling that lets us sweep whole
 subsystems, 20–50 original functions per session, with automatic verification.*
 
+> **Scope decision (2026-11-09): the recomp targets win32 only.** The DOS build stays in the
+> tree and is still the second reference for game *rules*, but no new code is written for
+> 16-bit, and `tools\gate.ps1` builds win32 only unless `-WithDos` is passed. `types.h` keeps
+> its fixed-width rules so the option stays cheap.
+
 ---
 
 ## 14.1 Where we are, honestly
@@ -126,22 +131,36 @@ sessions.
    disassembly)*: bytes/functions ported, names, and a "port these next" queue that lists
    unported leaf functions, smallest first.
 2. **`src/assetExport/Cpu68k/` + `rcmp`** — the interpreter and the differential runner.
-   Validate it on the S0 leaves (hand-computed results + the fixtures of functions whose
-   output we can already see in the emulator).
-3. **`docs/annotations.csv` + `tools/structs.ps1`** — seeded with what we already know:
+   **Done 2026-11-09** (`docs/harness.md`): 4 hand-checked leaves, `Move_CreateNode` on three
+   list paths, `Sms_Load` byte-identical on 680 plane bytes, and a 395-function sweep in 3 s.
+   The C-side replay now exists too (`tools\ctest` + `tools\port-diff.ps1`), so a port is
+   checked by diff instead of by eye.
+3. **`docs/annotations.csv` + `tools/structs.ps1`** — seeded with what we already know: the
    picture struct, object/display-list node, the four palette arrays, MovE label and command.
-   Emits `docs/structs.md` and `core/game/structs.h`.
-   *(half done: `docs/annotations.csv` + `docs/structs.csv` exist and are applied by
-   `run-ghidra.ps1 -Annotated`; the C-header emitter is still missing)*
+   Emits `docs/structs.md` and `core/game/structs.h`. **Done**: `docs/annotations.csv` +
+   `docs/structs.csv` are applied by `run-ghidra.ps1 -Annotated`, and `tools\structs.ps1`
+   generates `src\game\core\structs.h` (exact 68k padding) + `docs\structs.md`. What is
+   missing is *volume*: 3 structs / 30 fields today, against 3,437 typed accesses in the
+   model.
 4. **`ref/manifest.csv` + `tools/verify-frames.ps1`** — generalise `verify-scene.ps1`:
    `scene, script, label, frame, reference.bmp, tolerance` rows, so every new scene becomes
-   one line of data instead of a new script.
+   one line of data instead of a new script. **Done 2026-11-09**: `ref\manifest.csv` holds
+   `name,args,reference,maxdiff` with the full command line (`{pack}`/`{out}` placeholders)
+   and three rows (room, scene, logo); `verify-scene.ps1` is a wrapper around it.
 5. **`--trace` / `--trace-diff` in the recomp** — per frame log of objects (asset, position,
    channel mask, vscale), executed commands and palette writes. When a frame mismatches this
-   answers "why" in seconds instead of a debugging session.
+   answers "why" in seconds. **Done 2026-11-09**: `--trace <file>` writes `start` / `cmd` /
+   `palsrc` / `draw` / `end` lines with no addresses, `tools\trace-diff.ps1` explains a
+   mismatch, and `kind=trace` manifest rows gate a whole animation as one exact row.
 6. **Ghidra export hook** (`tools/ghidra/`) — dump renamed functions/structs from the project
    so `annotations.csv` can be seeded and merged instead of typed from scratch.
    *(done: `ExportModel.java` + `FieldMap.java` + `tools/fieldmap.ps1`, see `docs/model.md`)*
+7. **`tools/ctest` + `tools/port-diff.ps1`** — the C-side replay of a fixture and the diff
+   against the interpreter. **Done 2026-11-09**; adding a case = one adapter in `cases.c` plus
+   a line in `cases.txt`.
+8. **`tools/gate.ps1`** — one command that runs every gate (builds, interpreter fixtures,
+   port diff, asset gates) in ~33 s and writes `out\gate-summary.txt`. **Done**, and the port
+   diff now runs 20 random seeds per randomised case (52 comparisons) inside the gate.
 
 ### 14.4.1 Making Ghidra earn its keep
 
@@ -193,11 +212,14 @@ Detail, column meanings and caveats: `docs/model.md`.
 
 ## 14.5 Metrics to steer by
 
-* **code coverage**: ported bytes / 121 424 (today ≈ 2 %). Target: 25 % after S0–S2,
-  60 % after S4, 100 % excluding audio at S7.
-* **test coverage**: functions with a passing `rcmp` fixture (today 0 %). Target: 100 % of
-  ported functions — no exceptions, that is what makes sweeps safe.
-* **reference coverage**: scene × frame pairs that are frame-exact against WinUAE.
+* **code coverage**: ported bytes / 121 362 (today 6 functions of the helper set, 11 with the
+  MovE layer). Target: 25 % after S0–S2, 60 % after S4, 100 % excluding audio at S7.
+* **test coverage**: functions replayable through `tools\port-diff.ps1` (today 4 of the 6
+  helper ports). Target: every ported function that is structurally faithful gets an adapter.
+* **interpreter reach**: 380 of 395 leaf candidates return under `--os-basic`, 6 fail with a
+  named reason (`docs\port-ledger.csv`). This is the number to watch when adding opcodes or
+  models — it is the ceiling on what a sweep can verify.
+* **reference coverage**: scene × frame pairs that are frame-exact against WinUAE (3 today).
 * **velocity**: functions per session. Today ≈ 3–5; the framework should make 20–50 normal.
 
 ## 14.6 Risks and how they are handled
@@ -225,3 +247,43 @@ Detail, column meanings and caveats: `docs/model.md`.
 
 After that: **S0 in one sweep**, then S1, then finish S3 (the intro end-to-end) as the visible
 milestone.
+
+## 14.8 State and decisions at the end of 2026-11-09
+
+**Framework, as built.** `tools\gate.ps1` is the single definition of green: exporter build,
+win32 build + exporter publish, `ctest` build, the interpreter fixture set, the port-vs-original
+diff, `verify-pack` and `verify-scene` � 7 steps, ~26 s, PASS/FAIL table in
+`out\gate-summary.txt`. The differential loop is closed: `rcmp --dump/--emit-raw` produces the
+original's result and a binary fixture, `tools\ctest` replays it through the C port, and
+`tools\port-diff.ps1` compares D0-D7/A0-A6/changed memory. An adapter in `tools\ctest\cases.c`
+is the per-function proof of the calling convention; without one, the port is not diffable.
+
+**What the sweep now says** (`rleaf --os-basic`, 395 leaf candidates, ~3 s):
+
+| verdict | count | what it means for the plan |
+|---|---|---|
+| pure | 168 | cheapest ports, but most touch *unnamed globals* on other paths |
+| state | 154 | need the A4 globals named before they can be ported meaningfully |
+| HW | 38 | need a custom-chip model before a port can even be compared |
+| os | 20 | pure once `AllocMem`/`FreeMem`/`Forbid` are modelled |
+| budget / ERR | 15 | 2 line-F handlers, 2 divide-by-zero fixtures, 1 ABCD, 1 runaway, 9 fragments |
+
+Only 6 of 395 fail with a named *interpreter* reason, so the interpreter is no longer the
+bottleneck. The two real bottlenecks are (a) **unnamed engine state** (322 functions write or
+read the data hunk) and (b) **hardware** (38 functions).
+
+**Decision recorded, not taken: interpreter-led vs port-led.** With library stubs, a
+VBL/interrupt pump and the custom-chip registers modelled, the same interpreter could run the
+*whole original game* as a pixel-exact oracle, and ports could then replace subsystems one at a
+time with every frame checked. That is emulator work (blitter, copper, sprites, Paula, dos/
+graphics calls) � comparable to one or two full sweeps, but it front-loads risk and makes every
+later port trivially verifiable. The alternative remains the current port-led sweep order. The
+next session should choose deliberately rather than drift into one.
+
+**Next three items, in order.**
+1. `ref\manifest.csv` + `tools\verify-frames.ps1` � turn the 3 hard-coded frame checks into
+   data rows, so every scene added later is one line and one gate step.
+2. `--trace` in the recomp � per-frame object/command/palette log; without it a frame mismatch
+   costs a debugging session instead of a diff.
+3. Annotation pass over the globals the ledger names (322 functions), then resume S0/S1 in
+   volume with `port-diff` adapters as the acceptance test.
