@@ -1,5 +1,7 @@
 /* Musashi hooks + run loop. The 68000 core itself is third_party\musashi (MIT). */
 #include "machine.h"
+#include "blit.h"
+#include "gfx.h"
 #include "platform.h"
 #include "m68k.h"
 
@@ -8,20 +10,70 @@
 
 emu_machine *emu_current = 0;
 
+/* The first few out-of-range CPU accesses, with the PC that made them: a garbage pointer shows up
+ * as millions of them, and only the address alone does not say who read it. */
+static int cpuBadLogged;
+static void note_bad(u32 a, u32 pc)
+{
+    if (cpuBadLogged >= 8) return;
+    cpuBadLogged++;
+    printf("emu: cpu access %08lX at pc %06lX (A2=%06lX A3=%06lX A4=%06lX)\n",
+           (unsigned long)a, (unsigned long)pc,
+           (unsigned long)m68k_get_reg(0, M68K_REG_A2),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A3),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A4));
+}
+
+static int ram_has(u32 a) { return emu_current != 0 && a < emu_current->mem.size; }
+
 /* --- Musashi memory interface ------------------------------------------------------------- */
 
 unsigned int m68k_read_memory_8(unsigned int a)
 {
+    a &= 0xFFFFFFu;
+    /* CIA-A port A: bit 7 is /FIRE, active low, and the rest are unused inputs that float high.
+     * FUN_00011BF0 polls this bit and the intro tick treats "pressed" as "skip the intro", so
+     * reading 0 here made every run jump to the end of the cinematic on frame 0. */
+    if (a == 0xBFE001u)
+    {
+        if (emu_current)
+        {
+            emu_current->firePolls++;
+            if ((emu_current->firePolls % 50000u) == 0u)
+                printf("emu: /FIRE poll %lu at pc %06lX (down %u, frame %lu)\n",
+                       (unsigned long)emu_current->firePolls,
+                       (unsigned long)m68k_get_reg(0, M68K_REG_PC),
+                       (unsigned)emu_current->fireDown, (unsigned long)emu_current->frame);
+        }
+        return 0x7Fu | (emu_current->fireDown != 0 ? 0u : 0x80u);
+    }
+    if (a >= 0xDFF000u && a < 0xDFF100u) return emu_current->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
     return emu_read8(&emu_current->mem, a);
 }
 
 unsigned int m68k_read_memory_16(unsigned int a)
 {
+    a &= 0xFFFFFFu;
+    /* The chipset area is modelled as a register file: reads give back the last write. Without
+     * this every JOY0DAT/AUDxPT poll counted as a memory fault, which is where the "accesses
+     * outside the RAM block" noise came from. */
+    /* The joystick and pot inputs are active low and read all-ones when nothing is plugged in.
+     * Returning the last write (zero) told the intro that up, down, left, right and both buttons
+     * were held for the whole run, and its input/menu loop never settled. */
+    if (a == 0xDFF00Cu || a == 0xDFF00Eu) return 0xFFFFu;    /* JOY0DAT / JOY1DAT */
+    if (a == 0xDFF016u) return 0xFFFFu;                      /* POTINP */
+    if (a >= 0xDFF000u && a < 0xDFF100u) return emu_current->custom[(a - 0xDFF000u) >> 1];
+    if (!ram_has(a + 1u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
     return emu_read16(&emu_current->mem, a);
 }
 
 unsigned int m68k_read_memory_32(unsigned int a)
 {
+    a &= 0xFFFFFFu;
+    if (a >= 0xDFF000u && a < 0xDFF0FCu)
+        return ((u32)emu_current->custom[(a - 0xDFF000u) >> 1] << 16) |
+               (u32)emu_current->custom[(a + 2 - 0xDFF000u) >> 1];
+    if (!ram_has(a + 3u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
     return emu_read32(&emu_current->mem, a);
 }
 
@@ -41,7 +93,13 @@ void m68k_write_memory_16(unsigned int a, unsigned int v)
     a &= 0xFFFFFFu;
     if (a >= 0xDFF000u && a < 0xDFF100u)
     {
-        emu_current->custom[(a - 0xDFF000u) >> 1] = (u16)v;
+        if (emu_current->dffLog && emu_current->dffSeen < 64)
+        {
+            emu_current->dffSeen++;
+            printf("     dff+%03lX = %04lX at pc %06lx\n", (unsigned long)(a - 0xDFF000u),
+                   (unsigned long)(v & 0xFFFFu), (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+        }
+        emu_custom_write16(emu_current, (u16)(a - 0xDFF000u), (u16)v);
         return;
     }
     emu_write16(&emu_current->mem, a, v);
@@ -52,12 +110,16 @@ void m68k_write_memory_32(unsigned int a, unsigned int v)
     a &= 0xFFFFFFu;
     if (a >= 0xDFF000u && a < 0xDFF100u)
     {
-        emu_current->custom[(a - 0xDFF000u) >> 1] = (u16)(v >> 16);
-        emu_current->custom[(a + 2 - 0xDFF000u) >> 1] = (u16)v;
+        emu_custom_write16(emu_current, (u16)(a - 0xDFF000u), (u16)(v >> 16));
+        emu_custom_write16(emu_current, (u16)(a + 2u - 0xDFF000u), (u16)v);
         return;
     }
     emu_write32(&emu_current->mem, a, v);
 }
+
+/* Temporary probe: 0xBED00000 appears nowhere in the image and nowhere in our shims, so catching
+ * the store that puts it in memory names the routine that corrupts the move node list. Defined
+ * after the ring dumper so it can print the call chain. */
 
 /* --- machine ------------------------------------------------------------------------------ */
 
@@ -101,6 +163,13 @@ static void emu_path_after_volume(const char *name, char *out, int max)
     }
     out[i] = 0;
 }
+
+static u32 emu_alloc(u32 bytes);
+static void emu_dump_call_site(emu_machine *m, u32 target);
+static void emu_add_server(emu_machine *m, u32 code, u32 data);
+static void emu_remove_server(emu_machine *m, u32 code);
+static void emu_tick(emu_machine *m);
+static void emu_request_vblank(emu_machine *m);
 
 static u32 emu_file_open(emu_machine *m, const char *name)
 {
@@ -146,9 +215,9 @@ static u32 emu_file_open(emu_machine *m, const char *name)
     emu_write32(&m->mem, m->files[slot].addr + 0, 0);
     emu_write32(&m->mem, m->files[slot].addr + 36, 0);   /* fh_Args */
     emu_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg1 */
-    if (m->trace)
-        printf("     open \"%s\" -> %s (%lu bytes, handle %06lX)\n", name, path,
-               (unsigned long)m->files[slot].size, (unsigned long)m->files[slot].addr);
+    /* Few files are opened, and "which file did the game try to read" is the first question for
+     * every new scene, so this reports unconditionally. */
+    printf("emu: open \"%s\" -> %s (%lu bytes)\n", name, path, (unsigned long)m->files[slot].size);
     return m->files[slot].addr >> 2;
 }
 
@@ -223,11 +292,23 @@ static const char *lvo_name(s32 lvo)
 
 /* Bump allocator for AllocMem, above the image and below the stack. */
 #define EMU_HEAP_BASE 0x00040000u
-#define EMU_HEAP_TOP  0x0007F000u
+#define EMU_HEAP_TOP  0x0017C000u     /* EMU_SYS_BASE: the exec structures live above */
 static u32 heapTop;
 
-/* A fake exec task structure, so FindTask has something non-null to return. */
-#define EMU_TASK_ADDR 0x0002F000u
+/* The launched Process. dshell is started from a shell - the disk's HDesert script is just
+ * `assign` lines and then `dshell` with no arguments - so what FindTask(0) returns must be a
+ * DOS-launched Process with pr_CLI set. With pr_CLI zero the cstart (FUN_00020992) takes the
+ * Workbench branch: WaitPort on pr_MsgPort for a WBStartup, then FUN_00020d02
+ * OpenLibrary("icon.library")/GetDiskObjectNew to open the tool window. The shipped game never
+ * takes that path, and the structures it would need do not exist in the image.
+ *
+ * Layout as this cstart reads it (FUN_00020aca): the CLI BPTR is the long at Process+0xAC, and
+ * the whole command line is cli_CommandName (CLI+0x10), a BSTR: length byte, then the text.
+ * argv is built from the text after the command name. */
+#define EMU_CLI_ADDR     (EMU_SYS_BASE + 0x100u)      /* struct CommandLineInterface */
+#define EMU_CMDLINE_ADDR (EMU_SYS_BASE + 0x140u)      /* BSTR "dshell" */
+#define EMU_ARGS_ADDR    (EMU_SYS_BASE + 0x180u)      /* the argument tail: empty */
+#define EMU_LIB_CIAARES  14               /* libraryName[] slot */
 
 /* Counts per-lvo so the trace only prints a name once. */
 static long lvoSeen[64];
@@ -277,6 +358,39 @@ static u32 arg32(u32 sp, int n)
     return emu_read32(&emu_current->mem, sp + 4 + (u32)n * 4);
 }
 
+static void write_cstr(u32 addr, const char *s)
+{
+    while (*s != 0) emu_write8(&emu_current->mem, addr++, (u8)*s++);
+    emu_write8(&emu_current->mem, addr, 0);
+}
+
+/* Builds the Process that FindTask(0) returns, plus the CLI record the cstart reads. See the
+ * comment at EMU_CLI_ADDR for why this is the CLI and not the Workbench form. */
+static void emu_build_process(emu_machine *m)
+{    u32 proc = EMU_TASK_ADDR;
+    u32 port = proc + 0x5Cu;                 /* struct Process: Task, then pr_MsgPort */
+    u32 msgList = port + 0x14u;
+    const char *name = "dshell";
+
+    emu_write8(&m->mem, proc + 8, 13);                 /* ln_Type = NT_PROCESS */
+    emu_write8(&m->mem, proc + 0x0F, 2);               /* tc_State = TS_RUN */
+    emu_write8(&m->mem, port + 8, 4);                  /* pr_MsgPort.ln_Type = NT_MSGPORT */
+    emu_write8(&m->mem, port + 0x0E, 2);               /* mp_Flags = PA_SIGNAL */
+    emu_write8(&m->mem, port + 0x0F, (u8)(m->signals++));  /* mp_SigBit */
+    emu_write32(&m->mem, port + 0x10, proc);           /* mp_SigTask */
+    emu_write32(&m->mem, msgList, msgList);            /* empty List */
+    emu_write32(&m->mem, msgList + 8, msgList);        /* lh_TailPred */
+
+    emu_write8(&m->mem, EMU_CMDLINE_ADDR, 6);          /* BSTR: length byte, then "dshell" */
+    write_cstr(EMU_CMDLINE_ADDR + 1u, name);
+
+    emu_write32(&m->mem, EMU_CLI_ADDR + 0x10,
+                (EMU_CMDLINE_ADDR + 4u) >> 2);         /* cli_CommandName (BPTR) */
+    emu_write8(&m->mem, EMU_CLI_ADDR + 0x14, 20);      /* cli_FailLevel */
+    emu_write32(&m->mem, proc + 0xAC, (EMU_CLI_ADDR + 4u) >> 2);   /* pr_CLI */
+    emu_write8(&m->mem, EMU_ARGS_ADDR, 0);             /* no arguments */
+}
+
 /* --- exec structures ---------------------------------------------------------------------- */
 /* List is 14 bytes (head, tail, tailpred, type, pad); Node is 14 bytes; MsgPort is a Node plus
  * mp_Flags, mp_SigBit, mp_SigTask and the 14-byte message List - 34 bytes in all. */
@@ -295,7 +409,14 @@ static u32 emu_alloc(u32 bytes)
                (unsigned long)bytes, (unsigned long)(heapTop - bytes));
         return 0;
     }
+    memset(emu_current->mem.base + p, 0, bytes);
     return p;
+}
+
+/* Public form for the graphics shim (MrgCop's copper list). */
+u32 emu_alloc_bytes(u32 bytes)
+{
+    return emu_alloc(bytes);
 }
 
 static void emu_new_list(emu_machine *m, u32 a)
@@ -356,6 +477,7 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
     u32 sp = m68k_get_reg(0, M68K_REG_A7);
     u32 ret = emu_read32(&m->mem, sp);
     u32 result = 0;
+    int waitFrame = 0;             /* set by WaitTOF/WaitBOVP, acted on after the call returns */
     int i;
 
     i = (int)(-lvo / 6) % 64;
@@ -429,26 +551,63 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -498:                               /* OpenResource(name, version) */
             {
                 char name[64];
+                int idx;
                 read_cstr(arg32(sp, 0), name, (int)sizeof(name));
-                if (m->trace) printf("     resource \"%s\"\n", name);
-                result = m->libraryBase[EMU_LIB_RESOURCE];
+                idx = library_index_of(name);
+                if (idx < 0) idx = EMU_LIB_RESOURCE;
+                if (m->trace) printf("     resource \"%s\" -> %s\n", name, libraryName[idx]);
+                result = m->libraryBase[idx];
             }
             break;
-        case -168:                               /* AddIntServer */
-        case -174:                               /* RemIntServer */
+        case -168:                               /* AddIntServer(number, interrupt) */
+            {
+                u32 intr = arg32(sp, 1);
+                if (intr != 0)
+                    emu_add_server(m, emu_read32(&m->mem, intr + 0x12),
+                                   emu_read32(&m->mem, intr + 0x0E));
+                if (m->trace)
+                    printf("     AddIntServer %ld interrupt %06lX\n",
+                           (long)arg32(sp, 0), (unsigned long)intr);
+            }
+            result = 0;
+            break;
+        case -174:                               /* RemIntServer(number, interrupt) */
+            {
+                u32 intr = arg32(sp, 1);
+                if (intr != 0) emu_remove_server(m, emu_read32(&m->mem, intr + 0x12));
+                if (m->trace)
+                    printf("     RemIntServer %ld interrupt %06lX\n",
+                           (long)arg32(sp, 0), (unsigned long)intr);
+            }
+            result = 0;
+            break;
         case -132:                               /* Forbid */
         case -138:                               /* Permit */
             result = 0;
             break;
         case -444:                               /* OpenDevice(name, unit, iob, flags) */
             {
+                /* Returns 0 on success and fills io_Device (IORequest+0x14); a non-zero result
+                 * is an error. FUN_0001E292 tests it and aborts the whole game when it is set,
+                 * which is how the original was exiting with 20. */
                 char name[64];
+                u32 iob = arg32(sp, 2);
+                int idx;
                 read_cstr(arg32(sp, 0), name, (int)sizeof(name));
-                if (m->trace) printf("     device \"%s\"\n", name);
-                result = m->libraryBase[5];      /* timer.device */
+                idx = library_index_of(name);
+                if (idx < 0) idx = EMU_LIB_RESOURCE;
+                if (iob != 0) emu_write32(&m->mem, iob + 0x14, m->libraryBase[idx]);
+                if (m->trace)
+                    printf("     device \"%s\" unit %ld iob %06lX -> %s\n", name,
+                           (long)arg32(sp, 1), (unsigned long)iob, libraryName[idx]);
             }
+            result = 0;
             break;
-        case -450:                               /* CloseDevice */
+        case -450:                               /* CloseDevice(iob) */
+            {
+                u32 iob = arg32(sp, 0);
+                if (iob != 0) emu_write32(&m->mem, iob + 0x14, 0);
+            }
             result = 0;
             break;
         case -456:                               /* DoIO(iob) - no device timing yet */
@@ -475,6 +634,9 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
                 char name[192];
                 read_cstr(arg32(sp, 0), name, (int)sizeof(name));
                 result = emu_file_open(m, name);
+                if (m->dosLog)
+                    printf("     dos.Open(\"%s\",%ld) = %06lX\n", name, (long)arg32(sp, 1),
+                           (unsigned long)result);
             }
             break;
         case -36:                                /* Close(fh) */
@@ -483,22 +645,49 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
             break;
         case -42:                                /* Read(fh, buf, len) */
             result = emu_file_read(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
+            if (m->dosLog)
+                printf("     dos.Read(%06lX,%06lX,%lu) = %lu (pos %lu)\n",
+                       (unsigned long)arg32(sp, 0), (unsigned long)arg32(sp, 1),
+                       (unsigned long)arg32(sp, 2), (unsigned long)result,
+                       (unsigned long)(emu_file_of(m, arg32(sp, 0)) != 0
+                                          ? emu_file_of(m, arg32(sp, 0))->pos : 0));
             break;
-        case -48:                                /* Write(fh, buf, len) - never used for output */
-            result = arg32(sp, 2);
+        case -48:                                /* Write(fh, buf, len) */
+            {
+                /* The game prints its own diagnostics here ("Can't allocate animation bitmaps"
+                 * and friends), so passing them through is the cheapest way to hear what the
+                 * original is complaining about. */
+                u32 buf = arg32(sp, 1);
+                u32 len = arg32(sp, 2);
+                u32 k;
+                for (k = 0; k < len; k++)
+                {
+                    u8 ch = (u8)emu_read8(&m->mem, buf + k);
+                    if (ch == 0) break;
+                    putchar((int)ch);
+                }
+                result = len;
+            }
             break;
-        case -66:                                /* Seek(fh, offset, mode) */
+        case -66:                                /* Seek(fh, offset, offsetMode) */
             {
                 emu_file *f = emu_file_of(m, arg32(sp, 0));
                 s32 off = (s32)arg32(sp, 1);
                 s32 mode = (s32)arg32(sp, 2);
                 if (f != 0)
                 {
-                    s32 base = mode == -1 ? (s32)f->size : (mode == 1 ? (s32)f->pos : 0);
+                    /* AmigaDOS offset modes: -1 = from the start (SEEK_SET), 0 = from the current
+                     * position (SEEK_CUR), 1 = from the end (SEEK_END). Getting 0 and -1 the wrong
+                     * way round silently sends every bank record read past EOF, which is how the
+                     * MovE script lookup failed with no error path to show for it. */
+                    s32 base = (mode < 0) ? 0 : (mode == 0 ? (s32)f->pos : (s32)f->size);
                     s32 np = base + off;
                     if (np < 0) np = 0;
                     f->pos = (u32)np;
                     result = (u32)np;
+                    if (m->dosLog)
+                        printf("     dos.Seek(%06lX,%ld,%ld) = %ld\n", (unsigned long)arg32(sp, 0),
+                               (long)off, (long)mode, (long)result);
                 }
             }
             break;
@@ -531,28 +720,107 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
     {
         switch (lvo)
         {
+        case -390:                               /* InitBitMap(bm, depth, w, h) */
+            emu_gfx_init_bitmap(m, arg32(sp, 0), (int)arg32(sp, 1), (int)arg32(sp, 2),
+                                (int)arg32(sp, 3));
+            result = 0;
+            break;
+        case -30:                                /* BltBitMap */
+            if (m->progress)
+                printf("     BltBitMap src %06lX (%ld,%ld) dst %06lX (%ld,%ld) %ldx%ld minterm %02lX\n",
+                       (unsigned long)arg32(sp, 0), (long)arg32(sp, 1), (long)arg32(sp, 2),
+                       (unsigned long)arg32(sp, 3), (long)arg32(sp, 4), (long)arg32(sp, 5),
+                       (long)arg32(sp, 6), (long)arg32(sp, 7), (unsigned long)arg32(sp, 8));
+            emu_gfx_blt_bitmap(m, arg32(sp, 0), (s32)arg32(sp, 1), (s32)arg32(sp, 2),
+                               arg32(sp, 3), (s32)arg32(sp, 4), (s32)arg32(sp, 5),
+                               (s32)arg32(sp, 6), (s32)arg32(sp, 7), arg32(sp, 8),
+                               arg32(sp, 9));
+            result = 0;
+            break;
+        case -300:                               /* BltClear(block, bytes, flags) */
+            if (m->progress)
+                printf("     BltClear(%06lX,%lu,%lu) from %06lX\n", (unsigned long)arg32(sp, 0),
+                       (unsigned long)arg32(sp, 1), (unsigned long)arg32(sp, 2),
+                       (unsigned long)ret);
+            emu_gfx_blt_clear(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
+            result = 0;
+            break;
+        case -306:                               /* RectFill(rp, x1, y1, x2, y2) */
+            if (m->progress)
+                printf("     RectFill rp %06lX (%ld,%ld)-(%ld,%ld)\n",
+                       (unsigned long)arg32(sp, 0), (long)arg32(sp, 1), (long)arg32(sp, 2),
+                       (long)arg32(sp, 3), (long)arg32(sp, 4));
+            emu_gfx_rect_fill(m, arg32(sp, 0), (s32)arg32(sp, 1), (s32)arg32(sp, 2),
+                              (s32)arg32(sp, 3), (s32)arg32(sp, 4));
+            result = 0;
+            break;
+        case -252:                               /* AreaMove(rp, x, y) */
+            emu_gfx_area_move(m, arg32(sp, 0), (s32)arg32(sp, 1), (s32)arg32(sp, 2));
+            result = 0;
+            break;
+        case -258:                               /* AreaDraw(rp, x, y) */
+            emu_gfx_area_draw(m, arg32(sp, 0), (s32)arg32(sp, 1), (s32)arg32(sp, 2));
+            result = 0;
+            break;
+        case -264:                               /* AreaEnd(rp) */
+            if (m->progress) printf("     AreaEnd %d point(s)\n", m->gfx.areaCount);
+            emu_gfx_area_end(m, arg32(sp, 0));
+            result = 0;
+            break;
+        case -342:                               /* SetAPen(rp, pen) */
+            emu_gfx_set_apen(m, arg32(sp, 0), arg32(sp, 1));
+            result = 0;
+            break;
+        case -348:                               /* SetBPen(rp, pen) */
+            emu_gfx_set_bpen(m, arg32(sp, 0), arg32(sp, 1));
+            result = 0;
+            break;
+        case -354:                               /* SetDrMd(rp, mode) */
+            emu_gfx_set_drmd(m, arg32(sp, 0), arg32(sp, 1));
+            result = 0;
+            break;
+        case -192:                               /* LoadRGB4(vp, table, count) */
+            emu_gfx_load_rgb4(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
+            result = 0;
+            break;
+        case -288:                               /* SetRGB4(vp, index, r, g, b) */
+            emu_gfx_set_rgb4(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2), arg32(sp, 3),
+                             arg32(sp, 4));
+            result = 0;
+            break;
+        case -372:                               /* CMove(cp, reg, value) - one copper long */
+        case -378:                               /* CWait(cp, vpos, hpos) */
+            /* The copper list is never executed (this port is a chunky renderer), but the game
+             * chains the returned pointer, so it has to advance by one instruction. */
+            result = arg32(sp, 0) + 4;
+            break;
         case -360:                               /* InitView(view) */
         case -204:                               /* InitVPort(vp) */
-        case -390:                               /* InitBitMap(bm, depth, w, h) */
         case -198:                               /* InitRastPort(rp) */
         case -282:                               /* InitArea */
         case -468:                               /* InitTmpRas */
-        case -342:                               /* SetAPen */
         case -366:                               /* CBump */
         case -240:                               /* Move */
         case -246:                               /* Draw */
-        case -252:                               /* AreaMove */
-        case -258:                               /* AreaDraw */
-        case -264:                               /* AreaEnd */
-        case -306:                               /* RectFill */
-        case -300:                               /* BltClear */
-        case -30:                                /* BltBitMap */
+        case -54:                                /* TextLength - no font, so no width */
+        case -60:                                /* Text */
         case -216:                               /* MakeVPort */
-        case -210:                               /* MrgCop */
+            result = 0;
+            break;
+        case -210:                               /* MrgCop(view) - the game patches this list */
+            emu_gfx_mrg_cop(m, arg32(sp, 0));
+            result = 0;
+            break;
         case -564:                               /* FreeCprList */
         case -540:                               /* FreeVPortCopLists */
-        case -270:                               /* WaitTOF */
-            m->frame++;                          /* one vblank elapsed */
+            result = 0;
+            break;
+        case -270:                               /* WaitTOF - wait for the next vertical blank */
+            waitFrame = 1;
+            result = 0;
+            break;
+        case -402:                               /* WaitBOVP(vp) - the flip's frame pacing */
+            waitFrame = 1;
             result = 0;
             break;
         case -228:                               /* WaitBlit */
@@ -577,22 +845,58 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
                            (unsigned long)cm, (unsigned long)table);
             }
             break;
-        case -222:                               /* LoadView(view) */
+        case -222:                               /* LoadView(view) - present it */
             {
                 u32 v = arg32(sp, 0);
-                u32 vp, k;
                 m->view = v;
-                vp = emu_read32(&m->mem, v);
+                emu_gfx_present(m, v);
                 if (m->trace)
                 {
+                    u32 vp = v != 0 ? emu_read32(&m->mem, v) : 0;
                     printf("emu: LoadView view=%06lX vp=%06lX\n",
                            (unsigned long)v, (unsigned long)vp);
-                    for (k = 0; k < 14; k++)
-                        printf("     vp+%02lX = %08lX\n", (unsigned long)(k * 4),
-                               (unsigned long)emu_read32(&m->mem, vp + k * 4));
                 }
                 result = 0;
             }
+            break;
+        default:
+            goto unhandled;
+        }
+    }
+    else if (lib == EMU_LIB_CIAARES)             /* ciaa.resource */
+    {
+        /* The audio driver (FUN_0000ed90) arms a 50 Hz interrupt source here. A resource base
+         * has no open/close/expunge: its vectors start at -6 with the resource's own functions,
+         * and the three calls this game makes line up with them by argument shape:
+         *   -6  AddICRVector(res, icrBit, interrupt)   FUN_0000ed90, result must be 0
+         *   -12 RemICRVector(res, icrBit, interrupt)   FUN_0000ed2a, mirrors -6
+         *   -18 AbleICR(res, flags)                    FUN_0000ed90, flags 0x81 = enable porta
+         * The tick itself comes from the interrupt model; here we only remember is_Code. */
+        switch (lvo)
+        {
+        case -6:                                 /* AddICRVector */
+            {
+                u32 intr = arg32(sp, 2);
+                if (intr != 0)
+                    emu_add_server(m, emu_read32(&m->mem, intr + 0x12),
+                                   emu_read32(&m->mem, intr + 0x0E));
+                if (m->trace)
+                    printf("     AddICRVector bit %ld interrupt %06lX\n",
+                           (long)arg32(sp, 1), (unsigned long)intr);
+            }
+            result = 0;
+            break;
+        case -12:                                /* RemICRVector */
+            {
+                u32 intr = arg32(sp, 2);
+                if (intr != 0) emu_remove_server(m, emu_read32(&m->mem, intr + 0x12));
+            }
+            result = 0;
+            break;
+        case -18:                                /* AbleICR */
+            if (m->trace)
+                printf("     AbleICR %02lX\n", (unsigned long)(arg32(sp, 1) & 0xFF));
+            result = 0;
             break;
         default:
             goto unhandled;
@@ -615,8 +919,14 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
 
 unhandled:
     if (lvoSeen[i]++ == 0)
-        printf("emu: unhandled LVO %ld (%s) on library %d - returns 0\n",
-               (long)lvo, lvo_name(lvo), lib);
+    {
+        printf("emu: unhandled LVO %ld (%s) on %s (base %06lX) from %06lX"
+               " args %08lX %08lX %08lX - returns 0\n",
+               (long)lvo, lvo_name(lvo), libraryName[lib], (unsigned long)m->libraryBase[lib],
+               (unsigned long)ret, (unsigned long)arg32(sp, 0),
+               (unsigned long)arg32(sp, 1), (unsigned long)arg32(sp, 2));
+        emu_dump_call_site(m, ret);
+    }
     result = 0;
 
 done:
@@ -629,6 +939,11 @@ done:
     m68k_set_reg(M68K_REG_D0, result);
     m68k_set_reg(M68K_REG_A7, sp + 4);
     m68k_set_reg(M68K_REG_PC, ret);
+    /* Only now, with the stack popped and the PC back in the caller, may the wait be posted:
+     * stepping while the shim still owns the frame let the nested dispatch complete the call, and
+     * the stale `sp + 4` / return address written here then rewound the program onto a stack frame
+     * it had already left. */
+    if (waitFrame) emu_request_vblank(m);
     return 1;
 }
 
@@ -647,9 +962,11 @@ int emu_init(emu_machine *m)
     emu_library_new(m);
     while (m->libraries < EMU_LIB_SLOTS) emu_library_new(m);
     heapTop = EMU_HEAP_BASE;
+    m->insnToTick = EMU_INSN_PER_FRAME;
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
     emu_write32(&m->mem, 4, m->libraryBase[0]);
+    emu_gfx_reset(m);
     return 1;
 }
 
@@ -702,15 +1019,47 @@ int emu_library_of(emu_machine *m, u32 pc, s32 *lvo)
     return -1;
 }
 
+/* Prints the code around a library call. `ret` is the return address the call pushed, so
+ * execution resumes there; the call itself is further back in the ring behind the engine's own
+ * thunk/trampoline chain. An unhandled LVO is only actionable with that code, so the ring plus the
+ * resume instruction is the diagnostic. */
+static void emu_dump_call_site(emu_machine *m, u32 ret)
+{
+    char text[128];
+    int k, n = 0;
+
+    printf("       resumes at %06lx: ", (unsigned long)ret);
+    m68k_disassemble(text, ret, M68K_CPU_TYPE_68000);
+    printf("%s\n", text);
+    /* Chronological: the ring is empty before boot-up, so start after the last zero unless it has
+     * wrapped all the way round. */
+    for (k = 0, n = -1; k < EMU_RING_SIZE; k++)
+        if (m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)] == 0) n = k;
+    for (k = n + 1; k < n + 1 + EMU_RING_SIZE; k++)
+    {
+        u32 pc = m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)];
+        m68k_disassemble(text, pc, M68K_CPU_TYPE_68000);
+        printf("       %06lx  %s\n", (unsigned long)pc, text);
+    }
+    printf("       A6=%06lx A5=%06lx A4=%06lx A3=%06lx A2=%06lx A1=%06lx A0=%06lx\n",
+           (unsigned long)m68k_get_reg(0, M68K_REG_A6),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A5),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A4),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A3),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A2),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A1),
+           (unsigned long)m68k_get_reg(0, M68K_REG_A0));
+}
+
 /* Dumps the PC ring with disassembly, for the fail-fast checks below. */
 static void emu_dump_ring(emu_machine *m)
 {
     char text[128];
     int k;
 
-    for (k = 0; k < 16; k++)
+    for (k = 0; k < EMU_RING_SIZE; k++)
     {
-        u32 pc = m->ring[(m->ringPos + k) & 15];
+        u32 pc = m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)];
         if (pc == 0) continue;
         m68k_disassemble(text, pc, M68K_CPU_TYPE_68000);
         printf("      %06lx  %s\n", (unsigned long)pc, text);
@@ -722,69 +1071,208 @@ static void emu_dump_ring(emu_machine *m)
            (unsigned long)m68k_get_reg(0, M68K_REG_D1));
 }
 
-u32 emu_run(emu_machine *m, long maxInsns)
+/* --- interrupt model ---------------------------------------------------------------------- */
+/* Everything the game does per frame hangs off the vertical blank: FUN_0001E3F6 registers the
+ * MovE frame interrupt with AddIntServer(INTB_VERTB = 5, &DAT_26850 "MovE_VB") and the audio
+ * driver arms ciaa.resource with AddICRVector (CIA-A port A bit 0 is /VERTB). Servers run in
+ * registration order, which is also the order the game registered them in. */
+
+static void emu_add_server(emu_machine *m, u32 code, u32 data)
+{
+    int i;
+    if (code == 0) return;
+    for (i = 0; i < m->intCount; i++)
+    {
+        if (m->intCode[i] == code) { m->intData[i] = data; return; }
+    }
+    if (m->intCount >= EMU_MAX_INT) return;
+    m->intCode[m->intCount] = code;
+    m->intData[m->intCount] = data;
+    m->intCount++;
+    printf("emu: interrupt server %06lX data %06lX (slot %d)\n", (unsigned long)code,
+           (unsigned long)data, m->intCount - 1);
+}
+
+static void emu_remove_server(emu_machine *m, u32 code)
+{
+    int i;
+    for (i = 0; i < m->intCount; i++)
+    {
+        if (m->intCode[i] != code) continue;
+        for (; i + 1 < m->intCount; i++)
+        {
+            m->intCode[i] = m->intCode[i + 1];
+            m->intData[i] = m->intData[i + 1];
+        }
+        m->intCount--;
+        return;
+    }
+}
+
+/* Saved register file: an interrupt handler runs between two instructions of the main program
+ * and must leave it exactly as it found it. */
+static void emu_save_regs(u32 *r)
+{
+    int i;
+    for (i = 0; i < 16; i++) r[i] = m68k_get_reg(0, (int)M68K_REG_D0 + i);
+    r[16] = m68k_get_reg(0, M68K_REG_SR);
+    r[17] = m68k_get_reg(0, M68K_REG_PC);     /* the instruction the handler interrupted */
+}
+
+static void emu_restore_regs(const u32 *r)
+{
+    int i;
+    for (i = 0; i < 16; i++) m68k_set_reg((int)M68K_REG_D0 + i, r[i]);
+    m68k_set_reg(M68K_REG_SR, r[16]);
+    m68k_set_reg(M68K_REG_PC, r[17]);
+}
+
+/* The interrupt returns through this address (pushed as the return address of the handler). */
+#define EMU_INT_RET 0x00000204u
+
+static int emu_step(emu_machine *m);
+
+/* Runs one handler to its rts. Returns 0 when the handler never returned. */
+static int emu_run_handler(emu_machine *m, u32 code, u32 data)
+{
+    long guard = 400000;               /* an A500 vblank handler must fit in a few thousand */
+    u32 sp = m68k_get_reg(0, M68K_REG_A7) - 4;
+
+    m->handlerRuns++;
+    emu_write32(&m->mem, sp, EMU_INT_RET);
+    m68k_set_reg(M68K_REG_A7, sp);
+    m68k_set_reg(M68K_REG_A1, data);    /* Amiga passes is_Data in A1 */
+    m68k_set_reg(M68K_REG_SR, 0x2700);  /* supervisor, interrupts disabled while in the handler */
+    m68k_set_reg(M68K_REG_PC, code);
+    while (m68k_get_reg(0, M68K_REG_PC) != EMU_INT_RET)
+    {
+        if (guard-- <= 0)
+        {
+            printf("emu: interrupt handler %06lx did not return (frame %lu)\n",
+                   (unsigned long)code, (unsigned long)m->frame);
+            return 0;
+        }
+        if (!emu_step(m)) return 0;
+    }
+    return 1;
+}
+
+/* WaitTOF / WaitBOVP: the program blocks until the next vertical blank. The CPU is idle in the OS
+ * for the rest of the frame, so the wait must cost *no* game instructions - it only ends the current
+ * frame early and is satisfied by the next tick. Running instructions here instead (the first
+ * version of this shim did) let the game's own frame loop iterate many times inside one vblank:
+ * WaitTOF was already "in progress" and got swallowed, so one frame's budget produced ~21 intro
+ * ticks and the 477-frame intro timeline was consumed in a dozen frames. */
+static void emu_request_vblank(emu_machine *m)
+{
+    if (m->inTick) return;             /* a vblank server cannot wait for the next vblank */
+    m->waitVblank = 1;
+}
+
+/* One vertical blank: bump the frame, then run every registered interrupt server. */
+static void emu_tick(emu_machine *m)
+{
+    u32 save[18];
+    int i;
+
+    m->frame++;
+    m->insnToTick = EMU_INSN_PER_FRAME;
+    if (m->pressAt != 0)
+        m->fireDown = (m->frame >= m->pressAt) ? 1u : 0u;
+    if (m->inTick) return;             /* a handler cannot be interrupted by the next vblank */
+    m->inTick = 1;
+    emu_save_regs(save);
+    for (i = 0; i < m->intCount; i++)
+    {
+        u32 code = m->intCode[i];
+        if (code == 0) continue;
+        if (!emu_run_handler(m, code, m->intData[i])) break;
+        emu_restore_regs(save);        /* handlers nest in order, each sees the same state */
+    }
+    emu_restore_regs(save);
+    m->inTick = 0;
+}
+
+/* One instruction, the library trap and the fail-fast checks. 1 = keep running. */
+static int emu_step(emu_machine *m)
 {
     char text[128];
-    long i;
+    u32 pc = m68k_get_reg(0, M68K_REG_PC);
+    s32 lvo = 0;
 
-    static int emu_dispatch(emu_machine *m, int lib, s32 lvo);
-
-    for (i = 0; i < maxInsns; i++)
+    if (m->watch != 0 && pc == m->watch)
     {
-        u32 pc = m68k_get_reg(0, M68K_REG_PC);
-        s32 lvo = 0;
+        int k;
+        printf("emu: watch hit %06lx, recent PCs:", (unsigned long)pc);
+        for (k = 0; k < EMU_RING_SIZE; k++)
+            printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)]);
+        printf("\n");
+    }
+    m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = pc;
+    m->insns++;
+    if (pc == EMU_EXIT_PC)
+    {
+        printf("emu: the program returned, D0=%08lx (frame %lu, %ld instructions)\n",
+               (unsigned long)m68k_get_reg(0, M68K_REG_D0), (unsigned long)m->frame,
+               (unsigned long)m->insns);
+        return 0;
+    }
+    if ((m68k_get_reg(0, M68K_REG_A7) & 1) != 0 || m68k_get_reg(0, M68K_REG_A7) < 0x1000u)
+    {
+        printf("emu: stack pointer went bad (%06lx) at pc %06lx:\n",
+               (unsigned long)m68k_get_reg(0, M68K_REG_A7), (unsigned long)pc);
+        emu_dump_ring(m);
+        return 0;
+    }
+    if (pc < EMU_IMAGE_BASE)
+    {
+        printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
+        emu_dump_ring(m);
+        return 0;
+    }
+    if (emu_library_of(m, pc, &lvo) >= 0)
+    {
+        int lib = emu_library_of(m, pc, &lvo);
+        return emu_dispatch(m, lib, lvo);          /* unhandled: stop and report */
+    }
+    if (m->imageTop != 0 && pc >= m->imageTop && pc < EMU_LIB_BASE)
+    {
+        printf("emu: PC left the image at %06lx\n", (unsigned long)pc);
+        return 0;
+    }
+    if (m->trace)
+    {
+        m68k_disassemble(text, pc, M68K_CPU_TYPE_68000);
+        printf("%06lx  %-40s D0=%08lX A0=%08lX A7=%08lX\n",
+               (unsigned long)pc, text,
+               (unsigned long)m68k_get_reg(0, M68K_REG_D0),
+               (unsigned long)m68k_get_reg(0, M68K_REG_A0),
+               (unsigned long)m68k_get_reg(0, M68K_REG_A7));
+    }
+    m68k_execute(1);
+    return 1;
+}
 
-        if (m->watch != 0 && pc == m->watch)
+u32 emu_run(emu_machine *m, long maxInsns)
+{
+    while (m->insns < maxInsns)
+    {
+        if (m->stop) break;            /* the tool asked to finish (window closed) */
+        if (m->waitVblank)
         {
-            int k;
-            printf("emu: watch hit %06lx, recent PCs:", (unsigned long)pc);
-            for (k = 0; k < 16; k++)
-                printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & 15]);
-            printf("\n");
+            /* The program asked for the next vblank: the rest of this frame is idle, so no
+             * instruction is executed for it. One budget step is enough to end the frame. */
+            m->waitVblank = 0;
+            m->insnToTick = 1;
         }
-        m->ring[m->ringPos++ & 15] = pc;
-        if (pc == EMU_EXIT_PC)
-        {
-            printf("emu: the program returned, D0=%08lx (frame %lu, %ld instructions)\n",
-                   (unsigned long)m68k_get_reg(0, M68K_REG_D0), (unsigned long)m->frame,
-                   (unsigned long)m->insns);
-            return pc;
-        }
-        if ((m68k_get_reg(0, M68K_REG_A7) & 1) != 0 || m68k_get_reg(0, M68K_REG_A7) < 0x1000u)
-        {
-            printf("emu: stack pointer went bad (%06lx) at pc %06lx:\n",
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A7), (unsigned long)pc);
-            emu_dump_ring(m);
-            return pc;
-        }
-        if (pc < EMU_IMAGE_BASE)
-        {
-            printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
-            emu_dump_ring(m);
-            return pc;
-        }
-        if (emu_library_of(m, pc, &lvo) >= 0)
-        {
-            int lib = emu_library_of(m, pc, &lvo);
-            if (!emu_dispatch(m, lib, lvo)) return pc;     /* unhandled: stop and report */
-            continue;
-        }
-        if (m->imageTop != 0 && pc >= m->imageTop && pc < EMU_LIB_BASE)
-        {
-            printf("emu: PC left the image at %06lx\n", (unsigned long)pc);
-            return pc;
-        }
-        if (m->trace)
-        {
-            m68k_disassemble(text, pc, M68K_CPU_TYPE_68000);
-            printf("%06lx  %-40s D0=%08lX A0=%08lX A7=%08lX\n",
-                   (unsigned long)pc, text,
-                   (unsigned long)m68k_get_reg(0, M68K_REG_D0),
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A0),
-                   (unsigned long)m68k_get_reg(0, M68K_REG_A7));
-        }
-        m68k_execute(1);
-        m->insns++;
+        if (!emu_step(m)) return m68k_get_reg(0, M68K_REG_PC);
+        if (--m->insnToTick <= 0) emu_tick(m);
+        if (m->progress && (m->insns % 1000000L) == 0)
+            printf("emu: %ld steps, pc %06lx, frame %lu, %lu raster(s), %lu blit(s), %lu drop(s), %lu fire poll(s), %lu handler(s)\n",
+                   (long)m->insns, (unsigned long)m68k_get_reg(0, M68K_REG_PC),
+                   (unsigned long)m->frame, (unsigned long)m->gfx.frames,
+                   (unsigned long)m->blits, (unsigned long)m->blitDrops,
+                   (unsigned long)m->firePolls, (unsigned long)m->handlerRuns);
     }
     return m68k_get_reg(0, M68K_REG_PC);
 }
@@ -798,11 +1286,14 @@ void emu_boot(u32 entry, u32 a4)
     m68k_set_reg(M68K_REG_PC, entry);
     m68k_set_reg(M68K_REG_A7, EMU_STACK_TOP - 4);
     m68k_set_reg(M68K_REG_A4, a4);
+    /* The Lattice C startup: A0 points at the command line tail, D0 is its length. dshell takes
+     * no arguments (see the HDesert script), so both are empty but A0 must still be readable. */
+    m68k_set_reg(M68K_REG_A0, EMU_ARGS_ADDR);
+    m68k_set_reg(M68K_REG_D0, 0);
     m68k_set_reg(M68K_REG_SR, 0x2700);
+    /* After the image load: the image's BSS ends at 0x31598 and the Process block must survive. */
+    emu_build_process(emu_current);
     /* The hunk loader would have called us, so leave a return address the program can rts to.
      * The DOS loader does the same: the entry code ends with `rts`. */
-    emu_current->mem.base[(EMU_STACK_TOP - 4) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 24);
-    emu_current->mem.base[(EMU_STACK_TOP - 3) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 16);
-    emu_current->mem.base[(EMU_STACK_TOP - 2) & 0xFFFFF] = (u8)(EMU_EXIT_PC >> 8);
-    emu_current->mem.base[(EMU_STACK_TOP - 1) & 0xFFFFF] = (u8)EMU_EXIT_PC;
+    emu_write32(&emu_current->mem, EMU_STACK_TOP - 4, EMU_EXIT_PC);
 }

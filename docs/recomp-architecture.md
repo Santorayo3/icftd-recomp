@@ -130,29 +130,44 @@ the architecture.
 
 ## Phases
 
-### A - it runs (in progress, ~80% of the plumbing done)
+### A - it runs (the intro plays from the original binary)
 
 Done: Musashi vendored; image flattened at 0x4000; `src\game\core\emu\{mem,machine}.c` with
-memory map, custom-register stub, named library bases, per-library LVO dispatch, `--watch`,
-fail-fast dumps with disassembly, exit sentinel. Shims cover most of exec and dos, and the whole
-graphics setup path. The binary executes ~3M instructions and reaches `graphics.library` init.
+memory map, custom-register file, named library bases, per-library LVO dispatch, `--watch`,
+fail-fast dumps with disassembly, exit sentinel, a 64-entry PC ring and an unhandled-LVO report
+that carries the return address. The `Process`/CLI record is built after the image load, the
+50 Hz vertical blank runs the interrupt servers the game registers, and `src\game\core\emu\gfx.c`
+implements the planar half of `graphics.library` with a chunky present.
 
-Remaining, in order:
+The original now boots as the CLI program it is, opens dos/graphics/layers/intuition/ciaa/input,
+builds both of its views with 32 colours, presents a raster and keeps running. **The intro plays
+from the original binary**: 478 presents (one per vertical blank) across its whole 477-frame
+timeline, from the logo fade through the desert scene to the moving objects.
 
-1. **`main` returns 20 after 16,880 instructions at frame 0.** Last calls before the exit are an
-   unhandled `-78` on `icon.library` and `-6`/`-18`/`-12` on the generic resource base (the trio a
-   **DOS handler** answers, not a resource). Add the *return address* to the unhandled-LVO print -
-   that names the code path immediately - then fix whatever those calls need.
-2. **50 Hz interrupt model.** `WaitTOF` currently just bumps a counter. Needed: a tick that posts
-   the vblank message (`exec` software interrupt + the `AddIntServer` chain) and the input events,
-   so `WaitPort`/`GetMsg` in the main loop return.
-3. **`graphics.BltBitMap` / `BltClear` / `RectFill` / `Area*` / `Text`, plus `LoadView` →
-   present.** Render into our *chunky* framebuffer: read the planar `BitMap` (BytesPerRow @0,
-   Rows @2, Depth @5, plane pointers @8+4n), convert with the `ColorMap` table, blit with the
-   minterm/key rules the game passes. `LoadView` chains View → ViewPort (@0) → RasInfo (@38) →
-   BitMap (@4); presenting is a plane→chunky conversion of the two rasters.
-4. Milestone: **the intro plays from the original binary.** Then `--emu` becomes the reference
-   implementation the translator is measured against.
+Two modelling errors had to be fixed to get there, and both were invisible in the pixel data -
+only the counters showed them:
+
+1. **`WaitTOF`/`WaitBOVP` must cost no CPU.** The shim used to "burn the rest of the frame" by
+   executing game instructions. The first thing those instructions did was run the frame loop
+   again, and its nested `WaitTOF` was swallowed by an "already waiting" guard, so one vblank
+   produced ~21 frame callbacks: the timeline was consumed in a dozen frames and the game fell
+   through to the main menu. A wait now only *posts* a request; `emu_run` ends the frame early
+   with nothing executed. Measured afterwards: 478 intro ticks == the 477-frame timeline.
+2. **The blitter's row stride is `2*words + mod`, not `mod`.** The pointer advances across the row
+   and the modulo is added at the end. The engine's flipped-picture blits pass
+   `mod = -(bpr + 2*words)` precisely so the stride comes out as `-bpr`; treating `mod` as the
+   stride walked each blit 82 bytes through the heap, overran the plane, erased the `BitMap`
+   header holding the other plane pointers, and silently lost most of every picture.
+
+Still missing from the display chain:
+
+1. **Text.** `diskfont.library` `OpenDiskFont` (-30) is unhandled, and `graphics.Text`/
+   `TextLength` are no-ops until a font exists - anything the engine prints is currently absent.
+2. **Input.** `JOY0DAT`/`JOY1DAT`/`POTINP` read as "nothing pressed" (active low, 0xFFFF) and
+   CIA-A `PRA` bit 7 carries `/FIRE`; `--press <frame>` drives it from the tool. Feeding it from
+   `plat_pump` is all that remains, so the intro/self-playing sequences can be driven interactively.
+3. Then `--emu` becomes the reference implementation the translator is measured against, and
+   `--dump`/`--window` are the eyes.
 
 ### B - it runs fast (the recompilation proper)
 

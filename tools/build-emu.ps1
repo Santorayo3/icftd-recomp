@@ -30,6 +30,8 @@ $args = @(
     ('"' + (Join-Path $root 'src\game\emu_main.c') + '"'),
     ('"' + (Join-Path $core 'emu\mem.c') + '"'),
     ('"' + (Join-Path $core 'emu\machine.c') + '"'),
+    ('"' + (Join-Path $core 'emu\blit.c') + '"'),
+    ('"' + (Join-Path $core 'emu\gfx.c') + '"'),
     ('"' + (Join-Path $mus 'm68kcpu.c') + '"'),
     ('"' + (Join-Path $mus 'm68kops.c') + '"'),
     ('"' + (Join-Path $mus 'm68kdasm.c') + '"'),
