@@ -21,8 +21,8 @@
 #define EMU_STACK_TOP    0x00080000u
 #define EMU_LIB_BASE     0x000E0000u
 #define EMU_LIB_STRIDE   0x00002000u
-#define EMU_LIB_SLOTS    8
-#define EMU_LIB_SPAN     0x00001000u      /* how far below a base a jmp (d16,A6) may land */
+#define EMU_LIB_SLOTS    16
+#define EMU_LIB_SPAN     0x00010000u      /* a call may land up to 64 KB below its base */
 
 typedef struct emu_machine
 {
@@ -31,6 +31,7 @@ typedef struct emu_machine
     u32     libraryBase[EMU_LIB_SLOTS];
     int     libraries;
     u32     imageTop;                     /* first byte past the loaded image */
+    u32     signals;                      /* next signal number handed out */
     long    insns;
     int     trace;
 } emu_machine;

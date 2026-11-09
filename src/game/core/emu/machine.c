@@ -112,11 +112,14 @@ static u32 heapTop;
 /* Counts per-lvo so the trace only prints a name once. */
 static long lvoSeen[64];
 
-/* The bases we hand out, in registration order. */
+/* The bases we hand out, in registration order. Kept stable because the shims compare indexes. */
 static const char *libraryName[EMU_LIB_SLOTS] = {
     "exec.library", "graphics.library", "dos.library", "intuition.library",
-    "audio.device", "timer.device", "mathffp.library", "?"
+    "audio.device", "timer.device", "mathffp.library", "icon.library",
+    "layers.library", "translator.library", "gadtools.library", "mathieeesingbas.library",
+    "console.device", "input.device", "ciaa.resource", "resource"
 };
+#define EMU_LIB_RESOURCE 15                  /* the catch-all base OpenResource returns */
 
 /* Reads a C string out of emulated memory. */
 static void read_cstr(u32 addr, char *out, int max)
@@ -153,9 +156,76 @@ static u32 arg32(u32 sp, int n)
     return emu_read32(&emu_current->mem, sp + 4 + (u32)n * 4);
 }
 
-/* Called with the CPU parked on a library slot. Returns 0 when the call is not modelled yet.
+/* --- exec structures ---------------------------------------------------------------------- */
+/* List is 14 bytes (head, tail, tailpred, type, pad); Node is 14 bytes; MsgPort is a Node plus
+ * mp_Flags, mp_SigBit, mp_SigTask and the 14-byte message List - 34 bytes in all. */
+#define LIST_HEAD(a)     ((a) + 0u)
+#define LIST_TAILPRED(a) ((a) + 8u)
+
+static u32 emu_alloc(u32 bytes)
+{
+    u32 p;
+    bytes = (bytes + 7u) & ~7u;
+    p = heapTop;
+    heapTop = (heapTop + bytes + 7u) & ~7u;
+    if (heapTop > EMU_HEAP_TOP) return 0;
+    return p;
+}
+
+static void emu_new_list(emu_machine *m, u32 a)
+{
+    emu_write32(&m->mem, a + 0, a + 4);          /* lh_Head   = &lh_Tail */
+    emu_write32(&m->mem, a + 4, 0);              /* lh_Tail   = 0 */
+    emu_write32(&m->mem, a + 8, a + 0);          /* lh_TailPred = &lh_Head */
+    emu_write8(&m->mem, a + 12, 0);              /* lh_Type */
+    emu_write8(&m->mem, a + 13, 0);
+}
+
+static u32 emu_new_port(emu_machine *m)
+{
+    u32 p = emu_alloc(34);
+    if (p == 0) return 0;
+    emu_write32(&m->mem, p + 0, 0);              /* ln_Succ */
+    emu_write32(&m->mem, p + 4, 0);              /* ln_Pred */
+    emu_write8(&m->mem, p + 8, 4);               /* ln_Type = NT_MSGPORT */
+    emu_write8(&m->mem, p + 9, 0);               /* ln_Pri */
+    emu_write32(&m->mem, p + 10, 0);             /* ln_Name */
+    emu_write8(&m->mem, p + 14, 2);              /* mp_Flags = PA_IGNORE */
+    emu_write8(&m->mem, p + 15, 0);              /* mp_SigBit */
+    emu_write32(&m->mem, p + 16, EMU_TASK_ADDR); /* mp_SigTask */
+    emu_new_list(m, p + 20);
+    return p;
+}
+
+/* Kept for CreatePort-style shims landing next; AddPort takes a caller-made port. */
+static u32 (*const emu_new_port_ref)(emu_machine *) = emu_new_port;
+
+static void emu_put_msg(emu_machine *m, u32 port, u32 msg)
+{
+    u32 head = emu_read32(&m->mem, port + 20);
+    emu_write32(&m->mem, msg + 0, head);         /* ln_Succ */
+    emu_write32(&m->mem, msg + 4, port + 20);    /* ln_Pred = &lh_Head */
+    emu_write32(&m->mem, head + 4, msg);         /* head->ln_Pred = msg */
+    emu_write32(&m->mem, port + 20, msg);        /* lh_Head = msg */
+}
+
+static u32 emu_get_msg(emu_machine *m, u32 port)
+{
+    u32 list = port + 20;
+    u32 head = emu_read32(&m->mem, list);
+    u32 next;
+
+    if (head == list + 4) return 0;              /* empty: head points at lh_Tail */
+    next = emu_read32(&m->mem, head + 0);
+    emu_write32(&m->mem, list, next);
+    emu_write32(&m->mem, next + 4, list);
+    return head;
+}
+
+/* Called with the CPU parked on a library slot. `lib` is the base index from
+ * emu_library_of(), so the same LVO can mean different functions per library.
  * The 68k ABI is `jsr (lvo,A6)`: return address at A7, arguments above it, result in D0. */
-static int emu_dispatch(emu_machine *m, s32 lvo)
+static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
 {
     u32 sp = m68k_get_reg(0, M68K_REG_A7);
     u32 ret = emu_read32(&m->mem, sp);
@@ -164,69 +234,137 @@ static int emu_dispatch(emu_machine *m, s32 lvo)
 
     i = (int)(-lvo / 6) % 64;
 
-    switch (lvo)
+    if (lib == 0)                                 /* exec.library */
     {
-    case -294:                                   /* exec.FindTask */
-        result = EMU_TASK_ADDR;
-        break;
-    case -198:                                   /* exec.AllocMem */
+        switch (lvo)
         {
-            u32 bytes = (arg32(sp, 0) + 7u) & ~7u;
-            result = heapTop;
-            heapTop = (heapTop + bytes + 7u) & ~7u;
-            if (heapTop > EMU_HEAP_TOP) { printf("emu: heap exhausted\n"); return 0; }
-        }
-        break;
-    case -210:                                   /* exec.FreeMem */
-    case -132:                                   /* exec.Forbid */
-    case -138:                                   /* exec.Permit */
-    case -270:                                   /* graphics.WaitTOF */
-    case -228:                                   /* graphics.WaitBlit */
-    case -456:                                   /* exec.DoIO */
-        result = 0;
-        break;
-    case -552:                                   /* exec.OpenLibrary(name, version) */
-    case -408:                                   /* exec.OldOpenLibrary(name) */
-        {
-            char name[64];
-            u32 nameAddr = arg32(sp, 0);
-            int idx;
+        case -294:                               /* FindTask */
+            result = EMU_TASK_ADDR;
+            break;
+        case -198:                               /* AllocMem(bytes, flags) */
+            result = emu_alloc(arg32(sp, 0));
+            break;
+        case -210:                               /* FreeMem */
+            result = 0;
+            break;
+        case -552:                               /* OpenLibrary(name, version) */
+        case -408:                               /* OldOpenLibrary(name) */
+            {
+                char name[64];
+                u32 nameAddr = arg32(sp, 0);
+                int idx;
 
-            /* dshell's cstart loads the name into A1 before the call and passes nothing on
-             * the stack (entry 0x4960: `lea (0x20,PC),a1; jsr (-$198,a6)`), so fall back to
-             * A1 when the stack slot is empty. */
-            if (nameAddr == 0) nameAddr = m68k_get_reg(0, M68K_REG_A1);
-            read_cstr(nameAddr, name, (int)sizeof(name));
-            idx = library_index_of(name);
-            if (idx < 0) { printf("emu: OpenLibrary(\"%s\") - unknown library\n", name); result = 0; }
-            else result = m->libraryBase[idx];
-            if (m->trace) printf("     open \"%s\" -> %08lX\n", name, (unsigned long)result);
+                /* dshell's cstart loads the name into A1 and passes nothing on the stack
+                 * (0x4960: `lea (0x20,PC),a1; jsr (-$198,a6)`). */
+                if (nameAddr == 0) nameAddr = m68k_get_reg(0, M68K_REG_A1);
+                read_cstr(nameAddr, name, (int)sizeof(name));
+                idx = library_index_of(name);
+                if (idx < 0) { printf("emu: OpenLibrary(\"%s\") - unknown library\n", name); }
+                else result = m->libraryBase[idx];
+            }
+            break;
+        case -414:                               /* CloseLibrary */
+            result = 0;
+            break;
+        case -354:                               /* AddPort(port) */
+            result = 0;
+            break;
+        case -360:                               /* RemPort(port) */
+            result = 0;
+            break;
+        case -372:                               /* GetMsg(port) */
+            result = emu_get_msg(m, arg32(sp, 0));
+            break;
+        case -384:                               /* WaitPort(port) */
+            result = emu_read32(&m->mem, arg32(sp, 0) + 20);
+            if (result == arg32(sp, 0) + 24) result = 0;    /* empty -> .l nothing pending */
+            break;
+        case -378:                               /* ReplyMsg(message) */
+            {
+                u32 msg = arg32(sp, 0);
+                u32 port = msg != 0 ? emu_read32(&m->mem, msg + 14) : 0;
+                if (port != 0) emu_put_msg(m, port, msg);
+                result = 0;
+            }
+            break;
+        case -330:                               /* AllocSignal(sigNum) */
+            result = m->signals++;
+            break;
+        case -336:                               /* FreeSignal */
+            result = 0;
+            break;
+        case -498:                               /* OpenResource(name, version) */
+            {
+                char name[64];
+                read_cstr(arg32(sp, 0), name, (int)sizeof(name));
+                if (m->trace) printf("     resource \"%s\"\n", name);
+                result = m->libraryBase[EMU_LIB_RESOURCE];
+            }
+            break;
+        case -168:                               /* AddIntServer */
+        case -174:                               /* RemIntServer */
+        case -132:                               /* Forbid */
+        case -138:                               /* Permit */
+            result = 0;
+            break;
+        case -108:                               /* Alert(code) - never returns */
+            printf("emu: ALERT 0x%lX - the original halted here\n",
+                   (unsigned long)arg32(sp, 0));
+            return 0;
+        default:
+            goto unhandled;
         }
-        break;
-    case -414:                                   /* exec.CloseLibrary */
-        result = 0;
-        break;
-    case -108:                                   /* exec.Alert(code) - never returns */
-        printf("emu: ALERT 0x%lX - the original halted here\n",
-               (unsigned long)arg32(sp, 0));
-        return 0;
-    default:
-        if (lvoSeen[i]++ == 0)
-            printf("emu: unhandled LVO %ld (%s) - returns 0\n", (long)lvo, lvo_name(lvo));
-        result = 0;
-        break;
+    }
+    else if (lib == 2)                           /* dos.library */
+    {
+        switch (lvo)
+        {
+        case -54:                                /* Input() */
+        case -60:                                /* Output() */
+            result = 0;                          /* file handle 0 = the console */
+            break;
+        case -126:                               /* CurrentDir(lock) */
+            result = 0xFFFFFFFFu;                /* DOSTRUE */
+            break;
+        case -84:                                /* Lock(name, mode) - no filesystem yet */
+            result = 0;
+            break;
+        case -90:                                /* UnLock */
+        case -36:                                /* Close */
+        case -56:                                /* Close? */
+            result = 0;
+            break;
+        default:
+            goto unhandled;
+        }
+    }
+    else
+    {
+        switch (lvo)
+        {
+        case -270:                               /* graphics.WaitTOF */
+        case -228:                               /* graphics.WaitBlit */
+            result = 0;
+            break;
+        default:
+            goto unhandled;
+        }
     }
 
+    goto done;
+
+unhandled:
+    if (lvoSeen[i]++ == 0)
+        printf("emu: unhandled LVO %ld (%s) on library %d - returns 0\n",
+               (long)lvo, lvo_name(lvo), lib);
+    result = 0;
+
+done:
     if (m->trace)
-        printf("     -> %-28s (%ld) args %08lX %08lX %08lX = %08lX  A1=%08lX sp+: %08lX %08lX %08lX %08lX\n",
-               lvo_name(lvo), (long)lvo,
+        printf("     -> %-28s (%ld) lib %d args %08lX %08lX %08lX = %08lX\n",
+               lvo_name(lvo), (long)lvo, lib,
                (unsigned long)arg32(sp, 0), (unsigned long)arg32(sp, 1),
-               (unsigned long)arg32(sp, 2), (unsigned long)result,
-               (unsigned long)m68k_get_reg(0, M68K_REG_A1),
-               (unsigned long)emu_read32(&m->mem, sp),
-               (unsigned long)emu_read32(&m->mem, sp + 4),
-               (unsigned long)emu_read32(&m->mem, sp + 8),
-               (unsigned long)emu_read32(&m->mem, sp + 12));
+               (unsigned long)arg32(sp, 2), (unsigned long)result);
 
     m68k_set_reg(M68K_REG_D0, result);
     m68k_set_reg(M68K_REG_A7, sp + 4);
@@ -247,6 +385,7 @@ int emu_init(emu_machine *m)
     emu_library_new(m);
     emu_library_new(m);
     emu_library_new(m);
+    while (m->libraries < EMU_LIB_SLOTS) emu_library_new(m);
     heapTop = EMU_HEAP_BASE;
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
@@ -308,7 +447,7 @@ u32 emu_run(emu_machine *m, long maxInsns)
     char text[128];
     long i;
 
-    static int emu_dispatch(emu_machine *m, s32 lvo);
+    static int emu_dispatch(emu_machine *m, int lib, s32 lvo);
 
     for (i = 0; i < maxInsns; i++)
     {
@@ -317,7 +456,8 @@ u32 emu_run(emu_machine *m, long maxInsns)
 
         if (emu_library_of(m, pc, &lvo) >= 0)
         {
-            if (!emu_dispatch(m, lvo)) return pc;          /* unhandled: stop and report */
+            int lib = emu_library_of(m, pc, &lvo);
+            if (!emu_dispatch(m, lib, lvo)) return pc;     /* unhandled: stop and report */
             continue;
         }
         if (m->imageTop != 0 && pc >= m->imageTop && pc < EMU_LIB_BASE)

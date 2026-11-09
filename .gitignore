@@ -51,3 +51,6 @@ Thumbs.db
 __wcl_*.lnk
 third_party/musashi/m68kmake.exe
 
+# Reference checkouts (WinUAE etc.) are read, never vendored: only the routines we adapt get
+# copied into our own sources with attribution.
+third_party/reference/
