@@ -78,7 +78,7 @@ internal static class Sms
         int palFlag = Be16(rec, 24);
         bool hasPalette = (palFlag & 0xFF00) != 0;
         var sb = new System.Text.StringBuilder();
-        sb.Append($"{w}x{h} planes={planes} mask={mask:X8} palFlag={palFlag:X4} ");        sb.Append($" key={Be16(rec, 18)}");        sb.Append(hasPalette ? "palette " : "no palette ");
+        sb.Append($"{w}x{h} planes={planes} mask={mask:X8} palFlag={palFlag:X4} ");        sb.Append($" key={Be16(rec, 18)} hot={Be16(rec, 12)},{Be16(rec, 14)}");        sb.Append(hasPalette ? "palette " : "no palette ");
         int stored = 0;
         for (int i = 0; i < planes && i < 8; i++)
         {

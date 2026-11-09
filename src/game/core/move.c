@@ -17,6 +17,7 @@ typedef struct mv_node
     struct mv_node *next;
     struct mv_node *child;
     s32  asset;                 /* asset index, -1 for a script node */
+    s32  id;                    /* command flag byte: distinguishes copies of one asset */
     s32  pic;                   /* pack entry of the picture, -1 = none */
     u8  *px;
     s32  w, h;
@@ -355,11 +356,15 @@ static void LoadPicture(mv_node *n)
     n->hot_y = (s32)hdr.hot_y;
 }
 
-static mv_node *FindChild(mv_node *parent, s32 asset)
+/* Children are identified by asset *and* the command's flag byte: the scripts put a second
+ * copy of a scrolling layer (flag 1) next to the first one, offset by a picture width, and
+ * the two must be separate nodes - matching on the asset alone moves the first copy instead
+ * of wrapping, which leaves the ground half empty. */
+static mv_node *FindChild(mv_node *parent, s32 asset, s32 id)
 {
     mv_node *c;
     for (c = parent->child; c != NULLP; c = c->next)
-        if (c->asset == asset) return c;
+        if (c->asset == asset && c->id == id) return c;
     return NULLP;
 }
 
@@ -385,13 +390,13 @@ static void FreeNode(mv_node *n)
     }
 }
 
-static void DropChildren(mv_node *parent, s32 asset)
+static void DropChildren(mv_node *parent, s32 asset, s32 id)
 {
     mv_node **pp = &parent->child;
     while (*pp != NULLP)
     {
         mv_node *c = *pp;
-        if (asset < 0 || c->asset == asset)
+        if ((asset < 0 || c->asset == asset) && (id < 0 || c->id == id))
         {
             *pp = c->next;
             if (c->px != NULLP) plat_free(c->px);
@@ -435,12 +440,13 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         if (c->asset < 0 && c->idx < script->assetCount) return 1;
         {
             s32 li = LabelForIndex(script, c->idx);
-            o = FindChild(self, c->idx);
+            o = FindChild(self, c->idx, (s32)c->flag);
             if (o == NULLP)
             {
                 o = NewNode();
                 if (o == NULLP) return 1;
                 o->asset = c->idx;
+                o->id = (s32)c->flag;
                 o->prio = (s32)(c->p3 >> 16);
                 if (li >= 0)
                 {
@@ -462,7 +468,7 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
                 /* the original resets a re-created script child to its first command */
                 o->pc = 0;
                 o->wait = 0;
-                DropChildren(o, -1);
+                DropChildren(o, -1, -1);
             }
             o->x = (s32)c->p1;
             o->y = (s32)c->p2;
@@ -471,15 +477,15 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         return 1;
 
     case 0x02:                                   /* delete one object */
-        DropChildren(self, c->asset);
+        DropChildren(self, c->idx, (s32)c->flag);
         return 1;
 
     case 0x03:                                   /* delete every object */
-        DropChildren(self, -1);
+        DropChildren(self, -1, -1);
         return 1;
 
     case 0x04:                                   /* set velocity */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP) { o->vx = (s32)c->p1; o->vy = (s32)c->p2; o->ax = o->ay = 0; }
         return 1;
 
@@ -492,7 +498,7 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         return 1;
 
     case 0x06:                                   /* set acceleration */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP) { o->ax = (s32)c->p1; o->ay = (s32)c->p2; }
         return 1;
 
@@ -540,12 +546,12 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         return 1;
 
     case 0x10:                                   /* channel selector for one object */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP) o->channel = c->p1;
         return 1;
 
     case 0x11:                                   /* vertical sample step (0 -> 1) */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP)
         {
             s32 v = (s32)(c->p1 >> 16);
@@ -554,12 +560,12 @@ static s32 Exec(mv_node *self, const mv_cmd *c)
         return 1;
 
     case 0x12:                                   /* source rectangle origin */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP) { o->src_x = (s32)(c->p1 >> 16); o->src_y = (s32)(c->p2 >> 16); }
         return 1;
 
     case 0x13:                                   /* source rectangle size, clamped */
-        o = FindChild(self, c->asset);
+        o = FindChild(self, c->idx, (s32)c->flag);
         if (o != NULLP)
         {
             s32 sw = (s32)(c->p1 >> 16), sh = (s32)(c->p2 >> 16);
