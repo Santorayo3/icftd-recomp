@@ -56,7 +56,7 @@ $env:Path = (Join-Path $WatcomHome 'binnt64') + ';' + $env:Path
 
 function Q([string]$p) { '"' + $p + '"' }
 
-$srcsCore = @('main.c', 'assets.c', 'gfx.c', 'pack.c', 'move.c', 'sys\helpers.c', 'amiga\graphics.c', 'amiga\blitter.c') | ForEach-Object { Q (Join-Path $core $_) }
+$srcsCore = @('main.c', 'assets.c', 'gfx.c', 'pack.c', 'move.c', 'intro.c', 'sys\helpers.c', 'amiga\graphics.c', 'amiga\blitter.c') | ForEach-Object { Q (Join-Path $core $_) }
 
 function Invoke-Target([string]$name, [string[]]$cmd, [string]$outDir) {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null

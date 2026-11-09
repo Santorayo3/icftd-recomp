@@ -17,6 +17,7 @@
 #include "pack.h"
 #include "assets.h"
 #include "move.h"
+#include "intro.h"
 #include "amiga/graphics.h"
 #include "amiga/blitter.h"
 
@@ -578,8 +579,7 @@ static int run_movelist(const char *pack_path, const char *script_name)
 /* Runs a label through the runtime and writes one BMP per frame, so the intro can be
  * compared frame by frame against a WinUAE capture. */
 static int run_intro(const char *pack_path, const char *script_name, const char *label,
-                     s32 from, s32 to, const char *prefix)
-{
+                     s32 from, s32 to, const char *prefix){
     pak p;
     mv_script *sc;
     s32 f;
@@ -604,11 +604,11 @@ static int run_intro(const char *pack_path, const char *script_name, const char 
 /* ----------------------------------------------------------- the game start ---- */
 /* What `icftd.exe` with no arguments does: the intro, in the window, at 50 Hz, from the
  * script's own driver label. MAIN instantiates Logo, then Sky/Clouds/Land/Explosion/Titles/
- * Fade1 on its timeline, so this is the engine's sequence and not a demo of the runtime. */
+ * Fade1 on its timeline, so this is the engine's sequence and not a demo of the runtime.
+ * The frame counter, the sound events and the end at frame 477 come from FUN_00009630. */
 
 #define START_SCRIPT "Desert1/OPEN/!OPN"
 #define START_LABEL  "MAIN"
-#define START_TAIL   400        /* frames to keep running after MAIN's last command */
 
 static int run_start(const char *pack_path)
 {
@@ -616,7 +616,7 @@ static int run_start(const char *pack_path)
     mv_script *sc;
     input_state in;
     char title[64];
-    s32 tail = -1, shown = -1;
+    s32 shown = -1, over = 0;
 
     if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
     if (!load_script(&p, START_SCRIPT, &sc)) return 1;
@@ -624,49 +624,67 @@ static int run_start(const char *pack_path)
         printf("no such label: %s\n", START_LABEL);
         return 1;
     }
+    intro_start();
 
     plat_set_title("It Came from the Desert");
     gfx_clear(0);
     plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
     plat_present();
-    printf("intro: %s / %s - ESC quits\n", START_SCRIPT, START_LABEL);
+    printf("intro: %s / %s - ESC quits, fire skips\n", START_SCRIPT, START_LABEL);
 
     for (;;) {
         plat_frame_sync();
         if (!plat_pump(&in)) break;
         if (in.pressed[KEY_ESCAPE]) break;
 
-        if (tail < 0) {
+        if (!over) {
             gfx_clear(0);
-            mv_tick();
-            plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
-            plat_present();
-            if (mv_done()) {
-                tail = START_TAIL;
-                printf("intro: script finished at frame %d, holding %d frames\n",
-                       (int)mv_frame(), START_TAIL);
+            if (intro_tick(in.pressed[KEY_FIRE] || in.mouse_left)) {
+                over = 1;
+                printf("intro: finished at frame %d - the original continues into the "
+                       "next scene, which is not ported\n", (int)intro_frame());
             }
-        }
-        else if (tail > 0) {
-            gfx_clear(0);
-            mv_tick();
             plat_set_palette(0, MV_PAL_COLOURS, mv_palette());
-            plat_present();
-            tail--;
-            if (tail == 0) printf("intro: end of what is ported (frame %d) - ESC quits\n",
-                                  (int)mv_frame());
         }
-        else {
-            plat_present();          /* hold the last frame */
-        }
+        plat_present();              /* after the end, hold the last frame */
 
-        if (mv_frame() / 25 != shown) {
-            shown = (s32)mv_frame() / 25;
-            sprintf(title, "It Came from the Desert - frame %d", (int)mv_frame());
+        if (intro_frame() / 25 != shown) {
+            shown = intro_frame() / 25;
+            sprintf(title, "It Came from the Desert - frame %d", (int)intro_frame());
             plat_set_title(title);
         }
     }
-    printf("stopped after %d frame(s)\n", (int)mv_frame());
+    printf("stopped after %d frame(s)\n", (int)intro_frame());
+    pak_close(&p);
+    return 0;
+}
+
+/* The same sequence without the window: frames 0..to of the real start, BMPs from `from`.
+ * Lets the intro be compared against a capture the way --intro does for one label. */
+static int run_start_frames(const char *pack_path, s32 from, s32 to, const char *prefix)
+{
+    pak p;
+    mv_script *sc;
+    s32 f, over = 0;
+    char out[256];
+
+    if (!pak_open(&p, pack_path)) { printf("cannot open pack '%s'\n", pack_path); return 1; }
+    if (!load_script(&p, START_SCRIPT, &sc)) return 1;
+    if (!mv_start(&p, sc, START_LABEL)) { printf("no such label: %s\n", START_LABEL); return 1; }
+    intro_start();
+
+    for (f = 0; f <= to; f++) {
+        if (f > 0) gfx_clear(0);
+        if (intro_tick(0) && !over) {
+            over = 1;
+            printf("intro: finished at frame %d\n", (int)intro_frame());
+        }
+        if (f < from) continue;
+        sprintf(out, "%s%04d.bmp", prefix, (int)f);
+        if (!write_bmp(out, gfx_fb, (u8 *)mv_palette())) { printf("cannot write '%s'\n", out); return 1; }
+    }
+    mv_report();
+    printf("start: frames %d..%d -> %s%%04d.bmp\n", (int)from, (int)to, prefix);
     pak_close(&p);
     return 0;
 }
@@ -994,6 +1012,7 @@ static int needs_default_pack(int argc, char **argv)
 {
     if (argc <= 1) return 1;
     if (strcmp(argv[1], "--trace") == 0) return 1;      /* the start mode with a trace */
+    if (strcmp(argv[1], "--start") == 0) return 1;
     if (strcmp(argv[1], "--browse") == 0 || strcmp(argv[1], "--checksum") == 0) return argc <= 2;
     if (strcmp(argv[1], "--play") == 0) return argc <= 2;
     if (strcmp(argv[1], "--match") == 0) return argc <= 3 || (argv[3][0] >= '0' && argv[3][0] <= '9');
@@ -1011,6 +1030,7 @@ static void usage(void)
            "  icftd.exe --scene <pack> <backdrop|-> <sprite> <x> <y> <key> <out.bmp> [palette]\n"
            "  icftd.exe --compose <pack> <out.bmp> <palette|-> <name,x,y,key> ...\n"
            "  icftd.exe --intro <pack> <script> <label> <from> <to> <outPrefix>\n"
+           "  icftd.exe --start <from> <to> <outPrefix>  the real start sequence, no window\n"
            "  icftd.exe --play [pack] [script] [label]   play a MovE label in the window\n"
            "  icftd.exe --movelist <pack> <script>        dump every label and its commands\n"
            "  ... --intro/--play also take --trace <file>: one text line per event\n"
@@ -1052,6 +1072,8 @@ int main(int argc, char **argv)
         rc = run_compose(argv[2], argv[3], argv[4], argc - 5, argv + 5);
     else if (argc > 1 && strcmp(argv[1], "--intro") == 0 && argc > 7)
         rc = run_intro(argv[2], argv[3], argv[4], (s32)atoi(argv[5]), (s32)atoi(argv[6]), argv[7]);
+    else if (argc > 1 && strcmp(argv[1], "--start") == 0 && argc > 4)
+        rc = run_start_frames(assets_pack_path(), (s32)atoi(argv[2]), (s32)atoi(argv[3]), argv[4]);
     else if (argc > 1 && strcmp(argv[1], "--movelist") == 0 && argc > 3)
         rc = run_movelist(argv[2], argv[3]);
     else if (argc > 1 && strcmp(argv[1], "--play") == 0)

@@ -83,6 +83,9 @@ void mv_tick(void);
 /* How many frames have run so far. */
 s32  mv_frame(void);
 
+/* Non-zero once the driver label has run out of commands. */
+s32  mv_done(void);
+
 /* The 32 colours the runtime shows, 3 bytes each (nibble << 4). */
 const u8 *mv_palette(void);
 

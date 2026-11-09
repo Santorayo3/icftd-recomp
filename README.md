@@ -77,12 +77,15 @@ bin\win32\icftd.exe --match ref\scene1.bmp     # M2: which picture is this frame
 bin\win32\icftd.exe --play assets\game.pak Desert1\OPEN\!OPN Logo
 bin\win32\icftd.exe --intro assets\game.pak Desert1\OPEN\!OPN Logo 40 200 out\mv\
 bin\win32\icftd.exe --movelist assets\game.pak Desert1\OPEN\!OPN   # every label + opcode
+bin\win32\icftd.exe --start 0 480 out\start\    # the real start sequence, no window
 ```
 
 With no arguments the game plays `Desert1/OPEN/!OPN` label `MAIN` at 50 Hz: MAIN creates the
 `Logo` child, then Sky, Clouds, Land, Explosion, Titles and Fade1 on its own timeline, so what
 is on screen is the engine's sequence rather than a demo of the runtime. `--trace <file>` works
-for this mode too (`icftd.exe --trace out\start.txt`) and logs one text line per event.
+for this mode too (`icftd.exe --trace out\start.txt`) and logs one text line per event, the
+timed sound events of `FUN_00009630` included (`audio <frame> ...`). The intro ends at frame
+477 and fire skips it, both as in the original - see `docs\code-inventory.md`.
 
 Browse keys: right/space/enter next, left previous, up/down ±10 pictures, ESC quit.
 

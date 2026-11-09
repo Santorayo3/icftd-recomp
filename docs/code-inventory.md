@@ -65,34 +65,54 @@ callback, and every scene that needs more than the script supplies passes its ow
 ## Where the intro actually is
 
 ```
-FUN_00009870                       intro setup: opens "Desert1:OPEN", loads 3 sfx handles,
-                                   then slot96("OPEN", 0, "!OPN" @0x993c, FUN_00009630)
+FUN_00009870                       intro setup: opens "Desert1:OPEN", loads 3 sfx handles
+                                   from "Desert1:sfx" (voice1, met, exp), loads the score
+                                   file, then slot96(0, 0, "!OPN" @0x993c, FUN_00009630)
   FUN_00009630  (per-frame callback) -> returns true at frame 0x1dd (477), ending the run loop
-      every frame: slot105(script+0x2c, 0, 0)          <- the "!OPN" MovE script drives the visuals
-                   busy-wait of DAT_0002688e iterations
-      frame 0xa0 (160) FUN_0000ef88()
-      frame 200        slot27(3)
-      frame 0xca (202) slot b0c(sfx1, 3)
-      frame 0xcc (204) slot b18()
-      frame 0x136 (310) FUN_0000ef88()
-      frame 0x17b (379) slot27(2), slot b0c(sfx2, 3)
-      frame 0x17d (381) slot b0c(sfx2, 2)
-      frame 0x185 (389) slot b0c(sfx3, 3)
-      frame 0x187 (391) slot b0c(sfx3, 2)
-      frame 0x18a (394) slot b18() twice
-      frame 400        FUN_0000efc0() twice
-      frame > 477      cleanup: b1e(), free the three sfx handles
 ```
 
-The movie is therefore **477 frames at 50 Hz = 9.54 s**, and all of its visible content comes
-from the `!OPN` MovE script plus the three fades/sfx events above. Nothing in the visual path
-is un-decompiled.
+`FUN_00009630` disassembled (0x9630..0x9868) is the whole timeline. Per frame:
+
+```
+jsr slot60      = FUN_000011BF0  reads JOY0DAT ($DFF00C), sets DAT_00024A84 on a button
+                 -> the intro is skippable; DAT_00024A84 jumps the counter to 500
+(then, first call only: slot38(1) = FUN_00009CC4 restores the scene palette,
+ g_moveScript = script, slot99("MAIN") = FUN_0001F186 finds the MAIN node,
+ slot102(1, node, 0,0,0,0) = FUN_0001F2AE runs its first command)
+busy-wait of DAT_0002688E   <- BSS, never written anywhere: 0 iterations, 50 Hz is exact
+slot105(script->0x2C, 0, 0) = FUN_0001FA02 Move_Walk    <- the "!OPN" script, once per frame
+```
+
+and then exactly one event per frame, from a subtract chain over the counter:
+
+| frame | call | what it is |
+|---|---|---|
+| 160 (0xA0) | `FUN_0000EF88(110, 60)` | music tempo -> 60 over 110 frames |
+| 200 | `FUN_0000EFA6(3)` | stop channel 3 |
+| 202 (0xCA) | `FUN_00009B60(voice1, period, .., 3, 0x3F)` | voice-over |
+| 204 (0xCC) | `FUN_00009BCA(3)` | arm audio channel 3 |
+| 310 (0x136) | `FUN_0000EF88(400, 220)` | music tempo -> 220 over 400 frames |
+| 379 (0x17B) | `FUN_0000EFA6(2)` + `FUN_00009B60(met, .., 3, 3F)` | |
+| 381 (0x17D) | `FUN_00009B60(met, .., 2, 3F)` | |
+| 389 (0x185) | `FUN_00009B60(exp, 0x384, .., 3, 3F)` | |
+| 391 (0x187) | `FUN_00009B60(exp, 0x384, .., 2, 3F)` | |
+| 394 (0x18A) | `FUN_00009BCA(2)` + `FUN_00009BCA(3)` | |
+| 400 (0x190) | `FUN_0000EFC0(2)` + `FUN_0000EFC0(3)` | restore channel defaults |
+| >477 | `FUN_00009BEC()`, FreeMem x3 | cleanup, run loop stops |
+
+**The timeline is audio only.** Nothing in it draws: the moving picture is entirely the
+`!OPN` MovE script, so a frame-exact intro needs the script's own timing, not this table.
+`FUN_0000EF88` is a 2-argument wrapper (`D0`/`D1` from the stack, `A6 = DAT_00023C5E`) into
+`FUN_0000F608`, which stores `{current<<8, rate, target<<8}` at +0x38/+0x3A/+0x3C of the
+490-byte block allocated in `FUN_0000ED90` and interpolated per interrupt by
+`FUN_0000F646` (the music player's tempo). `FUN_0000EFC0` = `FUN_0000F6B0` restores one
+channel word from the base table at +6, `FUN_0000EFA6` = `FUN_0000F692` zeroes it.
 
 The two end screens are the same mechanism from the other side:
 
 ```
 FUN_0000a4d6  -> FUN_0000a44a(which)
-                   opens "Desert1:OPEN" again, then slot96("desert1.", 0, "!WIN" or "!LOS",
+                   opens "Desert1:OPEN" again, then slot96(0, 0, "!WIN" or "!LOS",
                    FUN_0000a3a2)     (DAT_00022d68: 1 = win, else lose)
   FUN_0000a3a2  per frame: slot105 x2, slot 0xc44, and the ending text from
                 PTR_s_The_ant_queen_was_dead_and__for_t_00022d6a[DAT_00022d68-1]
@@ -102,3 +122,9 @@ FUN_0000a4d6  -> FUN_0000a44a(which)
 leads into is therefore *not* one of these three scripts; it comes after `FUN_00009630` returns,
 and is still to be located inside dshell (it is a menu drawn from bank art, no separate code
 file involved).
+
+## Ported
+
+`src\game\core\intro.c` is `FUN_00009870` + `FUN_00009630`; `icftd.exe` (no arguments) runs it
+in the window, `icftd.exe --start <from> <to> <prefix>` runs it headless and writes BMPs.
+The sound events are written to the `--trace` file as `audio <frame> ...` lines until sweep S7.
