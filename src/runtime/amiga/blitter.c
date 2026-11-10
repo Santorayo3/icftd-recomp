@@ -14,7 +14,6 @@
  */
 #include "blitter.h"
 #include "platform.h"
-#include "m68k.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -37,8 +36,7 @@ static void wr16(rt_machine *m, u32 a, u16 v)
                    (unsigned long)m->blit.apt, (unsigned long)m->blit.bpt,
                    (unsigned long)m->blit.cpt, (unsigned long)m->blit.dpt,
                    (long)m->blit.amod, (long)m->blit.bmod, (long)m->blit.cmod,
-                   (long)m->blit.dmod, (unsigned long)m->blit.size,
-                   (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+                   (long)m->blit.dmod, (unsigned long)m->blit.size, (unsigned long)m->pc);
         }
         return;
     }
