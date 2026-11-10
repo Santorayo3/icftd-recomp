@@ -16,6 +16,9 @@ static HWND          g_hwnd;
 static HDC           g_memdc;
 static HBITMAP       g_dib;
 static u8           *g_bits;
+static HDC           g_frame_dc;      /* fullscreen: screen-sized compose buffer */
+static HBITMAP       g_frame_dib;
+static int           g_frame_w, g_frame_h;
 static HPALETTE      g_pal;
 static int           g_quit;
 static u32           g_fullscreen;
@@ -176,6 +179,11 @@ u32 plat_fullscreen(void)
 
 void plat_shutdown(void)
 {
+    if (g_frame_dib) DeleteObject(g_frame_dib);
+    if (g_frame_dc) DeleteDC(g_frame_dc);
+    g_frame_dib = 0;
+    g_frame_dc = 0;
+    g_frame_w = g_frame_h = 0;
     if (g_pal) DeleteObject(g_pal);
     if (g_dib) DeleteObject(g_dib);
     if (g_memdc) DeleteDC(g_memdc);
@@ -189,13 +197,58 @@ u8 *plat_framebuffer(void)
     return g_bits;
 }
 
+/* Fullscreen composes into its own screen-sized buffer: a FillRect followed by a StretchBlt on the
+ * window DC lets the display show the black fill between the two, which is the one-frame black
+ * flash that made the scaled picture flicker. Here the window sees exactly one BitBlt per frame. */
+static void free_frame(void)
+{
+    if (g_frame_dib) DeleteObject(g_frame_dib);
+    if (g_frame_dc) DeleteDC(g_frame_dc);
+    g_frame_dib = 0;
+    g_frame_dc = 0;
+    g_frame_w = 0;
+    g_frame_h = 0;
+}
+
+static int make_frame(int w, int h)
+{
+    BITMAPINFO bi;
+    HDC screen;
+    void *bits = 0;
+    RECT all;
+
+    free_frame();
+    memset(&bi, 0, sizeof bi);
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;                  /* top-down rows */
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    screen = GetDC(g_hwnd);
+    g_frame_dc = CreateCompatibleDC(screen);
+    ReleaseDC(g_hwnd, screen);
+    if (!g_frame_dc) return 0;
+    g_frame_dib = CreateDIBSection(g_frame_dc, &bi, DIB_RGB_COLORS, &bits, 0, 0);
+    if (!g_frame_dib) {
+        free_frame();
+        return 0;
+    }
+    SelectObject(g_frame_dc, g_frame_dib);
+    /* The bars never change, so they are painted once and only the picture rect is rewritten. */
+    all.left = 0; all.top = 0; all.right = w; all.bottom = h;
+    FillRect(g_frame_dc, &all, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    g_frame_w = w;
+    g_frame_h = h;
+    return 1;
+}
+
 void plat_present(void)
 {
     HDC dc;
     if (!g_hwnd || !g_bits) return;
     dc = GetDC(g_hwnd);
-    SelectPalette(dc, g_pal, FALSE);
-    RealizePalette(dc);
     if (g_fullscreen) {
         RECT cr;
         int cw, ch, w, h, x, y;
@@ -206,6 +259,12 @@ void plat_present(void)
         if (cw <= 0 || ch <= 0) {
             ReleaseDC(g_hwnd, dc);
             return;
+        }
+        if (cw != g_frame_w || ch != g_frame_h) {
+            if (!make_frame(cw, ch)) {
+                ReleaseDC(g_hwnd, dc);
+                return;
+            }
         }
         /* 320x200 is a 4:3 picture with non-square pixels, as on an Amiga monitor: fit the
          * largest 4:3 rectangle into the screen and keep the rest black. */
@@ -218,10 +277,12 @@ void plat_present(void)
         }
         x = (cw - w) / 2;
         y = (ch - h) / 2;
-        FillRect(dc, &cr, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SetStretchBltMode(dc, COLORONCOLOR);
-        StretchBlt(dc, x, y, w, h, g_memdc, 0, 0, SCREEN_W, SCREEN_H, SRCCOPY);
+        SetStretchBltMode(g_frame_dc, COLORONCOLOR);
+        StretchBlt(g_frame_dc, x, y, w, h, g_memdc, 0, 0, SCREEN_W, SCREEN_H, SRCCOPY);
+        BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
     } else {
+        SelectPalette(dc, g_pal, FALSE);
+        RealizePalette(dc);
         BitBlt(dc, 0, 0, SCREEN_W, SCREEN_H, g_memdc, 0, 0, SRCCOPY);
     }
     ReleaseDC(g_hwnd, dc);
