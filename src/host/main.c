@@ -134,6 +134,7 @@ int main(int argc, char **argv)
     int tickLog = 0;
     int ring = 0;
     int runForever = 0;
+    int dosLog = 0;
     long speedPercent = 100;
     const char *inputPath = 0;
     long insns = 40000000L;
@@ -154,6 +155,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
+        if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
         {
             speedPercent = strtol(argv[++i], 0, 0);
@@ -192,6 +194,7 @@ int main(int argc, char **argv)
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
     m.dataDir = dataDir;
     m.progress = progress;
+    m.dosLog = dosLog;
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;
