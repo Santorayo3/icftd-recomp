@@ -1440,9 +1440,10 @@ int rt_init(rt_machine *m)
     while (m->libraries < EMU_LIB_SLOTS) rt_library_new(m);
     rt_heap_reset();
     m->insnToTick = EMU_INSN_PER_FRAME;
-    /* The joystick and pot inputs are active low, so an unpressed port reads all ones. */
-    m->joy0 = 0xFFFFu;
-    m->joy1 = 0xFFFFu;
+    /* An unpressed joystick port reads all zero: FUN_00011bf0 takes bit1/bit9 as the vertical
+     * axis and the XOR of the two bit pairs as the horizontal one, so 0xFFFF read as "down". */
+    m->joy0 = 0x0000u;
+    m->joy1 = 0x0000u;
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
     rt_write32(&m->mem, 4, m->libraryBase[0]);

@@ -85,13 +85,30 @@ static u32 g_window;
 static u8  g_fireShown;
 static const char *shotPath;
 
+/* JOY0DAT for the sixteen key combinations, indexed up|down<<1|left<<2|right<<3.
+ *
+ * FUN_00011bf0 (and FUN_0000a500) decode the port as
+ *     v = bit1 ? +1 : (bit9 ? -1 : 0)                      +1 = down, -1 = up
+ *     h = (bit8 ^ bit9) ? -1 : ((bit0 ^ bit1) ? +1 : 0)     -1 = left, +1 = right
+ * and every consumer adds v to a screen Y and h to a screen X (FUN_00012202, FUN_00011cdc), so a
+ * *single* direction bit is wrong twice over: bit1 alone reads as down AND right (the diagonal
+ * cursor), and bit0/bit8 alone read as right/left swapped. The engine wants the whole 2-bit pair
+ * per axis - bit and its partner - so one key sets both and leaves the XOR quiet:
+ *     up 0300  down 0003  left 0100  right 0001
+ * and a diagonal drops one partner where the two directions share a pair:
+ *     up+left 0200  up+right 0301  down+left 0103  down+right 0002 */
+static const u16 g_joyDirs[16] =
+{
+    0x0000u, 0x0300u, 0x0003u, 0x0000u,     /* idle          up            down          up+down   */
+    0x0100u, 0x0200u, 0x0103u, 0x0100u,     /* left          up+left       down+left     up+down+left   */
+    0x0001u, 0x0301u, 0x0002u, 0x0001u,     /* right         up+right      down+right    up+down+right  */
+    0x0000u, 0x0300u, 0x0003u, 0x0000u      /* left+right    +left         +right        all four  */
+};
+
 static void host_input(rt_machine *m)
 {
     input_state in;
-    /* FUN_00011bf0 reads JOY0DAT like this: bit1 set = up, bit9 set = down, and the horizontal
-     * axis is the pair bit0^bit1 (left) / bit8^bit9 (right). Idle is therefore all zero - the
-     * earlier "active low, 0xFFFF idle" mapping made the engine see "down" permanently. */
-    u16 joy = 0;
+    u16 joy;
 
     if (!plat_pump(&in)) m->stop = 1;
     if (in.down[KEY_ESCAPE]) m->stop = 1;
@@ -102,10 +119,8 @@ static void host_input(rt_machine *m)
         return;
     }
     m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
-    if (in.down[KEY_UP])    joy |= 0x0002u;
-    if (in.down[KEY_DOWN])  joy |= 0x0200u;
-    if (in.down[KEY_LEFT])  { joy |= 0x0001u; joy &= (u16)~0x0002u; }
-    if (in.down[KEY_RIGHT]) { joy |= 0x0100u; joy &= (u16)~0x0200u; }
+    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
+                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     m->joy0 = joy;
     if (m->fireDown != g_fireShown)
     {

@@ -1,4 +1,6 @@
-/* Frame-indexed input script: "frame fire joy0 [joy1]" per line, applied at frame boundaries. */
+/* Frame-indexed input script: "frame fire joy0 [joy1]" per line, applied at frame boundaries.
+ * A centred joystick port is 0x0000 - FUN_00011bf0 reads bit1 as the vertical axis, so an
+ * omitted column must not default to 0xFFFF. */
 #include "input.h"
 
 #include <stdio.h>
@@ -50,8 +52,8 @@ int input_load(const char *path)
         }
         p = end;
         e.fire = 0;
-        e.joy0 = 0xFFFFu;
-        e.joy1 = 0xFFFFu;
+        e.joy0 = 0x0000u;
+        e.joy1 = 0x0000u;
         if (*p == 0 || *p == '\n') { /* frame only: fire released */ }
         else
         {
