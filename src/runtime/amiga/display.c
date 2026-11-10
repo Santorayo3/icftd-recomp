@@ -303,7 +303,8 @@ void rt_gfx_set_font(rt_machine *m, u32 rp, u32 font)
  * game's own font file (machine.c, OpenDiskFont). A glyph is a rectangle in the font's CharData
  * bitmap: row r of character c is the tf_CharLoc[c] bit offset, in the row that starts tf_Modulo
  * bytes on from CharData + r*tf_Modulo. The cursor is the *baseline* point: the top row of the
- * glyph sits at cp_y - tf_Baseline, and the next character starts at cp_x + tf_CharSpace[c].
+ * glyph sits at cp_y - tf_Baseline, and a character advances the cursor by tf_CharKern[c] and then
+ * tf_CharSpace[c] - the same sum TextLength() returns, so the engine's centring matches the draw.
  *
  * Without a font the port cannot draw text at all; the built-in 5x7 stand-in below only keeps a
  * diagnostic readable when a font file is missing. */
@@ -414,12 +415,17 @@ static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baselin
     u32 loc   = rt_read32(&m->mem, font + EMU_TF_CHAR_LOC);
     u32 space = rt_read32(&m->mem, font + EMU_TF_CHAR_SPACE);
     u32 kern  = rt_read32(&m->mem, font + EMU_TF_CHAR_KERN);
+    int xSize = (int)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
     int i = (ch >= lo && ch <= hi) ? ch - lo : -1;
+    int j = i >= 0 ? i : 0;
     u32 bits = i >= 0 ? (u32)rt_read16(&m->mem, loc + (u32)i * 4u) : 0u;   /* bit offset in row */
     int  w   = i >= 0 ? (int)rt_read16(&m->mem, loc + (u32)i * 4u + 2u) : 0;  /* glyph width */
     int top  = (int)baseline - base;                             /* cp_y is the baseline */
+    int kernX = kern != 0 ? (int)(s16)rt_read16(&m->mem, kern + (u32)j * 2u) : 0;
+    int adv   = (space != 0 && i >= 0) ? (int)rt_read16(&m->mem, space + (u32)j * 2u) : xSize;
     int row, col;
 
+    x += kernX;                 /* the kern shifts the glyph, then CharSpace advances past it */
     if (i >= 0 && data != 0 && mod > 0 && loc != 0)
     {
         for (row = 0; row < ySize; row++)
@@ -438,12 +444,7 @@ static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baselin
                 }
             }
     }
-    if (space == 0) return (s32)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
-    /* The advance is CharSpace alone - the same sum rt_gfx_text_length reports. The engine centres
-     * every line with TextLength, so adding CharKern here made the drawn text wider than it
-     * measured: the load prompt started at x=72 (correct) and ended at 299 instead of 249, i.e.
-     * 21 px from one edge and 72 from the other. */
-    return (s32)rt_read16(&m->mem, space + (u32)(i >= 0 ? i : 0) * 2u);
+    return (s32)kernX + adv;
 }
 
 u32 rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count)
@@ -486,7 +487,7 @@ s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
 {
     u32 font = rp != 0 ? rt_read32(&m->mem, rp + EMU_RP_FONT) : 0;
     int lo, hi, xSize;
-    u32 space, i;
+    u32 space, kern, i;
     s32 n = 0;
 
     if (font == 0) return (s32)count * FONT_ADVANCE;
@@ -494,11 +495,14 @@ s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
     hi = (int)rt_read8(&m->mem, font + EMU_TF_HI_CHAR);
     xSize = (int)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
     space = rt_read32(&m->mem, font + EMU_TF_CHAR_SPACE);
+    kern = rt_read32(&m->mem, font + EMU_TF_CHAR_KERN);
     for (i = 0; i < count; i++)
     {
         int ch = (int)rt_read8(&m->mem, text + i);
+        int j = (ch >= lo && ch <= hi) ? ch - lo : 0;
         n += (space != 0 && ch >= lo && ch <= hi)
-                 ? (s32)rt_read16(&m->mem, space + (u32)(ch - lo) * 2u) : (s32)xSize;
+                 ? (s32)rt_read16(&m->mem, space + (u32)j * 2u) : (s32)xSize;
+        if (kern != 0) n += (s32)(s16)rt_read16(&m->mem, kern + (u32)j * 2u);
     }
     return n;
 }

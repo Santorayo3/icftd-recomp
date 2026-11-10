@@ -525,7 +525,7 @@ void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted)
     u32 bm, font;
     int i;
 
-    if (!m->textLog || m->textSeen >= 8) return;
+    if (!m->textLog || m->textSeen >= 200) return;
     m->textSeen++;
     bm = rt_read32(&m->mem, rp + 4);
     printf("text: frame %ld rp %06lX bm %06lX str %06lX count %ld plotted %ld\n",
