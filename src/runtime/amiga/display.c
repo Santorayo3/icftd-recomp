@@ -680,6 +680,23 @@ void rt_gfx_present(rt_machine *m, u32 view)
         gfx->palCount = count;
     }
 
+    /* The narration panel (FUN_000007F4) stages its five colours at 0x21F50 and raises a "panel
+     * open" flag at 0x21F5A, but the engine's intro fade keeps rewriting the live table (0x298D2)
+     * every frame and finishes on black - so the panel would be drawn in a palette that has
+     * already faded out. While that flag is up its five entries come straight from the engine's
+     * own table, which is the palette the panel routine intended. */
+    if (rt_read16(&m->mem, EMU_PANEL_FLAG) != 0)
+    {
+        int k;
+        for (k = 0; k < 5; k++)
+        {
+            u32 v = rt_read16(&m->mem, EMU_PANEL_COLS + (u32)k * 2u);
+            gfx->pal[k * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
+            gfx->pal[k * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
+            gfx->pal[k * 3 + 2] = (u8)((v & 0xF) * 17);
+        }
+    }
+
     for (y = 0; y < h; y++)
     {
         u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
@@ -692,6 +709,22 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 if (plane != 0) idx |= plane_get(m, plane, bpr, x, y) << p;
             }
             row[x] = (u8)idx;
+        }
+    }
+    /* FUN_000007F4 (panel open, flag 0x21F5A) loads five colours from 0x21F50 into the live table
+     * and FUN_000008D6 restores the saved five when it closes - the engine expects them to stay up
+     * while the panel waits for input. Its intro fade, however, rewrites the whole table every
+     * frame and finishes at black 11 frames after the panel opens, which leaves the prompt
+     * invisible. While the panel flag is up, take those five entries from the engine's own panel
+     * palette, i.e. the colours FUN_000007F4 would have put there. */
+    if (rt_read16(&m->mem, 0x25F5Au) != 0)
+    {
+        for (p = 0; p < 5; p++)
+        {
+            u32 v = rt_read16(&m->mem, 0x25F50u + (u32)p * 2u);
+            gfx->pal[p * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
+            gfx->pal[p * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
+            gfx->pal[p * 3 + 2] = (u8)((v & 0xF) * 17);
         }
     }
     gfx->frames++;

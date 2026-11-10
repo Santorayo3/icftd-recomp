@@ -87,15 +87,24 @@ static const char *shotPath;
 static void host_input(rt_machine *m)
 {
     input_state in;
-    u16 joy = 0xFFFF;                       /* JOY0DAT is active low, all ones = idle */
+    /* FUN_00011bf0 reads JOY0DAT like this: bit1 set = up, bit9 set = down, and the horizontal
+     * axis is the pair bit0^bit1 (left) / bit8^bit9 (right). Idle is therefore all zero - the
+     * earlier "active low, 0xFFFF idle" mapping made the engine see "down" permanently. */
+    u16 joy = 0;
 
     if (!plat_pump(&in)) m->stop = 1;
     if (in.down[KEY_ESCAPE]) m->stop = 1;
+    if (input_active())
+    {
+        /* A frame-indexed script owns fire and the joystick; the keyboard only quits. */
+        plat_frame_sync();
+        return;
+    }
     m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
-    if (in.down[KEY_UP])    joy &= (u16)~0x0001u;
-    if (in.down[KEY_DOWN])  joy &= (u16)~0x0002u;
-    if (in.down[KEY_LEFT])  joy &= (u16)~0x0004u;
-    if (in.down[KEY_RIGHT]) joy &= (u16)~0x0008u;
+    if (in.down[KEY_UP])    joy |= 0x0002u;
+    if (in.down[KEY_DOWN])  joy |= 0x0200u;
+    if (in.down[KEY_LEFT])  { joy |= 0x0001u; joy &= (u16)~0x0002u; }
+    if (in.down[KEY_RIGHT]) { joy |= 0x0100u; joy &= (u16)~0x0200u; }
     m->joy0 = joy;
     if (m->fireDown != g_fireShown)
     {

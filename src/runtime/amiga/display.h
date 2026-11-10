@@ -43,6 +43,11 @@ enum {
     EMU_TF_CHAR_LOC = 40, EMU_TF_CHAR_SPACE = 44, EMU_TF_CHAR_KERN = 48
 };
 
+/* Engine variables the display has to consult - link-map addresses of dshell loaded at 0x4000
+ * (image offset + 0x4000). See the panel-palette note in display.c. */
+#define EMU_PANEL_FLAG 0x25F5Au      /* 0x21F5A: the narration panel is open */
+#define EMU_PANEL_COLS 0x25F50u      /* 0x21F50: the five colours that panel draws in */
+
 void rt_gfx_reset(rt_machine *m);
 
 /* InitBitMap(bitmap, depth, width, height) */
