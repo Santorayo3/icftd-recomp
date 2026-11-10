@@ -32,6 +32,14 @@ typedef struct {
 
 /* Returns non-zero on success.  The core draws into plat_framebuffer(). */
 u32  plat_init(const char *title);
+
+/* Window mode, from icftd.ini [VIDEO] fullscreen; call before plat_init.  Off keeps the window
+ * at exactly the framebuffer size and blits it 1:1; on takes the whole screen and scales the
+ * picture up.  May be a no-op. */
+void plat_set_fullscreen(u32 on);
+
+u32  plat_fullscreen(void);
+
 void plat_shutdown(void);
 
 u8  *plat_framebuffer(void);

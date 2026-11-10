@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "machine.h"
+#include "config.h"
 #include "display.h"
 #include "input.h"
 #include "platform.h"
@@ -262,12 +263,18 @@ int main(int argc, char **argv)
     m.tickLog = tickLog;
     if (g_window)
     {
+        int fs = 0;
+        rt_config_load();
+        fs = rt_config_bool("VIDEO", "fullscreen", 0);
+        plat_set_fullscreen((u32)fs);
         if (!plat_init("It Came from the Desert (recomp)"))
         {
             printf("recomp: cannot open a window\n");
             rt_shutdown(&m);
             return 1;
         }
+        printf("recomp: video %s, fullscreen=%d\n",
+               rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
         m.on_frame = host_input;
         /* 100% = 50 Hz, the Amiga's rate; lower is a debugging aid for comparing content. */
         plat_set_frame_hz((u32)(50 * speedPercent / 100));

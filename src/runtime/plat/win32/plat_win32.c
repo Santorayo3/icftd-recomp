@@ -18,6 +18,7 @@ static HBITMAP       g_dib;
 static u8           *g_bits;
 static HPALETTE      g_pal;
 static int           g_quit;
+static u32           g_fullscreen;
 static u32           g_start_ms;
 static u32           g_next_frame_ms;
 static u8            g_keys[KEY_COUNT];
@@ -69,6 +70,7 @@ static int make_window(const char *title)
     WNDCLASS wc;
     RECT r;
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w, h;
 
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc = wnd_proc;
@@ -77,14 +79,25 @@ static int make_window(const char *title)
     wc.lpszClassName = "ICFTD";
     if (!RegisterClass(&wc)) return 0;
 
-    r.left = 0; r.top = 0;
-    r.right = SCREEN_W; r.bottom = SCREEN_H;
-    AdjustWindowRect(&r, style, FALSE);
+    if (g_fullscreen) {
+        /* Borderless over the whole screen; plat_present scales the picture into it. */
+        style = WS_POPUP;
+        x = 0;
+        y = 0;
+        w = GetSystemMetrics(SM_CXSCREEN);
+        h = GetSystemMetrics(SM_CYSCREEN);
+    } else {
+        r.left = 0; r.top = 0;
+        r.right = SCREEN_W; r.bottom = SCREEN_H;
+        AdjustWindowRect(&r, style, FALSE);
+        w = r.right - r.left;
+        h = r.bottom - r.top;
+    }
 
-    g_hwnd = CreateWindow("ICFTD", title, style, CW_USEDEFAULT, CW_USEDEFAULT,
-                          r.right - r.left, r.bottom - r.top, 0, 0, wc.hInstance, 0);
+    g_hwnd = CreateWindow("ICFTD", title, style, x, y, w, h, 0, 0, wc.hInstance, 0);
     if (!g_hwnd) return 0;
     ShowWindow(g_hwnd, SW_SHOW);
+    if (g_fullscreen) SetForegroundWindow(g_hwnd);
     UpdateWindow(g_hwnd);
     return 1;
 }
@@ -151,6 +164,16 @@ u32 plat_init(const char *title)
     return 1;
 }
 
+void plat_set_fullscreen(u32 on)
+{
+    g_fullscreen = on ? 1u : 0u;
+}
+
+u32 plat_fullscreen(void)
+{
+    return g_fullscreen;
+}
+
 void plat_shutdown(void)
 {
     if (g_pal) DeleteObject(g_pal);
@@ -173,7 +196,34 @@ void plat_present(void)
     dc = GetDC(g_hwnd);
     SelectPalette(dc, g_pal, FALSE);
     RealizePalette(dc);
-    BitBlt(dc, 0, 0, SCREEN_W, SCREEN_H, g_memdc, 0, 0, SRCCOPY);
+    if (g_fullscreen) {
+        RECT cr;
+        int cw, ch, w, h, x, y;
+
+        GetClientRect(g_hwnd, &cr);
+        cw = cr.right - cr.left;
+        ch = cr.bottom - cr.top;
+        if (cw <= 0 || ch <= 0) {
+            ReleaseDC(g_hwnd, dc);
+            return;
+        }
+        /* 320x200 is a 4:3 picture with non-square pixels, as on an Amiga monitor: fit the
+         * largest 4:3 rectangle into the screen and keep the rest black. */
+        w = ch * 4 / 3;
+        if (w > cw) {
+            w = cw;
+            h = cw * 3 / 4;
+        } else {
+            h = ch;
+        }
+        x = (cw - w) / 2;
+        y = (ch - h) / 2;
+        FillRect(dc, &cr, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        SetStretchBltMode(dc, COLORONCOLOR);
+        StretchBlt(dc, x, y, w, h, g_memdc, 0, 0, SCREEN_W, SCREEN_H, SRCCOPY);
+    } else {
+        BitBlt(dc, 0, 0, SCREEN_W, SCREEN_H, g_memdc, 0, 0, SRCCOPY);
+    }
     ReleaseDC(g_hwnd, dc);
 }
 

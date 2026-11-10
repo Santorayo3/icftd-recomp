@@ -12,6 +12,7 @@
 
 #include "types.h"
 #include "platform.h"
+#include "config.h"
 #include "m68k.h"
 #include "machine.h"
 #include "cpu.h"
@@ -217,6 +218,15 @@ int main(int argc, char **argv)
         printf("emu: window mode - space = fire, esc or close = quit\n");
     }
 
+    if (g_window)
+    {
+        int fs = 0;
+        rt_config_load();
+        fs = rt_config_bool("VIDEO", "fullscreen", 0);
+        plat_set_fullscreen((u32)fs);
+        printf("emu: video %s, fullscreen=%d\n",
+               rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
+    }
     if (g_window && !plat_init("It Came from the Desert (recomp)"))
     {
         printf("emu: cannot open a window\n");
