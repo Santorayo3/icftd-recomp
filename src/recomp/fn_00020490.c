@@ -25,17 +25,20 @@ void fn_00020490(cpu_t *c, rt_machine *m)
 
 L_20490:
     /* 00020490   4  tst.w (2ad8,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020490u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2ad8u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_20494:
     /* 00020494   2  beq 000204a2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020494u);
     if (rc_cond(c, 7)) goto L_204A2;
 
 L_20496:
     /* 00020496   4  move.l (2ada,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020496u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x2adau));
     rc_d_set(c, 0, RC_L, t0);
@@ -43,6 +46,7 @@ L_20496:
 
 L_2049A:
     /* 0002049a   4  cmp.l (4,A7),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002049au);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     t1 = rc_d_get(c, 0, RC_L);
@@ -50,17 +54,20 @@ L_2049A:
 
 L_2049E:
     /* 0002049e   2  bne 000204a2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002049eu);
     if (rc_cond(c, 6)) goto L_204A2;
 
 L_204A0:
     /* 000204a0   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000204a0u);
     rc_ret(c, m);
     return;
 
 L_204A2:
     /* 000204a2   4  jmp (00021400) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000204a2u);
     c->pc = RC_ADDR(0x00021400u);
     return;

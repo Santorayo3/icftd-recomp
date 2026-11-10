@@ -31,6 +31,7 @@ void fn_0001db1e(cpu_t *c, rt_machine *m)
 
 L_1DB1E:
     /* 0001db1e   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db1eu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -38,6 +39,7 @@ L_1DB1E:
 
 L_1DB22:
     /* 0001db22   2  move.l D4,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db22u);
     t0 = rc_d_get(c, 4, RC_L);
     c->a[7] -= 4u;
@@ -46,12 +48,14 @@ L_1DB22:
 
 L_1DB24:
     /* 0001db24   2  moveq #0,D4 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db24u);
     c->d[4] = 0x00000000u;
     rc_set_nzvc(c, c->d[4], RC_L);
 
 L_1DB26:
     /* 0001db26   2  move.w D4,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db26u);
     t0 = rc_d_get(c, 4, RC_W);
     rc_d_set(c, 0, RC_W, t0);
@@ -59,16 +63,19 @@ L_1DB26:
 
 L_1DB28:
     /* 0001db28   2  asl.w #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db28u);
     c->d[0] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_W), RC_W);
 
 L_1DB2A:
     /* 0001db2a   4  lea (28ca,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db2au);
     c->a[0] = (c->a[4] + 0x28cau);
 
 L_1DB2E:
     /* 0001db2e   4  move.b D0,(0,A0,D4.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db2eu);
     t0 = rc_d_get(c, 0, RC_B);
     t4 = rc_ext(c->d[4], RC_W);
@@ -77,6 +84,7 @@ L_1DB2E:
 
 L_1DB32:
     /* 0001db32   2  addq.w #1,D4 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db32u);
     t1 = rc_d_get(c, 4, RC_W);
     t2 = t1 + 0x00000001u;
@@ -85,6 +93,7 @@ L_1DB32:
 
 L_1DB34:
     /* 0001db34   4  cmp.w #20,D4 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db34u);
     t0 = 0x00000020u;
     t1 = rc_d_get(c, 4, RC_W);
@@ -92,11 +101,13 @@ L_1DB34:
 
 L_1DB38:
     /* 0001db38   2  blt 0001db26 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db38u);
     if (rc_cond(c, 13)) { rc_tick(); goto L_1DB26; }
 
 L_1DB3A:
     /* 0001db3a   2  move.l (A7)+,D4 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db3au);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -106,6 +117,7 @@ L_1DB3A:
 
 L_1DB3C:
     /* 0001db3c   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db3cu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -113,6 +125,7 @@ L_1DB3C:
 
 L_1DB3E:
     /* 0001db3e   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db3eu);
     rc_ret(c, m);
     return;

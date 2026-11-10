@@ -18,6 +18,7 @@ void fn_000216b4(cpu_t *c, rt_machine *m)
 
 L_216B4:
     /* 000216b4   4  jmp (000216b8) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216b4u);
     /* exec.library -294 */
     rc_os_call(c, m, 0, -294);

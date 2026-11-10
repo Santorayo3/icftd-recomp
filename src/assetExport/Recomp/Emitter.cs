@@ -366,6 +366,9 @@ public sealed class Emitter
 
     void EmitInsn(Ctx c, Insn i)
     {
+        /* The frame budget is spent per instruction, as the interpreter spends it, so a translated
+         * run hits the same vblank at the same instruction. */
+        c.Line("rc_step(c, m);");
         c.Line($"c->pc = {ImmA(i.Addr)};");
         switch (i.Kind)
         {
@@ -689,6 +692,9 @@ public sealed class Emitter
                 return $"(c->a[{ea.Reg}] {Disp(ea.Disp)} + {TX})";
             case 7:
                 if (ea.Reg == 4) return Imm(ea.Imm);
+                /* Absolute short names a fixed low-memory address (AbsExecBase at 4, the Lattice
+                 * small-data area): the same number in every layout, never an image offset. */
+                if (ea.Reg == 0) return Imm(ea.Abs);
                 if (ea.IndexReg >= 0)
                 {
                     c.Line($"{TX} = {IndexExpr(ea)};");
@@ -864,7 +870,8 @@ public sealed class Emitter
                 return;
             }
             if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
-            c.Line($"c->pc = {ImmA(ea.Abs)};");
+            /* Absolute short is a fixed address, not an image offset (see Address()). */
+            c.Line($"c->pc = {(ea.Reg == 0 ? Imm(ea.Abs) : ImmA(ea.Abs))};");
             c.Line("return;");
             return;
         }

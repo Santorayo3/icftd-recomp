@@ -21,18 +21,21 @@ void fn_000217b8(cpu_t *c, rt_machine *m)
 
 L_217B8:
     /* 000217b8   4  movea.l (4,A7),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000217b8u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_217BC:
     /* 000217bc   4  movea.l (ffffcba0,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000217bcu);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_217C0:
     /* 000217c0   4  jmp (fffffe92,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000217c0u);
     rc_os_call_a6(c, m, -366);
     return;

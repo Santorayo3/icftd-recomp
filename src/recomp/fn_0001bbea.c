@@ -29,6 +29,7 @@ void fn_0001bbea(cpu_t *c, rt_machine *m)
 
 L_1BBEA:
     /* 0001bbea   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbeau);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -36,6 +37,7 @@ L_1BBEA:
 
 L_1BBEE:
     /* 0001bbee   4  move.l (2280,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbeeu);
     t0 = rc_rd32(c, m, (c->a[4] + 0x2280u));
     c->a[7] -= 4u;
@@ -44,11 +46,13 @@ L_1BBEE:
 
 L_1BBF2:
     /* 0001bbf2   4  pea (00000005).l */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbf2u);
-    rc_push32(c, m, RC_ADDR(0x00000005u));
+    rc_push32(c, m, 0x00000005u);
 
 L_1BBF6:
     /* 0001bbf6   4  jsr (ffff8356,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbf6u);
     /* vector 142: exec.library -174 */
     c->pc = RC_ADDR(0x0001bbfau);
@@ -56,16 +60,19 @@ L_1BBF6:
 
 L_1BBFA:
     /* 0001bbfa   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbfau);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1BBFC:
     /* 0001bbfc   4  pea (00000016).l */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bbfcu);
-    rc_push32(c, m, RC_ADDR(0x00000016u));
+    rc_push32(c, m, 0x00000016u);
 
 L_1BC00:
     /* 0001bc00   4  move.l (2280,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bc00u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x2280u));
     c->a[7] -= 4u;
@@ -74,6 +81,7 @@ L_1BC00:
 
 L_1BC04:
     /* 0001bc04   4  jsr (ffff8344,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bc04u);
     /* vector 139: exec.library -210 */
     c->pc = RC_ADDR(0x0001bc08u);
@@ -81,11 +89,13 @@ L_1BC04:
 
 L_1BC08:
     /* 0001bc08   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bc08u);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1BC0A:
     /* 0001bc0a   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bc0au);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -93,6 +103,7 @@ L_1BC0A:
 
 L_1BC0C:
     /* 0001bc0c   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001bc0cu);
     rc_ret(c, m);
     return;

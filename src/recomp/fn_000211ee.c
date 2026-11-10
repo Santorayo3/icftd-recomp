@@ -24,6 +24,7 @@ void fn_000211ee(cpu_t *c, rt_machine *m)
 
 L_211EE:
     /* 000211ee   2  move.l D1,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211eeu);
     t0 = rc_d_get(c, 1, RC_L);
     c->a[7] -= 4u;
@@ -32,6 +33,7 @@ L_211EE:
 
 L_211F0:
     /* 000211f0   2  bsr 00021204 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211f0u);
     rc_push32(c, m, RC_ADDR(0x000211f2u));
     rc_depth++;
@@ -40,6 +42,7 @@ L_211F0:
 
 L_211F2:
     /* 000211f2   2  move.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211f2u);
     t0 = rc_d_get(c, 1, RC_L);
     rc_d_set(c, 0, RC_L, t0);
@@ -47,6 +50,7 @@ L_211F2:
 
 L_211F4:
     /* 000211f4   2  move.l (A7)+,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211f4u);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -56,12 +60,14 @@ L_211F4:
 
 L_211F6:
     /* 000211f6   2  tst.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211f6u);
     t0 = rc_d_get(c, 0, RC_L);
     rc_set_nzvc(c, t0, RC_L);
 
 L_211F8:
     /* 000211f8   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211f8u);
     rc_ret(c, m);
     return;

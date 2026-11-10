@@ -20,12 +20,14 @@ void fn_0002198a(cpu_t *c, rt_machine *m)
 
 L_2198A:
     /* 0002198a   4  movea.l (ffffcba8,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002198au);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3458u));
     c->a[6] = t0;
 
 L_2198E:
     /* 0002198e   4  jmp (fffffe7a,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002198eu);
     rc_os_call_a6(c, m, -390);
     return;

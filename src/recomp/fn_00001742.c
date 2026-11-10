@@ -30,6 +30,7 @@ void fn_00001742(cpu_t *c, rt_machine *m)
 
 L_1742:
     /* 00001742   4  link.w A5,#fffffffe */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001742u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -38,12 +39,14 @@ L_1742:
 
 L_1746:
     /* 00001746   4  clr.w (fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001746u);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_174A:
     /* 0000174a   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000174au);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -51,21 +54,25 @@ L_174A:
 
 L_174E:
     /* 0000174e   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000174eu);
     rc_ext_l(c, 0);
 
 L_1750:
     /* 00001750   2  asl.l #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001750u);
     c->d[0] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L);
 
 L_1752:
     /* 00001752   4  lea (ffffcf54,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001752u);
     c->a[0] = (c->a[4] - 0x30acu);
 
 L_1756:
     /* 00001756   6  move.w #ffff,(0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001756u);
     t0 = 0x0000ffffu;
     t4 = c->d[0];
@@ -74,6 +81,7 @@ L_1756:
 
 L_175C:
     /* 0000175c   4  addq.w #1,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000175cu);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
@@ -83,17 +91,20 @@ L_175C:
 
 L_1760:
     /* 00001760   6  cmpi.w #14,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001760u);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_cmp(c, RC_W, t0, 0x00000014u);
 
 L_1766:
     /* 00001766   2  blt 0000174a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001766u);
     if (rc_cond(c, 13)) { rc_tick(); goto L_174A; }
 
 L_1768:
     /* 00001768   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00001768u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -101,6 +112,7 @@ L_1768:
 
 L_176A:
     /* 0000176a   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000176au);
     rc_ret(c, m);
     return;

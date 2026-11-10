@@ -24,12 +24,14 @@ void fn_000216f8(cpu_t *c, rt_machine *m)
 
 L_216F8:
     /* 000216f8   4  movea.l (4,A7),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216f8u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_216FC:
     /* 000216fc   2  move.l A0,(A0) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216fcu);
     t0 = rc_a_get(c, 0, RC_L);
     rc_wr32(c, m, c->a[0], t0);
@@ -37,6 +39,7 @@ L_216FC:
 
 L_216FE:
     /* 000216fe   2  addq.l #4,(A0) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216feu);
     t3 = c->a[0];
     t1 = rc_rd32(c, m, t3);
@@ -46,12 +49,14 @@ L_216FE:
 
 L_21700:
     /* 00021700   4  clr.l (4,A0) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021700u);
     rc_wr32(c, m, (c->a[0] + 0x4u), 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_21704:
     /* 00021704   4  move.l A0,(8,A0) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021704u);
     t0 = rc_a_get(c, 0, RC_L);
     rc_wr32(c, m, (c->a[0] + 0x8u), t0);
@@ -59,6 +64,7 @@ L_21704:
 
 L_21708:
     /* 00021708   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021708u);
     rc_ret(c, m);
     return;

@@ -39,6 +39,7 @@ void fn_0002054c(cpu_t *c, rt_machine *m)
 
 L_2054C:
     /* 0002054c   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002054cu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -46,6 +47,7 @@ L_2054C:
 
 L_20550:
     /* 00020550   6  move.w #100,(2b24,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020550u);
     t0 = 0x00000100u;
     rc_wr16(c, m, (c->a[4] + 0x2b24u), t0);
@@ -53,17 +55,20 @@ L_20550:
 
 L_20556:
     /* 00020556   6  cmpi.w #c,(2b1a,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020556u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_cmp(c, RC_W, t0, 0x0000000cu);
 
 L_2055C:
     /* 0002055c   2  bge 0002058e */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002055cu);
     if (rc_cond(c, 12)) goto L_2058E;
 
 L_2055E:
     /* 0002055e   4  addq.w #1,(2b1a,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002055eu);
     t3 = (c->a[4] + 0x2b1au);
     t1 = rc_rd16(c, m, t3);
@@ -73,6 +78,7 @@ L_2055E:
 
 L_20562:
     /* 00020562   4  move.w (2b1a,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020562u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_d_set(c, 0, RC_W, t0);
@@ -80,6 +86,7 @@ L_20562:
 
 L_20566:
     /* 00020566   2  subq.w #8,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020566u);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000008u;
@@ -88,6 +95,7 @@ L_20566:
 
 L_20568:
     /* 00020568   4  move.w D0,(2b1c,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020568u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b1cu), t0);
@@ -95,12 +103,14 @@ L_20568:
 
 L_2056C:
     /* 0002056c   2  moveq #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002056cu);
     c->d[0] = 0x00000001u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_2056E:
     /* 0002056e   4  move.w (2b1a,A4),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002056eu);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_d_set(c, 1, RC_W, t0);
@@ -108,11 +118,13 @@ L_2056E:
 
 L_20572:
     /* 00020572   2  asl.w D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020572u);
     c->d[0] = rc_shift(c, 0, 1, (c->d[1] & 63u), rc_d_get(c, 0, RC_W), RC_W);
 
 L_20574:
     /* 00020574   2  subq.w #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020574u);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
@@ -121,6 +133,7 @@ L_20574:
 
 L_20576:
     /* 00020576   4  move.w D0,(2b1e,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020576u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b1eu), t0);
@@ -128,6 +141,7 @@ L_20576:
 
 L_2057A:
     /* 0002057a   4  move.w (2b1e,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002057au);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1eu));
     rc_d_set(c, 0, RC_W, t0);
@@ -135,6 +149,7 @@ L_2057A:
 
 L_2057E:
     /* 0002057e   2  subq.w #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002057eu);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
@@ -143,6 +158,7 @@ L_2057E:
 
 L_20580:
     /* 00020580   4  move.w D0,(2b22,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020580u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b22u), t0);
@@ -150,6 +166,7 @@ L_20580:
 
 L_20584:
     /* 00020584   4  move.w (2b1e,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020584u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1eu));
     rc_d_set(c, 0, RC_W, t0);
@@ -157,6 +174,7 @@ L_20584:
 
 L_20588:
     /* 00020588   2  subq.w #2,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020588u);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000002u;
@@ -165,6 +183,7 @@ L_20588:
 
 L_2058A:
     /* 0002058a   4  move.w D0,(2b20,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002058au);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b20u), t0);
@@ -172,6 +191,7 @@ L_2058A:
 
 L_2058E:
     /* 0002058e   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002058eu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -179,6 +199,7 @@ L_2058E:
 
 L_20590:
     /* 00020590   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020590u);
     rc_ret(c, m);
     return;

@@ -32,6 +32,7 @@ void fn_0000f166(cpu_t *c, rt_machine *m)
 
 L_F166:
     /* 0000f166   4  movem.l { D7 A7 },-(SP) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f166u);
     t3 = c->a[7];
     t3 -= 4u;
@@ -42,34 +43,40 @@ L_F166:
 
 L_F16A:
     /* 0000f16a   4  tst.w (a,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f16au);
     t0 = rc_rd16(c, m, (c->a[6] + 0xau));
     rc_set_nzvc(c, t0, RC_W);
 
 L_F16E:
     /* 0000f16e   2  beq 0000f18a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f16eu);
     if (rc_cond(c, 7)) goto L_F18A;
 
 L_F170:
     /* 0000f170   4  clr.w (a,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f170u);
     rc_wr16(c, m, (c->a[6] + 0xau), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_F174:
     /* 0000f174   4  lea (26,A6),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f174u);
     c->a[0] = (c->a[6] + 0x26u);
 
 L_F178:
     /* 0000f178   2  clr.b D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f178u);
     rc_d_set(c, 0, RC_B, 0u);
     rc_set_nzvc(c, 0u, RC_B);
 
 L_F17A:
     /* 0000f17a   2  tst.l (A0)+ */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f17au);
     t3 = c->a[0];
     c->a[0] += 4u;
@@ -78,11 +85,13 @@ L_F17A:
 
 L_F17C:
     /* 0000f17c   2  beq 0000f182 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f17cu);
     if (rc_cond(c, 7)) goto L_F182;
 
 L_F17E:
     /* 0000f17e   4  bsr 0000f57e */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f17eu);
     rc_push32(c, m, RC_ADDR(0x0000f182u));
     rc_depth++;
@@ -91,6 +100,7 @@ L_F17E:
 
 L_F182:
     /* 0000f182   2  addq.b #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f182u);
     t1 = rc_d_get(c, 0, RC_B);
     t2 = t1 + 0x00000001u;
@@ -99,17 +109,20 @@ L_F182:
 
 L_F184:
     /* 0000f184   4  cmpi.b #4,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f184u);
     t0 = rc_d_get(c, 0, RC_B);
     rc_cmp(c, RC_B, t0, 0x00000004u);
 
 L_F188:
     /* 0000f188   2  bne 0000f17a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f188u);
     if (rc_cond(c, 6)) { rc_tick(); goto L_F17A; }
 
 L_F18A:
     /* 0000f18a   4  movem.l (SP)+,{ D0 A0 } */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f18au);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -124,6 +137,7 @@ L_F18A:
 
 L_F18E:
     /* 0000f18e   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f18eu);
     rc_ret(c, m);
     return;

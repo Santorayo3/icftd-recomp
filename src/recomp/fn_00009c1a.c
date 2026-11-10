@@ -27,6 +27,7 @@ void fn_00009c1a(cpu_t *c, rt_machine *m)
 
 L_9C1A:
     /* 00009c1a   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c1au);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -34,18 +35,21 @@ L_9C1A:
 
 L_9C1E:
     /* 00009c1e   6  movea.l #dff0a0,A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c1eu);
     t0 = 0x00dff0a0u;
     c->a[0] = t0;
 
 L_9C24:
     /* 00009c24   2  clr.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c24u);
     rc_d_set(c, 0, RC_L, 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_9C26:
     /* 00009c26   4  move.w (8,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c26u);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
@@ -53,11 +57,13 @@ L_9C26:
 
 L_9C2A:
     /* 00009c2a   2  lsl.w #4,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c2au);
     c->d[0] = rc_shift(c, 1, 1, 0x00000004u, rc_d_get(c, 0, RC_W), RC_W);
 
 L_9C2C:
     /* 00009c2c   6  move.w (a,A5),(6,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c2cu);
     t0 = rc_rd16(c, m, (c->a[5] + 0xau));
     t4 = rc_ext(c->d[0], RC_W);
@@ -66,6 +72,7 @@ L_9C2C:
 
 L_9C32:
     /* 00009c32   6  move.w (c,A5),(8,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c32u);
     t0 = rc_rd16(c, m, (c->a[5] + 0xcu));
     t4 = rc_ext(c->d[0], RC_W);
@@ -74,6 +81,7 @@ L_9C32:
 
 L_9C38:
     /* 00009c38   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c38u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -81,6 +89,7 @@ L_9C38:
 
 L_9C3A:
     /* 00009c3a   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c3au);
     rc_ret(c, m);
     return;

@@ -21,6 +21,7 @@ void fn_00021410(cpu_t *c, rt_machine *m)
 
 L_21410:
     /* 00021410   4  move.l (4,A7),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021410u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     rc_d_set(c, 1, RC_L, t0);
@@ -28,12 +29,14 @@ L_21410:
 
 L_21414:
     /* 00021414   4  movea.l (3af8,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021414u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af8u));
     c->a[6] = t0;
 
 L_21418:
     /* 00021418   4  jmp (ffffff82,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021418u);
     rc_os_call_a6(c, m, -126);
     return;

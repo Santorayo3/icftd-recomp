@@ -30,6 +30,7 @@ void fn_00015034(cpu_t *c, rt_machine *m)
 
 L_15034:
     /* 00015034   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015034u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -37,6 +38,7 @@ L_15034:
 
 L_15038:
     /* 00015038   4  move.w (8,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015038u);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
@@ -44,21 +46,25 @@ L_15038:
 
 L_1503C:
     /* 0001503c   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001503cu);
     rc_ext_l(c, 0);
 
 L_1503E:
     /* 0001503e   2  asl.l #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001503eu);
     c->d[0] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L);
 
 L_15040:
     /* 00015040   4  lea (11f4,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015040u);
     c->a[0] = (c->a[4] + 0x11f4u);
 
 L_15044:
     /* 00015044   4  move.w (0,A0,D0.w),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015044u);
     t4 = c->d[0];
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
@@ -67,21 +73,25 @@ L_15044:
 
 L_15048:
     /* 00015048   2  ext.l D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015048u);
     rc_ext_l(c, 1);
 
 L_1504A:
     /* 0001504a   2  asl.l #1,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001504au);
     c->d[1] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 1, RC_L), RC_L);
 
 L_1504C:
     /* 0001504c   4  lea (ffffb27c,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001504cu);
     c->a[0] = (c->a[4] - 0x4d84u);
 
 L_15050:
     /* 00015050   4  move.w (0,A0,D1.w),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015050u);
     t4 = c->d[1];
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
@@ -90,6 +100,7 @@ L_15050:
 
 L_15054:
     /* 00015054   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015054u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -97,6 +108,7 @@ L_15054:
 
 L_15056:
     /* 00015056   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00015056u);
     rc_ret(c, m);
     return;

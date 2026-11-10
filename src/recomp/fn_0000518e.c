@@ -30,6 +30,7 @@ void fn_0000518e(cpu_t *c, rt_machine *m)
 
 L_518E:
     /* 0000518e   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000518eu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -37,6 +38,7 @@ L_518E:
 
 L_5192:
     /* 00005192   4  move.l (8,A5),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00005192u);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 4u;
@@ -45,6 +47,7 @@ L_5192:
 
 L_5196:
     /* 00005196   4  jsr (ffff82ae,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00005196u);
     /* vector 114 */
     rc_push32(c, m, RC_ADDR(0x0000519au));
@@ -54,16 +57,19 @@ L_5196:
 
 L_519A:
     /* 0000519a   2  addq.w #4,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000519au);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_519C:
     /* 0000519c   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000519cu);
     rc_ext_l(c, 0);
 
 L_519E:
     /* 0000519e   4  add.l D0,(8,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000519eu);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
@@ -73,12 +79,14 @@ L_519E:
 
 L_51A2:
     /* 000051a2   4  movea.l (8,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051a2u);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_51A6:
     /* 000051a6   4  addq.l #1,(8,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051a6u);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
@@ -88,6 +96,7 @@ L_51A6:
 
 L_51AA:
     /* 000051aa   4  move.b #20,(A0) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051aau);
     t0 = 0x00000020u;
     rc_wr8(c, m, c->a[0], t0);
@@ -95,6 +104,7 @@ L_51AA:
 
 L_51AE:
     /* 000051ae   4  move.l (8,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051aeu);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
@@ -102,6 +112,7 @@ L_51AE:
 
 L_51B2:
     /* 000051b2   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051b2u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -109,6 +120,7 @@ L_51B2:
 
 L_51B4:
     /* 000051b4   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000051b4u);
     rc_ret(c, m);
     return;

@@ -28,6 +28,7 @@ void fn_0000b234(cpu_t *c, rt_machine *m)
 
 L_B234:
     /* 0000b234   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b234u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -35,6 +36,7 @@ L_B234:
 
 L_B238:
     /* 0000b238   4  move.w #40,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b238u);
     t0 = 0x00000040u;
     c->a[7] -= 2u;
@@ -43,6 +45,7 @@ L_B238:
 
 L_B23C:
     /* 0000b23c   4  move.w #2,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b23cu);
     t0 = 0x00000002u;
     c->a[7] -= 2u;
@@ -51,6 +54,7 @@ L_B23C:
 
 L_B240:
     /* 0000b240   4  move.l (402,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b240u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x402u));
     c->a[7] -= 4u;
@@ -59,6 +63,7 @@ L_B240:
 
 L_B244:
     /* 0000b244   4  move.w (3f8,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b244u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x3f8u));
     c->a[7] -= 2u;
@@ -67,6 +72,7 @@ L_B244:
 
 L_B248:
     /* 0000b248   4  move.l (3e4,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b248u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3e4u));
     c->a[7] -= 4u;
@@ -75,6 +81,7 @@ L_B248:
 
 L_B24C:
     /* 0000b24c   4  jsr (ffff80d4,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b24cu);
     /* vector 35 */
     rc_push32(c, m, RC_ADDR(0x0000b250u));
@@ -84,11 +91,13 @@ L_B24C:
 
 L_B250:
     /* 0000b250   4  lea (e,A7),A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b250u);
     c->a[7] = (c->a[7] + 0xeu);
 
 L_B254:
     /* 0000b254   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b254u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -96,6 +105,7 @@ L_B254:
 
 L_B256:
     /* 0000b256   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b256u);
     rc_ret(c, m);
     return;

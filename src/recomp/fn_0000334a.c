@@ -24,6 +24,7 @@ void fn_0000334a(cpu_t *c, rt_machine *m)
 
 L_334A:
     /* 0000334a   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000334au);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -31,23 +32,27 @@ L_334A:
 
 L_334E:
     /* 0000334e   4  tst.w (ffffce40,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000334eu);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31c0u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_3352:
     /* 00003352   2  beq 00003356 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00003352u);
     if (rc_cond(c, 7)) goto L_3356;
 
 L_3354:
     /* 00003354   2  bra 0000334e */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00003354u);
     rc_tick();
     goto L_334E;
 
 L_3356:
     /* 00003356   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00003356u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -55,6 +60,7 @@ L_3356:
 
 L_3358:
     /* 00003358   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00003358u);
     rc_ret(c, m);
     return;

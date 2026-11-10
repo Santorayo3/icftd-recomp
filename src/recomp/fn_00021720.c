@@ -18,6 +18,7 @@ void fn_00021720(cpu_t *c, rt_machine *m)
 
 L_21720:
     /* 00021720   4  jmp (00021724) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021720u);
     /* exec.library -552 */
     rc_os_call(c, m, 0, -552);

@@ -195,6 +195,10 @@ static void oracle_save_regs(u32 *r)
     r[17] = m68k_get_reg(0, M68K_REG_PC);     /* the instruction the handler interrupted */
 }
 
+/* The register file in both directions, for a driver that also runs translated code (src\host):
+ * d0-d7, a0-a7, sr, pc - the same order oracle_save_regs uses. */
+void oracle_regs_get(u32 *r) { oracle_save_regs(r); }
+
 static void oracle_restore_regs(const u32 *r)
 {
     int i;
@@ -203,10 +207,13 @@ static void oracle_restore_regs(const u32 *r)
     m68k_set_reg(M68K_REG_PC, r[17]);
 }
 
+/* The other direction of the same transfer: a translated run hands its register file back. */
+void oracle_regs_set(const u32 *r) { oracle_restore_regs(r); }
+
 /* The interrupt returns through this address (pushed as the return address of the handler). */
 #define EMU_INT_RET 0x00000204u
 
-static int oracle_step(rt_machine *m);
+int oracle_step(rt_machine *m);
 
 /* Runs one handler to its rts. Returns 0 when the handler never returned. */
 static int oracle_run_handler(rt_machine *m, u32 code, u32 data)
@@ -235,7 +242,7 @@ static int oracle_run_handler(rt_machine *m, u32 code, u32 data)
 
 
 /* One vertical blank: bump the frame, then run every registered interrupt server. */
-static void oracle_tick(rt_machine *m)
+void oracle_tick(rt_machine *m)
 {
     u32 save[18];
     int i;
@@ -268,7 +275,7 @@ static void oracle_tick(rt_machine *m)
 }
 
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */
-static int oracle_step(rt_machine *m)
+int oracle_step(rt_machine *m)
 {
     char text[128];
     u32 pc = m68k_get_reg(0, M68K_REG_PC);
@@ -356,10 +363,12 @@ u32 oracle_run(rt_machine *m, long maxInsns)
             /* The program asked for the next vblank: the rest of this frame is idle, so no
              * instruction is executed for it. One budget step is enough to end the frame. */
             m->waitVblank = 0;
-            m->insnToTick = 1;
+            m->insnToTick = 0;          /* the check below goes negative: this frame ends now */
         }
+        /* The counter goes negative, so a frame is exactly EMU_INSN_PER_FRAME instructions - the
+         * same rule the translated code follows (src\recomp\cpu.c, rc_step). */
+        if (--m->insnToTick < 0) oracle_tick(m);
         if (!oracle_step(m)) return m68k_get_reg(0, M68K_REG_PC);
-        if (--m->insnToTick <= 0) oracle_tick(m);
         if (m->progress && (m->insns % 1000000L) == 0)
             printf("emu: %ld steps, pc %06lx, frame %lu, %lu raster(s), %lu blit(s), %lu drop(s), %lu fire poll(s), %lu handler(s)\n",
                    (long)m->insns, (unsigned long)m68k_get_reg(0, M68K_REG_PC),
@@ -387,6 +396,8 @@ void oracle_boot(u32 entry, u32 a4)
     m68k_set_reg(M68K_REG_SR, 0x2700);
     /* After the image load: the image's BSS ends at 0x31598 and the Process block must survive. */
     rt_build_process(rt_current);
+    /* The first frame is a full frame, in both front ends (rt_init leaves the budget at zero). */
+    rt_current->insnToTick = EMU_INSN_PER_FRAME;
     /* The hunk loader would have called us, so leave a return address the program can rts to.
      * The DOS loader does the same: the entry code ends with `rts`. */
     rt_write32(&rt_current->mem, EMU_STACK_TOP - 4, EMU_EXIT_PC);

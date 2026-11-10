@@ -25,6 +25,7 @@ void fn_0000ef28(cpu_t *c, rt_machine *m)
 
 L_EF28:
     /* 0000ef28   4  movem.l { D1 D2 D3 D4 D5 D6 A0 A1 A2 A3 },-(SP) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef28u);
     t3 = c->a[7];
     t3 -= 4u;
@@ -51,6 +52,7 @@ L_EF28:
 
 L_EF2C:
     /* 0000ef2c   4  move.l (2c,A7),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef2cu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x2cu));
     rc_d_set(c, 0, RC_L, t0);
@@ -58,18 +60,21 @@ L_EF2C:
 
 L_EF30:
     /* 0000ef30   4  movea.l (ae0,A4),A3 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef30u);
     t0 = rc_rd32(c, m, (c->a[4] + 0xae0u));
     c->a[3] = t0;
 
 L_EF34:
     /* 0000ef34   4  movea.l (ffffa208,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef34u);
     t0 = rc_rd32(c, m, (c->a[4] - 0x5df8u));
     c->a[6] = t0;
 
 L_EF38:
     /* 0000ef38   4  jsr (0000f042) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef38u);
     rc_push32(c, m, RC_ADDR(0x0000ef3cu));
     rc_depth++;
@@ -78,6 +83,7 @@ L_EF38:
 
 L_EF3C:
     /* 0000ef3c   4  movem.l (SP)+,{ D4 D5 D6 D7 A1 A2 A3 A4 A5 A6 } */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef3cu);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -116,6 +122,7 @@ L_EF3C:
 
 L_EF40:
     /* 0000ef40   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ef40u);
     rc_ret(c, m);
     return;

@@ -45,6 +45,7 @@ void fn_000044b2(cpu_t *c, rt_machine *m)
 
 L_44B2:
     /* 000044b2   4  link.w A5,#fffffffc */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044b2u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -53,6 +54,7 @@ L_44B2:
 
 L_44B6:
     /* 000044b6   6  move.w #63,(fffff1c8,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044b6u);
     t0 = 0x00000063u;
     rc_wr16(c, m, (c->a[4] - 0xe38u), t0);
@@ -60,6 +62,7 @@ L_44B6:
 
 L_44BC:
     /* 000044bc   6  move.w #28,(fffff1ca,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044bcu);
     t0 = 0x00000028u;
     rc_wr16(c, m, (c->a[4] - 0xe36u), t0);
@@ -67,6 +70,7 @@ L_44BC:
 
 L_44C2:
     /* 000044c2   6  move.w #3c,(fffff1cc,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044c2u);
     t0 = 0x0000003cu;
     rc_wr16(c, m, (c->a[4] - 0xe34u), t0);
@@ -74,6 +78,7 @@ L_44C2:
 
 L_44C8:
     /* 000044c8   6  move.w #50,(fffff1ce,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044c8u);
     t0 = 0x00000050u;
     rc_wr16(c, m, (c->a[4] - 0xe32u), t0);
@@ -81,18 +86,21 @@ L_44C8:
 
 L_44CE:
     /* 000044ce   4  clr.w (fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044ceu);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_44D2:
     /* 000044d2   4  clr.w (fffffffc,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044d2u);
     rc_wr16(c, m, (c->a[5] - 0x4u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_44D6:
     /* 000044d6   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044d6u);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -100,16 +108,19 @@ L_44D6:
 
 L_44DA:
     /* 000044da   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044dau);
     rc_ext_l(c, 0);
 
 L_44DC:
     /* 000044dc   2  asl.l #2,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044dcu);
     c->d[0] = rc_shift(c, 0, 1, 0x00000002u, rc_d_get(c, 0, RC_L), RC_L);
 
 L_44DE:
     /* 000044de   4  move.w (fffffffc,A5),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044deu);
     t0 = rc_rd16(c, m, (c->a[5] - 0x4u));
     rc_d_set(c, 1, RC_W, t0);
@@ -117,11 +128,13 @@ L_44DE:
 
 L_44E2:
     /* 000044e2   2  ext.l D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044e2u);
     rc_ext_l(c, 1);
 
 L_44E4:
     /* 000044e4   2  add.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044e4u);
     t0 = rc_d_get(c, 1, RC_L);
     t1 = rc_d_get(c, 0, RC_L);
@@ -131,11 +144,13 @@ L_44E4:
 
 L_44E6:
     /* 000044e6   4  lea (fffff102,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044e6u);
     c->a[0] = (c->a[4] - 0xefeu);
 
 L_44EA:
     /* 000044ea   4  clr.b (0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044eau);
     t4 = c->d[0];
     rc_wr8(c, m, (c->a[0] + 0x0u + t4), 0u);
@@ -143,6 +158,7 @@ L_44EA:
 
 L_44EE:
     /* 000044ee   4  addq.w #1,(fffffffc,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044eeu);
     t3 = (c->a[5] - 0x4u);
     t1 = rc_rd16(c, m, t3);
@@ -152,17 +168,20 @@ L_44EE:
 
 L_44F2:
     /* 000044f2   6  cmpi.w #4,(fffffffc,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044f2u);
     t0 = rc_rd16(c, m, (c->a[5] - 0x4u));
     rc_cmp(c, RC_W, t0, 0x00000004u);
 
 L_44F8:
     /* 000044f8   2  blt 000044d6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044f8u);
     if (rc_cond(c, 13)) { rc_tick(); goto L_44D6; }
 
 L_44FA:
     /* 000044fa   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044fau);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -170,11 +189,13 @@ L_44FA:
 
 L_44FE:
     /* 000044fe   4  lea (fffff19e,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000044feu);
     c->a[0] = (c->a[4] - 0xe62u);
 
 L_4502:
     /* 00004502   4  clr.b (0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004502u);
     t4 = rc_ext(c->d[0], RC_W);
     rc_wr8(c, m, (c->a[0] + 0x0u + t4), 0u);
@@ -182,6 +203,7 @@ L_4502:
 
 L_4506:
     /* 00004506   4  addq.w #1,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004506u);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
@@ -191,23 +213,27 @@ L_4506:
 
 L_450A:
     /* 0000450a   6  cmpi.w #27,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000450au);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_cmp(c, RC_W, t0, 0x00000027u);
 
 L_4510:
     /* 00004510   2  blt 000044d2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004510u);
     if (rc_cond(c, 13)) { rc_tick(); goto L_44D2; }
 
 L_4512:
     /* 00004512   4  clr.w (fffff1d0,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004512u);
     rc_wr16(c, m, (c->a[4] - 0xe30u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_4516:
     /* 00004516   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004516u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -215,6 +241,7 @@ L_4516:
 
 L_4518:
     /* 00004518   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00004518u);
     rc_ret(c, m);
     return;

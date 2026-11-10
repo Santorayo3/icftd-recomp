@@ -18,6 +18,7 @@ void fn_0002168c(cpu_t *c, rt_machine *m)
 
 L_2168C:
     /* 0002168c   4  jmp (00021690) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002168cu);
     /* exec.library -198 */
     rc_os_call(c, m, 0, -198);

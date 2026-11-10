@@ -27,6 +27,7 @@ void fn_00009f92(cpu_t *c, rt_machine *m)
 
 L_9F92:
     /* 00009f92   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009f92u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -34,17 +35,20 @@ L_9F92:
 
 L_9F96:
     /* 00009f96   4  tst.l (fffff0ee,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009f96u);
     t0 = rc_rd32(c, m, (c->a[4] - 0xf12u));
     rc_set_nzvc(c, t0, RC_L);
 
 L_9F9A:
     /* 00009f9a   2  beq 00009faa */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009f9au);
     if (rc_cond(c, 7)) goto L_9FAA;
 
 L_9F9C:
     /* 00009f9c   4  move.l (fffff0f2,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009f9cu);
     t0 = rc_rd32(c, m, (c->a[4] - 0xf0eu));
     c->a[7] -= 4u;
@@ -53,6 +57,7 @@ L_9F9C:
 
 L_9FA0:
     /* 00009fa0   4  move.l (fffff0ee,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009fa0u);
     t0 = rc_rd32(c, m, (c->a[4] - 0xf12u));
     c->a[7] -= 4u;
@@ -61,6 +66,7 @@ L_9FA0:
 
 L_9FA4:
     /* 00009fa4   4  jsr (ffff8344,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009fa4u);
     /* vector 139: exec.library -210 */
     c->pc = RC_ADDR(0x00009fa8u);
@@ -68,11 +74,13 @@ L_9FA4:
 
 L_9FA8:
     /* 00009fa8   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009fa8u);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_9FAA:
     /* 00009faa   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009faau);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -80,6 +88,7 @@ L_9FAA:
 
 L_9FAC:
     /* 00009fac   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009facu);
     rc_ret(c, m);
     return;

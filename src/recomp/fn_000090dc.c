@@ -32,6 +32,7 @@ void fn_000090dc(cpu_t *c, rt_machine *m)
 
 L_90DC:
     /* 000090dc   4  link.w A5,#fffffffe */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090dcu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -40,6 +41,7 @@ L_90DC:
 
 L_90E0:
     /* 000090e0   6  move.w #4,(fffff0b4,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090e0u);
     t0 = 0x00000004u;
     rc_wr16(c, m, (c->a[4] - 0xf4cu), t0);
@@ -47,17 +49,20 @@ L_90E0:
 
 L_90E6:
     /* 000090e6   4  clr.w (fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090e6u);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_90EA:
     /* 000090ea   2  bra 00009102 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090eau);
     goto L_9102;
 
 L_90EC:
     /* 000090ec   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090ecu);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -65,6 +70,7 @@ L_90EC:
 
 L_90F0:
     /* 000090f0   4  add.w #f0,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090f0u);
     t0 = 0x000000f0u;
     t1 = rc_d_get(c, 0, RC_W);
@@ -74,11 +80,13 @@ L_90F0:
 
 L_90F4:
     /* 000090f4   4  lea (ffffce44,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090f4u);
     c->a[0] = (c->a[4] - 0x31bcu);
 
 L_90F8:
     /* 000090f8   6  move.b #1,(0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090f8u);
     t0 = 0x00000001u;
     t4 = rc_ext(c->d[0], RC_W);
@@ -87,6 +95,7 @@ L_90F8:
 
 L_90FE:
     /* 000090fe   4  addq.w #1,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000090feu);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
@@ -96,6 +105,7 @@ L_90FE:
 
 L_9102:
     /* 00009102   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009102u);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -103,6 +113,7 @@ L_9102:
 
 L_9106:
     /* 00009106   4  cmp.w (fffff0b4,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009106u);
     t0 = rc_rd16(c, m, (c->a[4] - 0xf4cu));
     t1 = rc_d_get(c, 0, RC_W);
@@ -110,11 +121,13 @@ L_9106:
 
 L_910A:
     /* 0000910a   2  blt 000090ec */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000910au);
     if (rc_cond(c, 13)) { rc_tick(); goto L_90EC; }
 
 L_910C:
     /* 0000910c   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000910cu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -122,6 +135,7 @@ L_910C:
 
 L_910E:
     /* 0000910e   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000910eu);
     rc_ret(c, m);
     return;

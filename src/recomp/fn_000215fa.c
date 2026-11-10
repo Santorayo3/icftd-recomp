@@ -24,6 +24,7 @@ void fn_000215fa(cpu_t *c, rt_machine *m)
 
 L_215FA:
     /* 000215fa   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000215fau);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -31,6 +32,7 @@ L_215FA:
 
 L_215FE:
     /* 000215fe   4  move.l (8,A5),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000215feu);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 4u;
@@ -39,6 +41,7 @@ L_215FE:
 
 L_21602:
     /* 00021602   4  jsr (00021650) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021602u);
     rc_push32(c, m, RC_ADDR(0x00021606u));
     rc_depth++;
@@ -47,11 +50,13 @@ L_21602:
 
 L_21606:
     /* 00021606   2  addq.w #4,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021606u);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_21608:
     /* 00021608   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021608u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -59,6 +64,7 @@ L_21608:
 
 L_2160A:
     /* 0002160a   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002160au);
     rc_ret(c, m);
     return;

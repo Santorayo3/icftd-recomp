@@ -26,18 +26,21 @@ void fn_0002191a(cpu_t *c, rt_machine *m)
 
 L_2191A:
     /* 0002191a   4  movea.l (4,A7),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002191au);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_2191E:
     /* 0002191e   4  movea.l (8,A7),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002191eu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     c->a[0] = t0;
 
 L_21922:
     /* 00021922   4  move.l (c,A7),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021922u);
     t0 = rc_rd32(c, m, (c->a[7] + 0xcu));
     rc_d_set(c, 0, RC_L, t0);
@@ -45,12 +48,14 @@ L_21922:
 
 L_21926:
     /* 00021926   4  movea.l (ffffcba0,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021926u);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_2192A:
     /* 0002192a   2  move.l D7,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002192au);
     t0 = rc_d_get(c, 7, RC_L);
     c->a[7] -= 4u;
@@ -59,6 +64,7 @@ L_2192A:
 
 L_2192C:
     /* 0002192c   4  jsr (ffffffc4,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002192cu);
     c->pc = RC_ADDR(0x00021930u);
     rc_push32(c, m, RC_ADDR(0x00021930u));
@@ -66,6 +72,7 @@ L_2192C:
 
 L_21930:
     /* 00021930   2  move.l (A7)+,D7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021930u);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -75,6 +82,7 @@ L_21930:
 
 L_21932:
     /* 00021932   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021932u);
     rc_ret(c, m);
     return;

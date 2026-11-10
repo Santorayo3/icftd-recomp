@@ -121,4 +121,18 @@ void rc_ret(cpu_t *c, rt_machine *m);
 /* Emitted at every backward branch: a spin loop that touches no memory still has to be stoppable. */
 void rc_tick(void);
 
+/* --- the frame boundary ---------------------------------------------------------------------
+ * Emitted first in every instruction: the machine's frame cadence is an instruction budget
+ * (EMU_INSN_PER_FRAME), so the translated code has to spend it exactly like the interpreter does.
+ * When the budget runs out, rc_frame_hook runs one vertical blank - bump the frame, take the input,
+ * run the game's own interrupt servers - and returns with the register file as they left it. */
+extern void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
+void rc_step(cpu_t *c, rt_machine *m);
+/* Bisection seam: stop the run once m->insns reaches this count (0 = never). The interpreter has
+ * the same stop as its instruction budget, so both front ends can be compared at one instruction. */
+extern long rc_stopAt;
+/* Stop the dispatch (leaving c->pc at the next instruction) instead of handing control to
+ * rc_interpreter: the host's own driver owns the seam between translated and interpreted code. */
+extern int rc_stopOnUnknown;
+
 #endif

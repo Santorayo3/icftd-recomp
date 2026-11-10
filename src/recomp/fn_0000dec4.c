@@ -29,6 +29,7 @@ void fn_0000dec4(cpu_t *c, rt_machine *m)
 
 L_DEC4:
     /* 0000dec4   4  link.w A5,#fffffffc */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dec4u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -37,6 +38,7 @@ L_DEC4:
 
 L_DEC8:
     /* 0000dec8   6  move.w (8,A5),(710,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dec8u);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_wr16(c, m, (c->a[4] + 0x710u), t0);
@@ -44,6 +46,7 @@ L_DEC8:
 
 L_DECE:
     /* 0000dece   4  move.w (710,A4),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000deceu);
     t0 = rc_rd16(c, m, (c->a[4] + 0x710u));
     rc_d_set(c, 0, RC_W, t0);
@@ -51,21 +54,25 @@ L_DECE:
 
 L_DED2:
     /* 0000ded2   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ded2u);
     rc_ext_l(c, 0);
 
 L_DED4:
     /* 0000ded4   2  asl.l #2,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ded4u);
     c->d[0] = rc_shift(c, 0, 1, 0x00000002u, rc_d_get(c, 0, RC_L), RC_L);
 
 L_DED6:
     /* 0000ded6   4  lea (ffff9ae0,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000ded6u);
     c->a[0] = (c->a[4] - 0x6520u);
 
 L_DEDA:
     /* 0000deda   4  move.l (0,A0,D0.w),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dedau);
     t4 = c->d[0];
     t0 = rc_rd32(c, m, (c->a[0] + 0x0u + t4));
@@ -75,6 +82,7 @@ L_DEDA:
 
 L_DEDE:
     /* 0000dede   4  jsr (ffff81b8,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dedeu);
     /* vector 73 */
     rc_push32(c, m, RC_ADDR(0x0000dee2u));
@@ -84,11 +92,13 @@ L_DEDE:
 
 L_DEE2:
     /* 0000dee2   2  addq.w #4,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dee2u);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_DEE4:
     /* 0000dee4   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dee4u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -96,6 +106,7 @@ L_DEE4:
 
 L_DEE6:
     /* 0000dee6   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000dee6u);
     rc_ret(c, m);
     return;

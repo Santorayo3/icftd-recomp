@@ -25,6 +25,7 @@ void fn_0000f56c(cpu_t *c, rt_machine *m)
 
 L_F56C:
     /* 0000f56c   2  move.l D0,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f56cu);
     t0 = rc_d_get(c, 0, RC_L);
     c->a[7] -= 4u;
@@ -33,18 +34,21 @@ L_F56C:
 
 L_F56E:
     /* 0000f56e   4  clr.w (a,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f56eu);
     rc_wr16(c, m, (c->a[6] + 0xau), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_F572:
     /* 0000f572   2  moveq #3,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f572u);
     c->d[0] = 0x00000003u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_F574:
     /* 0000f574   2  bsr 0000f57e */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f574u);
     rc_push32(c, m, RC_ADDR(0x0000f576u));
     rc_depth++;
@@ -53,6 +57,7 @@ L_F574:
 
 L_F576:
     /* 0000f576   4  dbf D0,0000f574 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f576u);
     if (!rc_cond(c, 1)) {
         t2 = (rc_d_get(c, 0, RC_W) + 0xFFFFu) & 0xFFFFu;
@@ -62,6 +67,7 @@ L_F576:
 
 L_F57A:
     /* 0000f57a   2  move.l (A7)+,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f57au);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -71,6 +77,7 @@ L_F57A:
 
 L_F57C:
     /* 0000f57c   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f57cu);
     rc_ret(c, m);
     return;

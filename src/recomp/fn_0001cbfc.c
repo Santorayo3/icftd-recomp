@@ -32,6 +32,7 @@ void fn_0001cbfc(cpu_t *c, rt_machine *m)
 
 L_1CBFC:
     /* 0001cbfc   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cbfcu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -39,28 +40,33 @@ L_1CBFC:
 
 L_1CC00:
     /* 0001cc00   6  cmpi.w #26,(ffffefe4,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc00u);
     t0 = rc_rd16(c, m, (c->a[4] - 0x101cu));
     rc_cmp(c, RC_W, t0, 0x00000026u);
 
 L_1CC06:
     /* 0001cc06   2  bne 0001cc2a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc06u);
     if (rc_cond(c, 6)) goto L_1CC2A;
 
 L_1CC08:
     /* 0001cc08   4  tst.w (fffffe36,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc08u);
     t0 = rc_rd16(c, m, (c->a[4] - 0x1cau));
     rc_set_nzvc(c, t0, RC_W);
 
 L_1CC0C:
     /* 0001cc0c   2  beq 0001cc2a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc0cu);
     if (rc_cond(c, 7)) goto L_1CC2A;
 
 L_1CC0E:
     /* 0001cc0e   4  move.w #34,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc0eu);
     t0 = 0x00000034u;
     c->a[7] -= 2u;
@@ -69,6 +75,7 @@ L_1CC0E:
 
 L_1CC12:
     /* 0001cc12   4  jsr (ffff8080,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc12u);
     /* vector 21 */
     rc_push32(c, m, RC_ADDR(0x0001cc16u));
@@ -78,11 +85,13 @@ L_1CC12:
 
 L_1CC16:
     /* 0001cc16   2  addq.w #2,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc16u);
     c->a[7] += rc_ext(0x00000002u, RC_W);
 
 L_1CC18:
     /* 0001cc18   4  jsr (ffff803e,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc18u);
     /* vector 10 */
     rc_push32(c, m, RC_ADDR(0x0001cc1cu));
@@ -92,6 +101,7 @@ L_1CC18:
 
 L_1CC1C:
     /* 0001cc1c   4  jsr (ffff8038,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc1cu);
     /* vector 9 */
     rc_push32(c, m, RC_ADDR(0x0001cc20u));
@@ -101,6 +111,7 @@ L_1CC1C:
 
 L_1CC20:
     /* 0001cc20   6  move.w #1,(fffffec6,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc20u);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] - 0x13au), t0);
@@ -108,12 +119,14 @@ L_1CC20:
 
 L_1CC26:
     /* 0001cc26   4  clr.w (fffffe36,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc26u);
     rc_wr16(c, m, (c->a[4] - 0x1cau), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_1CC2A:
     /* 0001cc2a   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc2au);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -121,6 +134,7 @@ L_1CC2A:
 
 L_1CC2C:
     /* 0001cc2c   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001cc2cu);
     rc_ret(c, m);
     return;

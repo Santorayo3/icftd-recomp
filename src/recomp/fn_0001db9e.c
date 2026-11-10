@@ -25,6 +25,7 @@ void fn_0001db9e(cpu_t *c, rt_machine *m)
 
 L_1DB9E:
     /* 0001db9e   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001db9eu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -32,17 +33,20 @@ L_1DB9E:
 
 L_1DBA2:
     /* 0001dba2   4  tst.w (ffffcb22,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dba2u);
     t0 = rc_rd16(c, m, (c->a[4] - 0x34deu));
     rc_set_nzvc(c, t0, RC_W);
 
 L_1DBA6:
     /* 0001dba6   2  bne 0001dbac */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dba6u);
     if (rc_cond(c, 6)) goto L_1DBAC;
 
 L_1DBA8:
     /* 0001dba8   4  jsr (ffff8380,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dba8u);
     /* vector 149 */
     rc_push32(c, m, RC_ADDR(0x0001dbacu));
@@ -52,6 +56,7 @@ L_1DBA8:
 
 L_1DBAC:
     /* 0001dbac   4  addq.w #1,(ffffcb22,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dbacu);
     t3 = (c->a[4] - 0x34deu);
     t1 = rc_rd16(c, m, t3);
@@ -61,6 +66,7 @@ L_1DBAC:
 
 L_1DBB0:
     /* 0001dbb0   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dbb0u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -68,6 +74,7 @@ L_1DBB0:
 
 L_1DBB2:
     /* 0001dbb2   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001dbb2u);
     rc_ret(c, m);
     return;

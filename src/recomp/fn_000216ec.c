@@ -21,18 +21,21 @@ void fn_000216ec(cpu_t *c, rt_machine *m)
 
 L_216EC:
     /* 000216ec   4  movea.l (4,A7),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216ecu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_216F0:
     /* 000216f0   4  movea.l (3af4,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216f0u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_216F4:
     /* 000216f4   4  jmp (fffffe8c,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216f4u);
     rc_os_call_a6(c, m, -372);
     return;

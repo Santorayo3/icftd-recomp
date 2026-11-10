@@ -28,6 +28,7 @@ void fn_0000b2a0(cpu_t *c, rt_machine *m)
 
 L_B2A0:
     /* 0000b2a0   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2a0u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -35,6 +36,7 @@ L_B2A0:
 
 L_B2A4:
     /* 0000b2a4   4  move.w #40,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2a4u);
     t0 = 0x00000040u;
     c->a[7] -= 2u;
@@ -43,6 +45,7 @@ L_B2A4:
 
 L_B2A8:
     /* 0000b2a8   4  move.w #2,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2a8u);
     t0 = 0x00000002u;
     c->a[7] -= 2u;
@@ -51,6 +54,7 @@ L_B2A8:
 
 L_B2AC:
     /* 0000b2ac   4  move.l (40e,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2acu);
     t0 = rc_rd32(c, m, (c->a[4] + 0x40eu));
     c->a[7] -= 4u;
@@ -59,6 +63,7 @@ L_B2AC:
 
 L_B2B0:
     /* 0000b2b0   4  move.w (3fe,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2b0u);
     t0 = rc_rd16(c, m, (c->a[4] + 0x3feu));
     c->a[7] -= 2u;
@@ -67,6 +72,7 @@ L_B2B0:
 
 L_B2B4:
     /* 0000b2b4   4  move.l (3f0,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2b4u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3f0u));
     c->a[7] -= 4u;
@@ -75,6 +81,7 @@ L_B2B4:
 
 L_B2B8:
     /* 0000b2b8   4  jsr (ffff80d4,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2b8u);
     /* vector 35 */
     rc_push32(c, m, RC_ADDR(0x0000b2bcu));
@@ -84,11 +91,13 @@ L_B2B8:
 
 L_B2BC:
     /* 0000b2bc   4  lea (e,A7),A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2bcu);
     c->a[7] = (c->a[7] + 0xeu);
 
 L_B2C0:
     /* 0000b2c0   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2c0u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -96,6 +105,7 @@ L_B2C0:
 
 L_B2C2:
     /* 0000b2c2   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b2c2u);
     rc_ret(c, m);
     return;

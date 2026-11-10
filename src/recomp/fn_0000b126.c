@@ -20,6 +20,7 @@ void fn_0000b126(cpu_t *c, rt_machine *m)
 
 L_B126:
     /* 0000b126   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b126u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -27,6 +28,7 @@ L_B126:
 
 L_B12A:
     /* 0000b12a   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b12au);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -34,6 +36,7 @@ L_B12A:
 
 L_B12C:
     /* 0000b12c   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b12cu);
     rc_ret(c, m);
     return;

@@ -19,6 +19,7 @@ void fn_00020698(cpu_t *c, rt_machine *m)
 
 L_20698:
     /* 00020698   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020698u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -26,6 +27,7 @@ L_20698:
 
 L_2069A:
     /* 0002069a   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002069au);
     rc_ret(c, m);
     return;

@@ -18,6 +18,7 @@ void fn_000214ea(cpu_t *c, rt_machine *m)
 
 L_214EA:
     /* 000214ea   4  jmp (000214ee) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000214eau);
     /* exec.library -414 */
     rc_os_call(c, m, 0, -414);

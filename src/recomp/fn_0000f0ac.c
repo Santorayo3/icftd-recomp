@@ -34,6 +34,7 @@ void fn_0000f0ac(cpu_t *c, rt_machine *m)
 
 L_F0AC:
     /* 0000f0ac   4  movem.l { D1 D2 D3 D4 D5 D6 D7 A0 A1 A2 A3 A4 A5 A6 A7 },-(SP) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0acu);
     t3 = c->a[7];
     t3 -= 4u;
@@ -70,6 +71,7 @@ L_F0AC:
 
 L_F0B0:
     /* 0000f0b0   2  move.l A0,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0b0u);
     t0 = rc_a_get(c, 0, RC_L);
     rc_d_set(c, 0, RC_L, t0);
@@ -77,44 +79,52 @@ L_F0B0:
 
 L_F0B2:
     /* 0000f0b2   2  beq 0000f0d8 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0b2u);
     if (rc_cond(c, 7)) goto L_F0D8;
 
 L_F0B4:
     /* 0000f0b4   4  lea (3e,A6),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0b4u);
     c->a[1] = (c->a[6] + 0x3eu);
 
 L_F0B8:
     /* 0000f0b8   2  clr.b D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0b8u);
     rc_d_set(c, 0, RC_B, 0u);
     rc_set_nzvc(c, 0u, RC_B);
 
 L_F0BA:
     /* 0000f0ba   6  cmpi.b #0,(1,A1) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0bau);
     t0 = rc_rd8(c, m, (c->a[1] + 0x1u));
     rc_cmp(c, RC_B, t0, 0x00000000u);
 
 L_F0C0:
     /* 0000f0c0   2  beq 0000f0cc */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0c0u);
     if (rc_cond(c, 7)) goto L_F0CC;
 
 L_F0C2:
     /* 0000f0c2   4  cmpa.l (4,A1),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0c2u);
     t0 = rc_rd32(c, m, (c->a[1] + 0x4u));
     rc_cmp(c, RC_L, c->a[0], t0);
 
 L_F0C6:
     /* 0000f0c6   2  bne 0000f0cc */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0c6u);
     if (rc_cond(c, 6)) goto L_F0CC;
 
 L_F0C8:
     /* 0000f0c8   4  bsr 0000f5b8 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0c8u);
     rc_push32(c, m, RC_ADDR(0x0000f0ccu));
     rc_depth++;
@@ -123,12 +133,14 @@ L_F0C8:
 
 L_F0CC:
     /* 0000f0cc   4  adda.w #16,A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0ccu);
     t0 = 0x00000016u;
     c->a[1] += rc_ext(t0, RC_W);
 
 L_F0D0:
     /* 0000f0d0   2  addq.b #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0d0u);
     t1 = rc_d_get(c, 0, RC_B);
     t2 = t1 + 0x00000001u;
@@ -137,17 +149,20 @@ L_F0D0:
 
 L_F0D2:
     /* 0000f0d2   4  cmpi.b #4,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0d2u);
     t0 = rc_d_get(c, 0, RC_B);
     rc_cmp(c, RC_B, t0, 0x00000004u);
 
 L_F0D6:
     /* 0000f0d6   2  bne 0000f0ba */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0d6u);
     if (rc_cond(c, 6)) { rc_tick(); goto L_F0BA; }
 
 L_F0D8:
     /* 0000f0d8   4  movem.l (SP)+,{ D0 D1 D2 D3 D4 D5 D6 D7 A0 A1 A2 A3 A4 A5 A6 } */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0d8u);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -201,6 +216,7 @@ L_F0D8:
 
 L_F0DC:
     /* 0000f0dc   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0dcu);
     rc_ret(c, m);
     return;

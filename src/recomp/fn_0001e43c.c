@@ -24,6 +24,7 @@ void fn_0001e43c(cpu_t *c, rt_machine *m)
 
 L_1E43C:
     /* 0001e43c   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e43cu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -31,16 +32,19 @@ L_1E43C:
 
 L_1E440:
     /* 0001e440   4  pea (ffffcdfa,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e440u);
     rc_push32(c, m, (c->a[4] - 0x3206u));
 
 L_1E444:
     /* 0001e444   4  pea (00000005).l */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e444u);
-    rc_push32(c, m, RC_ADDR(0x00000005u));
+    rc_push32(c, m, 0x00000005u);
 
 L_1E448:
     /* 0001e448   4  jsr (ffff8356,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e448u);
     /* vector 142: exec.library -174 */
     c->pc = RC_ADDR(0x0001e44cu);
@@ -48,11 +52,13 @@ L_1E448:
 
 L_1E44C:
     /* 0001e44c   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e44cu);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1E44E:
     /* 0001e44e   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e44eu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -60,6 +66,7 @@ L_1E44E:
 
 L_1E450:
     /* 0001e450   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001e450u);
     rc_ret(c, m);
     return;

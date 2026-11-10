@@ -22,6 +22,7 @@ void fn_00011be0(cpu_t *c, rt_machine *m)
 
 L_11BE0:
     /* 00011be0   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00011be0u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -29,6 +30,7 @@ L_11BE0:
 
 L_11BE4:
     /* 00011be4   8  move.w #400,(00dff096).l */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00011be4u);
     t0 = 0x00000400u;
     rc_wr16(c, m, RC_ADDR(0x00dff096u), t0);
@@ -36,6 +38,7 @@ L_11BE4:
 
 L_11BEC:
     /* 00011bec   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00011becu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -43,6 +46,7 @@ L_11BEC:
 
 L_11BEE:
     /* 00011bee   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00011beeu);
     rc_ret(c, m);
     return;

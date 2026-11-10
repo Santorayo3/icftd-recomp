@@ -25,6 +25,7 @@ void fn_0000be1e(cpu_t *c, rt_machine *m)
 
 L_BE1E:
     /* 0000be1e   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be1eu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -32,6 +33,7 @@ L_BE1E:
 
 L_BE22:
     /* 0000be22   4  move.l (46c,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be22u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x46cu));
     c->a[7] -= 4u;
@@ -40,6 +42,7 @@ L_BE22:
 
 L_BE26:
     /* 0000be26   4  move.l (466,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be26u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x466u));
     c->a[7] -= 4u;
@@ -48,6 +51,7 @@ L_BE26:
 
 L_BE2A:
     /* 0000be2a   4  jsr (ffff8344,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be2au);
     /* vector 139: exec.library -210 */
     c->pc = RC_ADDR(0x0000be2eu);
@@ -55,11 +59,13 @@ L_BE2A:
 
 L_BE2E:
     /* 0000be2e   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be2eu);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_BE30:
     /* 0000be30   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be30u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -67,6 +73,7 @@ L_BE30:
 
 L_BE32:
     /* 0000be32   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000be32u);
     rc_ret(c, m);
     return;

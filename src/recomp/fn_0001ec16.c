@@ -31,11 +31,13 @@ void fn_0001ec16(cpu_t *c, rt_machine *m)
 
 L_1EC16:
     /* 0001ec16   4  lea (ffffcc06,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec16u);
     c->a[0] = (c->a[4] - 0x33fau);
 
 L_1EC1A:
     /* 0001ec1a   4  move.w (ffffcc04,A4),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec1au);
     t0 = rc_rd16(c, m, (c->a[4] - 0x33fcu));
     rc_d_set(c, 1, RC_W, t0);
@@ -43,6 +45,7 @@ L_1EC1A:
 
 L_1EC1E:
     /* 0001ec1e   2  subq.w #2,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec1eu);
     t1 = rc_d_get(c, 1, RC_W);
     t2 = t1 - 0x00000002u;
@@ -51,11 +54,13 @@ L_1EC1E:
 
 L_1EC20:
     /* 0001ec20   2  bpl 0001ec26 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec20u);
     if (rc_cond(c, 10)) goto L_1EC26;
 
 L_1EC22:
     /* 0001ec22   4  move.w #70,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec22u);
     t0 = 0x00000070u;
     rc_d_set(c, 1, RC_W, t0);
@@ -63,6 +68,7 @@ L_1EC22:
 
 L_1EC26:
     /* 0001ec26   4  move.w D1,(ffffcc04,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec26u);
     t0 = rc_d_get(c, 1, RC_W);
     rc_wr16(c, m, (c->a[4] - 0x33fcu), t0);
@@ -70,6 +76,7 @@ L_1EC26:
 
 L_1EC2A:
     /* 0001ec2a   4  move.w (0,A0,D1.w),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec2au);
     t4 = rc_ext(c->d[1], RC_W);
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
@@ -78,6 +85,7 @@ L_1EC2A:
 
 L_1EC2E:
     /* 0001ec2e   4  sub.w #64,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec2eu);
     t0 = 0x00000064u;
     t1 = rc_d_get(c, 1, RC_W);
@@ -87,11 +95,13 @@ L_1EC2E:
 
 L_1EC32:
     /* 0001ec32   2  bpl 0001ec38 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec32u);
     if (rc_cond(c, 10)) goto L_1EC38;
 
 L_1EC34:
     /* 0001ec34   4  add.w #72,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec34u);
     t0 = 0x00000072u;
     t1 = rc_d_get(c, 1, RC_W);
@@ -101,6 +111,7 @@ L_1EC34:
 
 L_1EC38:
     /* 0001ec38   4  add.w (0,A0,D1.w),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec38u);
     t4 = rc_ext(c->d[1], RC_W);
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
@@ -111,6 +122,7 @@ L_1EC38:
 
 L_1EC3C:
     /* 0001ec3c   4  move.w D0,(0,A0,D1.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec3cu);
     t0 = rc_d_get(c, 0, RC_W);
     t4 = rc_ext(c->d[1], RC_W);
@@ -119,6 +131,7 @@ L_1EC3C:
 
 L_1EC40:
     /* 0001ec40   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec40u);
     rc_ret(c, m);
     return;

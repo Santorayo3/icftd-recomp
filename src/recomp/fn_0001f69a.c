@@ -52,24 +52,28 @@ void fn_0001f69a(cpu_t *c, rt_machine *m)
 
 L_1F69A:
     /* 0001f69a   4  movea.l (a,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f69au);
     t0 = rc_rd32(c, m, (c->a[5] + 0xau));
     c->a[0] = t0;
 
 L_1F69E:
     /* 0001f69e   4  movea.l (c,A0),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f69eu);
     t0 = rc_rd32(c, m, (c->a[0] + 0xcu));
     c->a[1] = t0;
 
 L_1F6A2:
     /* 0001f6a2   2  moveq #0,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6a2u);
     c->d[1] = 0x00000000u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_1F6A4:
     /* 0001f6a4   2  move.w (A1),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6a4u);
     t0 = rc_rd16(c, m, c->a[1]);
     rc_d_set(c, 1, RC_W, t0);
@@ -77,6 +81,7 @@ L_1F6A4:
 
 L_1F6A6:
     /* 0001f6a6   2  cmp.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6a6u);
     t0 = rc_d_get(c, 1, RC_L);
     t1 = rc_d_get(c, 0, RC_L);
@@ -84,11 +89,13 @@ L_1F6A6:
 
 L_1F6A8:
     /* 0001f6a8   2  bcc 0001f6b4 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6a8u);
     if (rc_cond(c, 4)) goto L_1F6B4;
 
 L_1F6AA:
     /* 0001f6aa   4  move.l (10,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6aau);
     t0 = rc_rd32(c, m, (c->a[5] + 0x10u));
     rc_d_set(c, 0, RC_L, t0);
@@ -96,40 +103,47 @@ L_1F6AA:
 
 L_1F6AE:
     /* 0001f6ae   2  moveq #10,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6aeu);
     c->d[1] = 0x00000010u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_1F6B0:
     /* 0001f6b0   2  asr.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6b0u);
     c->d[0] = rc_shift(c, 0, 0, (c->d[1] & 63u), rc_d_get(c, 0, RC_L), RC_L);
 
 L_1F6B2:
     /* 0001f6b2   2  bra 0001f6c0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6b2u);
     goto L_1F6C0;
 
 L_1F6B4:
     /* 0001f6b4   4  movea.l (a,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6b4u);
     t0 = rc_rd32(c, m, (c->a[5] + 0xau));
     c->a[0] = t0;
 
 L_1F6B8:
     /* 0001f6b8   4  movea.l (c,A0),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6b8u);
     t0 = rc_rd32(c, m, (c->a[0] + 0xcu));
     c->a[1] = t0;
 
 L_1F6BC:
     /* 0001f6bc   2  moveq #0,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6bcu);
     c->d[0] = 0x00000000u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_1F6BE:
     /* 0001f6be   2  move.w (A1),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6beu);
     t0 = rc_rd16(c, m, c->a[1]);
     rc_d_set(c, 0, RC_W, t0);
@@ -137,6 +151,7 @@ L_1F6BE:
 
 L_1F6C0:
     /* 0001f6c0   4  move.w D0,(34,A2) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6c0u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[2] + 0x34u), t0);
@@ -144,6 +159,7 @@ L_1F6C0:
 
 L_1F6C4:
     /* 0001f6c4   4  move.l (14,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6c4u);
     t0 = rc_rd32(c, m, (c->a[5] + 0x14u));
     rc_d_set(c, 0, RC_L, t0);
@@ -151,35 +167,41 @@ L_1F6C4:
 
 L_1F6C8:
     /* 0001f6c8   2  moveq #10,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6c8u);
     c->d[1] = 0x00000010u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_1F6CA:
     /* 0001f6ca   2  asr.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6cau);
     c->d[0] = rc_shift(c, 0, 0, (c->d[1] & 63u), rc_d_get(c, 0, RC_L), RC_L);
 
 L_1F6CC:
     /* 0001f6cc   4  movea.l (a,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6ccu);
     t0 = rc_rd32(c, m, (c->a[5] + 0xau));
     c->a[0] = t0;
 
 L_1F6D0:
     /* 0001f6d0   4  movea.l (c,A0),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6d0u);
     t0 = rc_rd32(c, m, (c->a[0] + 0xcu));
     c->a[1] = t0;
 
 L_1F6D4:
     /* 0001f6d4   2  moveq #0,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6d4u);
     c->d[1] = 0x00000000u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_1F6D6:
     /* 0001f6d6   4  move.w (2,A1),D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6d6u);
     t0 = rc_rd16(c, m, (c->a[1] + 0x2u));
     rc_d_set(c, 1, RC_W, t0);
@@ -187,6 +209,7 @@ L_1F6D6:
 
 L_1F6DA:
     /* 0001f6da   2  cmp.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6dau);
     t0 = rc_d_get(c, 1, RC_L);
     t1 = rc_d_get(c, 0, RC_L);
@@ -194,11 +217,13 @@ L_1F6DA:
 
 L_1F6DC:
     /* 0001f6dc   2  bcc 0001f6e8 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6dcu);
     if (rc_cond(c, 4)) goto L_1F6E8;
 
 L_1F6DE:
     /* 0001f6de   4  move.l (14,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6deu);
     t0 = rc_rd32(c, m, (c->a[5] + 0x14u));
     rc_d_set(c, 0, RC_L, t0);
@@ -206,40 +231,47 @@ L_1F6DE:
 
 L_1F6E2:
     /* 0001f6e2   2  moveq #10,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6e2u);
     c->d[1] = 0x00000010u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_1F6E4:
     /* 0001f6e4   2  asr.l D1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6e4u);
     c->d[0] = rc_shift(c, 0, 0, (c->d[1] & 63u), rc_d_get(c, 0, RC_L), RC_L);
 
 L_1F6E6:
     /* 0001f6e6   2  bra 0001f6f6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6e6u);
     goto L_1F6F6;
 
 L_1F6E8:
     /* 0001f6e8   4  movea.l (a,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6e8u);
     t0 = rc_rd32(c, m, (c->a[5] + 0xau));
     c->a[0] = t0;
 
 L_1F6EC:
     /* 0001f6ec   4  movea.l (c,A0),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6ecu);
     t0 = rc_rd32(c, m, (c->a[0] + 0xcu));
     c->a[1] = t0;
 
 L_1F6F0:
     /* 0001f6f0   2  moveq #0,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6f0u);
     c->d[0] = 0x00000000u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_1F6F2:
     /* 0001f6f2   4  move.w (2,A1),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6f2u);
     t0 = rc_rd16(c, m, (c->a[1] + 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -247,6 +279,7 @@ L_1F6F2:
 
 L_1F6F6:
     /* 0001f6f6   4  move.w D0,(36,A2) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6f6u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[2] + 0x36u), t0);
@@ -254,6 +287,7 @@ L_1F6F6:
 
 L_1F6FA:
     /* 0001f6fa   4  bra 0001f8ae */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f6fau);
     c->pc = RC_ADDR(0x0001f8aeu);
     return;

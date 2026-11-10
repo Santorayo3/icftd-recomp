@@ -22,24 +22,28 @@ void fn_0002190a(cpu_t *c, rt_machine *m)
 
 L_2190A:
     /* 0002190a   4  movea.l (4,A7),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002190au);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_2190E:
     /* 0002190e   4  movea.l (8,A7),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002190eu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     c->a[0] = t0;
 
 L_21912:
     /* 00021912   4  movea.l (ffffcba0,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021912u);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_21916:
     /* 00021916   4  jmp (ffffffbe,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021916u);
     rc_os_call_a6(c, m, -66);
     return;

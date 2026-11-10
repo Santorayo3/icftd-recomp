@@ -27,6 +27,7 @@ void fn_00014dd6(cpu_t *c, rt_machine *m)
 
 L_14DD6:
     /* 00014dd6   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014dd6u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -34,30 +35,35 @@ L_14DD6:
 
 L_14DDA:
     /* 00014dda   4  clr.w (1278,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014ddau);
     rc_wr16(c, m, (c->a[4] + 0x1278u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_14DDE:
     /* 00014dde   4  clr.w (10b8,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014ddeu);
     rc_wr16(c, m, (c->a[4] + 0x10b8u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_14DE2:
     /* 00014de2   4  clr.w (1250,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014de2u);
     rc_wr16(c, m, (c->a[4] + 0x1250u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_14DE6:
     /* 00014de6   4  clr.w (1246,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014de6u);
     rc_wr16(c, m, (c->a[4] + 0x1246u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_14DEA:
     /* 00014dea   6  move.w #ffff,(1244,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014deau);
     t0 = 0x0000ffffu;
     rc_wr16(c, m, (c->a[4] + 0x1244u), t0);
@@ -65,6 +71,7 @@ L_14DEA:
 
 L_14DF0:
     /* 00014df0   6  move.w #1,(126a,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014df0u);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] + 0x126au), t0);
@@ -72,6 +79,7 @@ L_14DF0:
 
 L_14DF6:
     /* 00014df6   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014df6u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -79,6 +87,7 @@ L_14DF6:
 
 L_14DF8:
     /* 00014df8   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00014df8u);
     rc_ret(c, m);
     return;

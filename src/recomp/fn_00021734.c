@@ -22,12 +22,14 @@ void fn_00021734(cpu_t *c, rt_machine *m)
 
 L_21734:
     /* 00021734   4  movea.l (4,A7),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021734u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_21738:
     /* 00021738   4  move.l (8,A7),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021738u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
@@ -35,12 +37,14 @@ L_21738:
 
 L_2173C:
     /* 0002173c   4  movea.l (3af4,A4),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002173cu);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_21740:
     /* 00021740   4  jmp (fffffe0e,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021740u);
     rc_os_call_a6(c, m, -498);
     return;

@@ -28,6 +28,7 @@ void fn_000204fa(cpu_t *c, rt_machine *m)
 
 L_204FA:
     /* 000204fa   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000204fau);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -35,12 +36,14 @@ L_204FA:
 
 L_204FE:
     /* 000204fe   4  movea.l (8,A5),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000204feu);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_20502:
     /* 00020502   4  move.l (c,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020502u);
     t0 = rc_rd32(c, m, (c->a[5] + 0xcu));
     rc_d_set(c, 0, RC_L, t0);
@@ -48,12 +51,14 @@ L_20502:
 
 L_20506:
     /* 00020506   4  movea.l (2a82,A4),A1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020506u);
     t0 = rc_rd32(c, m, (c->a[4] + 0x2a82u));
     c->a[1] = t0;
 
 L_2050A:
     /* 0002050a   2  move.b (A1)+,(A0)+ */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002050au);
     t3 = c->a[1];
     c->a[1] += 1u;
@@ -65,6 +70,7 @@ L_2050A:
 
 L_2050C:
     /* 0002050c   2  subq.l #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002050cu);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 - 0x00000001u;
@@ -73,11 +79,13 @@ L_2050C:
 
 L_2050E:
     /* 0002050e   2  bne 0002050a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002050eu);
     if (rc_cond(c, 6)) { rc_tick(); goto L_2050A; }
 
 L_20510:
     /* 00020510   4  move.l A1,(2a82,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020510u);
     t0 = rc_a_get(c, 1, RC_L);
     rc_wr32(c, m, (c->a[4] + 0x2a82u), t0);
@@ -85,6 +93,7 @@ L_20510:
 
 L_20514:
     /* 00020514   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020514u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -92,6 +101,7 @@ L_20514:
 
 L_20516:
     /* 00020516   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020516u);
     rc_ret(c, m);
     return;

@@ -28,6 +28,7 @@ void fn_000207f0(cpu_t *c, rt_machine *m)
 
 L_207F0:
     /* 000207f0   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000207f0u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -35,17 +36,20 @@ L_207F0:
 
 L_207F4:
     /* 000207f4   4  tst.l (ffffcd26,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000207f4u);
     t0 = rc_rd32(c, m, (c->a[4] - 0x32dau));
     rc_set_nzvc(c, t0, RC_L);
 
 L_207F8:
     /* 000207f8   2  beq 0002080c */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000207f8u);
     if (rc_cond(c, 7)) goto L_2080C;
 
 L_207FA:
     /* 000207fa   4  move.l (3ae0,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000207fau);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3ae0u));
     c->a[7] -= 4u;
@@ -54,6 +58,7 @@ L_207FA:
 
 L_207FE:
     /* 000207fe   4  move.l (ffffcd26,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000207feu);
     t0 = rc_rd32(c, m, (c->a[4] - 0x32dau));
     c->a[7] -= 4u;
@@ -62,6 +67,7 @@ L_207FE:
 
 L_20802:
     /* 00020802   4  jsr (ffff8344,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020802u);
     /* vector 139: exec.library -210 */
     c->pc = RC_ADDR(0x00020806u);
@@ -69,17 +75,20 @@ L_20802:
 
 L_20806:
     /* 00020806   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020806u);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_20808:
     /* 00020808   4  clr.l (ffffcd26,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00020808u);
     rc_wr32(c, m, (c->a[4] - 0x32dau), 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_2080C:
     /* 0002080c   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002080cu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -87,6 +96,7 @@ L_2080C:
 
 L_2080E:
     /* 0002080e   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0002080eu);
     rc_ret(c, m);
     return;

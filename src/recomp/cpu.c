@@ -27,6 +27,22 @@ void rc_tick(void)
     tick();
 }
 
+/* --- the frame boundary --------------------------------------------------------------------- */
+
+void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
+int rc_stopOnUnknown;
+long rc_stopAt;
+
+/* One instruction, counted the way the interpreter counts it (src\oracle\cpu.c, oracle_run): the
+ * budget is spent before the instruction, and going negative runs the vblank first. */
+void rc_step(cpu_t *c, rt_machine *m)
+{
+    tick();
+    if (rc_stopAt > 0 && m->insns >= rc_stopAt) { m->stop = 1; return; }
+    if (rc_frame_hook != 0 && --m->insnToTick < 0) rc_frame_hook(c, m);
+    m->insns++;
+}
+
 static u32 mask_size(int size)
 {
     if (size == 4) return 0xFFFFFFFFu;
@@ -394,6 +410,9 @@ void rc_call(cpu_t *c, rt_machine *m, u32 addr)
             rc_interpreter(c, m, c->pc);
             continue;
         }
+        /* The host driver owns the seam: it exports the register file and lets the 68000 core
+         * continue at c->pc. */
+        if (rc_stopOnUnknown) return;
         /* The shipped build has no fallback: an untranslated call is a build error, not a runtime one. */
         printf("recomp: no translation for %06lX\n", (unsigned long)c->pc);
         m->stop = 1;

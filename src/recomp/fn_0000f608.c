@@ -41,6 +41,7 @@ void fn_0000f608(cpu_t *c, rt_machine *m)
 
 L_F608:
     /* 0000f608   4  movem.l { D7 A5 A6 },-(SP) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f608u);
     t3 = c->a[7];
     t3 -= 4u;
@@ -53,35 +54,41 @@ L_F608:
 
 L_F60C:
     /* 0000f60c   4  movea.l (6,A6),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f60cu);
     t0 = rc_rd32(c, m, (c->a[6] + 0x6u));
     c->a[0] = t0;
 
 L_F610:
     /* 0000f610   4  clr.w (3c,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f610u);
     rc_wr16(c, m, (c->a[6] + 0x3cu), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_F614:
     /* 0000f614   2  tst.w D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f614u);
     t0 = rc_d_get(c, 0, RC_W);
     rc_set_nzvc(c, t0, RC_W);
 
 L_F616:
     /* 0000f616   2  beq 0000f640 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f616u);
     if (rc_cond(c, 7)) goto L_F640;
 
 L_F618:
     /* 0000f618   2  moveq #0,D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f618u);
     c->d[2] = 0x00000000u;
     rc_set_nzvc(c, c->d[2], RC_L);
 
 L_F61A:
     /* 0000f61a   4  move.w (0,A6),D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f61au);
     t0 = rc_rd16(c, m, (c->a[6] + 0x0u));
     rc_d_set(c, 2, RC_W, t0);
@@ -89,11 +96,13 @@ L_F61A:
 
 L_F61E:
     /* 0000f61e   2  asl.w #8,D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f61eu);
     c->d[2] = rc_shift(c, 0, 1, 0x00000008u, rc_d_get(c, 2, RC_W), RC_W);
 
 L_F620:
     /* 0000f620   4  move.w D2,(38,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f620u);
     t0 = rc_d_get(c, 2, RC_W);
     rc_wr16(c, m, (c->a[6] + 0x38u), t0);
@@ -101,11 +110,13 @@ L_F620:
 
 L_F624:
     /* 0000f624   2  asl.w #8,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f624u);
     c->d[1] = rc_shift(c, 0, 1, 0x00000008u, rc_d_get(c, 1, RC_W), RC_W);
 
 L_F626:
     /* 0000f626   2  sub.w D1,D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f626u);
     t0 = rc_d_get(c, 1, RC_W);
     t1 = rc_d_get(c, 2, RC_W);
@@ -115,11 +126,13 @@ L_F626:
 
 L_F628:
     /* 0000f628   2  bcc 0000f62c */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f628u);
     if (rc_cond(c, 4)) goto L_F62C;
 
 L_F62A:
     /* 0000f62a   2  neg.w D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f62au);
     t1 = rc_d_get(c, 2, RC_W);
     t2 = 0u - t1;
@@ -128,12 +141,14 @@ L_F62A:
 
 L_F62C:
     /* 0000f62c   2  divu.w D0,D2 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f62cu);
     t0 = rc_d_get(c, 0, RC_W);
     rc_divu(c, m, 2, t0);
 
 L_F62E:
     /* 0000f62e   2  swap D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f62eu);
     t0 = c->d[1];
     c->d[1] = (t0 >> 16) | (t0 << 16);
@@ -141,6 +156,7 @@ L_F62E:
 
 L_F630:
     /* 0000f630   2  move.w D2,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f630u);
     t0 = rc_d_get(c, 2, RC_W);
     rc_d_set(c, 1, RC_W, t0);
@@ -148,11 +164,13 @@ L_F630:
 
 L_F632:
     /* 0000f632   2  bne 0000f636 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f632u);
     if (rc_cond(c, 6)) goto L_F636;
 
 L_F634:
     /* 0000f634   2  addq.w #1,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f634u);
     t1 = rc_d_get(c, 1, RC_W);
     t2 = t1 + 0x00000001u;
@@ -161,6 +179,7 @@ L_F634:
 
 L_F636:
     /* 0000f636   4  move.l D1,(3a,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f636u);
     t0 = rc_d_get(c, 1, RC_L);
     rc_wr32(c, m, (c->a[6] + 0x3au), t0);
@@ -168,6 +187,7 @@ L_F636:
 
 L_F63A:
     /* 0000f63a   4  movem.l (SP)+,{ D1 D2 A0 } */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f63au);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -185,12 +205,14 @@ L_F63A:
 
 L_F63E:
     /* 0000f63e   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f63eu);
     rc_ret(c, m);
     return;
 
 L_F640:
     /* 0000f640   4  move.w D1,(0,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f640u);
     t0 = rc_d_get(c, 1, RC_W);
     rc_wr16(c, m, (c->a[6] + 0x0u), t0);
@@ -198,6 +220,7 @@ L_F640:
 
 L_F644:
     /* 0000f644   2  bra 0000f63a */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f644u);
     rc_tick();
     goto L_F63A;

@@ -16,4 +16,12 @@ u32  oracle_run(rt_machine *m, long maxInsns);
 /* Sets PC/A7/A4 to the state the exporter documents and runs from there. */
 void oracle_boot(u32 entry, u32 a4);
 
+/* The same three pieces, for a driver that interleaves this core with translated code
+ * (src\host): one instruction (1 = keep running), one vertical blank, and the register file
+ * transfer in both directions - d0-d7, a0-a7, sr, pc. */
+int  oracle_step(rt_machine *m);
+void oracle_tick(rt_machine *m);
+void oracle_regs_get(u32 *r);
+void oracle_regs_set(const u32 *r);
+
 #endif

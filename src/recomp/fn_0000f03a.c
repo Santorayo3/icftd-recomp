@@ -18,6 +18,7 @@ void fn_0000f03a(cpu_t *c, rt_machine *m)
 
 L_F03A:
     /* 0000f03a   4  bra 0000f160 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f03au);
     c->pc = RC_ADDR(0x0000f160u);
     return;

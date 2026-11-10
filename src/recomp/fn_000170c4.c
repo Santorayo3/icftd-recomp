@@ -24,6 +24,7 @@ void fn_000170c4(cpu_t *c, rt_machine *m)
 
 L_170C4:
     /* 000170c4   4  link.w A5,#fffffffc */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170c4u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -32,6 +33,7 @@ L_170C4:
 
 L_170C8:
     /* 000170c8   6  move.l (ffffcbbc,A4),(fffffffc,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170c8u);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3444u));
     rc_wr32(c, m, (c->a[5] - 0x4u), t0);
@@ -39,6 +41,7 @@ L_170C8:
 
 L_170CE:
     /* 000170ce   6  move.l (ffffcbb8,A4),(ffffcbbc,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170ceu);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3448u));
     rc_wr32(c, m, (c->a[4] - 0x3444u), t0);
@@ -46,6 +49,7 @@ L_170CE:
 
 L_170D4:
     /* 000170d4   6  move.l (fffffffc,A5),(ffffcbb8,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170d4u);
     t0 = rc_rd32(c, m, (c->a[5] - 0x4u));
     rc_wr32(c, m, (c->a[4] - 0x3448u), t0);
@@ -53,6 +57,7 @@ L_170D4:
 
 L_170DA:
     /* 000170da   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170dau);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -60,6 +65,7 @@ L_170DA:
 
 L_170DC:
     /* 000170dc   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000170dcu);
     rc_ret(c, m);
     return;

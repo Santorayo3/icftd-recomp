@@ -25,6 +25,7 @@ void fn_00006274(cpu_t *c, rt_machine *m)
 
 L_6274:
     /* 00006274   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006274u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -32,6 +33,7 @@ L_6274:
 
 L_6278:
     /* 00006278   4  move.l (fffff066,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006278u);
     t0 = rc_rd32(c, m, (c->a[4] - 0xf9au));
     c->a[7] -= 4u;
@@ -40,6 +42,7 @@ L_6278:
 
 L_627C:
     /* 0000627c   4  move.l (fffff06a,A4),-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000627cu);
     t0 = rc_rd32(c, m, (c->a[4] - 0xf96u));
     c->a[7] -= 4u;
@@ -48,6 +51,7 @@ L_627C:
 
 L_6280:
     /* 00006280   4  jsr (ffff8344,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006280u);
     /* vector 139: exec.library -210 */
     c->pc = RC_ADDR(0x00006284u);
@@ -55,11 +59,13 @@ L_6280:
 
 L_6284:
     /* 00006284   2  addq.w #8,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006284u);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_6286:
     /* 00006286   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006286u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -67,6 +73,7 @@ L_6286:
 
 L_6288:
     /* 00006288   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006288u);
     rc_ret(c, m);
     return;

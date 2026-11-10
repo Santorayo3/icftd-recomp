@@ -24,6 +24,7 @@ void fn_00007108(cpu_t *c, rt_machine *m)
 
 L_7108:
     /* 00007108   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00007108u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -31,6 +32,7 @@ L_7108:
 
 L_710C:
     /* 0000710c   4  move.w (8,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000710cu);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
@@ -38,11 +40,13 @@ L_710C:
 
 L_7110:
     /* 00007110   4  lea (ffffce44,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00007110u);
     c->a[0] = (c->a[4] - 0x31bcu);
 
 L_7114:
     /* 00007114   4  clr.b (0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00007114u);
     t4 = rc_ext(c->d[0], RC_W);
     rc_wr8(c, m, (c->a[0] + 0x0u + t4), 0u);
@@ -50,6 +54,7 @@ L_7114:
 
 L_7118:
     /* 00007118   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00007118u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -57,6 +62,7 @@ L_7118:
 
 L_711A:
     /* 0000711a   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000711au);
     rc_ret(c, m);
     return;

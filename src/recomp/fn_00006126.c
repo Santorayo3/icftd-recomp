@@ -31,6 +31,7 @@ void fn_00006126(cpu_t *c, rt_machine *m)
 
 L_6126:
     /* 00006126   4  link.w A5,#fffffffe */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006126u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -39,12 +40,14 @@ L_6126:
 
 L_612A:
     /* 0000612a   4  clr.w (fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000612au);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_612E:
     /* 0000612e   4  move.w (fffffffe,A5),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000612eu);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
@@ -52,21 +55,25 @@ L_612E:
 
 L_6132:
     /* 00006132   2  ext.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006132u);
     rc_ext_l(c, 0);
 
 L_6134:
     /* 00006134   2  asl.l #1,D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006134u);
     c->d[0] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L);
 
 L_6136:
     /* 00006136   4  lea (fffff074,A4),A0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006136u);
     c->a[0] = (c->a[4] - 0xf8cu);
 
 L_613A:
     /* 0000613a   4  clr.w (0,A0,D0.w) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000613au);
     t4 = c->d[0];
     rc_wr16(c, m, (c->a[0] + 0x0u + t4), 0u);
@@ -74,6 +81,7 @@ L_613A:
 
 L_613E:
     /* 0000613e   4  addq.w #1,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000613eu);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
@@ -83,23 +91,27 @@ L_613E:
 
 L_6142:
     /* 00006142   6  cmpi.w #14,(fffffffe,A5) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006142u);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_cmp(c, RC_W, t0, 0x00000014u);
 
 L_6148:
     /* 00006148   2  blt 0000612e */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006148u);
     if (rc_cond(c, 13)) { rc_tick(); goto L_612E; }
 
 L_614A:
     /* 0000614a   4  clr.w (fffff072,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000614au);
     rc_wr16(c, m, (c->a[4] - 0xf8eu), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_614E:
     /* 0000614e   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000614eu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -107,6 +119,7 @@ L_614E:
 
 L_6150:
     /* 00006150   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00006150u);
     rc_ret(c, m);
     return;

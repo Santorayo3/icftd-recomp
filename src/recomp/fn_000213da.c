@@ -21,12 +21,14 @@ void fn_000213da(cpu_t *c, rt_machine *m)
 
 L_213DA:
     /* 000213da   4  movea.l (4,A7),A6 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000213dau);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[6] = t0;
 
 L_213DE:
     /* 000213de   4  move.l (8,A7),D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000213deu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
@@ -34,6 +36,7 @@ L_213DE:
 
 L_213E2:
     /* 000213e2   4  jmp (ffffffee,A6) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000213e2u);
     rc_os_call_a6(c, m, -18);
     return;

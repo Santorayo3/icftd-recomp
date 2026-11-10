@@ -19,6 +19,7 @@ void fn_00002cc4(cpu_t *c, rt_machine *m)
 
 L_2CC4:
     /* 00002cc4   4  move.w (0,A0,D0.w),-(A1) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00002cc4u);
     t4 = rc_ext(c->d[0], RC_W);
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));

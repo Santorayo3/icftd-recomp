@@ -23,6 +23,7 @@ void fn_000211fa(cpu_t *c, rt_machine *m)
 
 L_211FA:
     /* 000211fa   2  move.l D1,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211fau);
     t0 = rc_d_get(c, 1, RC_L);
     c->a[7] -= 4u;
@@ -31,6 +32,7 @@ L_211FA:
 
 L_211FC:
     /* 000211fc   2  bsr 00021204 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211fcu);
     rc_push32(c, m, RC_ADDR(0x000211feu));
     rc_depth++;
@@ -39,6 +41,7 @@ L_211FC:
 
 L_211FE:
     /* 000211fe   2  move.l (A7)+,D1 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000211feu);
     t3 = c->a[7];
     c->a[7] += 4u;
@@ -48,12 +51,14 @@ L_211FE:
 
 L_21200:
     /* 00021200   2  tst.l D0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021200u);
     t0 = rc_d_get(c, 0, RC_L);
     rc_set_nzvc(c, t0, RC_L);
 
 L_21202:
     /* 00021202   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00021202u);
     rc_ret(c, m);
     return;

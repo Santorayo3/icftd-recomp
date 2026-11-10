@@ -25,6 +25,7 @@ void fn_00016e3e(cpu_t *c, rt_machine *m)
 
 L_16E3E:
     /* 00016e3e   4  link.w A5,#0 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e3eu);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
@@ -32,6 +33,7 @@ L_16E3E:
 
 L_16E42:
     /* 00016e42   4  move.w #3,-(A7) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e42u);
     t0 = 0x00000003u;
     c->a[7] -= 2u;
@@ -40,6 +42,7 @@ L_16E42:
 
 L_16E46:
     /* 00016e46   4  jsr (ffff80bc,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e46u);
     /* vector 31 */
     rc_push32(c, m, RC_ADDR(0x00016e4au));
@@ -49,11 +52,13 @@ L_16E46:
 
 L_16E4A:
     /* 00016e4a   2  addq.w #2,A7 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e4au);
     c->a[7] += rc_ext(0x00000002u, RC_W);
 
 L_16E4C:
     /* 00016e4c   6  move.w #1,(10c6,A4) */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e4cu);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] + 0x10c6u), t0);
@@ -61,6 +66,7 @@ L_16E4C:
 
 L_16E52:
     /* 00016e52   2  unlk A5 */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e52u);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
@@ -68,6 +74,7 @@ L_16E52:
 
 L_16E54:
     /* 00016e54   2  rts */
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00016e54u);
     rc_ret(c, m);
     return;
