@@ -439,8 +439,11 @@ static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baselin
             }
     }
     if (space == 0) return (s32)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
-    return (s32)rt_read16(&m->mem, space + (u32)(i >= 0 ? i : 0) * 2u) +
-           (kern != 0 && i >= 0 ? (s32)rt_read16(&m->mem, kern + (u32)i * 2u) : 0);
+    /* The advance is CharSpace alone - the same sum rt_gfx_text_length reports. The engine centres
+     * every line with TextLength, so adding CharKern here made the drawn text wider than it
+     * measured: the load prompt started at x=72 (correct) and ended at 299 instead of 249, i.e.
+     * 21 px from one edge and 72 from the other. */
+    return (s32)rt_read16(&m->mem, space + (u32)(i >= 0 ? i : 0) * 2u);
 }
 
 u32 rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count)

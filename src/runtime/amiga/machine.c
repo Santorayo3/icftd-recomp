@@ -525,7 +525,7 @@ void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted)
     u32 bm, font;
     int i;
 
-    if (!m->textLog || m->textSeen >= 3) return;
+    if (!m->textLog || m->textSeen >= 8) return;
     m->textSeen++;
     bm = rt_read32(&m->mem, rp + 4);
     printf("text: frame %ld rp %06lX bm %06lX str %06lX count %ld plotted %ld\n",
@@ -1247,6 +1247,11 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             break;
         case -54:                                /* TextLength(rp=A1, string=A0, count=D0) */
             result = (u32)rt_gfx_text_length(m, a1, a0, d0);
+            if (m->textLog)
+                printf("  len: count %lu = %ld (font %06lX cp %d)\n",
+                       (unsigned long)d0, (long)(s32)result,
+                       (unsigned long)rt_read32(&m->mem, a1 + 36),
+                       (int)(s16)rt_read16(&m->mem, a1 + 40));
             break;
         case -210:                               /* MrgCop(view) - the game patches this list */
             rt_gfx_mrg_cop(m, arg32(sp, 0));
