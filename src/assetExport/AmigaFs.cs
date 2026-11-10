@@ -33,7 +33,10 @@ internal sealed class AmigaFs(Adf adf)
         var e = new AmigaEntry { Name = name, IsDir = true, Block = block };
         int o = a.Offset(block);
         int htSize = a.I32(o + 12);
-        if (a.I32(o) != THeader || htSize < 0 || htSize > 200) return e;
+        if (a.I32(o) != THeader) return e;
+        /* AmigaDOS 1.x wrote ht_size as 0 and the reader was expected to know the table is the
+         * standard 72 buckets. Every subdirectory of these disks is like that; the root is not. */
+        if (htSize <= 0 || htSize > 200) htSize = 72;
 
         for (int i = 0; i < htSize; i++)
         {
