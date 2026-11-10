@@ -11,6 +11,10 @@
  *
  *   icftd-recomp [<image>] [<insns>] [--state <prefix> [--every n] [--ram f,f]]
  *                [--input <script>] [--data <dir>] [--progress] [--base <addr>]
+ *                [--window] [--run]
+ *
+ * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
+ * arrows are the joystick); without it the build runs headless and only reports machine state.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +23,7 @@
 #include "machine.h"
 #include "display.h"
 #include "input.h"
+#include "platform.h"
 #include "state.h"
 #include "m68k.h"
 /* Two headers are called cpu.h: the 68000 front end's and the translated layer's. */
@@ -71,6 +76,49 @@ static void host_frame(cpu_t *c, rt_machine *m)
     gather(c, m);
 }
 
+/* --- the window ----------------------------------------------------------------------------
+ * Same contract as the oracle's: keyboard once per emulated frame (the menus spin on /FIRE without
+ * drawing, so input cannot wait for a present) and a 50 Hz clock. */
+static u32 g_window;
+static u8  g_fireShown;
+
+static void host_input(rt_machine *m)
+{
+    input_state in;
+    u16 joy = 0xFFFF;                       /* JOY0DAT is active low, all ones = idle */
+
+    if (!plat_pump(&in)) m->stop = 1;
+    if (in.down[KEY_ESCAPE]) m->stop = 1;
+    m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
+    if (in.down[KEY_UP])    joy &= (u16)~0x0001u;
+    if (in.down[KEY_DOWN])  joy &= (u16)~0x0002u;
+    if (in.down[KEY_LEFT])  joy &= (u16)~0x0004u;
+    if (in.down[KEY_RIGHT]) joy &= (u16)~0x0008u;
+    m->joy0 = joy;
+    if (m->fireDown != g_fireShown)
+    {
+        g_fireShown = m->fireDown;
+        printf("recomp: /FIRE %s at frame %lu\n", m->fireDown ? "pressed" : "released",
+               (unsigned long)m->frame);
+    }
+    plat_frame_sync();
+}
+
+static void host_present(rt_machine *m)
+{
+    const u8 *fb = rt_gfx_framebuffer();
+    const u8 *pal = rt_gfx_palette();
+    int w = rt_gfx_width(), h = rt_gfx_height();
+    u8 *dst = plat_framebuffer();
+    int y, cw = w < SCREEN_W ? w : SCREEN_W;
+
+    plat_set_palette(0, 256, pal);
+    for (y = 0; y < SCREEN_H && y < h; y++)
+        memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+    plat_present();
+    (void)m;
+}
+
 int main(int argc, char **argv)
 {
     rt_machine m;
@@ -84,6 +132,7 @@ int main(int argc, char **argv)
     long traceFrom = 0, traceTo = 0;
     int tickLog = 0;
     int ring = 0;
+    int runForever = 0;
     const char *inputPath = 0;
     long insns = 40000000L;
     u32 base = HS_BASE;
@@ -101,6 +150,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
+        if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
+        if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -123,9 +174,10 @@ int main(int argc, char **argv)
         else insns = strtol(argv[i], 0, 0);
     }
     if (insns <= 0) insns = 40000000L;
+    if (runForever) insns = 0x7FFFFFF0L;       /* the window decides when to stop */
     /* One rc_call runs a whole translated function, so the limit has to be armed inside the
      * stream too or a run overshoots it by up to a function. */
-    if (rc_stopAt <= 0) rc_stopAt = insns;
+    if (rc_stopAt <= 0 && !runForever) rc_stopAt = insns;
 
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
@@ -136,6 +188,17 @@ int main(int argc, char **argv)
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;
+    if (g_window)
+    {
+        if (!plat_init("It Came from the Desert (recomp)"))
+        {
+            printf("recomp: cannot open a window\n");
+            rt_shutdown(&m);
+            return 1;
+        }
+        m.on_frame = host_input;
+        m.on_present = host_present;
+    }
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
@@ -202,6 +265,7 @@ int main(int argc, char **argv)
     state_close();
     if (ramStop != 0) state_ram_snapshot(&m, ramStop);
     rt_shutdown(&m);
+    if (g_window) plat_shutdown();
     rc = 0;
     return rc;
 }
