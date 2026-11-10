@@ -77,6 +77,13 @@ void rc_set_nzvc(cpu_t *c, u32 v, int size);   /* N/Z from v, V=C=0: MOVE, logic
 void rc_set_z(cpu_t *c, int z);                /* Z only: BTST, BCHG, BCLR, BSET */
 void rc_flags_add(cpu_t *c, int size, u32 dst, u32 src, u32 res, int keepZ);
 void rc_flags_sub(cpu_t *c, int size, u32 dst, u32 src, u32 res, int keepZ);
+/* ADDX/SUBX: the extend bit is part of the arithmetic, so C/X come from the full
+ * dst + src + x, and Z is only ever cleared (a multi-precision add must not set it). */
+void rc_flags_addx(cpu_t *c, int size, u32 dst, u32 src, u32 x, u32 res);
+void rc_flags_subx(cpu_t *c, int size, u32 dst, u32 src, u32 x, u32 res);
+/* ABCD/SBCD: pack-relative decimal add/subtract, flags exactly as musashi computes them. */
+u32  rc_bcd_add(cpu_t *c, u32 dst, u32 src);
+u32  rc_bcd_sub(cpu_t *c, u32 dst, u32 src);
 void rc_cmp(cpu_t *c, int size, u32 dst, u32 src);   /* sub flags, X untouched, result dropped */
 int  rc_cond(const cpu_t *c, int cc);                /* 0 T, 1 F, 2 HI .. 15 LE */
 

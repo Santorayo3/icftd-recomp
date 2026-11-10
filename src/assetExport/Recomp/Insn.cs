@@ -24,6 +24,7 @@ public enum Opk
     Unsupported,
     Move, MoveA, MoveQ,
     Add, Sub, AddA, SubA, AddQ, SubQ, AddI, SubI,
+    AddX, SubX, Abcd, Sbcd,
     Cmp, CmpA, CmpI, CmpM,
     Tst, Clr, Neg, NegX, Not,
     And, Or, Eor, AndI, OrI, EorI,

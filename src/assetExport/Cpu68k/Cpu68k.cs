@@ -1241,8 +1241,7 @@ public sealed class Cpu68k
                 return;
             }
             case 3: Divide(op, opAddr, signed: false); return;
-            case 4:
-                throw new Cpu68kException(opAddr, $"unimplemented opcode {op:X4} at 0x{opAddr:X6}: SBCD");
+            case 4: Bcd(op, opAddr, isAdd: false); return;
             case 5:
             case 6:
             {
@@ -1303,11 +1302,57 @@ public sealed class Cpu68k
         SetFlag(FlagC, false);
     }
 
+    /// <summary>
+    /// ABCD / SBCD: pack-relative decimal add/subtract of one byte. Destination in bits 11..9 (Dx,
+    /// or -(Ax) with bit 3 set), source in bits 2..0 (Dy, or -(Ay)); source is predecremented first.
+    /// Flags follow musashi, which is the Phase A machine and must not drift: C = X is the decimal
+    /// carry, V is whatever its "undefined V" pair leaves, and Z is only ever cleared.
+    /// </summary>
+    void Bcd(ushort op, uint opAddr, bool isAdd)
+    {
+        int dst = (op >> 9) & 7;
+        int src = op & 7;
+        bool mem = (op & 0x8) != 0;
+        Ea srcEa = mem ? Resolve(4, src, ByteSize, opAddr) : Resolve(0, src, ByteSize, opAddr);
+        Ea dstEa = mem ? Resolve(4, dst, ByteSize, opAddr) : Resolve(0, dst, ByteSize, opAddr);
+        uint s = ReadEa(srcEa, ByteSize);
+        uint d = ReadEa(dstEa, ByteSize);
+        uint x = X ? 1u : 0u;
+        uint res, v;
+        bool carry;
+
+        if (isAdd)
+        {
+            res = (s & 0xF) + (d & 0xF) + x;
+            v = ~res;
+            if (res > 9) res += 6;
+            res += (s & 0xF0) + (d & 0xF0);
+            carry = res > 0x99;
+            if (carry) res -= 0xA0;
+        }
+        else
+        {
+            res = (d & 0xF) - (s & 0xF) - x;
+            v = ~res;
+            if (res > 9) res -= 6;
+            res += (d & 0xF0) - (s & 0xF0);
+            carry = res > 0x99;
+            if (carry) res += 0xA0;
+        }
+        SetFlag(FlagC, carry);
+        SetFlag(FlagX, carry);
+        res &= 0xFF;
+        v &= res;
+        SetFlag(FlagV, (v & 0x80) != 0);
+        SetFlag(FlagN, (res & 0x80) != 0);
+        SetFlag(FlagZ, Z && res == 0);
+        WriteEa(dstEa, ByteSize, res, opAddr);
+    }
+
     // ---- group 9 / D: SUB / ADD (and their ADDA/SUBA forms) ------------------
 
     void GroupAddSub(ushort op, uint opAddr, bool isAdd)
-    {
-        int reg = (op >> 9) & 7;
+    {        int reg = (op >> 9) & 7;
         int opmode = (op >> 6) & 7;
         int mode = (op >> 3) & 7, ea = op & 7;
 
@@ -1338,8 +1383,20 @@ public sealed class Cpu68k
                 return;
             }
             case 4: // ADDX / SUBX
-                throw new Cpu68kException(opAddr, $"unimplemented opcode {op:X4} at 0x{opAddr:X6}: " +
-                                                   (isAdd ? "ADDX" : "SUBX") + " (extend-flag form)");
+            {
+                int size = (op & 0x40) != 0 ? LongSize : ByteSize;
+                uint x = X ? 1u : 0u;
+                // Bit 3: 0 = Dy,Dx, 1 = -(Ay),-(Ax). The source is predecremented and read first.
+                Ea srcEa = ((op & 0x8) != 0) ? Resolve(4, ea, size, opAddr) : Resolve(0, ea, size, opAddr);
+                Ea dstEa = ((op & 0x8) != 0) ? Resolve(4, reg, size, opAddr) : Resolve(0, reg, size, opAddr);
+                uint src = ReadEa(srcEa, size);
+                uint dst = ReadEa(dstEa, size);
+                uint r = isAdd ? dst + src + x : dst - src - x;
+                if (isAdd) FlagsAdd(dst, src, x, r, size, keepZ: true);
+                else FlagsSub(dst, src, x, r, size, keepZ: true);
+                WriteEa(dstEa, size, r, opAddr);
+                return;
+            }
             case 5:
             case 6: // Dn op <ea>
             {
@@ -1451,8 +1508,9 @@ public sealed class Cpu68k
                 SetFlag(FlagC, false);
                 return;
             }
-            case 4:
-                throw new Cpu68kException(opAddr, $"unimplemented opcode {op:X4} at 0x{opAddr:X6}: ABCD");
+            case 4: // ABCD
+                Bcd(op, opAddr, isAdd: true);
+                return;
             case 5:
                 throw new Cpu68kException(opAddr, $"unimplemented opcode {op:X4} at 0x{opAddr:X6}: opmode 5 (AND.W Dn,<ea>)");
             case 6: // AND.L Dn,<ea>

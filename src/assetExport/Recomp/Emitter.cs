@@ -464,6 +464,50 @@ public sealed class Emitter
                 c.Line($"{TC} = rc_d_get(c, {i.Reg}, {Sz(i.Size)});");
                 c.Line($"rc_cmp(c, {Sz(i.Size)}, {TC}, {TV});");
                 break;
+            case Opk.AddX:
+            case Opk.SubX:
+            {
+                bool add = i.Kind == Opk.AddX;
+                /* ADDX/SUBX: the extend bit joins the arithmetic, so it is read once and passed to
+                 * the flag helper as well. The memory form predecrements the source first. */
+                if (i.Src!.Mode == 0)
+                {
+                    c.Line($"{TV} = rc_d_get(c, {i.Src.Reg}, {Sz(i.Size)});");
+                    c.Line($"{TC} = rc_d_get(c, {i.Reg}, {Sz(i.Size)});");
+                }
+                else
+                {
+                    c.Line($"c->a[{i.Src.Reg}] -= {Step(i.Size, i.Src.Reg)};");
+                    c.Line($"{TV} = rc_rd{i.Size * 8}(c, m, c->a[{i.Src.Reg}]);");
+                    c.Line($"c->a[{i.Reg}] -= {Step(i.Size, i.Reg)};");
+                    c.Line($"{TC} = rc_rd{i.Size * 8}(c, m, c->a[{i.Reg}]);");
+                }
+                c.Line($"{TR} = {TC} {(add ? "+" : "-")} {TV} {(add ? "+" : "-")} ((c->sr & RC_X) ? 1u : 0u);");
+                c.Line($"{(add ? "rc_flags_addx" : "rc_flags_subx")}(c, {Sz(i.Size)}, {TC}, {TV}, ((c->sr & RC_X) ? 1u : 0u), {TR});");
+                if (i.Src!.Mode == 0) c.Line($"rc_d_set(c, {i.Reg}, {Sz(i.Size)}, {TR});");
+                else c.Line($"rc_wr{i.Size * 8}(c, m, c->a[{i.Reg}], {TR});");
+                break;
+            }
+            case Opk.Abcd:
+            case Opk.Sbcd:
+            {
+                bool add = i.Kind == Opk.Abcd;
+                if (i.Src!.Mode == 0)
+                {
+                    c.Line($"{TV} = rc_d_get(c, {i.Src.Reg}, RC_B);");
+                    c.Line($"{TC} = rc_d_get(c, {i.Reg}, RC_B);");
+                    c.Line($"{TR} = {(add ? "rc_bcd_add" : "rc_bcd_sub")}(c, {TC}, {TV});");
+                    c.Line($"rc_d_set(c, {i.Reg}, RC_B, {TR});");
+                    break;
+                }
+                c.Line($"c->a[{i.Src.Reg}] -= {Step(1, i.Src.Reg)};");
+                c.Line($"{TV} = rc_rd8(c, m, c->a[{i.Src.Reg}]);");
+                c.Line($"c->a[{i.Reg}] -= {Step(1, i.Reg)};");
+                c.Line($"{TC} = rc_rd8(c, m, c->a[{i.Reg}]);");
+                c.Line($"{TR} = {(add ? "rc_bcd_add" : "rc_bcd_sub")}(c, {TC}, {TV});");
+                c.Line($"rc_wr8(c, m, c->a[{i.Reg}], {TR});");
+                break;
+            }
             case Opk.CmpA:
                 ReadTo(c, i.Src!, i.Size, TV);
                 c.Line($"rc_cmp(c, RC_L, c->a[{i.Reg}], {(i.Size == 2 ? $"rc_ext({TV}, RC_W)" : TV)});");
@@ -882,10 +926,13 @@ public sealed class Emitter
             return;
         }
 
-        if (ea.Mode == 5 && ea.Reg == 4)                        // an engine vector-table slot
+        /* `jsr (d16,A4)` is normally the vector table, but only while A4 still holds the small-data
+         * base: FUN_0000f3f4 and FUN_0000f5b8 reload it (`movea.l D0,A4`, `movea.l (A4),A4`) and
+         * then call `jsr (0,A4)` - a virtual method call through an object. A displacement that is
+         * not a slot therefore falls through to the computed transfer below. */
+        if (ea.Mode == 5 && ea.Reg == 4 && SlotOf(ea.Disp) >= 0)   // an engine vector-table slot
         {
             int slot = SlotOf(ea.Disp);
-            if (slot < 0) { c.Fail($"{i.Addr:x8}: jsr/jmp (d16,A4) is not a vector-table slot"); return; }
             /* The stub lives in the table, not at its own target: the `jmp abs.l` there is an
              * instruction the core executes before the function. */
             var hops = new List<uint>();
@@ -954,6 +1001,10 @@ public sealed class Emitter
             case Opk.SubA: return $"suba{size} {Ea(i.Src!)},A{i.Reg}";
             case Opk.AddI: return $"addi{size} #{i.Imm:x},{Ea(i.Dst!)}";
             case Opk.SubI: return $"subi{size} #{i.Imm:x},{Ea(i.Dst!)}";
+            case Opk.AddX: return $"addx{size} {Ea(i.Src!)},D{i.Reg}";
+            case Opk.SubX: return $"subx{size} {Ea(i.Src!)},D{i.Reg}";
+            case Opk.Abcd: return $"abcd {Ea(i.Src!)},D{i.Reg}";
+            case Opk.Sbcd: return $"sbcd {Ea(i.Src!)},D{i.Reg}";
             case Opk.Cmp: return $"cmp{size} {Ea(i.Src!)},D{i.Reg}";
             case Opk.CmpA: return $"cmpa{size} {Ea(i.Src!)},A{i.Reg}";
             case Opk.CmpI: return $"cmpi{size} #{i.Imm:x},{Ea(i.Dst!)}";

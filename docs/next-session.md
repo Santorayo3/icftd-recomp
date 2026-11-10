@@ -156,17 +156,49 @@ The skip rule is ordered so a passing comparison is never skipped: compare first
 mismatch when the interpreter's own end state is meaningless (its instruction budget ran out, its
 `rts` popped an address outside the image, or both sides stopped at the same unmodelled OS call).
 
-## What is not emitted yet (24 functions)
+## What is not emitted yet (18 functions + 1 block)
 
-| count | reason | next step |
+Updated 2026-11-11 (the `SUBX`/`SBCD`/`ABCD` and `jsr (d16,A4)` rows are done):
+
+| count | reason | what it really is |
 |---|---|---|
-| 18 | line-F (`FRESTORE`) | a 68000 has no line-F decoder; these are 68881 state restores. Decide whether the path is reachable before modelling anything. |
-| 2 + 1 + 1 | `SUBX`, `SBCD`, `ABCD` | extend-flag and BCD forms; the interpreter implements none of them either |
-| 2 | `jsr/jmp (d16,A4)` that is not a vector slot | find out what A4+disp is at those two sites |
+| 18 | "line f" | **not** an FPU: every one of them contains an inline 16-bit **jump table** (`bra.w`, then a run of `0xFFxx` offsets, then the handlers), reached by `move.w (d16,PC,Dn.w),Dn` + `jmp (d16,PC,Xn)`. The linear walk reads the table as code and stops on the first `0xFFxx`. A fix has to (a) know the table is data and (b) dispatch the computed jump - see below. |
+| 1 | `block at 00001c1e runs past its end at 00001c24` | target sits in the last 6 bytes before the next modelled function. |
 
-One block was refused (`block at 00001c1e runs past its end at 00001c24`): the target sits in the
-last 6 bytes before the next modelled function, so it never terminates inside its own range. It is
-still reachable through the interpreter, so it is a coverage gap, not a crash.
+Done in this pass: `SUBX`/`ADDX` (2 functions), `SBCD` (1), `ABCD` (1) now decode, emit and are
+implemented in the interpreter; the two `jsr (d16,A4)` refusals were **not** vector slots but
+`movea.l D0,A4` + `movea.l (A4),A4` + `jsr (0,A4)` - a virtual call through an object - and now fall
+through to the emitter's computed transfer. 726 -> 732 functions emitted.
+
+Fixtures pinned for the new ones (`rleaf out\new-funcs.txt --save`): `00004782`, `0000715c`,
+`0001bc0e` verify; `0001aaac` exhausts the step budget (a loop), and `0000f3f4`/`0000f5b8` stop at an
+unmodelled library call, so those three have no fixture.
+
+## Where the remaining interpreted instructions are (measured)
+
+`bin\win32\icftd-recomp.exe <img> 120000000 --input out\input-narr.txt --interpstat` now prints one
+line per *interpreted stretch*, keyed by the pc the interpreter was entered at:
+
+```
+recomp: 29679 translated entry(ies), 195048 interpreted instruction(s)
+  0234B2 31752   023674 31400   02368C 19625   023396 17624   02491A 14029 ...
+```
+
+Every one of them is inside `FUN_0001f2ae`'s MovE opcode dispatch (runtime 0x2335E..0x23750 =
+image 0x1f35e..0x1f750) plus the cstart at 0x20918 - i.e. **computed jumps inside translated
+functions**, not refused functions. The block emitted at `0001f2d2` covers only up to the next
+known target, so the handlers reached through the jump table fall back to the core. 195k of 120M
+instructions (0.16%); behaviour is exact either way.
+
+## Next steps, revised (2026-11-11)
+
+1. Audio: `AUD0/1/3 VOL+DAT+PER` are written directly (~1,300 writes/20M instructions). It is the
+   last unmodelled device - the game is silent.
+2. Jump tables: emit the table as data and dispatch the computed jump over the table's own targets
+   (`if (pos == RC_ADDR(t)) goto L_t;` for each entry), which turns the 18 refused functions *and*
+   the 0.16% interpreted stretches into translated code.
+3. Keep the rule: machine state is evidence; frames and pictures are not.
+
 
 ## Next steps, in order
 

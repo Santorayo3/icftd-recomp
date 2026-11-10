@@ -514,7 +514,11 @@ public sealed class Decoder
                 i.Src = Resolve(mode, ea, i.Size);
                 return;
             case 3: Divide(i, op, false); return;
-            case 4: Need(false, "SBCD"); return;
+            case 4:
+                /* SBCD (0x8100..0x810F): bit 3 picks Dy,Dx or -(Ay),-(Ax); the low three bits
+                 * are the source register, bits 11..9 the destination. */
+                Bcd(i, op, Opk.Sbcd);
+                return;
             case 5:
             case 6:
                 DataEa(mode, ea);
@@ -536,6 +540,37 @@ public sealed class Decoder
         i.Size = 2;
         i.Reg = reg;
         i.Src = Resolve(mode, ea, 2);
+    }
+
+    /// <summary>
+    /// ABCD / SBCD: one byte, destination in bits 11..9 (Dx, or -(Ax) when bit 3 is set), source in
+    /// bits 2..0 (Dy, or -(Ay)). No other effective address exists.
+    /// </summary>
+    void Bcd(Insn i, ushort op, Opk kind)
+    {
+        int dst = (op >> 9) & 7;
+        int src = op & 7;
+        bool mem = ((op >> 3) & 1) != 0;
+
+        i.Kind = kind;
+        i.Size = 1;
+        i.Reg = dst;
+        i.Src = new Ea { Mode = mem ? 4 : 0, Reg = src };
+    }
+
+    /// <summary>
+    /// ADDX / SUBX: bit 6 is the size (byte or long, never word), bit 3 picks Dy,Dx or -(Ay),-(Ax).
+    /// </summary>
+    void Extend(Insn i, ushort op, Opk kind)
+    {
+        int dst = (op >> 9) & 7;
+        int src = op & 7;
+        bool mem = ((op >> 3) & 1) != 0;
+
+        i.Kind = kind;
+        i.Size = (op & 0x40) != 0 ? 4 : 1;
+        i.Reg = dst;
+        i.Src = new Ea { Mode = mem ? 4 : 0, Reg = src };
     }
 
     void GroupC(Insn i, ushort op)
@@ -567,7 +602,8 @@ public sealed class Decoder
                 i.Src = Resolve(mode, ea, 2);
                 return;
             case 4:
-                Need(false, "ABCD");
+                /* ABCD (0xC100..0xC10F), same operand shape as SBCD. */
+                Bcd(i, op, Opk.Abcd);
                 return;
             case 5:
                 Need(false, "AND.W Dn,<ea>");
@@ -614,7 +650,8 @@ public sealed class Decoder
                 i.Src = Resolve(mode, ea, i.Size);
                 return;
             case 4:
-                Need(false, isAdd ? "ADDX" : "SUBX");
+                /* ADDX / SUBX: bit 3 picks Dy,Dx (0) or -(Ay),-(Ax) (1), bit 6 the size. */
+                Extend(i, op, isAdd ? Opk.AddX : Opk.SubX);
                 return;
             case 5:
             case 6:

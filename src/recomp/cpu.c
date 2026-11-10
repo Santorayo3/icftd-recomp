@@ -244,6 +244,78 @@ void rc_flags_sub(cpu_t *c, int size, u32 dst, u32 src, u32 res, int keepZ)
     else c->sr &= (u16)~RC_Z;
 }
 
+/* ADDX / SUBX: same flags as add/sub, except that the extend bit is part of the arithmetic, so
+ * the carry has to come from the full dst + src + x (musashi's CFLAG_ADD/SUB), and Z can only be
+ * cleared - a multi-precision chain keeps it from an earlier, zero-result byte. */
+void rc_flags_addx(cpu_t *c, int size, u32 dst, u32 src, u32 x, u32 res)
+{
+    u32 m = mask_size(size), sign = m ^ (m >> 1);
+    unsigned long long sum;
+    int carry;
+
+    dst &= m; src &= m; res &= m;
+    sum = (unsigned long long)dst + (unsigned long long)src + x;
+    carry = (sum > (unsigned long long)m);
+    if (carry) c->sr |= (u16)(RC_C | RC_X); else c->sr &= (u16)~(RC_C | RC_X);
+    if (((dst ^ res) & (src ^ res) & sign) != 0) c->sr |= RC_V; else c->sr &= (u16)~RC_V;
+    if ((res & sign) != 0) c->sr |= RC_N; else c->sr &= (u16)~RC_N;
+    if (res != 0) c->sr &= (u16)~RC_Z;
+}
+
+void rc_flags_subx(cpu_t *c, int size, u32 dst, u32 src, u32 x, u32 res)
+{
+    u32 m = mask_size(size), sign = m ^ (m >> 1);
+    int borrow;
+
+    dst &= m; src &= m; res &= m;
+    borrow = (((unsigned long long)src + x) > (unsigned long long)dst);
+    if (borrow) c->sr |= (u16)(RC_C | RC_X); else c->sr &= (u16)~(RC_C | RC_X);
+    if (((dst ^ src) & (dst ^ res) & sign) != 0) c->sr |= RC_V; else c->sr &= (u16)~RC_V;
+    if ((res & sign) != 0) c->sr |= RC_N; else c->sr &= (u16)~RC_N;
+    if (res != 0) c->sr &= (u16)~RC_Z;
+}
+
+/* ABCD / SBCD, following musashi exactly (it is the Phase A machine, and the two must not drift):
+ * the half-carry correction is applied to 32-bit unsigned arithmetic, C = X is the decimal carry,
+ * and V is whatever musashi's "undefined V" pair leaves - which for ABCD is bit 7 of the result. */
+u32 rc_bcd_add(cpu_t *c, u32 dst, u32 src)
+{
+    u32 res = (src & 0xFu) + (dst & 0xFu) + ((c->sr & RC_X) ? 1u : 0u);
+    u32 v = ~res;
+    int carry;
+
+    if (res > 9u) res += 6u;
+    res += (src & 0xF0u) + (dst & 0xF0u);
+    carry = (res > 0x99u);
+    if (carry) c->sr |= (u16)(RC_C | RC_X); else c->sr &= (u16)~(RC_C | RC_X);
+    if (carry) res -= 0xA0u;
+    res &= 0xFFu;
+    v &= res;
+    if ((v & 0x80u) != 0) c->sr |= RC_V; else c->sr &= (u16)~RC_V;
+    if ((res & 0x80u) != 0) c->sr |= RC_N; else c->sr &= (u16)~RC_N;
+    if (res != 0) c->sr &= (u16)~RC_Z;
+    return res;
+}
+
+u32 rc_bcd_sub(cpu_t *c, u32 dst, u32 src)
+{
+    u32 res = (dst & 0xFu) - (src & 0xFu) - ((c->sr & RC_X) ? 1u : 0u);
+    u32 v = ~res;
+    int borrow;
+
+    if (res > 9u) res -= 6u;
+    res += (dst & 0xF0u) - (src & 0xF0u);
+    borrow = (res > 0x99u);
+    if (borrow) c->sr |= (u16)(RC_C | RC_X); else c->sr &= (u16)~(RC_C | RC_X);
+    if (borrow) res += 0xA0u;
+    res &= 0xFFu;
+    v &= res;
+    if ((v & 0x80u) != 0) c->sr |= RC_V; else c->sr &= (u16)~RC_V;
+    if ((res & 0x80u) != 0) c->sr |= RC_N; else c->sr &= (u16)~RC_N;
+    if (res != 0) c->sr &= (u16)~RC_Z;
+    return res;
+}
+
 void rc_cmp(cpu_t *c, int size, u32 dst, u32 src)
 {
     u32 save = c->sr;

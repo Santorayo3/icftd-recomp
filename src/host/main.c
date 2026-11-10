@@ -84,6 +84,49 @@ static void host_frame(cpu_t *c, rt_machine *m)
 static u32 g_window;
 static u8  g_fireShown;
 static const char *shotPath;
+static int g_interpStat;
+
+/* Which refused functions actually run, and what they cost: one entry per interpreted stretch,
+ * keyed by the pc the interpreter was entered at. Printed at exit with --interpstat, so "the N
+ * functions the translator refused" becomes a list of the ones that matter. */
+#define INTERP_SLOTS 24
+static u32 g_isPc[INTERP_SLOTS];
+static u32 g_isInsns[INTERP_SLOTS];
+static int g_isCount, g_isActive;
+static u32 g_isCurrent;
+
+static void interp_note(u32 pc, int startsStretch)
+{
+    int i;
+
+    if (startsStretch) { g_isCurrent = pc; g_isActive = 1; }
+    else if (!g_isActive) return;
+    for (i = 0; i < g_isCount; i++)
+        if (g_isPc[i] == g_isCurrent) { g_isInsns[i]++; return; }
+    if (g_isCount < INTERP_SLOTS)
+    {
+        g_isPc[g_isCount] = g_isCurrent;
+        g_isInsns[g_isCount] = 1;
+        g_isCount++;
+    }
+}
+
+static void interp_report(void)
+{
+    int i, j;
+
+    if (!g_interpStat || g_isCount == 0) return;
+    printf("recomp: interpreted stretches (pc %lu instruction(s)):\n", (unsigned long)g_isCount);
+    for (i = 0; i < g_isCount; i++)
+    {
+        int best = i;
+        for (j = i + 1; j < g_isCount; j++) if (g_isInsns[j] > g_isInsns[best]) best = j;
+        { u32 p = g_isPc[i]; u32 n = g_isInsns[i];
+          g_isPc[i] = g_isPc[best]; g_isInsns[i] = g_isInsns[best];
+          g_isPc[best] = p; g_isInsns[best] = n; }
+        printf("  %06lX  %lu\n", (unsigned long)g_isPc[i], (unsigned long)g_isInsns[i]);
+    }
+}
 
 /* JOY0DAT for the sixteen key combinations, indexed up|down<<1|left<<2|right<<3.
  *
@@ -231,6 +274,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
+        if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
         {
@@ -324,12 +368,14 @@ int main(int argc, char **argv)
             /* Translated: it runs until it returns, or until it transfers somewhere the translator
              * refused, and c->pc then names where the core continues. */
             translated++;
+            g_isActive = 0;
             gather(&c, &m);                            /* the core's state is the machine's */
             rc_call(&c, &m, pc);
             scatter(&c, &m);                           /* ... and what the translation left is next */
             continue;
         }
         interpreted++;
+        interp_note(pc, !g_isActive);
         if (m.waitVblank) { m.waitVblank = 0; m.insnToTick = 0; }
         rt_trace(&m, pc);
         if (--m.insnToTick < 0) oracle_tick(&m);
@@ -345,6 +391,7 @@ int main(int argc, char **argv)
            (unsigned long)m.frame);
     printf("recomp: %lu translated entry(ies), %lu interpreted instruction(s)\n",
            (unsigned long)translated, (unsigned long)interpreted);
+    interp_report();
     if (ring) oracle_ring_print(&m);
     printf("regs:");
     for (i = 0; i < 8; i++) printf(" D%d=%08lX", i, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + i));
