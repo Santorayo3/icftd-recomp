@@ -139,6 +139,7 @@ int main(int argc, char **argv)
     int ring = 0;
     const char *inputPath = 0;
     int stateEvery = 1;
+    int textLog = 0;
 
     /* Unbuffered: a run that is killed (see tools\emu-run.ps1) must still leave its log behind up to
      * the point where it stopped, otherwise a hang is indistinguishable from a crash. */
@@ -148,6 +149,7 @@ int main(int argc, char **argv)
     {
         if (strcmp(argv[i], "--trace") == 0) { trace = 1; continue; }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
+        if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--progress") == 0) { progress = 1; continue; }
         if (strcmp(argv[i], "--dfflog") == 0) { dffLog = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
@@ -234,6 +236,7 @@ int main(int argc, char **argv)
     m.trace = trace;
     m.dosLog = dosLog;
     m.progress = progress;
+    m.textLog = textLog;
     m.dffLog = dffLog;
     m.watch = watch;
     m.pressAt = pressAt;

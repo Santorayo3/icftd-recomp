@@ -1363,6 +1363,15 @@ void rt_request_vblank(rt_machine *m)
     m->waitVblank = 1;
 }
 
+/* The display keeps showing m->view until the program loads another one, so whatever was drawn
+ * into that bitmap since the last flip becomes visible now. Presenting only on LoadView hid every
+ * screen that is drawn once and then waits for input - the prompt was painted into the displayed
+ * bitmap and never appeared. */
+void rt_frame_present(rt_machine *m)
+{
+    if (m->view != 0 && !m->inTick) rt_gfx_present(m, m->view);
+}
+
 /* Where the runtime put the CLI argument tail: the program receives this pointer in A0. */
 u32 rt_args_addr(void)
 {

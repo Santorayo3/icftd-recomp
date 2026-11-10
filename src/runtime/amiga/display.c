@@ -576,6 +576,8 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
     rt_write16(&m->mem, list + 8, (u32)(colours * 2));   /* MaxCount, in words */
     rt_write32(&m->mem, view + 4, list);                 /* v_LOFCprList */
     rt_write32(&m->mem, view + 8, list);                 /* v_SHFCprList */
+    gfx->cprList = list;
+    gfx->cprList = list;
     if (m->trace || gfx->frames == 0)
         printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d cprlist %06lX start %06lX\n",
                (unsigned long)view, (unsigned long)vp, depth, colours, (unsigned long)list,
@@ -588,9 +590,10 @@ void rt_gfx_present(rt_machine *m, u32 view)
     int bpr, rows, depth, w, h, x, y, p, count;
 
     if (view == 0 || gfx == 0 || gfx->fb == 0) return;
-    /* No extra throttling here: the game pace each frame with WaitBOVP on the back viewport, so a
-     * LoadView already means "a new frame is ready". (An earlier version suppressed presents that
-     * landed in the same emulated frame and hid the whole intro behind four frames.) */
+    /* LoadView installs the view's copper list, and the copper keeps running whatever list was
+     * installed last; a screen buffer without one of its own (MrgCop ran for the other buffer)
+     * therefore keeps the colours that are already on screen. */
+    if (rt_read32(&m->mem, view + 4) != 0) gfx->cprList = rt_read32(&m->mem, view + 4);
     vp = rt_read32(&m->mem, view);
     if (vp == 0)
     {
@@ -632,13 +635,14 @@ void rt_gfx_present(rt_machine *m, u32 view)
                (unsigned long)gfx->frames, w, h, (unsigned long)bm, nz, nzpal);
     }
 
-    /* Palette: the copper list MrgCop built, because the game patches *those* words every frame
-     * (that is what the pointers it kept from FUN_0001FDE8 are for). Fall back to the ColorMap. */
+    /* Palette: the copper list that is installed, because the game patches *those* words every
+     * frame (that is what the pointers it kept from FUN_0001FDE8 are for). Fall back to the
+     * ViewPort's ColorMap when no list was ever built. */
     cm = rt_read32(&m->mem, vp + EMU_VP_COLORMAP);
     count = 0;
     table = 0;
     {
-        u32 list = rt_read32(&m->mem, view + 4);
+        u32 list = gfx->cprList;
         u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
         int words = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
         int w;

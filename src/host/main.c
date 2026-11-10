@@ -344,11 +344,24 @@ int main(int argc, char **argv)
     if (shotPath != 0)
     {
         const u8 *pal = rt_gfx_palette();
-        int i;
-        printf("shot: %dx%d  pal", rt_gfx_width(), rt_gfx_height());
-        for (i = 0; i < 16 && pal != 0; i++)
-            printf(" %02lX%02lX%02lX", (unsigned long)pal[i * 3], (unsigned long)pal[i * 3 + 1],
-                   (unsigned long)pal[i * 3 + 2]);
+        const u8 *fb = rt_gfx_framebuffer();
+        int w = rt_gfx_width(), h = rt_gfx_height(), x, y, k;
+        u32 hist[16];
+        printf("shot: %dx%d  pal", w, h);
+        for (k = 0; k < 16 && pal != 0; k++)
+            printf(" %02lX%02lX%02lX", (unsigned long)pal[k * 3], (unsigned long)pal[k * 3 + 1],
+                   (unsigned long)pal[k * 3 + 2]);
+        printf("\n");
+        for (k = 0; k < 16; k++) hist[k] = 0;
+        for (y = 0; y < h && fb != 0; y++)
+            for (x = 0; x < w; x++)
+            {
+                u8 v = fb[(u32)y * EMU_FB_MAX_W + x];
+                if (v < 16) hist[v]++;
+            }
+        printf("shot: pixel counts per pen");
+        for (k = 0; k < 16; k++)
+            if (hist[k] != 0) printf(" %d:%lu", k, (unsigned long)hist[k]);
         printf("\n");
     }
     rt_shutdown(&m);

@@ -42,7 +42,10 @@ typedef struct rt_gfx_state{
     s16  curX, curY;
     s16  areaX[EMU_AREA_MAX], areaY[EMU_AREA_MAX];
     int  areaCount;
-    u32  frames;                  /* rasters presented */    u32  presentFrame;            /* last vertical blank we presented on */} rt_gfx_state;
+    u32  frames;                  /* rasters presented */
+    u32  presentFrame;            /* last vertical blank we presented on */
+    u32  cprList;                 /* copper list installed by the last LoadView */
+} rt_gfx_state;
 /* The exec structures we hand the game: the Process that FindTask returns and its CLI record.
  * Reserved above the AllocMem heap and below the stack - the image's BSS reaches 0x31598, so
  * anything lower would be overwritten by the image load. */
@@ -153,6 +156,8 @@ void rt_trace(rt_machine *m, u32 pc);
 void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
 /* A shim asked for the next vertical blank: end this frame without executing anything. */
 void rt_request_vblank(rt_machine *m);
+/* Frame boundary: shows the loaded view, so drawing done since the last flip becomes visible. */
+void rt_frame_present(rt_machine *m);
 /* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */
 u32  rt_args_addr(void);
 /* Builds the Process/CLI record. Called after the image is loaded (its BSS overruns this block). */
@@ -181,3 +186,5 @@ void rt_bus_write32(rt_machine *m, u32 a, u32 v);
 extern rt_machine *rt_current;
 
 #endif
+
+

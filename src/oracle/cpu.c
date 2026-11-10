@@ -224,6 +224,8 @@ void oracle_tick(rt_machine *m)
                (long)m->insns, (long)m->insnToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     m->frame++;
     m->insnToTick = EMU_INSN_PER_FRAME;
+    /* The raster has finished the last frame: what was drawn into the loaded view is on screen. */
+    rt_frame_present(m);
     if (m->pressAt != 0)
         m->fireDown = (m->frame >= m->pressAt && (m->releaseAt == 0 || m->frame < m->releaseAt))
                           ? 1u : 0u;
