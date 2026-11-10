@@ -21,22 +21,22 @@ void fn_0002175e(cpu_t *c, rt_machine *m)
 
 L_2175E:
     /* 0002175e   4  movea.l (4,A7),A1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002175eu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_21762:
     /* 00021762   4  movea.l (3af4,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021762u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_21766:
     /* 00021766   4  jmp (fffffe86,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021766u);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -378);
     return;
 

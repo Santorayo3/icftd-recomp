@@ -39,87 +39,46 @@ static int ram_has(u32 a) { return rt_current != 0 && a < rt_current->mem.size; 
 unsigned int m68k_read_memory_8(unsigned int a)
 {
     a &= 0xFFFFFFu;
-    /* CIA-A port A: bit 7 is /FIRE, active low, and the rest are unused inputs that float high.
-     * FUN_00011BF0 polls this bit and the intro tick treats "pressed" as "skip the intro", so
-     * reading 0 here made every run jump to the end of the cinematic on frame 0. */
-    if (a == 0xBFE001u)
-    {
-        /* Counted for --progress only. It used to print every 50,000 reads, which was harmless
-         * while the game was drawing but turned into a flood once the intro ended and the menu
-         * sat in a tight poll loop: the console writes, not the emulation, became the bottleneck. */
-        if (rt_current) rt_current->firePolls++;
-        return 0x7Fu | (rt_current->fireDown != 0 ? 0u : 0x80u);
-    }
-    if (a >= 0xDFF000u && a < 0xDFF100u) return rt_current->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
-    return rt_read8(&rt_current->mem, a);
+    if (!rt_bus_is_io(rt_current, a) && !ram_has(a)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    return rt_bus_read8(rt_current, a);
 }
 
 unsigned int m68k_read_memory_16(unsigned int a)
 {
     a &= 0xFFFFFFu;
-    /* The chipset area is modelled as a register file: reads give back the last write. Without
-     * this every JOY0DAT/AUDxPT poll counted as a memory fault, which is where the "accesses
-     * outside the RAM block" noise came from. */
-    /* The joystick and pot inputs are active low and read all-ones when nothing is plugged in.
-     * Returning the last write (zero) told the intro that up, down, left, right and both buttons
-     * were held for the whole run, and its input/menu loop never settled. The words come from the
-     * machine so a frame-indexed input script (--input) can move them. */
-    if (a == 0xDFF00Cu) return rt_current->joy0;             /* JOY0DAT */
-    if (a == 0xDFF00Eu) return rt_current->joy1;             /* JOY1DAT */
-    if (a == 0xDFF016u) return 0xFFFFu;                      /* POTINP */
-    if (a >= 0xDFF000u && a < 0xDFF100u) return rt_current->custom[(a - 0xDFF000u) >> 1];
-    if (!ram_has(a + 1u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
-    return rt_read16(&rt_current->mem, a);
+    if (!rt_bus_is_io(rt_current, a) && !ram_has(a + 1u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    return rt_bus_read16(rt_current, a);
 }
 
 unsigned int m68k_read_memory_32(unsigned int a)
 {
     a &= 0xFFFFFFu;
-    if (a >= 0xDFF000u && a < 0xDFF0FCu)
-        return ((u32)rt_current->custom[(a - 0xDFF000u) >> 1] << 16) |
-               (u32)rt_current->custom[(a + 2 - 0xDFF000u) >> 1];
-    if (!ram_has(a + 3u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
-    return rt_read32(&rt_current->mem, a);
+    if (!rt_bus_is_io(rt_current, a) && !ram_has(a + 3u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    return rt_bus_read32(rt_current, a);
 }
 
 void m68k_write_memory_8(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
-    if (a >= 0xDFF000u && a < 0xDFF100u)
-    {
-        rt_current->custom[(a - 0xDFF000u) >> 1] = (u16)v;
-        return;
-    }
-    rt_write8(&rt_current->mem, a, v);
+    rt_bus_write8(rt_current, a, v);
 }
 
 void m68k_write_memory_16(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
-    if (a >= 0xDFF000u && a < 0xDFF100u)
+    if (rt_current->dffLog && rt_current->dffSeen < 64 && a >= 0xDFF000u && a < 0xDFF100u)
     {
-        if (rt_current->dffLog && rt_current->dffSeen < 64)
-        {
-            rt_current->dffSeen++;
-            printf("     dff+%03lX = %04lX at pc %06lx\n", (unsigned long)(a - 0xDFF000u),
-                   (unsigned long)(v & 0xFFFFu), (unsigned long)m68k_get_reg(0, M68K_REG_PC));
-        }
-        rt_custom_write16(rt_current, (u16)(a - 0xDFF000u), (u16)v);
-        return;
+        rt_current->dffSeen++;
+        printf("     dff+%03lX = %04lX at pc %06lx\n", (unsigned long)(a - 0xDFF000u),
+               (unsigned long)(v & 0xFFFFu), (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     }
-    rt_write16(&rt_current->mem, a, v);
+    rt_bus_write16(rt_current, a, v);
 }
 
 void m68k_write_memory_32(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
-    if (a >= 0xDFF000u && a < 0xDFF100u)
-    {
-        rt_custom_write16(rt_current, (u16)(a - 0xDFF000u), (u16)(v >> 16));
-        rt_custom_write16(rt_current, (u16)(a + 2u - 0xDFF000u), (u16)v);
-        return;
-    }
-    rt_write32(&rt_current->mem, a, v);
+    rt_bus_write32(rt_current, a, v);
 }
 
 /* Temporary probe: 0xBED00000 appears nowhere in the image and nowhere in our shims, so catching
@@ -179,6 +138,19 @@ static void oracle_dump_ring(rt_machine *m)
            (unsigned long)m68k_get_reg(0, M68K_REG_A5),
            (unsigned long)m68k_get_reg(0, M68K_REG_D0),
            (unsigned long)m68k_get_reg(0, M68K_REG_D1));
+}
+
+/* The ring, oldest first: the last instructions either front end executed, so two runs can be
+ * compared at the point where their instruction streams start to differ. */
+void oracle_ring_print(rt_machine *m)
+{
+    int k;
+
+    for (k = 0; k < EMU_RING_SIZE; k++)
+    {
+        u32 pc = m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)];
+        if (pc != 0) printf("ring %06lx\n", (unsigned long)pc);
+    }
 }
 
 /* --- interrupt model ---------------------------------------------------------------------- */
@@ -367,6 +339,7 @@ u32 oracle_run(rt_machine *m, long maxInsns)
         }
         /* The counter goes negative, so a frame is exactly EMU_INSN_PER_FRAME instructions - the
          * same rule the translated code follows (src\recomp\cpu.c, rc_step). */
+        rt_trace(m, m68k_get_reg(0, M68K_REG_PC));
         if (--m->insnToTick < 0) oracle_tick(m);
         if (!oracle_step(m)) return m68k_get_reg(0, M68K_REG_PC);
         if (m->progress && (m->insns % 1000000L) == 0)

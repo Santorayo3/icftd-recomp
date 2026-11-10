@@ -30,31 +30,31 @@ void fn_0000903a(cpu_t *c, rt_machine *m)
 
 L_903A:
     /* 0000903a   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000903au);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_903E:
     /* 0000903e   4  move.w (8,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000903eu);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_9042:
     /* 00009042   4  muls.w #3,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009042u);
+    rc_step(c, m);
     t0 = 0x00000003u;
     rc_muls(c, 0, t0);
 
 L_9046:
     /* 00009046   4  sub.w D0,(fffff0f8,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009046u);
+    rc_step(c, m);
     t3 = (c->a[4] - 0xf08u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 - rc_d_get(c, 0, RC_W);
@@ -63,56 +63,56 @@ L_9046:
 
 L_904A:
     /* 0000904a   4  tst.w (fffff0f8,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000904au);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] - 0xf08u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_904E:
     /* 0000904e   2  bge 00009054 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000904eu);
+    rc_step(c, m);
     if (rc_cond(c, 12)) goto L_9054;
 
 L_9050:
     /* 00009050   4  clr.w (fffff0f8,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009050u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0xf08u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_9054:
     /* 00009054   6  cmpi.w #12,(fffff0f8,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009054u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] - 0xf08u));
     rc_cmp(c, RC_W, t0, 0x00000012u);
 
 L_905A:
     /* 0000905a   2  bge 00009060 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000905au);
+    rc_step(c, m);
     if (rc_cond(c, 12)) goto L_9060;
 
 L_905C:
     /* 0000905c   4  clr.w (fffff0fc,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000905cu);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0xf04u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_9060:
     /* 00009060   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009060u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_9062:
     /* 00009062   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009062u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

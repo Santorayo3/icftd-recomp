@@ -37,8 +37,8 @@ void fn_00008cbc(cpu_t *c, rt_machine *m)
 
 L_8CBC:
     /* 00008cbc   4  link.w A5,#fffffffe */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cbcu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -46,74 +46,74 @@ L_8CBC:
 
 L_8CC0:
     /* 00008cc0   4  clr.w (ffffcb20,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cc0u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0x34e0u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_8CC4:
     /* 00008cc4   4  clr.w (fffffffe,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cc4u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_8CC8:
     /* 00008cc8   4  move.w (fffffffe,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cc8u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_8CCC:
     /* 00008ccc   2  ext.l D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cccu);
+    rc_step(c, m);
     rc_ext_l(c, 0);
 
 L_8CCE:
     /* 00008cce   2  asl.l #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cceu);
-    c->d[0] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L);
+    rc_step(c, m);
+    rc_d_set(c, 0, RC_L, rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L));
 
 L_8CD0:
     /* 00008cd0   4  lea (282,A4),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cd0u);
+    rc_step(c, m);
     c->a[0] = (c->a[4] + 0x282u);
 
 L_8CD4:
     /* 00008cd4   4  move.w (fffffffe,A5),D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cd4u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 1, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_8CD8:
     /* 00008cd8   2  ext.l D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cd8u);
+    rc_step(c, m);
     rc_ext_l(c, 1);
 
 L_8CDA:
     /* 00008cda   2  asl.l #1,D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cdau);
-    c->d[1] = rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 1, RC_L), RC_L);
+    rc_step(c, m);
+    rc_d_set(c, 1, RC_L, rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 1, RC_L), RC_L));
 
 L_8CDC:
     /* 00008cdc   4  lea (fffff026,A4),A1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cdcu);
+    rc_step(c, m);
     c->a[1] = (c->a[4] - 0xfdau);
 
 L_8CE0:
     /* 00008ce0   6  move.w (0,A0,D0.w),(0,A1,D1.w) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008ce0u);
+    rc_step(c, m);
     t4 = c->d[0];
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
     t4 = c->d[1];
@@ -122,8 +122,8 @@ L_8CE0:
 
 L_8CE6:
     /* 00008ce6   4  addq.w #1,(fffffffe,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008ce6u);
+    rc_step(c, m);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -132,29 +132,29 @@ L_8CE6:
 
 L_8CEA:
     /* 00008cea   6  cmpi.w #20,(fffffffe,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008ceau);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_cmp(c, RC_W, t0, 0x00000020u);
 
 L_8CF0:
     /* 00008cf0   2  blt 00008cc8 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cf0u);
+    rc_step(c, m);
     if (rc_cond(c, 13)) { rc_tick(); goto L_8CC8; }
 
 L_8CF2:
     /* 00008cf2   6  move.w #1,(ffffcb20,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cf2u);
+    rc_step(c, m);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] - 0x34e0u), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_8CF8:
     /* 00008cf8   2  bsr 00008cfe */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cf8u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x00008cfau));
     rc_depth++;
     c->pc = RC_ADDR(0x00008cfeu);
@@ -162,16 +162,16 @@ L_8CF8:
 
 L_8CFA:
     /* 00008cfa   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cfau);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_8CFC:
     /* 00008cfc   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00008cfcu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

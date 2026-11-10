@@ -30,8 +30,8 @@ void fn_00020cbc(cpu_t *c, rt_machine *m)
 
 L_20CBC:
     /* 00020cbc   6  movem.l (SP)+,{ A0 A1 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cbcu);
+    rc_step(c, m);
     t3 = (c->a[7] + 0x4u);
     t0 = rc_rd32(c, m, t3);
     c->a[0] = t0;
@@ -42,30 +42,30 @@ L_20CBC:
 
 L_20CC2:
     /* 00020cc2   2  move.l A0,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cc2u);
+    rc_step(c, m);
     t0 = rc_a_get(c, 0, RC_L);
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_20CC4:
     /* 00020cc4   4  move.w (c,A7),D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cc4u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[7] + 0xcu));
     rc_d_set(c, 1, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20CC8:
     /* 00020cc8   2  bra 00020ccc */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cc8u);
+    rc_step(c, m);
     goto L_20CCC;
 
 L_20CCA:
     /* 00020cca   2  move.b (A1)+,(A0)+ */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020ccau);
+    rc_step(c, m);
     t3 = c->a[1];
     c->a[1] += 1u;
     t0 = rc_rd8(c, m, t3);
@@ -76,8 +76,8 @@ L_20CCA:
 
 L_20CCC:
     /* 00020ccc   4  dbeq D1,00020cca */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cccu);
+    rc_step(c, m);
     if (!rc_cond(c, 7)) {
         t2 = (rc_d_get(c, 1, RC_W) + 0xFFFFu) & 0xFFFFu;
         rc_d_set(c, 1, RC_W, t2);
@@ -86,14 +86,14 @@ L_20CCC:
 
 L_20CD0:
     /* 00020cd0   2  beq 00020cd8 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cd0u);
+    rc_step(c, m);
     if (rc_cond(c, 7)) goto L_20CD8;
 
 L_20CD2:
     /* 00020cd2   2  addq.w #1,D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cd2u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 1, RC_W);
     t2 = t1 + 0x00000001u;
     rc_flags_add(c, RC_W, t1, 0x00000001u, t2, 0);
@@ -101,14 +101,14 @@ L_20CD2:
 
 L_20CD4:
     /* 00020cd4   2  bra 00020cd8 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cd4u);
+    rc_step(c, m);
     goto L_20CD8;
 
 L_20CD6:
     /* 00020cd6   2  clr.b (A0)+ */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cd6u);
+    rc_step(c, m);
     t3 = c->a[0];
     c->a[0] += 1u;
     rc_wr8(c, m, t3, 0u);
@@ -116,8 +116,8 @@ L_20CD6:
 
 L_20CD8:
     /* 00020cd8   4  dbf D1,00020cd6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cd8u);
+    rc_step(c, m);
     if (!rc_cond(c, 1)) {
         t2 = (rc_d_get(c, 1, RC_W) + 0xFFFFu) & 0xFFFFu;
         rc_d_set(c, 1, RC_W, t2);
@@ -126,8 +126,8 @@ L_20CD8:
 
 L_20CDC:
     /* 00020cdc   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020cdcu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

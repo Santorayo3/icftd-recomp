@@ -19,6 +19,7 @@ namespace ICFTD.AmigaExport.Recomp;
 public static class RecompCommand
 {
     const string ImagePath = "export/code/dshell/dshell.img";
+    const string HunkPath = "export/disk1/dshell";
     const string ModelPath = "re/model/functions.csv";
     const string OutDir = "src/recomp";
 
@@ -43,15 +44,25 @@ public static class RecompCommand
 
         string root = FindRepoRoot() ?? throw new Exception("not inside the icftd-recomp repo");
         string imagePath = Path.Combine(root, ImagePath.Replace('/', Path.DirectorySeparatorChar));
+        string hunkPath = Path.Combine(root, HunkPath.Replace('/', Path.DirectorySeparatorChar));
         string modelPath = Path.Combine(root, ModelPath.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(imagePath)) throw new FileNotFoundException($"no image at {imagePath}");
+        if (!File.Exists(hunkPath)) throw new FileNotFoundException($"no hunk file at {hunkPath}");
         if (!File.Exists(modelPath)) throw new FileNotFoundException($"no model at {modelPath}");
         outDir = Path.IsPathRooted(outDir) ? outDir : Path.Combine(root, outDir);
         Directory.CreateDirectory(outDir);
 
         byte[] image = File.ReadAllBytes(imagePath);
+
+        // Which absolute-long operands are pointers is not a matter of taste: the linker recorded
+        // every one of them in the hunk's reloc32 table, and the loader moves exactly those. The
+        // hunk is parsed at base 0 because that is the layout of the image beside it.
+        var hunk = new Hunk(File.ReadAllBytes(hunkPath));
+        hunk.Parse(0);
+        uint[] relocSites = hunk.Relocations.Where(r => r.Width == 4).Select(r => (uint)r.Site).ToArray();
+
         var functions = LoadModel(modelPath);
-        var emitter = new Emitter(image);
+        var emitter = new Emitter(image, relocSites);
 
         // The output is generated: stale files would claim functions that no longer qualify.
         foreach (string stale in Directory.GetFiles(outDir, "fn_*.c"))
@@ -154,6 +165,8 @@ public static class RecompCommand
         sb.AppendLine($"  blocks        {blocks.Count,4} block(s) outside the model, {blockBytes} byte(s), {blockInsns} instruction(s)");
         sb.AppendLine($"  thunk/entry   {thunks,4} function(s) (a bare jmp: never called as a function)");
         sb.AppendLine($"  not emitted   {functions.Count - modelEmitted - thunks,4} function(s)");
+        int codeRelocs = relocSites.Count(s => s < Emitter.VectorTableBase);
+        sb.AppendLine($"  relocations   {relocSites.Length,4} longword(s) in the hunk, {codeRelocs} inside the code hunk");
         if (reasons.Count > 0)
         {
             sb.AppendLine("  reasons:");

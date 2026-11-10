@@ -22,15 +22,15 @@ void fn_00009eb6(cpu_t *c, rt_machine *m)
 
 L_9EB6:
     /* 00009eb6   2  moveq #73,D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009eb6u);
+    rc_step(c, m);
     c->d[1] = 0x00000073u;
     rc_set_nzvc(c, c->d[1], RC_L);
 
 L_9EB8:
     /* 00009eb8   4  ori.b #55,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009eb8u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_B);
     t2 = t1 | 0x00000055u;
     rc_d_set(c, 0, RC_B, t2);
@@ -38,8 +38,8 @@ L_9EB8:
 
 L_9EBC:
     /* 00009ebc   4  ori.b #5d,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009ebcu);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_B);
     t2 = t1 | 0x0000005du;
     rc_d_set(c, 0, RC_B, t2);
@@ -47,8 +47,8 @@ L_9EBC:
 
 L_9EC0:
     /* 00009ec0   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009ec0u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

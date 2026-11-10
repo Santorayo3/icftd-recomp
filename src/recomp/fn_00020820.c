@@ -26,23 +26,23 @@ void fn_00020820(cpu_t *c, rt_machine *m)
 
 L_20820:
     /* 00020820   4  movea.l (4,A7),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020820u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_20824:
     /* 00020824   2  move.l A0,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020824u);
+    rc_step(c, m);
     t0 = rc_a_get(c, 0, RC_L);
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_20826:
     /* 00020826   2  tst.b (A0)+ */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020826u);
+    rc_step(c, m);
     t3 = c->a[0];
     c->a[0] += 1u;
     t0 = rc_rd8(c, m, t3);
@@ -50,29 +50,29 @@ L_20826:
 
 L_20828:
     /* 00020828   2  bne 00020826 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020828u);
+    rc_step(c, m);
     if (rc_cond(c, 6)) { rc_tick(); goto L_20826; }
 
 L_2082A:
     /* 0002082a   2  suba.l D0,A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002082au);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_L);
     c->a[0] -= t0;
 
 L_2082C:
     /* 0002082c   2  move.l A0,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002082cu);
+    rc_step(c, m);
     t0 = rc_a_get(c, 0, RC_L);
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_2082E:
     /* 0002082e   2  subq.l #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002082eu);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 - 0x00000001u;
     rc_flags_sub(c, RC_L, t1, 0x00000001u, t2, 0);
@@ -80,8 +80,8 @@ L_2082E:
 
 L_20830:
     /* 00020830   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020830u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

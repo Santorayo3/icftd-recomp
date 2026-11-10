@@ -20,15 +20,15 @@ void fn_00021442(cpu_t *c, rt_machine *m)
 
 L_21442:
     /* 00021442   4  movea.l (3af8,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021442u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af8u));
     c->a[6] = t0;
 
 L_21446:
     /* 00021446   4  jmp (ffffffca,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021446u);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -54);
     return;
 

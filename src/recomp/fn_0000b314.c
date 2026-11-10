@@ -20,24 +20,24 @@ void fn_0000b314(cpu_t *c, rt_machine *m)
 
 L_B314:
     /* 0000b314   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b314u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_B318:
     /* 0000b318   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b318u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_B31A:
     /* 0000b31a   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000b31au);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

@@ -19,8 +19,8 @@ void fn_0000f160(cpu_t *c, rt_machine *m)
 
 L_F160:
     /* 0000f160   6  bclr #0,(1c,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f160u);
+    rc_step(c, m);
     t4 = 0x00000000u;
     t3 = (c->a[6] + 0x1cu);
     t0 = rc_rd8(c, m, t3);

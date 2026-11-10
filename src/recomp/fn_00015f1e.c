@@ -28,8 +28,8 @@ void fn_00015f1e(cpu_t *c, rt_machine *m)
 
 L_15F1E:
     /* 00015f1e   2  move.l A0,-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f1eu);
+    rc_step(c, m);
     t0 = rc_a_get(c, 0, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -37,8 +37,8 @@ L_15F1E:
 
 L_15F20:
     /* 00015f20   4  jsr (00016e8e) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f20u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x00015f24u));
     rc_depth++;
     c->pc = RC_ADDR(0x00016e8eu);
@@ -46,8 +46,8 @@ L_15F20:
 
 L_15F24:
     /* 00015f24   6  andi.l #ffff,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f24u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 & 0x0000ffffu;
     rc_d_set(c, 0, RC_L, t2);
@@ -55,35 +55,35 @@ L_15F24:
 
 L_15F2A:
     /* 00015f2a   4  divu.w #f,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f2au);
+    rc_step(c, m);
     t0 = 0x0000000fu;
     rc_divu(c, m, 0, t0);
 
 L_15F2E:
     /* 00015f2e   2  swap D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f2eu);
+    rc_step(c, m);
     t0 = c->d[0];
     c->d[0] = (t0 >> 16) | (t0 << 16);
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_15F30:
     /* 00015f30   2  lsl.w #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f30u);
-    c->d[0] = rc_shift(c, 1, 1, 0x00000001u, rc_d_get(c, 0, RC_W), RC_W);
+    rc_step(c, m);
+    rc_d_set(c, 0, RC_W, rc_shift(c, 1, 1, 0x00000001u, rc_d_get(c, 0, RC_W), RC_W));
 
 L_15F32:
     /* 00015f32   4  lea (ffffb30a,A4),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f32u);
+    rc_step(c, m);
     c->a[0] = (c->a[4] - 0x4cf6u);
 
 L_15F36:
     /* 00015f36   4  move.w (0,A0,D0.w),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f36u);
+    rc_step(c, m);
     t4 = rc_ext(c->d[0], RC_W);
     t0 = rc_rd16(c, m, (c->a[0] + 0x0u + t4));
     rc_d_set(c, 0, RC_W, t0);
@@ -91,8 +91,8 @@ L_15F36:
 
 L_15F3A:
     /* 00015f3a   2  movea.l (A7)+,A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f3au);
+    rc_step(c, m);
     t3 = c->a[7];
     c->a[7] += 4u;
     t0 = rc_rd32(c, m, t3);
@@ -100,8 +100,8 @@ L_15F3A:
 
 L_15F3C:
     /* 00015f3c   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015f3cu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

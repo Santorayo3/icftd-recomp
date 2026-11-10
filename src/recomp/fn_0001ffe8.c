@@ -21,8 +21,8 @@ void fn_0001ffe8(cpu_t *c, rt_machine *m)
 
 L_1FFE8:
     /* 0001ffe8   4  movem.l (SP)+,{ D4 D5 A2 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ffe8u);
+    rc_step(c, m);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -39,16 +39,16 @@ L_1FFE8:
 
 L_1FFEC:
     /* 0001ffec   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ffecu);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1FFEE:
     /* 0001ffee   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ffeeu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

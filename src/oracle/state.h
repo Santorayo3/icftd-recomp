@@ -31,4 +31,8 @@ void state_close(void);
 /* 1 when a state file is being written, so the caller can skip the cost otherwise. */
 int  state_active(void);
 
+/* Writes the whole RAM block to `path` right now - the stop point is bisectable, not only the
+ * frame boundaries. */
+void state_ram_snapshot(rt_machine *m, const char *path);
+
 #endif

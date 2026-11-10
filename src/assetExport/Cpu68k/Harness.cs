@@ -674,8 +674,16 @@ internal static class Harness
         public StubModels(Memory mem, Dictionary<int, StubSpec> specs, uint entry, bool basicOs = false)
         {
             _mem = mem;
-            _specs = specs;
+            _specs = new Dictionary<int, StubSpec>(specs);
             _basicOs = basicOs;
+            /* A library wrapper runs (see Cpu68k.DoStub), so a model pinned to a slot arrives named
+             * by its LVO instead. Register the slot's model under both keys. */
+            foreach (var kv in specs)
+            {
+                if (kv.Key < 0) continue;
+                var (lvo, _) = ResolveSlot(mem, kv.Key);
+                if (lvo != 0 && !_specs.ContainsKey(lvo)) _specs[lvo] = kv.Value;
+            }
         }
 
         public bool TryCall(StubCall call)

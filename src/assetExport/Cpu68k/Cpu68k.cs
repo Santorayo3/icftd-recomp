@@ -564,17 +564,18 @@ public sealed class Cpu68k
             int sub = (op >> 6) & 3;                 // 0 BTST 1 BCHG 2 BCLR 3 BSET
             int bitReg = (op >> 9) & 7;
             RequireDataEa(mode, reg, opAddr, "a dynamic bit operation");
-            Ea ea = Resolve(mode, reg, ByteSize, opAddr);
-            uint v = ReadEa(ea, ByteSize);
-            int bit = (int)(D[bitReg] & 7);
+            int size = mode == 0 ? LongSize : ByteSize;      // Dn is long, memory is byte
+            Ea ea = Resolve(mode, reg, size, opAddr);
+            uint v = ReadEa(ea, size);
+            int bit = (int)(D[bitReg] & (size == LongSize ? 31u : 7u));
             bool set = (v & (1u << bit)) != 0;
             SetFlag(FlagZ, !set);
             switch (sub)
             {
-                case 0: return;                                                   // BTST
-                case 1: WriteEa(ea, ByteSize, v ^ (1u << bit), opAddr); return;   // BCHG
-                case 2: WriteEa(ea, ByteSize, v & ~(1u << bit), opAddr); return;  // BCLR
-                default: WriteEa(ea, ByteSize, v | (1u << bit), opAddr); return;  // BSET
+                case 0: return;                                                // BTST
+                case 1: WriteEa(ea, size, v ^ (1u << bit), opAddr); return;    // BCHG
+                case 2: WriteEa(ea, size, v & ~(1u << bit), opAddr); return;   // BCLR
+                default: WriteEa(ea, size, v | (1u << bit), opAddr); return;   // BSET
             }
         }
 
@@ -585,16 +586,17 @@ public sealed class Cpu68k
                 int sub = (op >> 6) & 3;               // 0 BTST 1 BCHG 2 BCLR 3 BSET
                 int bit = Fetch16() & 0x1F;
                 RequireDataEa(mode, reg, opAddr, "a static bit operation");
-                Ea ea = Resolve(mode, reg, ByteSize, opAddr);
-                uint v = ReadEa(ea, ByteSize);
+                int size = mode == 0 ? LongSize : ByteSize;   // Dn is long, memory is byte
+                Ea ea = Resolve(mode, reg, size, opAddr);
+                uint v = ReadEa(ea, size);
                 bool set = (v & (1u << bit)) != 0;
                 SetFlag(FlagZ, !set);
                 switch (sub)
                 {
-                    case 0: return;                                                   // BTST
-                    case 1: WriteEa(ea, ByteSize, v ^ (1u << bit), opAddr); return;   // BCHG
-                    case 2: WriteEa(ea, ByteSize, v & ~(1u << bit), opAddr); return;  // BCLR
-                    default: WriteEa(ea, ByteSize, v | (1u << bit), opAddr); return;  // BSET
+                    case 0: return;                                                // BTST
+                    case 1: WriteEa(ea, size, v ^ (1u << bit), opAddr); return;    // BCHG
+                    case 2: WriteEa(ea, size, v & ~(1u << bit), opAddr); return;   // BCLR
+                    default: WriteEa(ea, size, v | (1u << bit), opAddr); return;   // BSET
                 }
             }            case 0x0000: // ORI
             case 0x0200: // ANDI
@@ -988,6 +990,7 @@ public sealed class Cpu68k
             {
                 int lvo = (short)Fetch16();
                 Push32(PC);
+                _depth++;                       // the library's return unwinds this frame
                 DoLibraryCall(lvo, opAddr);
                 return;
             }
@@ -1037,7 +1040,13 @@ public sealed class Cpu68k
         };
         ReadArgs(call, 4);
 
-        if (StubHost?.Invoke(call) == true)
+        /* A wrapper is CODE, not the call: `movem.l (4,SP),{D0 D1}` copies the fastcall arguments
+         * into real registers and `movea.l (base),A6` sets the library base, and the machine
+         * executes both before the library is entered. Modelling the slot in place would leave D0/
+         * D1/A6 untouched - state the caller really sees. Pass through; DoLibraryCall then names the
+         * call by its LVO. */
+        bool wrapper = IsLibraryWrapper(call.Target);
+        if (!wrapper && StubHost?.Invoke(call) == true)
         {
             _stubs.Add(call);
             A[7] += 4;
@@ -1045,16 +1054,50 @@ public sealed class Cpu68k
             PC = ret;
             return;
         }
+        if (!wrapper) call.Note = "unmodelled";
+        else call.Note = "wrapper";
 
-        // Unmodelled slot: run what the stub points at. Engine-internal slots then execute
-        // their real code, and Amiga library wrappers end in jmp (d16,A6), which is caught
-        // by DoLibraryCall and named by its LVO. The stub is *called*, so its rts returns to the
-        // jsr's caller (`_depth` mirrors that; without it the run stopped one frame deep and the
-        // differential compared a truncated execution against a complete one).
-        call.Note = "passthrough";
+        // Unmodelled slot (or a wrapper): run what the stub points at. Engine-internal slots then
+        // execute their real code, and a wrapper's `jmp (d16,A6)` is caught by DoLibraryCall and
+        // named by its LVO. The stub is *called*, so its rts returns to the jsr's caller (`_depth`
+        // mirrors that; without it the run stopped one frame deep and the differential compared a
+        // truncated execution against a complete one).
         _stubs.Add(call);
         PC = call.Target;
         _depth++;
+    }
+
+    /// <summary>
+    /// True when a slot target is a library wrapper: some argument loads, then `movea.l (base),A6`
+    /// and `jmp (d16,A6)` (the pattern FUN_00021690..FUN_00021992 are built from). The stubs are
+    /// `jmp abs`, so their target is often one `jmp (d16,PC)` hop in front of the wrapper.
+    /// </summary>
+    bool IsLibraryWrapper(uint target)
+    {
+        uint at = FollowJmp(target);
+        for (int hop = 0; hop < 10; hop++)
+        {
+            ushort op = Mem.Read16(at);
+            if (op == 0x4CEE || op == 0x4CEF) { at += 6; continue; }   // movem.l (d16,SP),mask
+            if (op == 0x206F || op == 0x226F) { at += 4; continue; }   // movea.l (d16,SP),A0/A1
+            if (op == 0x202F || op == 0x222F) { at += 4; continue; }   // move.l (d16,SP),D0/D1
+            if (op == 0x2C6C || op == 0x2C7C) { at += 4; continue; }   // movea.l (base),A6
+            return op == 0x4EEE;                                      // jmp (d16,A6)
+        }
+        return false;
+    }
+
+    /// <summary>Follows `jmp abs.l` / `jmp (d16,PC)` trampolines to the code they reach.</summary>
+    uint FollowJmp(uint at)
+    {
+        for (int hop = 0; hop < 8; hop++)
+        {
+            ushort op = Mem.Read16(at);
+            if (op == 0x4EF9) { at = Mem.Read32(at + 2); continue; }
+            if (op == 0x4EFA) { at = at + 2 + (uint)(short)Mem.Read16(at + 2); continue; }
+            break;
+        }
+        return at;
     }
 
     /// <summary>A call into an Amiga library: the displacement is the LVO, so no base is needed.</summary>
@@ -1077,6 +1120,15 @@ public sealed class Cpu68k
         A[7] += 4;
         D[0] = call.Result;
         PC = ret;
+        /* Popping the return address is the library function's own rts: it unwinds the frame this
+         * call pushed (the jsr above, or the stub's passthrough - a wrapper never rts itself). */
+        if (_depth > 0) _depth--;
+        else if (StopOnRts)
+        {
+            _stop = StopReason.Rts;
+            _stopMessage = "RTS from the entry function (library call)";
+            _stopPc = PC;
+        }
     }
 
     void ReadArgs(StubCall call, int firstArgOffset)
@@ -1473,6 +1525,7 @@ public sealed class Cpu68k
                 bool outBit = (v & sign) != 0;
                 v = (v << 1) & m;
                 if (type == 2 && X) v |= 1;                                      // ROXL
+                if (type == 3 && outBit) v |= 1;                                 // ROL feeds the bit back
                 if (type == 0 && ((v & sign) != 0) != outBit) overflow = true;   // ASL
                 carry = outBit;
             }
@@ -1482,6 +1535,7 @@ public sealed class Cpu68k
                 v >>= 1;
                 if (type == 0) v |= signOfInput;                                 // ASR keeps the input sign
                 if (type == 2 && X) v |= sign;                                   // ROXR
+                if (type == 3 && outBit) v |= sign;                              // ROR
                 carry = outBit;
             }
             if (type != 3) SetFlag(FlagX, carry);                                // RO leaves X alone

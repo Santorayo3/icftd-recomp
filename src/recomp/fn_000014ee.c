@@ -19,16 +19,16 @@ void fn_000014ee(cpu_t *c, rt_machine *m)
 
 L_14EE:
     /* 000014ee   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000014eeu);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_14F0:
     /* 000014f0   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000014f0u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

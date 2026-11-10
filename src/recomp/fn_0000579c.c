@@ -26,32 +26,32 @@ void fn_0000579c(cpu_t *c, rt_machine *m)
 
 L_579C:
     /* 0000579c   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000579cu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_57A0:
     /* 000057a0   6  move.w #1,(ffff83d2,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057a0u);
+    rc_step(c, m);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] - 0x7c2eu), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_57A6:
     /* 000057a6   4  move.w (8,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057a6u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_57AA:
     /* 000057aa   4  add.w D0,(ffff83ce,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057aau);
+    rc_step(c, m);
     t3 = (c->a[4] - 0x7c32u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + rc_d_get(c, 0, RC_W);
@@ -60,8 +60,8 @@ L_57AA:
 
 L_57AE:
     /* 000057ae   4  jsr (00005406) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057aeu);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x000057b2u));
     rc_depth++;
     c->pc = RC_ADDR(0x00005406u);
@@ -69,23 +69,23 @@ L_57AE:
 
 L_57B2:
     /* 000057b2   4  clr.w (ffff83d2,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057b2u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0x7c2eu), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_57B6:
     /* 000057b6   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057b6u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_57B8:
     /* 000057b8   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000057b8u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

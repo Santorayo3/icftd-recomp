@@ -21,6 +21,8 @@ void oracle_boot(u32 entry, u32 a4);
  * transfer in both directions - d0-d7, a0-a7, sr, pc. */
 int  oracle_step(rt_machine *m);
 void oracle_tick(rt_machine *m);
+/* The last executed PCs, oldest first. */
+void oracle_ring_print(rt_machine *m);
 void oracle_regs_get(u32 *r);
 void oracle_regs_set(const u32 *r);
 

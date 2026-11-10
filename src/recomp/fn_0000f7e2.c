@@ -18,8 +18,8 @@ void fn_0000f7e2(cpu_t *c, rt_machine *m)
 
 L_F7E2:
     /* 0000f7e2   4  bra 0000f814 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f7e2u);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f814u);
     return;
 

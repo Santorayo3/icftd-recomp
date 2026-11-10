@@ -155,3 +155,13 @@ int state_active(void)
 {
     return g_open;
 }
+
+/* Raw RAM image at whatever point the caller reached: RAM can then be bisected between two frame
+ * boundaries, where the per-frame records only say "this frame differs". */
+void state_ram_snapshot(rt_machine *m, const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == 0) return;
+    fwrite(m->mem.base, 1, m->mem.size, f);
+    fclose(f);
+}

@@ -90,8 +90,11 @@ void rc_divs(cpu_t *c, rt_machine *m, int reg, u32 src);
 u32  rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size);
 
 /* --- calls ---------------------------------------------------------------------------------
- * `jsr <const>` -> rc_call(): fn_table lookup, else the development interpreter.
- * `jsr (d16,A6)` -> rc_os_call(): the return address is pushed, the runtime shim runs, A7 pops. */
+ * `jsr <const>` / `jsr (d16,A4)` -> rc_call(): fn_table lookup, else the development interpreter.
+ * A library wrapper (`movea.l (d16,A4),A6` + `jmp (d16,A6)`, or a fastcall prologue before it) is
+ * CALLED like any other function: it sets A6 and copies its fastcall arguments into real
+ * registers, and the shim reads its arguments above the return address this call pushes.
+ * `jsr/jmp (d16,A6)` -> rc_os_call_a6(): stack convention, the return address is popped. */
 typedef void (*rc_fn)(cpu_t *c, rt_machine *m);
 
 void rc_call(cpu_t *c, rt_machine *m, u32 addr);
@@ -128,8 +131,9 @@ void rc_tick(void);
  * run the game's own interrupt servers - and returns with the register file as they left it. */
 extern void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
 void rc_step(cpu_t *c, rt_machine *m);
-/* Bisection seam: stop the run once m->insns reaches this count (0 = never). The interpreter has
- * the same stop as its instruction budget, so both front ends can be compared at one instruction. */
+/* Bisection seam: stop the run once m->insns reaches this count (0 = never). The stop is exact
+ * per instruction, also in the middle of a translated function: rc_step leaves the stream with
+ * c->pc on the instruction that has not run, which is where the interpreter stops too. */
 extern long rc_stopAt;
 /* Stop the dispatch (leaving c->pc at the next instruction) instead of handing control to
  * rc_interpreter: the host's own driver owns the seam between translated and interpreted code. */

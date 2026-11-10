@@ -30,8 +30,8 @@ void fn_0000737e(cpu_t *c, rt_machine *m)
 
 L_737E:
     /* 0000737e   4  link.w A5,#fffffffc */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000737eu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -39,24 +39,24 @@ L_737E:
 
 L_7382:
     /* 00007382   6  move.l (ffffef90,A4),(fffffffc,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007382u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0x1070u));
     rc_wr32(c, m, (c->a[5] - 0x4u), t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_7388:
     /* 00007388   4  move.w (8,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007388u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_738C:
     /* 0000738c   4  subq.w #1,(8,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000738cu);
+    rc_step(c, m);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 - 0x00000001u;
@@ -65,59 +65,59 @@ L_738C:
 
 L_7390:
     /* 00007390   2  tst.w D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007390u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_W);
     rc_set_nzvc(c, t0, RC_W);
 
 L_7392:
     /* 00007392   2  beq 000073a0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007392u);
+    rc_step(c, m);
     if (rc_cond(c, 7)) goto L_73A0;
 
 L_7394:
     /* 00007394   4  movea.l (fffffffc,A5),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007394u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[5] - 0x4u));
     c->a[0] = t0;
 
 L_7398:
     /* 00007398   6  move.l (8,A0),(fffffffc,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00007398u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[0] + 0x8u));
     rc_wr32(c, m, (c->a[5] - 0x4u), t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_739E:
     /* 0000739e   2  bra 00007388 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000739eu);
+    rc_step(c, m);
     rc_tick();
     goto L_7388;
 
 L_73A0:
     /* 000073a0   4  move.l (fffffffc,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000073a0u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[5] - 0x4u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_73A4:
     /* 000073a4   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000073a4u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_73A6:
     /* 000073a6   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000073a6u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

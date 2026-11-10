@@ -21,8 +21,8 @@ void fn_00021488(cpu_t *c, rt_machine *m)
 
 L_21488:
     /* 00021488   6  movem.l (SP)+,{ D1 D2 D3 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021488u);
+    rc_step(c, m);
     t3 = (c->a[7] + 0x4u);
     t0 = rc_rd32(c, m, t3);
     c->d[1] = t0;
@@ -36,15 +36,15 @@ L_21488:
 
 L_2148E:
     /* 0002148e   4  movea.l (3af8,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002148eu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af8u));
     c->a[6] = t0;
 
 L_21492:
     /* 00021492   4  jmp (ffffffbe,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021492u);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -66);
     return;
 

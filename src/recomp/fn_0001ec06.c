@@ -23,8 +23,8 @@ void fn_0001ec06(cpu_t *c, rt_machine *m)
 
 L_1EC06:
     /* 0001ec06   2  bsr 0001ec16 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec06u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x0001ec08u));
     rc_depth++;
     c->pc = RC_ADDR(0x0001ec16u);
@@ -32,8 +32,8 @@ L_1EC06:
 
 L_1EC08:
     /* 0001ec08   6  andi.l #ffff,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec08u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 & 0x0000ffffu;
     rc_d_set(c, 0, RC_L, t2);
@@ -41,23 +41,23 @@ L_1EC08:
 
 L_1EC0E:
     /* 0001ec0e   4  divu.w (4,A7),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec0eu);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[7] + 0x4u));
     rc_divu(c, m, 0, t0);
 
 L_1EC12:
     /* 0001ec12   2  swap D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec12u);
+    rc_step(c, m);
     t0 = c->d[0];
     c->d[0] = (t0 >> 16) | (t0 << 16);
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_1EC14:
     /* 0001ec14   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001ec14u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

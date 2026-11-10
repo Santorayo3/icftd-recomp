@@ -21,22 +21,22 @@ void fn_00021898(cpu_t *c, rt_machine *m)
 
 L_21898:
     /* 00021898   4  movea.l (4,A7),A1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021898u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_2189C:
     /* 0002189c   4  movea.l (ffffcba0,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002189cu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_218A0:
     /* 000218a0   4  jmp (ffffff22,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000218a0u);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -222);
     return;
 

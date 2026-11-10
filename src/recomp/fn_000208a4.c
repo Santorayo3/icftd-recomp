@@ -24,15 +24,15 @@ void fn_000208a4(cpu_t *c, rt_machine *m)
 
 L_208A4:
     /* 000208a4   4  movea.l (4,A7),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208a4u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_208A8:
     /* 000208a8   6  movem.w (SP)+,{ D0 D1 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208a8u);
+    rc_step(c, m);
     t3 = (c->a[7] + 0x8u);
     t0 = rc_rd16(c, m, t3);
     t0 = rc_ext(t0, RC_W);
@@ -45,14 +45,14 @@ L_208A8:
 
 L_208AE:
     /* 000208ae   2  bra 000208b2 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208aeu);
+    rc_step(c, m);
     goto L_208B2;
 
 L_208B0:
     /* 000208b0   2  move.b D1,(A0)+ */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208b0u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 1, RC_B);
     t3 = c->a[0];
     c->a[0] += 1u;
@@ -61,8 +61,8 @@ L_208B0:
 
 L_208B2:
     /* 000208b2   4  dbf D0,000208b0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208b2u);
+    rc_step(c, m);
     if (!rc_cond(c, 1)) {
         t2 = (rc_d_get(c, 0, RC_W) + 0xFFFFu) & 0xFFFFu;
         rc_d_set(c, 0, RC_W, t2);
@@ -71,8 +71,8 @@ L_208B2:
 
 L_208B6:
     /* 000208b6   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000208b6u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

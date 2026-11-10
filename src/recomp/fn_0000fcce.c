@@ -18,8 +18,8 @@ void fn_0000fcce(cpu_t *c, rt_machine *m)
 
 L_FCCE:
     /* 0000fcce   4  bra 0000fd20 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000fcceu);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000fd20u);
     return;
 

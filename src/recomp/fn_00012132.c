@@ -25,29 +25,29 @@ void fn_00012132(cpu_t *c, rt_machine *m)
 
 L_12132:
     /* 00012132   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00012132u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_12136:
     /* 00012136   4  tst.w (8,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00012136u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_1213A:
     /* 0001213a   2  bge 00012140 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001213au);
+    rc_step(c, m);
     if (rc_cond(c, 12)) goto L_12140;
 
 L_1213C:
     /* 0001213c   4  neg.w (8,A5) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001213cu);
+    rc_step(c, m);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd16(c, m, t3);
     t2 = 0u - t1;
@@ -56,24 +56,24 @@ L_1213C:
 
 L_12140:
     /* 00012140   4  move.w (8,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00012140u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_12144:
     /* 00012144   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00012144u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_12146:
     /* 00012146   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00012146u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

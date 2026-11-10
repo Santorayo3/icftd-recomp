@@ -19,8 +19,8 @@ void fn_00002410(cpu_t *c, rt_machine *m)
 
 L_2410:
     /* 00002410   4  move.l -(A4),(0,A2) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00002410u);
+    rc_step(c, m);
     c->a[4] -= 4u;
     t0 = rc_rd32(c, m, c->a[4]);
     rc_wr32(c, m, (c->a[2] + 0x0u), t0);

@@ -119,6 +119,8 @@ typedef struct rt_machine
     u32     blits;                        /* blits started, for --progress */
     u32     blitDrops;                    /* blit writes the range check refused */
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
+    void *callLog;                        /* --calllog: one line per library call, for bisection */
+    long    traceFrom, traceTo;           /* --trace: print insns/budget/pc in this window */
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
     void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */
@@ -138,6 +140,13 @@ u32  rt_library_new(rt_machine *m);
  * The Musashi front end (src\oracle) and the translated dispatcher (src\recomp) both call it and
  * differ only in how they get `sp`, `a1` and the return address. */
 u32  rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo);
+/* Opens the call log: "<insns> <lib> <lvo>" per library call, so two runs can be compared where
+ * their instruction counts start to differ. */
+int  rt_calllog_open(rt_machine *m, const char *path);
+/* Raw RAM at the stop point, for bisecting between frame boundaries. */
+void rt_ram_snapshot(rt_machine *m, const char *path);
+/* "<insns> <budget> <pc>" when the run is inside the --trace window. */
+void rt_trace(rt_machine *m, u32 pc);
 /* A shim asked for the next vertical blank: end this frame without executing anything. */
 void rt_request_vblank(rt_machine *m);
 /* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */
@@ -153,6 +162,17 @@ int  rt_library_of(rt_machine *m, u32 pc, s32 *lvo);
 
 /* Which library *base value* this is (the translated `jmp (d16,A6)` knows A6, not the PC), or -1. */
 int  rt_lib_index(rt_machine *m, u32 base);
+
+/* --- the 68000 bus --------------------------------------------------------------------------
+ * One access, wherever it lands: the chipset register file ($DFF000..$DFF0FF), the fire button
+ * on CIA-A and the joystick ports are handled here, everything else is the RAM block. */
+int  rt_bus_is_io(rt_machine *m, u32 a);
+u32  rt_bus_read8(rt_machine *m, u32 a);
+u32  rt_bus_read16(rt_machine *m, u32 a);
+u32  rt_bus_read32(rt_machine *m, u32 a);
+void rt_bus_write8(rt_machine *m, u32 a, u32 v);
+void rt_bus_write16(rt_machine *m, u32 a, u32 v);
+void rt_bus_write32(rt_machine *m, u32 a, u32 v);
 
 extern rt_machine *rt_current;
 

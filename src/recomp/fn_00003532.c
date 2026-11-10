@@ -22,16 +22,16 @@ void fn_00003532(cpu_t *c, rt_machine *m)
 
 L_3532:
     /* 00003532   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00003532u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_3536:
     /* 00003536   2  bsr 000034bc */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00003536u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x00003538u));
     rc_depth++;
     c->pc = RC_ADDR(0x000034bcu);
@@ -39,8 +39,8 @@ L_3536:
 
 L_3538:
     /* 00003538   2  bsr 0000350a */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00003538u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x0000353au));
     rc_depth++;
     c->pc = RC_ADDR(0x0000350au);
@@ -48,16 +48,16 @@ L_3538:
 
 L_353A:
     /* 0000353a   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000353au);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_353C:
     /* 0000353c   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000353cu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

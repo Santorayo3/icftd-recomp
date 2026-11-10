@@ -18,9 +18,9 @@ void fn_000216cc(cpu_t *c, rt_machine *m)
 
 L_216CC:
     /* 000216cc   4  jmp (000216d0) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216ccu);
-    /* exec.library -210 */
-    rc_os_call(c, m, 0, -210);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216d0u);
+    return;
 
 }

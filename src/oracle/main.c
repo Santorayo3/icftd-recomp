@@ -124,7 +124,7 @@ int main(int argc, char **argv)
     u32 base = EMU_IMAGE_BASE;
     u32 a4 = DEFAULT_A4;
     long insns = 1000;
-    int i, rc = 1, trace = 0, haveEntry = 0, dosLog = 0, progress = 0, dffLog = 0, runForever = 0;
+    int i, rc = 1, trace = 0, haveEntry = 0, dosLog = 0, progress = 0, dffLog = 0, runForever = 0, k;
     int haveA4 = 0;
     u32 watch = 0;
     u32 pressAt = 0;
@@ -132,6 +132,10 @@ int main(int argc, char **argv)
     const char *dataDir = "export";
     const char *statePrefix = 0;
     const char *ramFrames = 0;
+    const char *ramStop = 0;
+    const char *callLog = 0;
+    long traceFrom = 0, traceTo = 0;
+    int ring = 0;
     const char *inputPath = 0;
     int stateEvery = 1;
 
@@ -170,6 +174,17 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--a4") == 0 && i + 1 < argc) { a4 = (u32)strtoul(argv[++i], 0, 0); haveA4 = 1; continue; }
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) { statePrefix = argv[++i]; continue; }
         if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) { ramFrames = argv[++i]; continue; }
+        if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
+        if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
+        if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
+        if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
+        {
+            char *p = argv[++i];
+            traceFrom = strtol(p, &p, 0);
+            if (*p == ',') p++;
+            traceTo = strtol(p, 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
         /* --every is shared: "--dump <prefix> n --every k" already means "every k-th raster". */
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
@@ -222,6 +237,9 @@ int main(int argc, char **argv)
     m.pressAt = pressAt;
     m.releaseAt = releaseAt;
     m.dataDir = dataDir;
+    if (callLog != 0) rt_calllog_open(&m, callLog);
+    m.traceFrom = traceFrom;
+    m.traceTo = traceTo;
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
@@ -254,10 +272,17 @@ int main(int argc, char **argv)
                (unsigned long)m68k_get_reg(0, M68K_REG_A6),
                (unsigned long)m68k_get_reg(0, M68K_REG_A7),
                (unsigned long)m68k_get_reg(0, M68K_REG_SR));
+        printf("regs:");
+        if (ring) oracle_ring_print(&m);
+        for (k = 0; k < 8; k++) printf(" D%d=%08lX", k, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + k));
+        for (k = 0; k < 8; k++) printf(" A%d=%08lX", k, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + 8 + k));
+        printf(" SR=%04lX PC=%08lX\n", (unsigned long)m68k_get_reg(0, M68K_REG_SR),
+               (unsigned long)m68k_get_reg(0, M68K_REG_PC));
         if (m.mem.bad != 0) printf("emu: %lu access(es) outside the RAM block\n",
                                    (unsigned long)m.mem.bad);
         printf("emu: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
         state_close();
+        if (ramStop != 0) state_ram_snapshot(&m, ramStop);
         rc = 0;
     }
 

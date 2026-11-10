@@ -29,8 +29,8 @@ void fn_0001b926(cpu_t *c, rt_machine *m)
 
 L_1B926:
     /* 0001b926   4  link.w A5,#fffffffe */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b926u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -38,8 +38,8 @@ L_1B926:
 
 L_1B92A:
     /* 0001b92a   4  move.l (a1a,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b92au);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0xa1au));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -47,8 +47,8 @@ L_1B92A:
 
 L_1B92E:
     /* 0001b92e   4  move.l (fffff2f8,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b92eu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0xd08u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -56,22 +56,28 @@ L_1B92E:
 
 L_1B932:
     /* 0001b932   4  jsr (ffff8344,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b932u);
-    /* vector 139: exec.library -210 */
-    c->pc = RC_ADDR(0x0001b936u);
-    rc_os_call(c, m, 0, -210);
+    rc_step(c, m);
+    /* vector 139 */
+    rc_push32(c, m, RC_ADDR(0x0001b936u));
+    rc_depth++;
+    c->pc = RC_ADDR(0x00021d9au);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216ccu);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216d0u);
+    return;
 
 L_1B936:
     /* 0001b936   2  addq.w #8,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b936u);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1B938:
     /* 0001b938   4  move.l (fffff31c,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b938u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0xce4u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -79,8 +85,8 @@ L_1B938:
 
 L_1B93C:
     /* 0001b93c   4  move.l (fffff314,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b93cu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0xcecu));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -88,30 +94,36 @@ L_1B93C:
 
 L_1B940:
     /* 0001b940   4  jsr (ffff8344,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b940u);
-    /* vector 139: exec.library -210 */
-    c->pc = RC_ADDR(0x0001b944u);
-    rc_os_call(c, m, 0, -210);
+    rc_step(c, m);
+    /* vector 139 */
+    rc_push32(c, m, RC_ADDR(0x0001b944u));
+    rc_depth++;
+    c->pc = RC_ADDR(0x00021d9au);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216ccu);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216d0u);
+    return;
 
 L_1B944:
     /* 0001b944   2  addq.w #8,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b944u);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1B946:
     /* 0001b946   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b946u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1B948:
     /* 0001b948   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b948u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

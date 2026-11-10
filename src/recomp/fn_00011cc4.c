@@ -24,52 +24,52 @@ void fn_00011cc4(cpu_t *c, rt_machine *m)
 
 L_11CC4:
     /* 00011cc4   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cc4u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_11CC8:
     /* 00011cc8   4  clr.w (fffff28a,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cc8u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0xd76u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_11CCC:
     /* 00011ccc   4  clr.w (af4,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cccu);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] + 0xaf4u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_11CD0:
     /* 00011cd0   4  clr.w (fffff324,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cd0u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] - 0xcdcu), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_11CD4:
     /* 00011cd4   4  clr.w (dfe,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cd4u);
+    rc_step(c, m);
     rc_wr16(c, m, (c->a[4] + 0xdfeu), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_11CD8:
     /* 00011cd8   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cd8u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_11CDA:
     /* 00011cda   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011cdau);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

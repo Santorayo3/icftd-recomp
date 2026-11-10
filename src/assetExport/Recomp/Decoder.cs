@@ -133,6 +133,7 @@ public sealed class Decoder
                         ea.Abs = (uint)(int)(short)Fetch16();
                         return ea;
                     case 1:
+                        ea.ExtAt = _pc;
                         ea.Abs = Fetch32();
                         return ea;
                     case 2:
@@ -163,7 +164,7 @@ public sealed class Decoder
                         ea.Reg = 4;
                         if (size == 1) { ea.Imm = (uint)(byte)Read16(_pc); _pc += 2; }
                         else if (size == 2) { ea.Imm = Fetch16(); }
-                        else { ea.Imm = Fetch32(); }
+                        else { ea.ExtAt = _pc; ea.Imm = Fetch32(); }
                         return ea;
                 }
         }
@@ -212,9 +213,9 @@ public sealed class Decoder
         {
             int sub = (op >> 6) & 3;
             DataEa(mode, reg);
-            i.Dst = Resolve(mode, reg, 1);
+            i.Size = mode == 0 ? 4 : 1;                 // Dn is long, memory is byte
+            i.Dst = Resolve(mode, reg, i.Size);
             i.Kind = sub switch { 0 => Opk.Btst, 1 => Opk.Bchg, 2 => Opk.Bclr, _ => Opk.Bset };
-            i.Size = 1;
             i.Reg = (op >> 9) & 7;
             i.BitFromReg = true;
             return;
@@ -227,9 +228,9 @@ public sealed class Decoder
                 int sub = (op >> 6) & 3;
                 int bit = Fetch16() & 0x1F;
                 DataEa(mode, reg);
-                i.Dst = Resolve(mode, reg, 1);
+                i.Size = mode == 0 ? 4 : 1;             // Dn is long, memory is byte
+                i.Dst = Resolve(mode, reg, i.Size);
                 i.Kind = sub switch { 0 => Opk.Btst, 1 => Opk.Bchg, 2 => Opk.Bclr, _ => Opk.Bset };
-                i.Size = 1;
                 i.Reg = bit;
                 i.BitFromReg = false;
                 return;

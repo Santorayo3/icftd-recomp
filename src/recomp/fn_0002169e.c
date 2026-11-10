@@ -24,8 +24,8 @@ void fn_0002169e(cpu_t *c, rt_machine *m)
 
 L_2169E:
     /* 0002169e   4  movem.l { A0 A1 },-(SP) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002169eu);
+    rc_step(c, m);
     t3 = c->a[7];
     t3 -= 4u;
     rc_wr32(c, m, t3, c->d[7]);
@@ -35,30 +35,31 @@ L_2169E:
 
 L_216A2:
     /* 000216a2   4  movea.l (c,A7),A1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216a2u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0xcu));
     c->a[1] = t0;
 
 L_216A6:
     /* 000216a6   4  movea.l (3af4,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216a6u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_216AA:
     /* 000216aa   4  jsr (fffffe38,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216aau);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000216aeu);
     rc_push32(c, m, RC_ADDR(0x000216aeu));
+    rc_depth++;
     rc_os_call_a6(c, m, -456);
 
 L_216AE:
     /* 000216ae   4  movem.l (SP)+,{ D6 D7 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216aeu);
+    rc_step(c, m);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -72,8 +73,8 @@ L_216AE:
 
 L_216B2:
     /* 000216b2   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216b2u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

@@ -33,14 +33,35 @@ void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
 int rc_stopOnUnknown;
 long rc_stopAt;
 
-/* One instruction, counted the way the interpreter counts it (src\oracle\cpu.c, oracle_run): the
- * budget is spent before the instruction, and going negative runs the vblank first. */
-void rc_step(cpu_t *c, rt_machine *m)
+/* Armed only while rc_call runs the stream, so rc_step can leave it in the middle of a function. */
+static jmp_buf rc_stopBuf;
+static jmp_buf *rc_stopJump;
+
+/* One instruction's worth of bookkeeping, exactly the interpreter's rule (src\oracle\cpu.c,
+ * oracle_run): the budget is spent before the instruction, going negative runs the vblank first,
+ * and the bisection stop leaves the stream on the instruction that has not run. The emitted code
+ * sets c->pc to that instruction before calling rc_step, so a stop reports the state the
+ * interpreter reports. */
+static void step_budget(cpu_t *c, rt_machine *m)
 {
     tick();
-    if (rc_stopAt > 0 && m->insns >= rc_stopAt) { m->stop = 1; return; }
+    rt_trace(m, c->pc);
+    /* The emitted code has already named the instruction, so the ring means the same thing here
+     * as in the interpreter (src\oracle\cpu.c, oracle_step). */
+    m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = c->pc;
+    if (rc_stopAt > 0 && m->insns >= rc_stopAt)
+    {
+        m->stop = 1;
+        if (rc_stopJump != 0) longjmp(*rc_stopJump, 1);
+        return;
+    }
     if (rc_frame_hook != 0 && --m->insnToTick < 0) rc_frame_hook(c, m);
     m->insns++;
+}
+
+void rc_step(cpu_t *c, rt_machine *m)
+{
+    step_budget(c, m);
 }
 
 static u32 mask_size(int size)
@@ -64,46 +85,53 @@ u32 rc_ext(u32 v, int size)
 
 /* --- memory ------------------------------------------------------------------------------- */
 
+/* Chipset and CIA addresses are part of the machine, not of the RAM block: the bus decides. */
+static int in_ram(rt_machine *m, u32 addr, u32 width)
+{
+    u32 a = addr & 0xFFFFFFu;
+    return rt_bus_is_io(m, a) || a + width <= m->mem.size;
+}
+
 u32 rc_rd8(cpu_t *c, rt_machine *m, u32 addr)
 {
     tick();
-    if ((addr & 0xFFFFFFu) >= m->mem.size) note_bad(c, m, addr);
-    return rt_read8(&m->mem, addr);
+    if (!in_ram(m, addr, 1u)) note_bad(c, m, addr);
+    return rt_bus_read8(m, addr);
 }
 
 u32 rc_rd16(cpu_t *c, rt_machine *m, u32 addr)
 {
     tick();
-    if ((addr & 0xFFFFFFu) + 1u >= m->mem.size) note_bad(c, m, addr);
-    return rt_read16(&m->mem, addr);
+    if (!in_ram(m, addr, 2u)) note_bad(c, m, addr);
+    return rt_bus_read16(m, addr);
 }
 
 u32 rc_rd32(cpu_t *c, rt_machine *m, u32 addr)
 {
     tick();
-    if ((addr & 0xFFFFFFu) + 3u >= m->mem.size) note_bad(c, m, addr);
-    return rt_read32(&m->mem, addr);
+    if (!in_ram(m, addr, 4u)) note_bad(c, m, addr);
+    return rt_bus_read32(m, addr);
 }
 
 void rc_wr8(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
     tick();
-    if ((addr & 0xFFFFFFu) >= m->mem.size) note_bad(c, m, addr);
-    rt_write8(&m->mem, addr, v);
+    if (!in_ram(m, addr, 1u)) note_bad(c, m, addr);
+    rt_bus_write8(m, addr, v);
 }
 
 void rc_wr16(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
     tick();
-    if ((addr & 0xFFFFFFu) + 1u >= m->mem.size) note_bad(c, m, addr);
-    rt_write16(&m->mem, addr, v);
+    if (!in_ram(m, addr, 2u)) note_bad(c, m, addr);
+    rt_bus_write16(m, addr, v);
 }
 
 void rc_wr32(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
     tick();
-    if ((addr & 0xFFFFFFu) + 3u >= m->mem.size) note_bad(c, m, addr);
-    rt_write32(&m->mem, addr, v);
+    if (!in_ram(m, addr, 4u)) note_bad(c, m, addr);
+    rt_bus_write32(m, addr, v);
 }
 
 /* --- stack ---------------------------------------------------------------------------------
@@ -341,6 +369,7 @@ u32 rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size)
             int outBit = (v & sign) != 0;
             v = (v << 1) & mask;
             if (type == 2 && (c->sr & RC_X) != 0) v |= 1u;
+            if (type == 3 && outBit) v |= 1u;              /* RO feeds the bit back in */
             if (type == 0 && (((v & sign) != 0) != (outBit != 0))) overflow = 1;
             carry = outBit;
         }
@@ -350,6 +379,7 @@ u32 rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size)
             v >>= 1;
             if (type == 0) v |= signOfInput;
             if (type == 2 && (c->sr & RC_X) != 0) v |= sign;
+            if (type == 3 && outBit) v |= sign;
             carry = outBit;
         }
         if (type != 3)                     /* RO leaves X alone */
@@ -370,6 +400,8 @@ u32 rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size)
 
 static int rc_returned;
 
+static void rc_stream(cpu_t *c, rt_machine *m);
+
 void rc_ret(cpu_t *c, rt_machine *m)
 {
     c->pc = rc_pop32(c, m);
@@ -381,6 +413,16 @@ void rc_call(cpu_t *c, rt_machine *m, u32 addr)
 {
     c->pc = addr;
     rc_returned = 0;
+    /* rc_step longjmps here when the instruction budget runs out, which is the only way to leave
+     * a translated function in the middle: its body is a straight C function. */
+    if (setjmp(rc_stopBuf) != 0) { rc_stopJump = 0; return; }
+    rc_stopJump = &rc_stopBuf;
+    rc_stream(c, m);
+    rc_stopJump = 0;
+}
+
+static void rc_stream(cpu_t *c, rt_machine *m)
+{
     for (;;)
     {
         rc_fn fn;
@@ -464,8 +506,34 @@ void rc_os_call_a6(cpu_t *c, rt_machine *m, s32 lvo)
     u32 sp = c->a[7];
     int lib = rt_lib_index(m, c->a[6]);
 
+    /* The core jumps into the library and traps there: that entry is an instruction of its own in
+     * the oracle (jmp -> library -> trap), so it must spend one budget slot here as well or the
+     * vblank cadence drifts by one instruction per library call. The PC is the trap address, so a
+     * stop inside the call reports where the interpreter would be standing. */
+    c->pc = c->a[6] + (u32)lvo;
+    step_budget(c, m);
+    if (m->stop) return;
+
     c->d[0] = os_call(c, m, lib, lvo);
-    /* jsr/jmp (d16,A6) reads the return address that is already on the stack, then pops it. */
+    /* jsr/jmp (d16,A6) reads the return address that is already on the stack, then pops it: this is
+     * the library function's own rts, so it unwinds one call frame like rc_ret does. */
     c->pc = rc_rd32(c, m, sp);
     c->a[7] = sp + 4;
+    if (rc_depth > 0) rc_depth--;
+    else rc_returned = 1;
+
+    /* WaitTOF/WaitBOVP end the frame here: the oracle's run loop sees the request between two
+     * instructions and runs the vblank before the next one, so the translated stream must too.
+     * A bisection stop lands between the call and that vblank, as it does in the interpreter. */
+    if (rc_stopAt > 0 && m->insns >= rc_stopAt)
+    {
+        m->stop = 1;
+        return;
+    }
+    if (m->waitVblank && rc_frame_hook != 0)
+    {
+        m->waitVblank = 0;
+        m->insnToTick = 0;
+        rc_frame_hook(c, m);
+    }
 }

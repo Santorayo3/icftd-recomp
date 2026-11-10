@@ -79,6 +79,10 @@ int main(int argc, char **argv)
     const char *dataDir = "export";
     const char *statePrefix = 0;
     const char *ramFrames = 0;
+    const char *ramStop = 0;
+    const char *callLog = 0;
+    long traceFrom = 0, traceTo = 0;
+    int ring = 0;
     const char *inputPath = 0;
     long insns = 40000000L;
     u32 base = HS_BASE;
@@ -92,6 +96,17 @@ int main(int argc, char **argv)
     {
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) { statePrefix = argv[++i]; continue; }
         if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) { ramFrames = argv[++i]; continue; }
+        if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
+        if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
+        if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
+        if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
+        {
+            char *p = argv[++i];
+            traceFrom = strtol(p, &p, 0);
+            if (*p == ',') p++;
+            traceTo = strtol(p, 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
@@ -106,12 +121,18 @@ int main(int argc, char **argv)
         else insns = strtol(argv[i], 0, 0);
     }
     if (insns <= 0) insns = 40000000L;
+    /* One rc_call runs a whole translated function, so the limit has to be armed inside the
+     * stream too or a run overshoots it by up to a function. */
+    if (rc_stopAt <= 0) rc_stopAt = insns;
 
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
     m.dataDir = dataDir;
     m.progress = progress;
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
+    if (callLog != 0) rt_calllog_open(&m, callLog);
+    m.traceFrom = traceFrom;
+    m.traceTo = traceTo;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
@@ -144,6 +165,7 @@ int main(int argc, char **argv)
         }
         interpreted++;
         if (m.waitVblank) { m.waitVblank = 0; m.insnToTick = 0; }
+        rt_trace(&m, pc);
         if (--m.insnToTick < 0) oracle_tick(&m);
         if (!oracle_step(&m)) break;
         if (progress && (m.insns % 1000000L) == 0)
@@ -157,6 +179,12 @@ int main(int argc, char **argv)
            (unsigned long)m.frame);
     printf("recomp: %lu translated entry(ies), %lu interpreted instruction(s)\n",
            (unsigned long)translated, (unsigned long)interpreted);
+    if (ring) oracle_ring_print(&m);
+    printf("regs:");
+    for (i = 0; i < 8; i++) printf(" D%d=%08lX", i, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + i));
+    for (i = 0; i < 8; i++) printf(" A%d=%08lX", i, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + 8 + i));
+    printf(" SR=%04lX PC=%08lX\n", (unsigned long)m68k_get_reg(0, M68K_REG_SR),
+           (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     printf("recomp: D0=%08lX D1=%08lX A0=%08lX A1=%08lX A6=%08lX A7=%08lX SR=%04lX\n",
            (unsigned long)m68k_get_reg(0, M68K_REG_D0),
            (unsigned long)m68k_get_reg(0, M68K_REG_D1),
@@ -169,6 +197,7 @@ int main(int argc, char **argv)
         printf("recomp: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);
     printf("recomp: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
     state_close();
+    if (ramStop != 0) state_ram_snapshot(&m, ramStop);
     rt_shutdown(&m);
     rc = 0;
     return rc;

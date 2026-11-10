@@ -39,37 +39,37 @@ void fn_0002054c(cpu_t *c, rt_machine *m)
 
 L_2054C:
     /* 0002054c   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002054cu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_20550:
     /* 00020550   6  move.w #100,(2b24,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020550u);
+    rc_step(c, m);
     t0 = 0x00000100u;
     rc_wr16(c, m, (c->a[4] + 0x2b24u), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20556:
     /* 00020556   6  cmpi.w #c,(2b1a,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020556u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_cmp(c, RC_W, t0, 0x0000000cu);
 
 L_2055C:
     /* 0002055c   2  bge 0002058e */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002055cu);
+    rc_step(c, m);
     if (rc_cond(c, 12)) goto L_2058E;
 
 L_2055E:
     /* 0002055e   4  addq.w #1,(2b1a,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002055eu);
+    rc_step(c, m);
     t3 = (c->a[4] + 0x2b1au);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -78,16 +78,16 @@ L_2055E:
 
 L_20562:
     /* 00020562   4  move.w (2b1a,A4),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020562u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20566:
     /* 00020566   2  subq.w #8,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020566u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000008u;
     rc_flags_sub(c, RC_W, t1, 0x00000008u, t2, 0);
@@ -95,37 +95,37 @@ L_20566:
 
 L_20568:
     /* 00020568   4  move.w D0,(2b1c,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020568u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b1cu), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_2056C:
     /* 0002056c   2  moveq #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002056cu);
+    rc_step(c, m);
     c->d[0] = 0x00000001u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_2056E:
     /* 0002056e   4  move.w (2b1a,A4),D1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002056eu);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1au));
     rc_d_set(c, 1, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20572:
     /* 00020572   2  asl.w D1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020572u);
-    c->d[0] = rc_shift(c, 0, 1, (c->d[1] & 63u), rc_d_get(c, 0, RC_W), RC_W);
+    rc_step(c, m);
+    rc_d_set(c, 0, RC_W, rc_shift(c, 0, 1, (c->d[1] & 63u), rc_d_get(c, 0, RC_W), RC_W));
 
 L_20574:
     /* 00020574   2  subq.w #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020574u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
     rc_flags_sub(c, RC_W, t1, 0x00000001u, t2, 0);
@@ -133,24 +133,24 @@ L_20574:
 
 L_20576:
     /* 00020576   4  move.w D0,(2b1e,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020576u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b1eu), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_2057A:
     /* 0002057a   4  move.w (2b1e,A4),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002057au);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1eu));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_2057E:
     /* 0002057e   2  subq.w #1,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002057eu);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
     rc_flags_sub(c, RC_W, t1, 0x00000001u, t2, 0);
@@ -158,24 +158,24 @@ L_2057E:
 
 L_20580:
     /* 00020580   4  move.w D0,(2b22,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020580u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b22u), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20584:
     /* 00020584   4  move.w (2b1e,A4),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020584u);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[4] + 0x2b1eu));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20588:
     /* 00020588   2  subq.w #2,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020588u);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000002u;
     rc_flags_sub(c, RC_W, t1, 0x00000002u, t2, 0);
@@ -183,24 +183,24 @@ L_20588:
 
 L_2058A:
     /* 0002058a   4  move.w D0,(2b20,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002058au);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[4] + 0x2b20u), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_2058E:
     /* 0002058e   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002058eu);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_20590:
     /* 00020590   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00020590u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

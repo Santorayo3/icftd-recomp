@@ -21,8 +21,8 @@ void fn_00021964(cpu_t *c, rt_machine *m)
 
 L_21964:
     /* 00021964   6  movem.l (SP)+,{ A0 A1 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00021964u);
+    rc_step(c, m);
     t3 = (c->a[7] + 0x4u);
     t0 = rc_rd32(c, m, t3);
     c->a[0] = t0;
@@ -33,15 +33,15 @@ L_21964:
 
 L_2196A:
     /* 0002196a   4  movea.l (3b16,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002196au);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3b16u));
     c->a[6] = t0;
 
 L_2196E:
     /* 0002196e   4  jmp (ffffffa0,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0002196eu);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -96);
     return;
 

@@ -22,30 +22,30 @@ void fn_000216d0(cpu_t *c, rt_machine *m)
 
 L_216D0:
     /* 000216d0   4  movea.l (4,A7),A1 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216d0u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_216D4:
     /* 000216d4   4  move.l (8,A7),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216d4u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_216D8:
     /* 000216d8   4  movea.l (3af4,A4),A6 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216d8u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_216DC:
     /* 000216dc   4  jmp (ffffff2e,A6) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000216dcu);
+    rc_step(c, m);
     rc_os_call_a6(c, m, -210);
     return;
 

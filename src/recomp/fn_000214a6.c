@@ -18,8 +18,8 @@ void fn_000214a6(cpu_t *c, rt_machine *m)
 
 L_214A6:
     /* 000214a6   4  jmp (000214aa) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x000214a6u);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x000214aau);
     return;
 

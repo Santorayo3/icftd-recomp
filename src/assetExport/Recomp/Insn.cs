@@ -15,6 +15,7 @@ public sealed class Ea
     public bool IndexLong;      // .l index (otherwise .w, sign-extended)
     public int Scale;           // 0..3 -> <<0..<<3
     public uint Imm;            // #imm
+    public uint ExtAt;          // image offset of the abs.l / long immediate word
     public bool IsPcRelative;
 }
 

@@ -18,8 +18,8 @@ void fn_0000f062(cpu_t *c, rt_machine *m)
 
 L_F062:
     /* 0000f062   4  bra 0000f0ac */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f062u);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f0acu);
     return;
 

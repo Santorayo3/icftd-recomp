@@ -29,16 +29,16 @@ void fn_00011f1a(cpu_t *c, rt_machine *m)
 
 L_11F1A:
     /* 00011f1a   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f1au);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_11F1E:
     /* 00011f1e   4  move.l (e00,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f1eu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0xe00u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -46,34 +46,38 @@ L_11F1E:
 
 L_11F22:
     /* 00011f22   4  pea (00000005).l */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f22u);
+    rc_step(c, m);
     rc_push32(c, m, 0x00000005u);
 
 L_11F26:
     /* 00011f26   4  jsr (ffff8356,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f26u);
-    /* vector 142: exec.library -174 */
-    c->pc = RC_ADDR(0x00011f2au);
-    rc_os_call(c, m, 0, -174);
+    rc_step(c, m);
+    /* vector 142 */
+    rc_push32(c, m, RC_ADDR(0x00011f2au));
+    rc_depth++;
+    c->pc = RC_ADDR(0x00021dacu);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x00021744u);
+    return;
 
 L_11F2A:
     /* 00011f2a   2  addq.w #8,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f2au);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_11F2C:
     /* 00011f2c   4  pea (00000016).l */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f2cu);
+    rc_step(c, m);
     rc_push32(c, m, 0x00000016u);
 
 L_11F30:
     /* 00011f30   4  move.l (e00,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f30u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0xe00u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -81,30 +85,36 @@ L_11F30:
 
 L_11F34:
     /* 00011f34   4  jsr (ffff8344,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f34u);
-    /* vector 139: exec.library -210 */
-    c->pc = RC_ADDR(0x00011f38u);
-    rc_os_call(c, m, 0, -210);
+    rc_step(c, m);
+    /* vector 139 */
+    rc_push32(c, m, RC_ADDR(0x00011f38u));
+    rc_depth++;
+    c->pc = RC_ADDR(0x00021d9au);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216ccu);
+    rc_step(c, m);
+    c->pc = RC_ADDR(0x000216d0u);
+    return;
 
 L_11F38:
     /* 00011f38   2  addq.w #8,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f38u);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_11F3A:
     /* 00011f3a   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f3au);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_11F3C:
     /* 00011f3c   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00011f3cu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

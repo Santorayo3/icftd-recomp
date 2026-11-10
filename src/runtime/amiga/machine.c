@@ -534,6 +534,9 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo)
     int waitFrame = 0;             /* set by WaitTOF/WaitBOVP, acted on after the call returns */
     int i;
 
+    if (m->callLog != 0)
+        fprintf((FILE *)m->callLog, "%ld %d %ld\n", (long)m->insns, lib, (long)lvo);
+
     i = (int)(-lvo / 6) % 64;
     {
         lvo_stat *st = lvo_stat_get(lib, lvo);
@@ -1145,5 +1148,119 @@ void rt_request_vblank(rt_machine *m)
 u32 rt_args_addr(void)
 {
     return EMU_ARGS_ADDR;
+}
+
+/* Opens the call log; a run without it writes nothing. */
+int rt_calllog_open(rt_machine *m, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == 0) return 0;
+    m->callLog = (void *)f;
+    return 1;
+}
+
+/* Raw RAM at the stop point: what the bisection needs when a frame boundary is too coarse. */
+void rt_ram_snapshot(rt_machine *m, const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == 0) return;
+    fwrite(m->mem.base, 1, m->mem.size, f);
+    fclose(f);
+}
+
+/* One line per instruction inside the requested window: the frame budget next to the count, so a
+ * cadence difference between the two front ends names the instruction it starts at. */
+void rt_trace(rt_machine *m, u32 pc)
+{
+    if (m->traceTo == 0 || m->insns < m->traceFrom || m->insns > m->traceTo) return;
+    printf("t %ld %ld %06lx\n", (long)m->insns, (long)m->insnToTick, (unsigned long)pc);
+}
+
+/* --- the 68000 bus ---------------------------------------------------------------------------
+ * Chipset registers, the fire button and the joystick ports live outside the RAM block. Both
+ * front ends go through here, so a translated store reaches the same register file an
+ * interpreted one would - the draw chain programs BPLxPT/BLTxCON by storing to $DFF0xx. */
+
+/* The chipset window is modelled when the RAM block does not cover it. The fixture harness
+ * (src\recomp\check.c) hands the core a full 24-bit space so its dumps can be diffed against the
+ * interpreter, which keeps $DFF0xx as plain memory - there the window stays memory. */
+int rt_bus_is_io(rt_machine *m, u32 a)
+{
+    return m->mem.size <= a && a >= 0xBF0000u && a < 0xE00000u;
+}
+
+/* The register file itself, inside a window that runs much wider than it. */
+static int is_custom(rt_machine *m, u32 a)
+{
+    return rt_bus_is_io(m, a) && a >= 0xDFF000u && a < 0xDFF100u;
+}
+
+u32 rt_bus_read8(rt_machine *m, u32 a)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a)) return m->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
+    if (a == 0xBFE001u && rt_bus_is_io(m, a))
+    {
+        /* CIA-A port A: bit 7 is /FIRE, active low, the rest float high. */
+        m->firePolls++;
+        return 0x7Fu | (m->fireDown != 0 ? 0u : 0x80u);
+    }
+    return rt_read8(&m->mem, a);
+}
+
+u32 rt_bus_read16(rt_machine *m, u32 a)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a))
+    {
+        if (a == 0xDFF00Cu) return m->joy0;                  /* JOY0DAT */
+        if (a == 0xDFF00Eu) return m->joy1;                  /* JOY1DAT */
+        if (a == 0xDFF016u) return 0xFFFFu;                  /* POTINP: nothing plugged in */
+        return m->custom[(a - 0xDFF000u) >> 1];
+    }
+    return rt_read16(&m->mem, a);
+}
+
+u32 rt_bus_read32(rt_machine *m, u32 a)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a) && a < 0xDFF0FCu)
+        return ((u32)m->custom[(a - 0xDFF000u) >> 1] << 16) |
+               (u32)m->custom[(a + 2 - 0xDFF000u) >> 1];
+    return rt_read32(&m->mem, a);
+}
+
+void rt_bus_write8(rt_machine *m, u32 a, u32 v)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a))
+    {
+        m->custom[(a - 0xDFF000u) >> 1] = (u16)v;
+        return;
+    }
+    rt_write8(&m->mem, a, v);
+}
+
+void rt_bus_write16(rt_machine *m, u32 a, u32 v)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a))
+    {
+        rt_custom_write16(m, (u16)(a - 0xDFF000u), (u16)v);
+        return;
+    }
+    rt_write16(&m->mem, a, v);
+}
+
+void rt_bus_write32(rt_machine *m, u32 a, u32 v)
+{
+    a &= 0xFFFFFFu;
+    if (is_custom(m, a))
+    {
+        rt_custom_write16(m, (u16)(a - 0xDFF000u), (u16)(v >> 16));
+        rt_custom_write16(m, (u16)(a + 2u - 0xDFF000u), (u16)v);
+        return;
+    }
+    rt_write32(&m->mem, a, v);
 }
 

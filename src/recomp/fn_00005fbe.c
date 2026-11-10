@@ -29,47 +29,47 @@ void fn_00005fbe(cpu_t *c, rt_machine *m)
 
 L_5FBE:
     /* 00005fbe   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fbeu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_5FC2:
     /* 00005fc2   2  clr.w -(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fc2u);
+    rc_step(c, m);
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_5FC4:
     /* 00005fc4   2  clr.l -(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fc4u);
+    rc_step(c, m);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_5FC6:
     /* 00005fc6   2  clr.l -(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fc6u);
+    rc_step(c, m);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_5FC8:
     /* 00005fc8   4  movea.l (8,A5),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fc8u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_5FCC:
     /* 00005fcc   4  move.l (2c,A0),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fccu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[0] + 0x2cu));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -77,42 +77,46 @@ L_5FCC:
 
 L_5FD0:
     /* 00005fd0   4  jsr (ffff8278,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fd0u);
+    rc_step(c, m);
     /* vector 105 */
     rc_push32(c, m, RC_ADDR(0x00005fd4u));
     rc_depth++;
+    c->pc = RC_ADDR(0x00021cceu);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001fa02u);
     return;
 
 L_5FD4:
     /* 00005fd4   4  lea (e,A7),A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fd4u);
+    rc_step(c, m);
     c->a[7] = (c->a[7] + 0xeu);
 
 L_5FD8:
     /* 00005fd8   4  jsr (ffff81ee,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fd8u);
+    rc_step(c, m);
     /* vector 82 */
     rc_push32(c, m, RC_ADDR(0x00005fdcu));
     rc_depth++;
+    c->pc = RC_ADDR(0x00021c44u);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001d1dau);
     return;
 
 L_5FDC:
     /* 00005fdc   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fdcu);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_5FDE:
     /* 00005fde   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00005fdeu);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

@@ -18,8 +18,8 @@ void fn_0000f02a(cpu_t *c, rt_machine *m)
 
 L_F02A:
     /* 0000f02a   4  bra 0001013a */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0000f02au);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x0001013au);
     return;
 

@@ -29,16 +29,16 @@ void fn_00009ba6(cpu_t *c, rt_machine *m)
 
 L_9BA6:
     /* 00009ba6   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009ba6u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_9BAA:
     /* 00009baa   4  move.w (8,A5),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009baau);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -46,8 +46,8 @@ L_9BAA:
 
 L_9BAE:
     /* 00009bae   2  bsr 00009bca */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009baeu);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x00009bb0u));
     rc_depth++;
     c->pc = RC_ADDR(0x00009bcau);
@@ -55,42 +55,42 @@ L_9BAE:
 
 L_9BB0:
     /* 00009bb0   2  addq.w #2,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bb0u);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000002u, RC_W);
 
 L_9BB2:
     /* 00009bb2   6  movea.l #dff0a0,A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bb2u);
+    rc_step(c, m);
     t0 = 0x00dff0a0u;
     c->a[0] = t0;
 
 L_9BB8:
     /* 00009bb8   2  clr.l D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bb8u);
+    rc_step(c, m);
     rc_d_set(c, 0, RC_L, 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_9BBA:
     /* 00009bba   4  move.w (8,A5),D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bbau);
+    rc_step(c, m);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_9BBE:
     /* 00009bbe   2  lsl.w #4,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bbeu);
-    c->d[0] = rc_shift(c, 1, 1, 0x00000004u, rc_d_get(c, 0, RC_W), RC_W);
+    rc_step(c, m);
+    rc_d_set(c, 0, RC_W, rc_shift(c, 1, 1, 0x00000004u, rc_d_get(c, 0, RC_W), RC_W));
 
 L_9BC0:
     /* 00009bc0   6  move.w #0,(8,A0,D0.w) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bc0u);
+    rc_step(c, m);
     t0 = 0x00000000u;
     t4 = rc_ext(c->d[0], RC_W);
     rc_wr16(c, m, (c->a[0] + 0x8u + t4), t0);
@@ -98,16 +98,16 @@ L_9BC0:
 
 L_9BC6:
     /* 00009bc6   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bc6u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_9BC8:
     /* 00009bc8   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00009bc8u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

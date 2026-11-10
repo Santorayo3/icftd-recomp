@@ -32,11 +32,16 @@ public sealed class Emitter
     const string TV = "t0", TC = "t1", TR = "t2", TA = "t3", TX = "t4";
 
     readonly Decoder _dec;
+    readonly HashSet<uint> _reloc = new();
 
-    public Emitter(byte[] image)
+    /// <param name="relocSites">Image offsets whose longword the Amiga loader relocates (the
+    /// hunk's reloc32 table). Only those operands are pointers: everything else - `pea (0x10000).l`
+    /// attributes, `(0xbfe001).l` hardware registers - is a literal and must not move.</param>
+    public Emitter(byte[] image, IEnumerable<uint>? relocSites = null)
     {
         Image = image;
         _dec = new Decoder(image);
+        if (relocSites != null) foreach (uint s in relocSites) _reloc.Add(s);
     }
 
     public byte[] Image { get; }
@@ -174,6 +179,24 @@ public sealed class Emitter
             if (op == 0x4EF9) { target = _dec.Read32(target + 2); continue; }
             if (op == 0x4EFA) { target = target + 2 + (uint)(short)_dec.Read16(target + 2); continue; }
             return target;
+        }
+        return target;
+    }
+
+    /// <summary>
+    /// Follows the `jmp` chain that starts at `at`, collecting the addresses it steps through and
+    /// returning where it lands. Each hop is a real instruction, so the translation spends a budget
+    /// slot on it - the interpreter would.
+    /// </summary>
+    public uint JmpChain(uint at, List<uint> hops)
+    {
+        uint target = at;
+        for (int hop = 0; hop < 8; hop++)
+        {
+            ushort op = _dec.Read16(target);
+            if (op == 0x4EF9) { hops.Add(target); target = _dec.Read32(target + 2); continue; }
+            if (op == 0x4EFA) { hops.Add(target); target = target + 2 + (uint)(short)_dec.Read16(target + 2); continue; }
+            break;
         }
         return target;
     }
@@ -367,9 +390,10 @@ public sealed class Emitter
     void EmitInsn(Ctx c, Insn i)
     {
         /* The frame budget is spent per instruction, as the interpreter spends it, so a translated
-         * run hits the same vblank at the same instruction. */
-        c.Line("rc_step(c, m);");
+         * run hits the same vblank at the same instruction. The pc is set first: rc_step may stop
+         * the run here, and the state then has to name the instruction that has not run. */
         c.Line($"c->pc = {ImmA(i.Addr)};");
+        c.Line("rc_step(c, m);");
         switch (i.Kind)
         {
             case Opk.Move:
@@ -516,11 +540,14 @@ public sealed class Emitter
             case Opk.Bclr:
             case Opk.Bset:
             {
-                if (i.BitFromReg) c.Line($"{TX} = c->d[{i.Reg}] & 7u;");
+                /* A data-register destination is always a long operation, a memory one always a
+                 * byte: the two size cases the 68000 defines for these. */
+                string rcw = i.Size == 4 ? "RC_L" : "RC_B";
+                if (i.BitFromReg) c.Line($"{TX} = c->d[{i.Reg}] & {(i.Size == 4 ? "31" : "7")}u;");
                 else c.Line($"{TX} = {Imm((uint)i.Reg)};");
                 if (i.Dst!.Mode == 0)
                 {
-                    c.Line($"{TV} = rc_d_get(c, {i.Dst.Reg}, RC_B);");
+                    c.Line($"{TV} = rc_d_get(c, {i.Dst.Reg}, {rcw});");
                     c.Line($"rc_set_z(c, ({TV} & (1u << {TX})) == 0);");
                     if (i.Kind != Opk.Btst)
                     {
@@ -530,7 +557,7 @@ public sealed class Emitter
                             Opk.Bclr => $"{TR} = {TV} & ~(1u << {TX});",
                             _ => $"{TR} = {TV} | (1u << {TX});"
                         });
-                        c.Line($"rc_d_set(c, {i.Dst.Reg}, RC_B, {TR});");
+                        c.Line($"rc_d_set(c, {i.Dst.Reg}, {rcw}, {TR});");
                     }
                     break;
                 }
@@ -555,7 +582,8 @@ public sealed class Emitter
                 string args = $"{i.ShiftType}, {(i.ShiftLeft ? "1" : "0")}, {count}";
                 if (i.Dst == null)
                 {
-                    c.Line($"c->d[{i.Reg}] = rc_shift(c, {args}, rc_d_get(c, {i.Reg}, {Sz(i.Size)}), {Sz(i.Size)});");
+                    /* A word shift only replaces the low half of the register. */
+                    c.Line($"rc_d_set(c, {i.Reg}, {Sz(i.Size)}, rc_shift(c, {args}, rc_d_get(c, {i.Reg}, {Sz(i.Size)}), {Sz(i.Size)}));");
                     break;
                 }
                 c.Line($"{TA} = {Address(i.Dst, i.Size, c)};");
@@ -698,14 +726,23 @@ public sealed class Emitter
                 if (ea.IndexReg >= 0)
                 {
                     c.Line($"{TX} = {IndexExpr(ea)};");
-                    return $"({ImmA(ea.Abs)} + {TX})";
+                    return $"({AbsOrPc(ea)} + {TX})";
                 }
-                return ImmA(ea.Abs);
+                return AbsOrPc(ea);
             default:
                 c.Fail($"{ea.Mode}/{ea.Reg}: not an address");
                 return "0u";
         }
     }
+
+    /// <summary>
+    /// The implied address of a mode-7 operand. `(d16,PC)` / `(d8,PC,Xn)` arrive already resolved to
+    /// an image offset, so they always move with the load address. An absolute long is a pointer only
+    /// when the hunk's reloc32 table names that longword - the compiler emits PC-relative references
+    /// for its own data and an absolute long only for cross-hunk pointers or 32-bit constants
+    /// (`pea (0x10000).l` is AllocMem's attributes word, not an address).
+    /// </summary>
+    string AbsOrPc(Ea ea) => ea.Reg == 1 && !_reloc.Contains(ea.ExtAt) ? Imm(ea.Abs) : ImmA(ea.Abs);
 
     /// <summary>A byte access to A7 steps by two, as on the real chip.</summary>
     static string Step(int size, int reg) => (size == 1 && reg == 7) ? "2u" : size.ToString(CultureInfo.InvariantCulture) + "u";
@@ -833,6 +870,7 @@ public sealed class Emitter
             {
                 c.Line($"c->pc = {ImmA(ret)};");
                 c.Line($"rc_push32(c, m, {ImmA(ret)});");
+                c.Line("rc_depth++;");
             }
             c.Line($"rc_os_call_a6(c, m, {ea.Disp});");
             if (!isCall) c.Line("return;");
@@ -843,17 +881,21 @@ public sealed class Emitter
         {
             int slot = SlotOf(ea.Disp);
             if (slot < 0) { c.Fail($"{i.Addr:x8}: jsr/jmp (d16,A4) is not a vector-table slot"); return; }
-            uint target = SlotTarget(slot);
-            if (IsLibraryThunk(target, out int lib, out int lvo))
-            {
-                c.Line($"/* vector {slot}: {LibName(lib)} {lvo} */");
-                if (isCall) c.Line($"c->pc = {ImmA(ret)};");
-                c.Line($"rc_os_call(c, m, {lib}, {lvo});");
-                return;
-            }
+            /* The stub lives in the table, not at its own target: the `jmp abs.l` there is an
+             * instruction the core executes before the function. */
+            var hops = new List<uint>();
+            uint target = JmpChain(VectorTableBase + (uint)slot * 6, hops);
+            /* A stub may name a library wrapper (`movea.l (d16,A4),A6` + `jmp (d16,A6)`). It is
+             * CALLED, not inlined: the wrapper sets A6 and its argument loads write real
+             * registers, and the shim reads its arguments above the pushed return address. */
             c.Line($"/* vector {slot} */");
             if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
-            c.Line($"c->pc = {ImmA(Follow(target))};");
+            foreach (uint hop in hops)
+            {
+                c.Line($"c->pc = {ImmA(hop)};");
+                c.Line("rc_step(c, m);");
+            }
+            c.Line($"c->pc = {ImmA(target)};");
             c.Line("return;");
             return;
         }
@@ -862,16 +904,9 @@ public sealed class Emitter
         // index only exists at run time, so it falls through to the computed transfer below.
         if (ea.Mode == 7 && ea.Reg != 4 && ea.IndexReg < 0)
         {
-            if (IsLibraryThunk(ea.Abs, out int lib, out int lvo))
-            {
-                c.Line($"/* {LibName(lib)} {lvo} */");
-                if (isCall) c.Line($"c->pc = {ImmA(ret)};");
-                c.Line($"rc_os_call(c, m, {lib}, {lvo});");
-                return;
-            }
             if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
             /* Absolute short is a fixed address, not an image offset (see Address()). */
-            c.Line($"c->pc = {(ea.Reg == 0 ? Imm(ea.Abs) : ImmA(ea.Abs))};");
+            c.Line($"c->pc = {(ea.Reg == 0 ? Imm(ea.Abs) : AbsOrPc(ea))};");
             c.Line("return;");
             return;
         }

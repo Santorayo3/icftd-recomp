@@ -24,8 +24,8 @@ void fn_00015fd6(cpu_t *c, rt_machine *m)
 
 L_15FD6:
     /* 00015fd6   4  jsr (00016e8e) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015fd6u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x00015fdau));
     rc_depth++;
     c->pc = RC_ADDR(0x00016e8eu);
@@ -33,8 +33,8 @@ L_15FD6:
 
 L_15FDA:
     /* 00015fda   6  andi.l #ffff,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015fdau);
+    rc_step(c, m);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 & 0x0000ffffu;
     rc_d_set(c, 0, RC_L, t2);
@@ -42,15 +42,15 @@ L_15FDA:
 
 L_15FE0:
     /* 00015fe0   6  cmpi.l #2710,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015fe0u);
+    rc_step(c, m);
     t0 = rc_d_get(c, 0, RC_L);
     rc_cmp(c, RC_L, t0, 0x00002710u);
 
 L_15FE6:
     /* 00015fe6   2  blt 00015fec */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015fe6u);
+    rc_step(c, m);
     if (rc_cond(c, 13))
     {
         c->pc = RC_ADDR(0x00015fecu);
@@ -59,15 +59,15 @@ L_15FE6:
 
 L_15FE8:
     /* 00015fe8   2  clr.l D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015fe8u);
+    rc_step(c, m);
     rc_d_set(c, 0, RC_L, 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_15FEA:
     /* 00015fea   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00015feau);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

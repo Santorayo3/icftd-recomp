@@ -33,16 +33,16 @@ void fn_0001f27e(cpu_t *c, rt_machine *m)
 
 L_1F27E:
     /* 0001f27e   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f27eu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_1F282:
     /* 0001f282   4  movem.l { D4 D5 },-(SP) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f282u);
+    rc_step(c, m);
     t3 = c->a[7];
     t3 -= 4u;
     rc_wr32(c, m, t3, c->a[3]);
@@ -52,36 +52,36 @@ L_1F282:
 
 L_1F286:
     /* 0001f286   4  movea.l (ffffcce6,A4),A2 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f286u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] - 0x331au));
     c->a[2] = t0;
 
 L_1F28A:
     /* 0001f28a   2  move.l A2,D0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f28au);
+    rc_step(c, m);
     t0 = rc_a_get(c, 2, RC_L);
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_1F28C:
     /* 0001f28c   2  beq 0001f29a */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f28cu);
+    rc_step(c, m);
     if (rc_cond(c, 7)) goto L_1F29A;
 
 L_1F28E:
     /* 0001f28e   2  movea.l (A2),A3 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f28eu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, c->a[2]);
     c->a[3] = t0;
 
 L_1F290:
     /* 0001f290   2  move.l A2,-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f290u);
+    rc_step(c, m);
     t0 = rc_a_get(c, 2, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -89,8 +89,8 @@ L_1F290:
 
 L_1F292:
     /* 0001f292   2  bsr 0001f236 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f292u);
+    rc_step(c, m);
     rc_push32(c, m, RC_ADDR(0x0001f294u));
     rc_depth++;
     c->pc = RC_ADDR(0x0001f236u);
@@ -98,35 +98,35 @@ L_1F292:
 
 L_1F294:
     /* 0001f294   2  addq.w #4,A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f294u);
+    rc_step(c, m);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_1F296:
     /* 0001f296   2  movea.l A3,A2 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f296u);
+    rc_step(c, m);
     t0 = rc_a_get(c, 3, RC_L);
     c->a[2] = t0;
 
 L_1F298:
     /* 0001f298   2  bra 0001f28a */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f298u);
+    rc_step(c, m);
     rc_tick();
     goto L_1F28A;
 
 L_1F29A:
     /* 0001f29a   4  clr.l (ffffcce6,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f29au);
+    rc_step(c, m);
     rc_wr32(c, m, (c->a[4] - 0x331au), 0u);
     rc_set_nzvc(c, 0u, RC_L);
 
 L_1F29E:
     /* 0001f29e   4  movem.l (SP)+,{ A2 A3 } */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f29eu);
+    rc_step(c, m);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -140,16 +140,16 @@ L_1F29E:
 
 L_1F2A2:
     /* 0001f2a2   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f2a2u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1F2A4:
     /* 0001f2a4   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001f2a4u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

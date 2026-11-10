@@ -25,54 +25,54 @@ void fn_0001695c(cpu_t *c, rt_machine *m)
 
 L_1695C:
     /* 0001695c   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001695cu);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_16960:
     /* 00016960   6  move.w #1,(12de,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00016960u);
+    rc_step(c, m);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] + 0x12deu), t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_16966:
     /* 00016966   4  movea.l (e04,A4),A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00016966u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0xe04u));
     c->a[0] = t0;
 
 L_1696A:
     /* 0001696a   6  adda.l #d8,A0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001696au);
+    rc_step(c, m);
     t0 = 0x000000d8u;
     c->a[0] += t0;
 
 L_16970:
     /* 00016970   4  move.b #ca,(A0) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00016970u);
+    rc_step(c, m);
     t0 = 0x000000cau;
     rc_wr8(c, m, c->a[0], t0);
     rc_set_nzvc(c, t0, RC_B);
 
 L_16974:
     /* 00016974   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00016974u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_16976:
     /* 00016976   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x00016976u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 

@@ -28,16 +28,16 @@ void fn_0001b220(cpu_t *c, rt_machine *m)
 
 L_1B220:
     /* 0001b220   4  link.w A5,#0 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b220u);
+    rc_step(c, m);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_1B224:
     /* 0001b224   4  move.w #40,-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b224u);
+    rc_step(c, m);
     t0 = 0x00000040u;
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -45,8 +45,8 @@ L_1B224:
 
 L_1B228:
     /* 0001b228   4  move.w #3,-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b228u);
+    rc_step(c, m);
     t0 = 0x00000003u;
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -54,8 +54,8 @@ L_1B228:
 
 L_1B22C:
     /* 0001b22c   4  move.l (226c,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b22cu);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x226cu));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -63,8 +63,8 @@ L_1B22C:
 
 L_1B230:
     /* 0001b230   4  move.w #be,-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b230u);
+    rc_step(c, m);
     t0 = 0x000000beu;
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -72,8 +72,8 @@ L_1B230:
 
 L_1B234:
     /* 0001b234   4  move.l (2248,A4),-(A7) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b234u);
+    rc_step(c, m);
     t0 = rc_rd32(c, m, (c->a[4] + 0x2248u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -81,32 +81,34 @@ L_1B234:
 
 L_1B238:
     /* 0001b238   4  jsr (ffff80d4,A4) */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b238u);
+    rc_step(c, m);
     /* vector 35 */
     rc_push32(c, m, RC_ADDR(0x0001b23cu));
     rc_depth++;
+    c->pc = RC_ADDR(0x00021b2au);
+    rc_step(c, m);
     c->pc = RC_ADDR(0x00009c3cu);
     return;
 
 L_1B23C:
     /* 0001b23c   4  lea (e,A7),A7 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b23cu);
+    rc_step(c, m);
     c->a[7] = (c->a[7] + 0xeu);
 
 L_1B240:
     /* 0001b240   2  unlk A5 */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b240u);
+    rc_step(c, m);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1B242:
     /* 0001b242   2  rts */
-    rc_step(c, m);
     c->pc = RC_ADDR(0x0001b242u);
+    rc_step(c, m);
     rc_ret(c, m);
     return;
 
