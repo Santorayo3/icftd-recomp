@@ -1,4 +1,4 @@
-# Runs bin\win32\icftd-emu.exe with a hard time limit and never blocks the terminal.
+# Runs bin\win32\icftd-oracle.exe with a hard time limit and never blocks the terminal.
 #
 # Two lessons baked in here:
 #   * redirect into FILES, not into a pipeline - `| Out-File` keeps the caller waiting until the
@@ -7,7 +7,7 @@
 #     inside a native loop of a shim (a blit with a garbage size), which the instruction budget
 #     never sees.
 #
-#   powershell -ExecutionPolicy Bypass -File tools\emu-run.ps1 [-Insns 4000000] [-Log out\emu-run.txt]
+#   powershell -ExecutionPolicy Bypass -File tools\oracle-run.ps1 [-Insns 4000000] [-Log out\emu-run.txt]
 #             [-Dump out\shot [-DumpCount 16]] [-Window] [-DosLog] [-Trace] [-Progress]
 #             [-TimeoutSec 60] [-EmuArgs '--anything']
 param(
@@ -29,8 +29,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root 'bin\win32\icftd-emu.exe'
-if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build-emu.ps1" }
+$exe = Join-Path $root 'bin\win32\icftd-oracle.exe'
+if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build-oracle.ps1" }
 $logPath = Join-Path $root $Log
 $errPath = "$logPath.err"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null
@@ -48,10 +48,10 @@ $emuArgs += $EmuArgs
 
 # Rebuild when a core source is newer than the exe: running a stale binary has already cost a
 # debugging cycle and the build is a few seconds.
-$src = Join-Path $root 'src\game\core\emu'
+$src = Join-Path $root 'src\runtime'
 $newest = Get-ChildItem $src -Recurse -Include *.c, *.h |
           Sort-Object LastWriteTime -Descending | Select-Object -First 1
-foreach ($f in @((Join-Path $root 'src\game\emu_main.c'), (Join-Path $root 'src\game\plat\win32\plat_win32.c')))
+foreach ($f in @((Join-Path $root 'src\oracle\main.c'), (Join-Path $root 'src\oracle\cpu.c'), (Join-Path $root 'src\runtime\plat\win32\plat_win32.c')))
 {
     $i = Get-Item $f -ErrorAction SilentlyContinue
     if ($i -and ($newest -eq $null -or $i.LastWriteTime -gt $newest.LastWriteTime)) { $newest = $i }

@@ -7,7 +7,7 @@
     that the oracle still agrees with its own fixtures.
 
       1. exporter build        (src\assetExport - the formats AND the 68000 interpreter/oracle)
-      2. emulator build        (tools\build-emu.ps1 - Phase A: the original binary on Musashi)
+      2. oracle build          (tools\build-oracle.ps1 - the original binary on Musashi + runtime)
       3. interpreter fixtures  (tools\harness-check.ps1 - hand-checked 68k cases + SMS planes)
 
     There is no pixel, frame, capture or reference-image step, by design: correctness is decided by
@@ -64,7 +64,7 @@ if (-not (Test-Path (Join-Path $root 'out'))) { New-Item -ItemType Directory -Pa
 
 if (-not $Quick) {
     Step 'exporter build'  { dotnet build src\assetExport\ICFTD.AmigaExport.csproj --nologo -v:q }
-    Step 'emulator build'  { powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-emu.ps1 }
+    Step 'oracle build'    { powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-oracle.ps1 }
 }
 
 Step 'interpreter fixtures' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\harness-check.ps1 }

@@ -13,7 +13,7 @@ You supply the images; the tools decode them locally.
 
 | phase | what it is | state |
 |---|---|---|
-| **A — run the original** | The real `dshell` image executing on the vendored Musashi 68000 core plus our own Amiga OS shims (`src\game\core\emu\`). This is the **oracle**: it is how we learn what the program actually does. Scaffolding — it never ships. | **Done, frozen.** Boots, plays the intro, runs the game loop: 30M instructions reach frame 5823 with a raster presented every frame, 0 dropped blit writes. OS surface measured every run: **49 library calls used, 45 kinds implemented, 4 answered with 0** (`OpenDiskFont`, three IEEE single-precision ops). |
+| **A — run the original** | The real `dshell` image executing on the vendored Musashi 68000 core plus our own Amiga OS shims. This is the **oracle** (`src\oracle` + `src\runtime`): it is how we learn what the program actually does, and where the fixtures come from. A tool — the shipped game links no 68000 core. | **Done, frozen.** Boots, plays the intro, runs the game loop: 30M instructions reach frame 5823 with a raster presented every frame, 0 dropped blit writes. OS surface measured every run: **49 library calls used, 45 kinds implemented, 4 answered with 0** (`OpenDiskFont`, three IEEE single-precision ops). |
 | **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Not started — this is the work.** |
 
 ## How correctness is decided
@@ -56,12 +56,12 @@ powershell -ExecutionPolicy Bypass -File tools\gate.ps1
 ## Running the original (Phase A)
 
 ```powershell
-tools\build-emu.ps1
-bin\win32\icftd-emu.exe export\code\dshell4k\dshell.img 0x4000 --run
+tools\build-oracle.ps1
+bin\win32\icftd-oracle.exe export\code\dshell4k\dshell.img 0x4000 --run
 #   space = fire, esc or close = quit; runs at the Amiga's 50 Hz
 
 # batch / scripted runs - always bounded, so a stuck model cannot hang the terminal
-powershell -ExecutionPolicy Bypass -File tools\emu-run.ps1 -Insns 30000000 -Progress
+powershell -ExecutionPolicy Bypass -File tools\oracle-run.ps1 -Insns 30000000 -Progress
 ```
 
 Flags worth knowing: `--progress` (counters every million steps), `--lvo` (library-call census),
@@ -78,8 +78,10 @@ re/                    Ghidra project, decompiled C, disassembly, exported progr
 ref/fixtures           pinned 68000 harness fixtures (the oracle's test inputs)
 src/assetExport        ADF filesystem, banks, SMS/LZ codecs, hunk loader, AND the 68000
                        interpreter + the rcmp/rleaf differential harness
-src/game/core/emu      Phase A: memory, machine, blitter, graphics shim, OS library shims
-src/game/plat/win32    the platform layer (window, input, files, heap, 50 Hz clock)
+src/runtime            the machine the game code runs on: memory, library shims, heap, exec
+                       structures, blitter, planar display, platform   (ships)
+src/oracle             the 68000 front end: executes the original binary so it can be measured
+                       and mined for fixtures   (dev tool, links Musashi)
 src/recomp             (to be created) the translated functions and fn_table
 third_party/musashi    MIT 68000 core
 tools/                 see below
@@ -90,9 +92,9 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, emulator build, interpreter fixtures |
-| `tools\build-emu.ps1` | build `bin\win32\icftd-emu.exe` (Musashi + our machine) |
-| `tools\emu-run.ps1` | run the emulator with a hard timeout, log to `out\` |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures |
+| `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
+| `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\musashi-gen.ps1` | generate Musashi's `m68kops.c` (git-ignored) |
 | `tools\extract.ps1` | disk images → `export\` |
 | `tools\ghidra\run-ghidra.ps1` | decompile + export the program model (`-ModelOnly`, `-Annotated`) |

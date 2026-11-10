@@ -6,7 +6,7 @@ The project is one thing: statically **recompile the original `dshell` (750 func
 bytes) into C** and ship a portable runtime. Everything else is scaffolding.
 
 * **Phase A (done, frozen)** — the original binary runs on the vendored Musashi 68000 core plus our
-  own OS shims (`src\game\core\emu\`, `bin\win32\icftd-emu.exe`). It boots, plays the intro and runs
+  own Amiga OS shims (`src\runtime\`, `bin\win32\icftd-oracle.exe`). It boots, plays the intro and runs
   the game loop (30M insns → frame 5823, 5752 rasters, 0 dropped blit writes). Its OS surface is
   measured on every run by `emu_lvo_report()`: **49 distinct library calls used, 86,898 calls,
   45 kinds implemented, 4 kinds answered with 0** (`diskfont -30` OpenDiskFont, and `-30/-36/-84` on
@@ -76,11 +76,12 @@ not by earning them.
 
 * `tools\gate.ps1` — 3 steps, ~19 s, green: exporter build, emulator build, interpreter fixtures.
   There is no pixel, frame or capture step, and adding one is a regression, not a feature.
-* The emulator is not in the gate: `tools\build-emu.ps1` → `bin\win32\icftd-emu.exe`.
-* `tools\emu-run.ps1` writes a log and always enforces a timeout; it does **not** forward
+* The oracle is not in the shipped build: `tools\build-oracle.ps1` -> `bin\win32\icftd-oracle.exe`,
+  which links `src\runtime` (shared with the game) plus the 68000 front end in `src\oracle`.
+* `tools\oracle-run.ps1` writes a log and always enforces a timeout; it does **not** forward
   `--press`/`--release` (use `-EmuArgs`). `out\emu-post.ps1` (+ task "out: r") runs the post-intro
   case with a hard 45 s limit and an unconditional kill — a run that must be killed by hand is a run
   that hides its own log.
 * The integrated terminal dies after heavy use, and the emulator can spin in a native loop that no
-  instruction budget sees: kill `icftd-emu` before rebuilding, and prefer `run_task`.
+  instruction budget sees: kill `icftd-oracle` before rebuilding, and prefer `run_task`.
 * The retired hand-port plan is kept as `docs\archive-hand-port-plan.md` for history only.

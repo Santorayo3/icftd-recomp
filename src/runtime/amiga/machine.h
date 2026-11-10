@@ -7,7 +7,7 @@
 #define EMU_MACHINE_H
 
 #include "types.h"
-#include "mem.h"
+#include "memory.h"
 
 /* Memory map: the flattened dshell image is linked at 0 (A4 = 0x29A56 is baked into the code,
  * so the base must stay 0). The stack sits at 0x80000 and the fake library bases at the top. */
@@ -35,7 +35,7 @@
 #define EMU_FB_MAX_H 512
 #define EMU_AREA_MAX 256
 
-typedef struct emu_gfx_state{
+typedef struct rt_gfx_state{
     u8  *fb;                      /* EMU_FB_MAX_W * EMU_FB_MAX_H, from plat_alloc */
     int  fbW, fbH;
     u8   pal[256 * 3];
@@ -44,7 +44,7 @@ typedef struct emu_gfx_state{
     s16  curX, curY;
     s16  areaX[EMU_AREA_MAX], areaY[EMU_AREA_MAX];
     int  areaCount;
-    u32  frames;                  /* rasters presented */    u32  presentFrame;            /* last vertical blank we presented on */} emu_gfx_state;
+    u32  frames;                  /* rasters presented */    u32  presentFrame;            /* last vertical blank we presented on */} rt_gfx_state;
 /* The exec structures we hand the game: the Process that FindTask returns and its CLI record.
  * Reserved above the AllocMem heap and below the stack - the image's BSS reaches 0x31598, so
  * anything lower would be overwritten by the image load. */
@@ -62,30 +62,30 @@ typedef struct emu_gfx_state{
 #define EMU_MAX_INT        8          /* interrupt servers the game can add */
 
 /* One dos.library handle: a host file plus a cursor. Read-only for now; the game only ever
- * reads its data banks. */typedef struct emu_file
+ * reads its data banks. */typedef struct rt_file
 {
     void *f;                              /* plat_file* */
     u32   size;
     u32   pos;
     u32   addr;                           /* the FileHandle block; dos returns addr>>2 */
-} emu_file;
+} rt_file;
 
 /* --- the chipset blitter (blit.c) --------------------------------------------------------- */
 /* The engine's compositor writes these registers directly rather than calling BltBitMap. */
-typedef struct emu_blitter
+typedef struct rt_blitter
 {
     u16 con0, con1, afwm, alwm, size;
     u32 cpt, bpt, apt, dpt;
     s16 cmod, bmod, amod, dmod;
     u16 cdat, bdat, adat;
-} emu_blitter;
+} rt_blitter;
 
-typedef struct emu_machine
+typedef struct rt_machine
 {
-    emu_mem mem;
+    rt_mem mem;
     u16     custom[0x100 / 2];            /* 0xDFF000..0xDFF0FF, raw */
-    emu_blitter blit;                     /* BLTCON/pointers/modulos (blit.c) */
-    emu_gfx_state gfx;                    /* framebuffer + drawing state (emu\gfx.c) */
+    rt_blitter blit;                     /* BLTCON/pointers/modulos (blit.c) */
+    rt_gfx_state gfx;                    /* framebuffer + drawing state (emu\gfx.c) */
     u32     libraryBase[EMU_LIB_SLOTS];
     int     libraries;
     u32     imageTop;                     /* first byte past the loaded image */
@@ -101,9 +101,11 @@ typedef struct emu_machine
     u32     ring[EMU_RING_SIZE];          /* last executed PCs, for --watch and call dumps */
     int     ringPos;
     const char *dataDir;                  /* where the extracted disk folders live */
-    emu_file files[EMU_MAX_FILES];        /* dos.library handles */
+    rt_file files[EMU_MAX_FILES];        /* dos.library handles */
     u32     frame;                        /* 50 Hz tick counter */
     long    insns;
+    u32     pc;                           /* current PC, reported by the CPU front end */
+    int     osUnhandled;                  /* the last rt_os_call hit a shim we do not implement */
     int     trace;
     u8      fireDown;                     /* /FIRE on CIA-A PRA ($BFE001 bit 7), active low */
     u32     pressAt;                      /* frame to press /FIRE on (0 = never), for tools */
@@ -119,22 +121,36 @@ typedef struct emu_machine
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
-    void  (*on_frame)(struct emu_machine *m);    /* tool hook: once per emulated frame, input+pacing */
-    void  (*on_present)(struct emu_machine *m);  /* tool hook: dump a frame / show the window */
-} emu_machine;
+    void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */
+    void  (*on_present)(struct rt_machine *m);  /* tool hook: dump a frame / show the window */
+} rt_machine;
 
-int  emu_init(emu_machine *m);
-void emu_shutdown(emu_machine *m);
-/* The AllocMem bump heap, shared with the graphics shim (MrgCop allocates a copper list). */
-u32  emu_alloc_bytes(u32 bytes);
-int  emu_load_image(emu_machine *m, u32 addr, const char *path);
-u32  emu_library_new(emu_machine *m);
-u32  emu_run(emu_machine *m, long maxInsns);
-int  emu_library_of(emu_machine *m, u32 pc, s32 *lvo);
+int  rt_init(rt_machine *m);
+void rt_shutdown(rt_machine *m);
+/* The AllocMem heap, shared with the graphics shim (MrgCop allocates a copper list). */
+u32  rt_alloc_bytes(u32 bytes);
+int  rt_load_image(rt_machine *m, u32 addr, const char *path);
+u32  rt_library_new(rt_machine *m);
 
-/* Sets PC/A7/A4 to the state the exporter documents and runs from there. */
-void emu_boot(u32 entry, u32 a4);
+/* --- the seam between the machine model and whatever executes the code ---------------------
+ * rt_os_call is one library call: the stack pointer and A1 are plain values, the result is
+ * returned, and m->waitVblank / m->stop / m->osUnhandled report what the caller must do next.
+ * The Musashi front end (src\oracle) and the translated dispatcher (src\recomp) both call it and
+ * differ only in how they get `sp`, `a1` and the return address. */
+u32  rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo);
+/* A shim asked for the next vertical blank: end this frame without executing anything. */
+void rt_request_vblank(rt_machine *m);
+/* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */
+u32  rt_args_addr(void);
+/* Builds the Process/CLI record. Called after the image is loaded (its BSS overruns this block). */
+void rt_build_process(rt_machine *m);
+/* Print the library-call census (which calls are real, which are answered with 0). */
+void rt_lvo_report(void);
 
-extern emu_machine *emu_current;
+/* Which library base (0..EMU_LIB_SLOTS-1) the address `pc` falls inside, or -1. The bases are
+ * machine state; mapping a code address onto one is how the front end recognises `jsr (lvo,A6)`. */
+int  rt_library_of(rt_machine *m, u32 pc, s32 *lvo);
+
+extern rt_machine *rt_current;
 
 #endif

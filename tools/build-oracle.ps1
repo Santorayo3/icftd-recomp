@@ -1,0 +1,58 @@
+# Builds bin\win32\icftd-oracle.exe: the ORIGINAL dshell binary running on the vendored Musashi
+# 68000 core through our runtime. This is a development tool, not the product - it is how we ask
+# the original what it does and how we dump fixtures. The shipped game links src\runtime without a
+# 68000 core at all.
+#
+#   powershell -ExecutionPolicy Bypass -File tools\build-oracle.ps1 [-WatcomHome <dir>]
+param(
+    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" })
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$rt   = Join-Path $root 'src\runtime'
+$mus  = Join-Path $root 'third_party\musashi'
+$out  = Join-Path $root 'bin\win32\icftd-oracle.exe'
+
+if (-not (Test-Path (Join-Path $mus 'm68kops.c'))) {
+    Write-Host "m68kops.c missing - generating"; & (Join-Path $PSScriptRoot 'musashi-gen.ps1') -WatcomHome $WatcomHome
+}
+
+# bin\ is build output and not in git, so the output directory may not exist yet.
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $out) | Out-Null
+
+$env:WATCOM = $WatcomHome
+$env:EDPATH = Join-Path $WatcomHome 'eddat'
+$env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt')) -join ';'
+$env:LIB = @((Join-Path $WatcomHome 'lib386'), (Join-Path $WatcomHome 'lib386\nt')) -join ';'
+$env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')) -join ';'
+
+$args = @(
+    '-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99',
+    ('-i="' + $rt + '"'),
+    ('-i="' + (Join-Path $rt 'amiga') + '"'),
+    ('-i="' + $mus + '"'),
+    ('-fe="' + $out + '"'),
+    # the oracle: the 68000 front end
+    ('"' + (Join-Path $root 'src\oracle\main.c') + '"'),
+    ('"' + (Join-Path $root 'src\oracle\cpu.c') + '"'),
+    # the runtime: everything the shipped game also links
+    ('"' + (Join-Path $rt 'amiga\memory.c') + '"'),
+    ('"' + (Join-Path $rt 'amiga\machine.c') + '"'),
+    ('"' + (Join-Path $rt 'amiga\blitter.c') + '"'),
+    ('"' + (Join-Path $rt 'amiga\display.c') + '"'),
+    ('"' + (Join-Path $rt 'plat\win32\plat_win32.c') + '"'),
+    # the vendored core (development dependency only)
+    ('"' + (Join-Path $mus 'm68kcpu.c') + '"'),
+    ('"' + (Join-Path $mus 'm68kops.c') + '"'),
+    ('"' + (Join-Path $mus 'm68kdasm.c') + '"'),
+    ('"' + (Join-Path $mus 'softfloat\softfloat.c') + '"')
+)
+# Watcom writes warnings to stderr; with ErrorActionPreference=Stop PowerShell turns the first one
+# into a terminating NativeCommandError and the build looks like a failure while the exe is fine.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& (Join-Path $WatcomHome 'binnt64\wcl386.exe') @args 2>&1 | Out-Host
+$code = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($code -ne 0) { throw "build failed ($code)" }
+Write-Host "-> $out"

@@ -14,7 +14,8 @@
 #include "platform.h"
 #include "m68k.h"
 #include "machine.h"
-#include "emu/gfx.h"
+#include "cpu.h"
+#include "display.h"
 
 #define DEFAULT_ENTRY EMU_ENTRY
 #define DEFAULT_A4    EMU_A4
@@ -70,7 +71,7 @@ static u8   g_fireShown;          /* last fire state reported, so a press prints
  * This has to be independent of presenting. The intro presents every frame, but the menus do not -
  * they spin on /FIRE - so pumping input inside on_present() left the window unpumped (and the run
  * unthrottled) for exactly the stretch where the player is expected to press something. */
-static void on_frame(emu_machine *m)
+static void on_frame(rt_machine *m)
 {
     input_state in;
 
@@ -86,11 +87,11 @@ static void on_frame(emu_machine *m)
     plat_frame_sync();
 }
 
-static void on_present(emu_machine *m)
+static void on_present(rt_machine *m)
 {
-    const u8 *fb = emu_gfx_framebuffer();
-    const u8 *pal = emu_gfx_palette();
-    int w = emu_gfx_width(), h = emu_gfx_height();
+    const u8 *fb = rt_gfx_framebuffer();
+    const u8 *pal = rt_gfx_palette();
+    int w = rt_gfx_width(), h = rt_gfx_height();
 
     if (g_window)
     {
@@ -107,7 +108,7 @@ static void on_present(emu_machine *m)
     }
     if (g_prefix[0] != 0 && g_shotIndex < g_shots)
     {
-        if (g_every > 1 && (emu_gfx_frames() % (u32)g_every) != 0u) return;
+        if (g_every > 1 && (rt_gfx_frames() % (u32)g_every) != 0u) return;
         char path[256];
         sprintf(path, "%s%04d.bmp", g_prefix, g_shotIndex++);
         write_bmp(path, fb, EMU_FB_MAX_W, w, h, pal);
@@ -116,7 +117,7 @@ static void on_present(emu_machine *m)
 
 int main(int argc, char **argv)
 {
-    emu_machine m;
+    rt_machine m;
     const char *image = 0;
     u32 entry = DEFAULT_ENTRY;
     long insns = 1000;
@@ -179,8 +180,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!emu_init(&m)) { printf("emu: out of memory\n"); return 1; }
-    if (!emu_load_image(&m, EMU_IMAGE_BASE, image)) { printf("emu: cannot load %s\n", image); emu_shutdown(&m); return 1; }
+    if (!rt_init(&m)) { printf("emu: out of memory\n"); return 1; }
+    if (!rt_load_image(&m, EMU_IMAGE_BASE, image)) { printf("emu: cannot load %s\n", image); rt_shutdown(&m); return 1; }
 
     m.trace = trace;
     m.dosLog = dosLog;
@@ -196,11 +197,11 @@ int main(int argc, char **argv)
     printf("emu: %s loaded, entry 0x%lx, A4 0x%lx, %ld instruction(s)\n",
            image, (unsigned long)entry, (unsigned long)DEFAULT_A4, insns);
 
-    emu_boot(entry, DEFAULT_A4);
+    oracle_boot(entry, DEFAULT_A4);
     {
-        u32 pc = emu_run(&m, insns);
+        u32 pc = oracle_run(&m, insns);
         s32 lvo = 0;
-        int lib = emu_library_of(&m, pc, &lvo);
+        int lib = rt_library_of(&m, pc, &lvo);
 
         printf("emu: stopped at 0x%lx after %ld instruction(s)\n", (unsigned long)pc,
                (unsigned long)m.insns);
@@ -216,11 +217,11 @@ int main(int argc, char **argv)
                (unsigned long)m68k_get_reg(0, M68K_REG_SR));
         if (m.mem.bad != 0) printf("emu: %lu access(es) outside the RAM block\n",
                                    (unsigned long)m.mem.bad);
-        printf("emu: %lu raster(s) presented\n", (unsigned long)emu_gfx_frames());
+        printf("emu: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
         rc = 0;
     }
 
-    emu_shutdown(&m);
+    rt_shutdown(&m);
     if (g_window) plat_shutdown();
     return rc;
 }

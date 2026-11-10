@@ -6,10 +6,10 @@
 #include "machine.h"
 
 /* Writing BLTSIZE runs the blit synchronously. */
-void emu_blit_run(emu_machine *m);
+void rt_blit_run(rt_machine *m);
 
 /* Chipset write from the emulated 68000; `reg` is the offset from $DFF000. Anything that is not a
- * blitter register lands in emu_machine::custom[]. */
-void emu_custom_write16(emu_machine *m, u16 reg, u16 v);
+ * blitter register lands in rt_machine::custom[]. */
+void rt_custom_write16(rt_machine *m, u16 reg, u16 v);
 
 #endif /* EMU_BLIT_H */

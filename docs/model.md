@@ -75,7 +75,7 @@ The map was not trusted until it reproduced layouts derived from the assembly:
   `+0x36` — matching the decompiled C line for line.
 * `FUN_0001dbd0` (`DrawNode`) reads `param_1+0x38` (4 bytes, channel selector) and
   `param_1+0x3c` (2 bytes, vertical scale) — exactly the offsets used in
-  `src/game/core/move.c`, which were obtained by reading the assembly.
+  the disassembly, not any port of it.
 * `FUN_0001d6cc` / `FUN_0001db40` / `FUN_0001f89c` read and write `0x38` and `0x3c` — the
   MovE opcodes that set channel and vscale.
 
@@ -145,7 +145,7 @@ void Move_DrawNode(move_node *param_1,int param_2,int param_3,int param_4) {
 
 Only two sources are allowed, both evidence:
 
-* **behaviour we already reproduced** (`src/game/core/move.c`, `src/assetExport/Sms.cs`) —
+* **behaviour the engine has** (`src/assetExport/Sms.cs` and the disassembly) —
   so `Move_DrawNode`, `move_node`, the palette arrays;
 * **the Amiga ABI** — `docs/os-calls.csv` records, for each stub, the LVO it jumps to; the
   66 identified stubs are now `os_dos_Open`, `os_graphics_RectFill`, … in the decompile.
@@ -161,7 +161,7 @@ add it, with a comment saying what proved it.
 powershell -ExecutionPolicy Bypass -File tools\structs.ps1
 ```
 
-writes `src\game\core\structs.h` (exact 68k padding, so offsets match the original) and
+writes `docs\structs.md` (exact 68k padding, so offsets match the original) and
 `docs\structs.md` (for reading). Generated - edit the CSV.
 
 ## Coverage and the work queue

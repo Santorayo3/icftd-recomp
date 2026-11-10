@@ -34,7 +34,7 @@ Phase A *looks* like an emulator and is not one:
 
 | piece | in the shipped game? | role |
 |---|---|---|
-| 68000 interpreter (Musashi, `src\game\core\emu`) | **no** | scaffolding: boots the original binary today, and afterwards is the oracle that proves each translated function faithful |
+| 68000 core (Musashi, `src\oracle`) | **no** | a development tool: it executes the original binary so we can measure it and dump fixtures. Replaced by the translated dispatcher |
 | translated C, one function per file (`recomp\`) | **yes** | the game's code |
 | exec / graphics / dos shims (`L1`) | **yes** | the platform layer - ~40 library entries this game calls |
 | chipset model (`L0`) | **only the audio path** | see below: this game never touches the video hardware |
@@ -92,7 +92,7 @@ the parts that fit.
 
 1. **Override seam.** The translator emits one function per file with a *stable* name
    (`fn_0001fa02`, or better `Move_Walk` once annotated) into `recomp/`. Hand-written replacements
-   live in `src/game/core/patches/` and are linked **before** the generated objects, so the linker
+   live in `src/recomp/patches/` and are linked **before** the generated objects, so the linker
    prefers them - the same trick N64Recomp documents ("single file output mode" for patches). A mod
    is a directory of readable C functions with the original names, not a diff against generated code.
 2. **Hook seam.** The runtime exposes named events (`scene_enter`, `frame_end`, `text_shown`,
@@ -129,14 +129,18 @@ construction - that is the whole argument, and it is why correctness is decided 
 
 ## What this retires
 
-`src/game/core/move.c`, `intro.c` and the composition in `gfx.c` are hand-written re-derivations of
-engine behaviour (the "hand port", shipped as `bin\win32\icftd.exe`). They are **frozen**: a
-known-buggy artefact, usable at most as a cross-check and *never* as a reference. Kept and extended:
-`Cpu68k` (the differential oracle), the hunk/ADF loaders, `agfx_blit` + `agfx_mask_from_key`,
-`docs\os-calls.csv`. Everything else from that port was deleted in the 2026-11-10 cleanup
-(`src\game\core\{move,intro,gfx,pack,assets}.c`, `core\amiga/`, `core\sys/`, `plat\dos/`,
-`tools\ctest`, `tools\port-diff.ps1`, every capture/frame tool). `tools\gate.ps1` is now three steps:
-exporter build, emulator build, interpreter fixtures - no image step exists.
+The hand port (`bin\win32\icftd.exe`) was deleted in the 2026-11-10 cleanup, together with every
+capture and frame tool. What remains is the split that the plan needs:
+
+| directory | role | ships? |
+|---|---|---|
+| `src\runtime\` | the machine the game code runs on: memory, library shims, heap, exec structures, blitter, planar display, platform | **yes** |
+| `src\oracle\` | the 68000 front end: executes the original binary so it can be measured; produces `ref\fixtures` | no, a tool |
+| `src\assetExport\` | formats **and** the 68000 interpreter + `rcmp`/`rleaf` differential harness | no, a tool |
+| `src\recomp\` | (to be created) the translated functions and `fn_table` | **yes** |
+
+`tools\gate.ps1` is three steps: exporter build, oracle build, interpreter fixtures. No image step
+exists and none may be added.
 
 ## The platform surface, measured
 
@@ -156,11 +160,11 @@ the architecture.
 
 ### A - it runs (the intro plays from the original binary)
 
-Done: Musashi vendored; image flattened at 0x4000; `src\game\core\emu\{mem,machine}.c` with
+Done: Musashi vendored; image flattened at 0x4000; `src\runtime\amiga\{memory,machine}.c` with
 memory map, custom-register file, named library bases, per-library LVO dispatch, `--watch`,
 fail-fast dumps with disassembly, exit sentinel, a 64-entry PC ring and an unhandled-LVO report
 that carries the return address. The `Process`/CLI record is built after the image load, the
-50 Hz vertical blank runs the interrupt servers the game registers, and `src\game\core\emu\gfx.c`
+50 Hz vertical blank runs the interrupt servers the game registers, and `src\runtime\amiga\display.c`
 implements the planar half of `graphics.library` with a chunky present.
 
 The original now boots as the CLI program it is, opens dos/graphics/layers/intuition/ciaa/input,

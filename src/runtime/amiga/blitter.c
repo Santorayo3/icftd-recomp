@@ -12,18 +12,18 @@
  * when BLTSIZE is written (no DMA queue, no busy bit: by the time the game's next instruction
  * reads the bitmap, the hardware would have finished anyway).
  */
-#include "blit.h"
+#include "blitter.h"
 #include "platform.h"
 #include "m68k.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static u16 rd16(emu_machine *m, u32 a) { return (u16)emu_read16(&m->mem, a); }
+static u16 rd16(rt_machine *m, u32 a) { return (u16)rt_read16(&m->mem, a); }
 
 /* Every write goes through here: a blit whose geometry is wrong must show up as a report, not as
  * silent corruption of whatever follows the destination in the heap. */
-static void wr16(emu_machine *m, u32 a, u16 v)
+static void wr16(rt_machine *m, u32 a, u16 v)
 {
     if (a + 1u >= m->mem.size)
     {
@@ -42,7 +42,7 @@ static void wr16(emu_machine *m, u32 a, u16 v)
         }
         return;
     }
-    emu_write16(&m->mem, a, v);
+    rt_write16(&m->mem, a, v);
 }
 
 /* One bit of the minterm: the index is 4*A + 2*B + C (A/B/C = the three data inputs). */
@@ -51,9 +51,9 @@ static int alu(u16 minterm, int a, int b, int c)
     return (int)((minterm >> ((a << 2) | (b << 1) | c)) & 1u);
 }
 
-static void blit_row(emu_machine *m, int row, int words, int descending, u16 *holdA, u16 *holdB)
+static void blit_row(rt_machine *m, int row, int words, int descending, u16 *holdA, u16 *holdB)
 {
-    emu_blitter *b = &m->blit;
+    rt_blitter *b = &m->blit;
     u16 minterm = (u16)(b->con0 & 0xFF);
     /* BLTCON0 bits 15-12 are the A shift; bits 11-8 are the channel enables USEA/USEB/USEC/USED.
      * The B shift lives in BLTCON1 bits 15-12 - reading it from BLTCON0's bits 11-8 (which this
@@ -162,9 +162,9 @@ static void blit_row(emu_machine *m, int row, int words, int descending, u16 *ho
     }
 }
 
-void emu_blit_run(emu_machine *m)
+void rt_blit_run(rt_machine *m)
 {
-    emu_blitter *b = &m->blit;
+    rt_blitter *b = &m->blit;
     int words = (b->size & 0x3Fu) == 0 ? 64 : (b->size & 0x3F);
     int rows = (b->size >> 6) & 0x3FF;
     int descending = (b->con1 & 0x0002) != 0;
@@ -201,9 +201,9 @@ void emu_blit_run(emu_machine *m)
 }
 
 /* Register write from the emulated 68000. `reg` is the offset from $DFF000. */
-void emu_custom_write16(emu_machine *m, u16 reg, u16 v)
+void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
 {
-    emu_blitter *b = &m->blit;
+    rt_blitter *b = &m->blit;
 
     switch (reg)
     {
@@ -219,7 +219,7 @@ void emu_custom_write16(emu_machine *m, u16 reg, u16 v)
     case 0x052: b->apt = (b->apt & 0xFFFF0000u) | v; break;
     case 0x054: b->dpt = (b->dpt & 0x0000FFFFu) | ((u32)v << 16); break;
     case 0x056: b->dpt = (b->dpt & 0xFFFF0000u) | v; break;
-    case 0x058: b->size = v; emu_blit_run(m); break;      /* writing BLTSIZE starts the blit */
+    case 0x058: b->size = v; rt_blit_run(m); break;      /* writing BLTSIZE starts the blit */
     case 0x060: b->cmod = (s16)v; break;
     case 0x062: b->bmod = (s16)v; break;
     case 0x064: b->amod = (s16)v; break;
