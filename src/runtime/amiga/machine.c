@@ -701,6 +701,36 @@ static u32 rt_font_open_disk(rt_machine *m, u32 ta)
     return i;
 }
 
+/* --- mathffp.library ---------------------------------------------------------------------
+ * Motorola Fast Floating Point: sign, 7-bit exponent (excess 64) in bits 30..24, and a 24-bit
+ * mantissa holding the fraction after the binary point (0.5 <= M/2^23 < 1). So 1.0 = 0x40800000.
+ * The engine divides through this library when it computes its fade steps, so answering 0 broke
+ * every interpolation it set up. */
+
+static double rt_ffp_to_d(u32 v)
+{
+    double d = (double)(v & 0xFFFFFFu) / 8388608.0;
+    int e = (int)((v >> 24) & 0x7Fu) - 64;
+    int i;
+
+    for (i = 0; i < (e < 0 ? -e : e); i++) d = (e < 0) ? d / 2.0 : d * 2.0;
+    return (v & 0x80000000u) != 0 ? -d : d;
+}
+
+static u32 rt_d_to_ffp(double d)
+{
+    u32 sign = 0, m;
+    int e = 64;
+
+    if (d < 0.0) { sign = 0x80000000u; d = -d; }
+    if (d == 0.0) return 0;
+    while (d >= 1.0 && e < 127) { d /= 2.0; e++; }
+    while (d < 0.5 && e > 1) { d *= 2.0; e--; }
+    m = (u32)(d * 8388608.0 + 0.5);
+    if (m > 0xFFFFFFu) { m >>= 1; e++; }
+    return sign | ((u32)(e & 0x7F) << 24) | (m & 0xFFFFFFu);
+}
+
 /* One library call, as the program makes it.
  *
  * The 68k ABI is `jsr (lvo,A6)`: the return address is at A7, the arguments above it, the result
@@ -1131,6 +1161,26 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
                            (unsigned long)v, (unsigned long)vp);
                 }
                 result = 0;
+            }
+            break;
+        default:
+            goto unhandled;
+        }
+    }
+    else if (lib == 6)                           /* mathffp.library */
+    {
+        switch (lvo)
+        {
+        case -30:                                /* SPFix(D0) - float to integer */
+            result = (u32)(s32)rt_ffp_to_d(d0);
+            break;
+        case -36:                                /* SPFlt(D0) - integer to float */
+            result = rt_d_to_ffp((double)(s32)d0);
+            break;
+        case -84:                                /* SPDiv(D0, D1) */
+            {
+                double b = rt_ffp_to_d(d1);
+                result = b != 0.0 ? rt_d_to_ffp(rt_ffp_to_d(d0) / b) : 0;
             }
             break;
         default:
