@@ -135,6 +135,7 @@ int main(int argc, char **argv)
     const char *ramStop = 0;
     const char *callLog = 0;
     long traceFrom = 0, traceTo = 0;
+    int tickLog = 0;
     int ring = 0;
     const char *inputPath = 0;
     int stateEvery = 1;
@@ -177,6 +178,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
+        if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -240,6 +242,7 @@ int main(int argc, char **argv)
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
+    m.tickLog = tickLog;
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 

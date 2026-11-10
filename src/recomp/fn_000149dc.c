@@ -211,8 +211,8 @@ L_14A20:
     /* 00014a20   6  bset #0,(1155,A4) */
     c->pc = RC_ADDR(0x00014a20u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[4] + 0x1155u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
@@ -251,8 +251,8 @@ L_14A3A:
     /* 00014a3a   6  bset #1,(1155,A4) */
     c->pc = RC_ADDR(0x00014a3au);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[4] + 0x1155u);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
@@ -291,8 +291,8 @@ L_14A54:
     /* 00014a54   6  bset #2,(1155,A4) */
     c->pc = RC_ADDR(0x00014a54u);
     rc_step(c, m);
-    t4 = 0x00000002u;
     t3 = (c->a[4] + 0x1155u);
+    t4 = 0x00000002u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
@@ -331,8 +331,8 @@ L_14A6E:
     /* 00014a6e   6  bset #3,(1155,A4) */
     c->pc = RC_ADDR(0x00014a6eu);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[4] + 0x1155u);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);

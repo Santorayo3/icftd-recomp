@@ -301,9 +301,9 @@ L_20888:
     /* 00020888   6  btst #2,(0,A0,D0.w) */
     c->pc = RC_ADDR(0x00020888u);
     rc_step(c, m);
-    t4 = 0x00000002u;
     t4 = rc_ext(c->d[0], RC_W);
     t3 = (c->a[0] + 0x0u + t4);
+    t4 = 0x00000002u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

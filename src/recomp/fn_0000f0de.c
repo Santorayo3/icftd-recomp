@@ -48,8 +48,8 @@ L_F0E6:
     /* 0000f0e6   6  bset #0,(1c,A6) */
     c->pc = RC_ADDR(0x0000f0e6u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[6] + 0x1cu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);

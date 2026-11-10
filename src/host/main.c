@@ -82,6 +82,7 @@ int main(int argc, char **argv)
     const char *ramStop = 0;
     const char *callLog = 0;
     long traceFrom = 0, traceTo = 0;
+    int tickLog = 0;
     int ring = 0;
     const char *inputPath = 0;
     long insns = 40000000L;
@@ -99,6 +100,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
+        if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -133,6 +135,7 @@ int main(int argc, char **argv)
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
+    m.tickLog = tickLog;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);

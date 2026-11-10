@@ -758,8 +758,8 @@ L_C838:
     /* 0000c838   6  bchg #0,(1,A0) */
     c->pc = RC_ADDR(0x0000c838u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0x1u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 ^ (1u << t4);
@@ -1197,8 +1197,8 @@ L_C906:
     /* 0000c906   6  btst #0,(4e5,A4) */
     c->pc = RC_ADDR(0x0000c906u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[4] + 0x4e5u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -1599,9 +1599,9 @@ L_C9AC:
     /* 0000c9ac   6  btst #0,(1,A0,D0.w) */
     c->pc = RC_ADDR(0x0000c9acu);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t4 = c->d[0];
     t3 = (c->a[0] + 0x1u + t4);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

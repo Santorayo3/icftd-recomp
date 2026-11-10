@@ -927,8 +927,8 @@ L_11500:
     /* 00011500   8  btst #6,(00dff002).l */
     c->pc = RC_ADDR(0x00011500u);
     rc_step(c, m);
-    t4 = 0x00000006u;
     t3 = 0x00dff002u;
+    t4 = 0x00000006u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

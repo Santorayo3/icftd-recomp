@@ -98,8 +98,8 @@ L_1710E:
     /* 0001710e   6  bset #0,(fffffd9d,A4) */
     c->pc = RC_ADDR(0x0001710eu);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[4] - 0x263u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
@@ -143,8 +143,8 @@ L_17126:
     /* 00017126   6  bset #3,(fffffd9d,A4) */
     c->pc = RC_ADDR(0x00017126u);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[4] - 0x263u);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);

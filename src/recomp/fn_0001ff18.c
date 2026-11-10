@@ -190,8 +190,8 @@ L_1FF3E:
     /* 0001ff3e   6  btst #0,(b,A0) */
     c->pc = RC_ADDR(0x0001ff3eu);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -212,8 +212,8 @@ L_1FF4A:
     /* 0001ff4a   6  btst #0,(b,A0) */
     c->pc = RC_ADDR(0x0001ff4au);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -366,8 +366,8 @@ L_1FF80:
     /* 0001ff80   6  btst #0,(b,A0) */
     c->pc = RC_ADDR(0x0001ff80u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

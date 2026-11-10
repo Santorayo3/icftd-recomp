@@ -256,8 +256,8 @@ L_1DA6A:
     /* 0001da6a   6  btst #1,(5,A2) */
     c->pc = RC_ADDR(0x0001da6au);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[2] + 0x5u);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

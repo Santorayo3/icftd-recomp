@@ -219,6 +219,9 @@ void oracle_tick(rt_machine *m)
     u32 save[18];
     int i;
 
+    if (m->tickLog)
+        printf("tick %lu in insns %ld budget %ld pc %06lx\n", (unsigned long)m->frame,
+               (long)m->insns, (long)m->insnToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     m->frame++;
     m->insnToTick = EMU_INSN_PER_FRAME;
     if (m->pressAt != 0)
@@ -244,6 +247,9 @@ void oracle_tick(rt_machine *m)
     m->inTick = 0;
     /* Frame boundary: the state between two frames, after this frame's interrupt servers. */
     state_sample(m);
+    if (m->tickLog)
+        printf("tick %lu out insns %ld budget %ld pc %06lx\n", (unsigned long)m->frame,
+               (long)m->insns, (long)m->insnToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
 }
 
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */

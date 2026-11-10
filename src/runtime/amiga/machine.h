@@ -121,6 +121,7 @@ typedef struct rt_machine
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
     void *callLog;                        /* --calllog: one line per library call, for bisection */
     long    traceFrom, traceTo;           /* --trace: print insns/budget/pc in this window */
+    int     tickLog;                      /* --ticklog: one line per vblank, entry and exit */
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
     void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */

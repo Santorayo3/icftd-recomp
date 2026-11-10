@@ -1832,8 +1832,8 @@ L_2714:
     /* 00002714   6  bchg #0,(ffffff83,A5) */
     c->pc = RC_ADDR(0x00002714u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[5] - 0x7du);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 ^ (1u << t4);
@@ -2540,8 +2540,8 @@ L_2876:
     /* 00002876   6  bchg #0,(ffffff83,A5) */
     c->pc = RC_ADDR(0x00002876u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[5] - 0x7du);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 ^ (1u << t4);

@@ -138,8 +138,8 @@ L_8B10:
     /* 00008b10   6  btst #0,(b,A0) */
     c->pc = RC_ADDR(0x00008b10u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -295,8 +295,8 @@ L_8B62:
     /* 00008b62   6  btst #1,(b,A0) */
     c->pc = RC_ADDR(0x00008b62u);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

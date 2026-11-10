@@ -144,8 +144,8 @@ L_1FE1A:
     /* 0001fe1a   6  btst #2,(11,A0) */
     c->pc = RC_ADDR(0x0001fe1au);
     rc_step(c, m);
-    t4 = 0x00000002u;
     t3 = (c->a[0] + 0x11u);
+    t4 = 0x00000002u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

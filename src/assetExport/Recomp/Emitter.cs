@@ -543,10 +543,12 @@ public sealed class Emitter
                 /* A data-register destination is always a long operation, a memory one always a
                  * byte: the two size cases the 68000 defines for these. */
                 string rcw = i.Size == 4 ? "RC_L" : "RC_B";
-                if (i.BitFromReg) c.Line($"{TX} = c->d[{i.Reg}] & {(i.Size == 4 ? "31" : "7")}u;");
-                else c.Line($"{TX} = {Imm((uint)i.Reg)};");
+                string bitIndex = i.BitFromReg
+                    ? $"{TX} = c->d[{i.Reg}] & {(i.Size == 4 ? "31" : "7")}u;"
+                    : $"{TX} = {Imm((uint)i.Reg)};";
                 if (i.Dst!.Mode == 0)
                 {
+                    c.Line(bitIndex);
                     c.Line($"{TV} = rc_d_get(c, {i.Dst.Reg}, {rcw});");
                     c.Line($"rc_set_z(c, ({TV} & (1u << {TX})) == 0);");
                     if (i.Kind != Opk.Btst)
@@ -561,7 +563,10 @@ public sealed class Emitter
                     }
                     break;
                 }
+                /* The address comes first: a (d8,An,Xn) operand builds it in TX, which would
+                 * otherwise overwrite the bit number. */
                 c.Line($"{TA} = {Address(i.Dst, 1, c)};");
+                c.Line(bitIndex);
                 c.Line($"{TV} = rc_rd8(c, m, {TA});");
                 c.Line($"rc_set_z(c, ({TV} & (1u << {TX})) == 0);");
                 if (i.Kind != Opk.Btst)

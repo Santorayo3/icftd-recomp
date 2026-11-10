@@ -150,8 +150,8 @@ L_11AC0:
     /* 00011ac0   8  btst #6,(00dff002).l */
     c->pc = RC_ADDR(0x00011ac0u);
     rc_step(c, m);
-    t4 = 0x00000006u;
     t3 = 0x00dff002u;
+    t4 = 0x00000006u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

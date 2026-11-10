@@ -118,8 +118,8 @@ L_34E0:
     /* 000034e0   6  bset #4,(b,A0) */
     c->pc = RC_ADDR(0x000034e0u);
     rc_step(c, m);
-    t4 = 0x00000004u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000004u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);

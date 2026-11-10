@@ -1041,8 +1041,8 @@ L_1138E:
     /* 0001138e   8  btst #6,(00dff002).l */
     c->pc = RC_ADDR(0x0001138eu);
     rc_step(c, m);
-    t4 = 0x00000006u;
     t3 = 0x00dff002u;
+    t4 = 0x00000006u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

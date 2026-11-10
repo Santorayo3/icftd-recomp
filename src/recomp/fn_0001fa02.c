@@ -155,8 +155,8 @@ L_1FA20:
     /* 0001fa20   6  btst #0,(b,A0) */
     c->pc = RC_ADDR(0x0001fa20u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -190,8 +190,8 @@ L_1FA32:
     /* 0001fa32   6  btst #1,(b,A0) */
     c->pc = RC_ADDR(0x0001fa32u);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -395,8 +395,8 @@ L_1FA82:
     /* 0001fa82   6  btst #1,(b,A0) */
     c->pc = RC_ADDR(0x0001fa82u);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[0] + 0xbu);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

@@ -165,8 +165,8 @@ L_15084:
     /* 00015084   6  btst #3,(aeb,A4) */
     c->pc = RC_ADDR(0x00015084u);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[4] + 0xaebu);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

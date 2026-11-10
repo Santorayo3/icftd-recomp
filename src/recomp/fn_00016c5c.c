@@ -119,8 +119,8 @@ L_16C74:
     /* 00016c74   6  btst #1,(9,A5) */
     c->pc = RC_ADDR(0x00016c74u);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[5] + 0x9u);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -222,8 +222,8 @@ L_16CAC:
     /* 00016cac   6  btst #0,(9,A5) */
     c->pc = RC_ADDR(0x00016cacu);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[5] + 0x9u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -281,8 +281,8 @@ L_16CCC:
     /* 00016ccc   6  btst #2,(9,A5) */
     c->pc = RC_ADDR(0x00016cccu);
     rc_step(c, m);
-    t4 = 0x00000002u;
     t3 = (c->a[5] + 0x9u);
+    t4 = 0x00000002u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -340,8 +340,8 @@ L_16CEC:
     /* 00016cec   6  btst #3,(9,A5) */
     c->pc = RC_ADDR(0x00016cecu);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[5] + 0x9u);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

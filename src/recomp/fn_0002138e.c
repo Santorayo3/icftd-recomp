@@ -197,8 +197,8 @@ L_213C4:
     /* 000213c4   6  btst #7,(4,A2) */
     c->pc = RC_ADDR(0x000213c4u);
     rc_step(c, m);
-    t4 = 0x00000007u;
     t3 = (c->a[2] + 0x4u);
+    t4 = 0x00000007u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

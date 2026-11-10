@@ -258,8 +258,8 @@ L_1FB1A:
     /* 0001fb1a   6  btst #3,(10,A5) */
     c->pc = RC_ADDR(0x0001fb1au);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[5] + 0x10u);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 
@@ -692,8 +692,8 @@ L_1FBE8:
     /* 0001fbe8   6  btst #2,(11,A5) */
     c->pc = RC_ADDR(0x0001fbe8u);
     rc_step(c, m);
-    t4 = 0x00000002u;
     t3 = (c->a[5] + 0x11u);
+    t4 = 0x00000002u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

@@ -479,8 +479,8 @@ L_111F6:
     /* 000111f6   8  btst #6,(00dff002).l */
     c->pc = RC_ADDR(0x000111f6u);
     rc_step(c, m);
-    t4 = 0x00000006u;
     t3 = 0x00dff002u;
+    t4 = 0x00000006u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

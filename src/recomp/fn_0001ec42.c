@@ -1106,8 +1106,8 @@ L_1EDEC:
     /* 0001edec   6  btst #3,(ffffffb7,A5) */
     c->pc = RC_ADDR(0x0001edecu);
     rc_step(c, m);
-    t4 = 0x00000003u;
     t3 = (c->a[5] - 0x49u);
+    t4 = 0x00000003u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
 

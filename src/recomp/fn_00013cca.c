@@ -295,8 +295,8 @@ L_13D2C:
     /* 00013d2c   6  bset #1,(ffffffff,A5) */
     c->pc = RC_ADDR(0x00013d2cu);
     rc_step(c, m);
-    t4 = 0x00000001u;
     t3 = (c->a[5] - 0x1u);
+    t4 = 0x00000001u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
@@ -378,8 +378,8 @@ L_13D50:
     /* 00013d50   6  bset #0,(ffffffff,A5) */
     c->pc = RC_ADDR(0x00013d50u);
     rc_step(c, m);
-    t4 = 0x00000000u;
     t3 = (c->a[5] - 0x1u);
+    t4 = 0x00000000u;
     t0 = rc_rd8(c, m, t3);
     rc_set_z(c, (t0 & (1u << t4)) == 0);
     t2 = t0 | (1u << t4);
