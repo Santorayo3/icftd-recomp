@@ -123,8 +123,3 @@ leads into is therefore *not* one of these three scripts; it comes after `FUN_00
 and is still to be located inside dshell (it is a menu drawn from bank art, no separate code
 file involved).
 
-## Ported
-
-`src\game\core\intro.c` is `FUN_00009870` + `FUN_00009630`; `icftd.exe` (no arguments) runs it
-in the window, `icftd.exe --start <from> <to> <prefix>` runs it headless and writes BMPs.
-The sound events are written to the `--trace` file as `audio <frame> ...` lines until sweep S7.

@@ -51,7 +51,7 @@ static int alu(u16 minterm, int a, int b, int c)
     return (int)((minterm >> ((a << 2) | (b << 1) | c)) & 1u);
 }
 
-static void blit_row(emu_machine *m, int row, int words, int descending)
+static void blit_row(emu_machine *m, int row, int words, int descending, u16 *holdA, u16 *holdB)
 {
     emu_blitter *b = &m->blit;
     u16 minterm = (u16)(b->con0 & 0xFF);
@@ -107,29 +107,42 @@ static void blit_row(emu_machine *m, int row, int words, int descending)
          * the word fetched *before* this one with the current word and shifts the 32-bit pair
          * RIGHT:
          *
-         *     out = ((prev << 16) | cur) >> ASH            (low 16 bits)
+         *     out = ((hold << 16) | cur) >> ASH            (low 16 bits)
          *
          * which gives `cur` at ASH = 0, `cur >> 1` for the first word at ASH = 1, and
          * (cur << 15) | (next >> 1) for the second - i.e. the picture slides right by exactly ASH.
-         * The pair register starts empty at the head of every row, so the first word shifts zeros
-         * in. (Pairing (cur, next) and shifting left - what this did - is the same expression only
-         * at ASH = 0; for any other shift it moves the data the wrong way and by twice the amount,
-         * which is why unshifted blits were always fine while the shifted picture blits came out
-         * displaced and full of holes where the mask and the picture no longer agreed.) */
+         * Two details are the hardware's and matter:
+         *
+         *  - AFWM/ALWM mask the word as it is *fetched*, before the shift register (the shift then
+         *    carries the masked bits along). Masking the shifted output instead removes the wrong
+         *    pixels. The engine depends on this: when a picture is blitted with a shift and is not
+         *    clipped at the right it extends the blit by one word, sets ALWM = 0 and shrinks the A
+         *    modulo by 2 (image 0x1EA4A..0x1EA5C) - that trailing word exists only to receive the
+         *    last ASH pixels the shift register pushes past the end of the row, and ALWM = 0
+         *    silences the extra fetched word, not the bits already in the register. Masking after
+         *    the shift blanked the whole word, so every shifted sprite lost its last ASH columns:
+         *    a right-edge cut of up to 15 pixels that changed size with the scroll position.
+         *  - The hold register is cleared once per blit, not per line, so the first word of each
+         *    row shifts in the tail of the previous row; clearing it per row loses those bits. */
         if (useA)
         {
             u16 cur = (u16)rd16(m, (u32)(aoff + off));
-            u16 prv = (i == 0) ? (u16)0 : (u16)rd16(m, (u32)(aoff + off - step));
-            aw = (u16)((((u32)prv << 16) | (u32)cur) >> ash);
-            if (i == 0) aw &= b->afwm;
-            if (i == words - 1) aw &= b->alwm;
+            if (i == 0) cur &= b->afwm;
+            if (i == words - 1) cur &= b->alwm;
+            /* Descending blits fetch backwards and shift by (16 - ASH) with the pair the other way
+             * round; the engine never sets DESC, but the data path is transcribed faithfully so a
+             * DESC blit cannot silently take the ascending route. */
+            if (descending) aw = (u16)((((u32)cur << 16) | (u32)*holdA) >> (16 - ash));
+            else            aw = (u16)((((u32)*holdA << 16) | (u32)cur) >> ash);
+            *holdA = cur;
         }
         else aw = b->adat;
         if (useB)
         {
             u16 cur = (u16)rd16(m, (u32)(boff + off));
-            u16 prv = (i == 0) ? (u16)0 : (u16)rd16(m, (u32)(boff + off - step));
-            bw = (u16)((((u32)prv << 16) | (u32)cur) >> bsh);
+            if (descending) bw = (u16)((((u32)cur << 16) | (u32)*holdB) >> (16 - bsh));
+            else            bw = (u16)((((u32)*holdB << 16) | (u32)cur) >> bsh);
+            *holdB = cur;
         }
         else bw = b->bdat;
 
@@ -176,8 +189,15 @@ void emu_blit_run(emu_machine *m)
         if (m->dffLog) printf("     blit: line mode ignored (con1 %04lX)\n", (unsigned long)b->con1);
         return;
     }
-    for (r = 0; r < rows; r++)
-        blit_row(m, descending ? (rows - 1 - r) : r, words, 0);
+    {
+        /* The shift registers' hold words start empty for each blit (not each line) and then carry
+         * the last fetched word along, including across a line boundary. A descending blit walks the
+         * rows downwards from the start pointer, which the negative stride above already does - the
+         * engine never sets DESC, so this ordering is unexercised but self-consistent. */
+        u16 holdA = 0, holdB = 0;
+        for (r = 0; r < rows; r++)
+            blit_row(m, r, words, descending ? 1 : 0, &holdA, &holdB);
+    }
 }
 
 /* Register write from the emulated 68000. `reg` is the offset from $DFF000. */

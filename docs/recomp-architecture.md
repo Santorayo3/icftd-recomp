@@ -21,6 +21,12 @@ Three goals, in priority order:
 
 The rule: **no human writes game logic.** L0/L1 are ours and are written once; L2 is mechanical.
 
+**How "exactly like the Amiga release" is decided: by machine state, never by pictures.** Parity
+means identical CPU registers, custom-chip register file and RAM at frame boundaries under a
+scripted input timeline - see "Acceptance tests — machine state, never images" below. That section
+is binding: the pixel and frame tooling elsewhere in this repo belongs to the retired hand port and
+is not evidence about the recompilation.
+
 ## What ships, and what is scaffolding
 
 This is a recompilation, not an emulator port. The distinction is worth stating explicitly because
@@ -95,24 +101,42 @@ the parts that fit.
    container (`src/assetExport/Pack.cs`). Scripts are the game's own timeline format, so new
    scenes, new text and re-timed animations are data edits.
 
-## Acceptance tests
+## Acceptance tests — machine state, never images
+
+Parity is defined as **identical machine state**, not as a picture that looks right. The unit of
+comparison is a canonical dump taken at a frame boundary: D0-D7, A0-A7, SR, PC, the custom-chip
+register file, and the full RAM image (hashed; the full blob is emitted around the first
+divergence). The driver is a frame-indexed input script, so any run can be replayed exactly.
 
 | layer | test | cost |
 |---|---|---|
-| CPU | translated function == interpreted function, all registers + memory hash | seconds, automated |
-| L0/L1 | the same frame produced by the emulator and by the ported front end, per pixel | seconds |
-| whole game | the original disk image boots to the first `LoadView` and plays | manual, once |
+| CPU | translated function == interpreted function: all registers + a memory hash over the touched ranges | seconds, automated |
+| whole program | interpreted build vs translated build, same input script, state hash equal at **every** frame boundary | minutes, automated |
+| OS surface | the call census: every library call the binary makes is implemented, and none is answered with 0 | seconds, automated |
+| display | planar->chunky + palette is a pure function of RAM, so it is verified once with synthetic bitmaps and then never re-examined | once |
 
-The pixel gate we have today (`tools\verify-frames.ps1`, `ref\manifest.csv`) survives as the L0/L1
-test, but it stops being the *development* loop: correctness is decided by `translated ==
-interpreted`, not by a screenshot.
+**Frame and pixel comparison is not an acceptance test and must not come back.** It was the method
+of the hand port: it cannot cover a whole game, it cannot be automated honestly, and it collapses
+back into "the picture looks wrong", i.e. the trial-and-error loop this architecture exists to
+retire. `tools\verify-frames.ps1`, `ref\manifest.csv`, `tools\diff-frame.ps1`, `--match` and every
+WinUAE capture are **legacy artefacts of the abandoned hand port**. They may keep running as a
+regression check on that port, but they are never evidence about the recompilation and must not be
+extended.
+
+If the machine state matches at every frame boundary for a scripted run, the visuals follow by
+construction - that is the whole argument, and it is why correctness is decided by
+`translated == interpreted`, not by a screenshot.
 
 ## What this retires
 
 `src/game/core/move.c`, `intro.c` and the composition in `gfx.c` are hand-written re-derivations of
-engine behaviour. They become a cross-check oracle and are retired once the emulated path runs. Kept
-and extended: `Cpu68k` (differential oracle), the hunk/ADF loaders, `agfx_blit` +
-`agfx_mask_from_key`, `docs\os-calls.csv`, the gate, `tools\port-diff.ps1`.
+engine behaviour (the "hand port", shipped as `bin\win32\icftd.exe`). They are **frozen**: a
+known-buggy artefact, usable at most as a cross-check and *never* as a reference. Kept and extended:
+`Cpu68k` (the differential oracle), the hunk/ADF loaders, `agfx_blit` + `agfx_mask_from_key`,
+`docs\os-calls.csv`. Everything else from that port was deleted in the 2026-11-10 cleanup
+(`src\game\core\{move,intro,gfx,pack,assets}.c`, `core\amiga/`, `core\sys/`, `plat\dos/`,
+`tools\ctest`, `tools\port-diff.ps1`, every capture/frame tool). `tools\gate.ps1` is now three steps:
+exporter build, emulator build, interpreter fixtures - no image step exists.
 
 ## The platform surface, measured
 
@@ -159,15 +183,40 @@ only the counters showed them:
    stride walked each blit 82 bytes through the heap, overran the plane, erased the `BitMap`
    header holding the other plane pointers, and silently lost most of every picture.
 
-Still missing from the display chain:
+A third defect, found later, was a genuine deviation from the chipset in the A/B data path of
+`blit.c`. The reference here is UAE's `blitter_dofast()` and the HRM, **not** the hand-written
+port and **not** a screenshot:
 
-1. **Text.** `diskfont.library` `OpenDiskFont` (-30) is unhandled, and `graphics.Text`/
-   `TextLength` are no-ops until a font exists - anything the engine prints is currently absent.
-2. **Input.** `JOY0DAT`/`JOY1DAT`/`POTINP` read as "nothing pressed" (active low, 0xFFFF) and
-   CIA-A `PRA` bit 7 carries `/FIRE`; `--press <frame>` drives it from the tool. Feeding it from
-   `plat_pump` is all that remains, so the intro/self-playing sequences can be driven interactively.
-3. Then `--emu` becomes the reference implementation the translator is measured against, and
-   `--dump`/`--window` are the eyes.
+3. **`BLTAFWM`/`BLTALWM` mask the word as it is *fetched*, before the shift register, and the
+   shift register's hold word persists across lines.** The hardware does
+
+   ```c
+   bltadat &= blit_masktable[i];                                  /* i == 0 -> AFWM, i == words-1 -> ALWM */
+   blitahold = (((uae_u32)bltaold << 16) | bltadat) >> ashift;
+   bltaold = bltadat;                                             /* cleared once per blit, not per row */
+   ```
+
+   `blit.c` masked the *shifted output* and zeroed the hold at every row start. The engine is
+   what makes this visible: when a picture blit is shifted and is not clipped at the right it
+   emits **one extra trailing word, sets `ALWM = 0` and subtracts 2 from the A modulo**
+   (`FUN_0001E8C8`, image `0x1EA4A..0x1EA5C`). That word exists only to catch the last `ASH`
+   pixels the register pushes past the end of the row; `ALWM = 0` silences the extra *fetched*
+   word, not the bits already in the register. Masking after the shift blanked the whole word, so
+   every shifted sprite lost its last `ASH = dest_x & 15` columns - a right-edge cut of up to 15
+   pixels whose size changed as the scene scrolled.
+
+**Where Phase A ends (2026-11-10).** The original also runs *past* the intro: 30M instructions
+reach frame 5823 with a raster presented on every frame, 79,965 blits, 0 dropped writes. The OS
+surface is now measured on every run by `emu_lvo_report()`: **49 distinct library calls used,
+86,898 calls total, 45 kinds implemented, 4 kinds answered with 0** — `diskfont.library -30`
+(`OpenDiskFont`) and `-30/-36/-84` on the "mathffp" base (the IEEE single-precision Flt/Div/Fix used
+by MovE opcode 0x05). Input is wired (`plat_pump` once per emulated frame, `/FIRE` on CIA-A PRA bit
+7, joystick active-low on JOY0DAT).
+
+Those four are **runtime** gaps, not emulator-debugging items: the translated build calls the same
+shims, so they are implemented once, in the shared runtime, when the translated build first needs to
+paint text. Phase A itself is frozen here - it is the oracle, and it is measured against by
+**machine state**, never by `--dump`, `--window` or any picture.
 
 ### B - it runs fast (the recompilation proper)
 

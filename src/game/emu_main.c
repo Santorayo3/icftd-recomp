@@ -63,6 +63,28 @@ static int write_bmp(const char *path, const u8 *fb, int stride, int w, int h, c
 static u32  g_window;
 static char g_prefix[192];
 static int  g_shots, g_shotIndex, g_every = 1;
+static u8   g_fireShown;          /* last fire state reported, so a press prints once */
+
+/* Once per emulated frame: read the keyboard, follow the window, and hold the machine to 50 Hz.
+ *
+ * This has to be independent of presenting. The intro presents every frame, but the menus do not -
+ * they spin on /FIRE - so pumping input inside on_present() left the window unpumped (and the run
+ * unthrottled) for exactly the stretch where the player is expected to press something. */
+static void on_frame(emu_machine *m)
+{
+    input_state in;
+
+    if (!plat_pump(&in)) m->stop = 1;
+    if (in.down[KEY_ESCAPE]) m->stop = 1;
+    m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
+    if (m->fireDown != g_fireShown)
+    {
+        g_fireShown = m->fireDown;
+        printf("emu: /FIRE %s at frame %lu\n", m->fireDown ? "pressed" : "released",
+               (unsigned long)m->frame);
+    }
+    plat_frame_sync();
+}
 
 static void on_present(emu_machine *m)
 {
@@ -72,16 +94,8 @@ static void on_present(emu_machine *m)
 
     if (g_window)
     {
-        input_state in;
         u8 *dst = plat_framebuffer();
         int y, cw = w < SCREEN_W ? w : SCREEN_W;
-
-        /* The window is the machine's console: closing it or pressing ESC ends the run, and space
-         * is /FIRE (the intro and the menus wait for it). Both simply feed the same state the
-         * chpset looked supplies - the game polls CIA-A PRA bit 7 and JOY0DAT. */
-        if (!plat_pump(&in)) m->stop = 1;
-        if (in.down[KEY_ESCAPE]) m->stop = 1;
-        m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
 
         plat_set_palette(0, 256, pal);
         for (y = 0; y < SCREEN_H; y++)
@@ -90,9 +104,6 @@ static void on_present(emu_machine *m)
             memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
         }
         plat_present();
-        /* Play at the Amiga's 50 Hz instead of as fast as the interpreter can go. Only in window
-         * mode: a batch run that dumps frames must not be rate-limited. */
-        plat_frame_sync();
     }
     if (g_prefix[0] != 0 && g_shotIndex < g_shots)
     {
@@ -112,6 +123,7 @@ int main(int argc, char **argv)
     int i, rc = 1, trace = 0, haveEntry = 0, dosLog = 0, progress = 0, dffLog = 0, runForever = 0;
     u32 watch = 0;
     u32 pressAt = 0;
+    u32 releaseAt = 0;
     const char *dataDir = "export";
 
     /* Unbuffered: a run that is killed (see tools\emu-run.ps1) must still leave its log behind up to
@@ -142,6 +154,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--watch") == 0 && i + 1 < argc) { watch = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--press") == 0 && i + 1 < argc) { pressAt = (u32)strtoul(argv[++i], 0, 0); continue; }
+        if (strcmp(argv[i], "--release") == 0 && i + 1 < argc) { releaseAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
         if (image == 0) { image = argv[i]; continue; }
         if (!haveEntry) { entry = (u32)strtoul(argv[i], 0, 0); haveEntry = 1; continue; }
@@ -175,7 +188,9 @@ int main(int argc, char **argv)
     m.dffLog = dffLog;
     m.watch = watch;
     m.pressAt = pressAt;
+    m.releaseAt = releaseAt;
     m.dataDir = dataDir;
+    if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
     printf("emu: %s loaded, entry 0x%lx, A4 0x%lx, %ld instruction(s)\n",

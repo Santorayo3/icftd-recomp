@@ -1,7 +1,8 @@
 # Amiga graphics: what the original actually does
 
-Scope: M2 step 1 of `docs/recomp-plan.md`. Everything below is derived from the decompiled
-image, not guessed. Evidence is given per claim so it can be re-checked.
+Scope: engine graphics, derived from the decompiled code and the disassembly. Everything below is
+fact about the original, not about any port of it. Evidence is given per claim so it can be
+re-checked.
 
 Tools used (both re-runnable):
 
@@ -133,78 +134,3 @@ through the trampoline at `0x21992`), and the engine kernel in `0xF000`-`0x10xxx
    the game area; the pointer is a sprite the engine blits (`MoveSprite`/`ChangeSprite` are not
    used either, so it is software).
 
-## 6. Open questions (resolve with WinUAE reference captures)
-* Actual depth at run time: `min(src Depth,5)`. Resolve by capturing a WinUAE screenshot and
-  counting distinct colours in one scene (expect 32 for an A500 title).
-* Whether double buffering is used for the scene (two RasInfos are allocated, so probably yes;
-  confirm by capturing two consecutive frames of a moving object).
-* Which minterms are passed to `BltBitMap` — needs the `BltBitMap` wrapper's call sites
-  (traced next).
-
-## 7. The recomp side: `src/game/core/amiga/graphics.c`
-
-A faithful subset of the library on the chunky framebuffer, so transcribed engine code keeps
-its call shapes (`agfx_move`, `agfx_rect_fill`, `agfx_area_end`, `agfx_text`, ...).
-
-* `agfx_bitmap` = pixels + stride + **depth** (the plane count the original had), `agfx_colormap`
-  holds 32 `0x0RGB` words exactly like `LoadRGB4` data, `agfx_rastport` holds the pens, draw mode,
-  current point and the area buffer.
-* Draw modes: JAM1 (replace), JAM2 (OR), COMPLEMENT (XOR), INVERSE.
-* `agfx_minterm()` is the definition of the blit logic: `idx = (A<<2)|(B<<1)|C`, upper case =
-  bit set, and a **pen value is passed through the minterm bit by bit** — that is precisely what
-  the blitter does per plane, so any minterm is handled, not just a hand-picked few.
-  Truth-table constants (already verified: `0xC0` is AND, not a copy — the common mistake):
-  `0x00`=0, `0x0C`=dst, `0x3C`=xor, `0xC0`=and, `0xF0`=src, `0xFC`=or, `0xE4`=mask?src:dst.
-* `agfx_blt_mask()` widens a 1-bit mask to a full-plane mask (`0xFF`/`0x00`) before combining,
-  which is what makes cookie-cut sprites come out right.
-* `agfx_palette_upload()` converts 4-bit guns to 8-bit (`n * 17`) and calls `plat_set_palette`.
-* `agfx_wait_tof/blit`, `agfx_own/disown_blitter` are no-ops: plain RAM, nothing to wait for.
-
-Self test: `icftd.exe --gfx-test <out.bmp>` draws palette swatches, solid bars, a line fan, a
-filled 6-point star (area fill), a plain blit and a cookie-cut blit, and prints the primitive
-counters. `tools\show-picture.ps1`-style conversion to PNG is enough to eyeball it.
-
-Still missing on purpose: **text** needs a real `agfx_font` (the game's font lives in the ART
-banks and will be wired when the overlays are transcribed) and `TextLength` assumes a fixed
-width per character.
-
-## 8. First reference frame: the background is exact
-
-The user's existing WinUAE grabs (`C:\Users\Public\Documents\Amiga Files\WinUAE\Screenshots`)
-are 720x568 with the game area at exactly **x 58..697, y 88..487** — i.e. 640x400, a 2x pixel
-replication of 320x200. `tools\ref-frame.ps1` crops and halves that to a 320x200 BMP.
-
-Reference scene (`...Disk 2 of 3)[!]_001.png`): a room interior with the narration box over the
-bottom third and the mouse pointer (which falls outside the 320x200 crop).
-
-`icftd.exe --match ref\scene1.bmp` renders all 547 pictures and ranks them by matching pixels:
-
-```
-1. Desert2/BACKS/!B28    15942 differing   75.09 % match
-2. Desert2/BACKS/!B27    49615 differing   22.48 % match
-3. Desert2/BACKS/!B23    51341 differing   19.78 % match
-```
-
-`!B28` is the scene background; the 24.9 % that differs is the narration box painted on top of
-it.
-
-Frames 2-4 of the same series show the same room **without** the narration box, and those match
-completely:
-
-```
-icftd.exe --match ref\room.bmp 16
-1. Desert2/BACKS/!B28      0 differing  100.00 % match  IDENTICAL
-2. Desert2/BACKS/!B27  48354 differing   24.45 % match
-```
-
-So **the pack decode + palette + blit path reproduce the original frame exactly** — M2's
-acceptance criterion is met. (The earlier box frame, restricted to the rows the box does not
-cover, is identical too: `-CropA/-CropB 0,0,320,110 -Tolerance 16` -> 0 differing.)
-
-**The ≤15 colour delta is expected and must not be "fixed".** It is WinUAE's 4-bit → 24-bit
-output path, not our palette: with tolerance 0 every pixel "differs" while the maximum channel
-difference never exceeds 15 (one Amiga colour step and a bit). Always compare with
-`-Tolerance 16`; a real palette mistake shows up as deltas of 30+ on a whole colour index.
-
-What is left for M2 is therefore only the *compositing* (background + narration box + objects),
-which is M3 work: `ref\scene1.bmp` must become the diff target once those paths exist.

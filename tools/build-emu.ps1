@@ -15,6 +15,9 @@ if (-not (Test-Path (Join-Path $mus 'm68kops.c'))) {
     Write-Host "m68kops.c missing - generating"; & (Join-Path $PSScriptRoot 'musashi-gen.ps1') -WatcomHome $WatcomHome
 }
 
+# bin\ is build output and not in git, so the output directory may not exist yet.
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $out) | Out-Null
+
 $env:WATCOM = $WatcomHome
 $env:EDPATH = Join-Path $WatcomHome 'eddat'
 $env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt')) -join ';'

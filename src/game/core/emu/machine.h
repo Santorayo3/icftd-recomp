@@ -107,6 +107,7 @@ typedef struct emu_machine
     int     trace;
     u8      fireDown;                     /* /FIRE on CIA-A PRA ($BFE001 bit 7), active low */
     u32     pressAt;                      /* frame to press /FIRE on (0 = never), for tools */
+    u32     releaseAt;                    /* frame to release it again (0 = never) */
     int     stop;                         /* tool hook: set to end the run (window closed) */
     int     dosLog;                       /* log dos Open/Read/Seek/Close */
     int     progress;                     /* heartbeat every 1M steps */
@@ -118,6 +119,7 @@ typedef struct emu_machine
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
+    void  (*on_frame)(struct emu_machine *m);    /* tool hook: once per emulated frame, input+pacing */
     void  (*on_present)(struct emu_machine *m);  /* tool hook: dump a frame / show the window */
 } emu_machine;
 

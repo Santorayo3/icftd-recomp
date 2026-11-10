@@ -88,12 +88,17 @@ void emu_gfx_blt_clear(emu_machine *m, u32 block, u32 bytes, u32 flags)
         u32 bpr = bytes >> 16, rows = bytes & 0xFFFFu;
         bytes = bpr * rows;
     }
-    if (bytes > 0x100000u)
+    if (block >= m->mem.size || bytes > m->mem.size - block)
     {
-        /* Caller-controlled byte count: a bogus value used to spin here for hours. */
-        printf("emu: BltClear(%06lX,%lu,%lu) - clamped to 1 MB\n", (unsigned long)block,
-               (unsigned long)bytes, (unsigned long)flags);
-        bytes = 0x100000u;
+        /* Refuse rather than clamp. A bad size (a BitMap whose BytesPerRow holds garbage) used to
+         * be cut to 1 MB, which still swept straight through the AllocMem heap and destroyed the
+         * allocator's headers - the emulator then spun in a free-list walk that no instruction
+         * budget can interrupt, i.e. it looked hung. A clear that cannot fit is a model bug to
+         * report, not something to perform. */
+        printf("emu: BltClear(%06lX,%lu,%lu) outside RAM at frame %lu - refused\n",
+               (unsigned long)block, (unsigned long)bytes, (unsigned long)flags,
+               (unsigned long)m->frame);
+        return;
     }
     if ((flags & 1u) != 0)                 /* flags bit 0: one block of `bytes` bytes */
     {

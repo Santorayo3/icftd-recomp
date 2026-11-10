@@ -36,15 +36,10 @@ unsigned int m68k_read_memory_8(unsigned int a)
      * reading 0 here made every run jump to the end of the cinematic on frame 0. */
     if (a == 0xBFE001u)
     {
-        if (emu_current)
-        {
-            emu_current->firePolls++;
-            if ((emu_current->firePolls % 50000u) == 0u)
-                printf("emu: /FIRE poll %lu at pc %06lX (down %u, frame %lu)\n",
-                       (unsigned long)emu_current->firePolls,
-                       (unsigned long)m68k_get_reg(0, M68K_REG_PC),
-                       (unsigned)emu_current->fireDown, (unsigned long)emu_current->frame);
-        }
+        /* Counted for --progress only. It used to print every 50,000 reads, which was harmless
+         * while the game was drawing but turned into a flood once the intro ended and the menu
+         * sat in a tight poll loop: the console writes, not the emulation, became the bottleneck. */
+        if (emu_current) emu_current->firePolls++;
         return 0x7Fu | (emu_current->fireDown != 0 ? 0u : 0x80u);
     }
     if (a >= 0xDFF000u && a < 0xDFF100u) return emu_current->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
@@ -135,7 +130,10 @@ unsigned int m68k_read_disassembler_32(unsigned int a) { return emu_read32(&emu_
 
 static int emu_volume_index(const char *name)
 {
-    /* "Desert1:" .. "Desert3:" case-insensitively; anything else falls back to a search. */
+    /* "Desert1:" .. "Desert3:" case-insensitively. Desert4/DES4 and anything else return -1 and
+     * are searched across the disks below: the disk's own HDesert script installs the game to a
+     * single directory and then assigns Desert2:, Desert3: and DES4: to it, so the volume name
+     * says nothing about which extracted disk a file came from. */
     if ((name[0] == 'D' || name[0] == 'd') &&
         (name[1] == 'E' || name[1] == 'e') &&
         (name[2] == 'S' || name[2] == 's') &&
@@ -190,7 +188,7 @@ static u32 emu_file_open(emu_machine *m, const char *name)
         sprintf(path, "%s\\%s", m->dataDir, rel);
 
     m->files[slot].f = plat_open(path);
-    if (m->files[slot].f == 0 && vol >= 0)
+    if (m->files[slot].f == 0)
     {                                           /* the file may sit on another disk */
         int d;
         for (d = 1; d <= 3 && m->files[slot].f == 0; d++)
@@ -255,6 +253,39 @@ static u32 emu_file_read(emu_machine *m, u32 fh, u32 buf, u32 len)
     return got;
 }
 
+/* --- OS call census -----------------------------------------------------------------------
+ * Which library calls the original actually makes, and which of them this runtime merely answers
+ * with 0. That number is the difference between "the emulator is subtly wrong somewhere" and a
+ * finite checklist: an unimplemented shim does not fail loudly, it returns 0, and the engine then
+ * takes a path that has nothing to do with the Amiga. Counting the calls ranks the gaps by how
+ * often the game depends on them, which is the only ordering worth working in. */
+#define EMU_LVO_STATS 96
+
+typedef struct
+{
+    s32 lvo;
+    int lib;
+    u32 calls;                  /* dispatched, handled or not */
+    u32 unhandled;              /* answered with 0 */
+} lvo_stat;
+
+static lvo_stat lvoStats[EMU_LVO_STATS];
+static int lvoStatCount;
+
+static lvo_stat *lvo_stat_get(int lib, s32 lvo)
+{
+    int i;
+    for (i = 0; i < lvoStatCount; i++)
+        if (lvoStats[i].lib == lib && lvoStats[i].lvo == lvo) return &lvoStats[i];
+    if (lvoStatCount >= EMU_LVO_STATS) return 0;
+    lvoStats[lvoStatCount].lib = lib;
+    lvoStats[lvoStatCount].lvo = lvo;
+    lvoStatCount++;
+    return &lvoStats[lvoStatCount - 1];
+}
+
+void emu_lvo_report(void);
+
 /* --- library shims ------------------------------------------------------------------------ */
 
 /* LVOs the game uses, from docs\os-calls.csv. Names only, for the trace. */
@@ -291,9 +322,119 @@ static const char *lvo_name(s32 lvo)
 }
 
 /* Bump allocator for AllocMem, above the image and below the stack. */
+/* --- the heap ----------------------------------------------------------------------------
+ * AllocMem/FreeMem over the block below EMU_SYS_BASE. A bump pointer was enough while the
+ * emulator only ran the intro, but the game frees its scene bitmaps and allocates the next
+ * screen's: with nothing ever returned, the intro's own allocations (the mask bitmaps, the two
+ * animation rasters) left the heap exhausted the moment the first menu tried to build a picture,
+ * and every later AllocMem returned NULL.
+ *
+ * So: a first-fit heap with headers. Free blocks sit on one address-ordered list, which is walked
+ * to coalesce, so a freed neighbour is reusable. The models are as slow as they look, but a game
+ * of this size makes a few hundred allocations in 10 seconds, not thousands per frame.
+ *
+ * Every header carries a magic word and the next-block walk stops at the first one that does not
+ * match. That is not paranoia: the game does clear memory it owns, a wrong byte count reached
+ * BltClear() once and swept 1 MB through this heap, and a header turned into garbage then made
+ * the free-list walk spin forever inside the emulator (the frame budget never runs inside a native
+ * loop, so the run looked hung). A corrupt chain now just ends the list. */
+typedef struct emu_block
+{
+    u32 magic;                       /* EMU_BLOCK_MAGIC while the header is intact */
+    u32 size;                        /* including this header, 8-byte aligned */
+    u32 used;                        /* 1 = handed out */
+    u32 pad;
+} emu_block;
+
+#define EMU_BLOCK_MAGIC 0x424C4B31u  /* 'BLK1' */
+#define EMU_BLOCK_HDR  ((u32)sizeof(emu_block))
 #define EMU_HEAP_BASE 0x00040000u
 #define EMU_HEAP_TOP  0x0017C000u     /* EMU_SYS_BASE: the exec structures live above */
-static u32 heapTop;
+static emu_block *heapFirst;
+static int heapCorrupt;
+
+static void emu_heap_reset(void)
+{
+    heapCorrupt = 0;
+    heapFirst = (emu_block *)(emu_current->mem.base + EMU_HEAP_BASE);
+    heapFirst->magic = EMU_BLOCK_MAGIC;
+    heapFirst->size = EMU_HEAP_TOP - EMU_HEAP_BASE;
+    heapFirst->used = 0;
+}
+
+/* Next block in address order, or 0 when the list ends or a header has been overwritten. */
+static emu_block *heap_next(emu_block *b)
+{
+    u32 off;
+    emu_block *n;
+
+    if (b->magic != EMU_BLOCK_MAGIC || b->size < EMU_BLOCK_HDR)
+    {
+        if (!heapCorrupt++)
+            printf("emu: heap header at %06lX was overwritten (frame %lu) - list ends here\n",
+                   (unsigned long)((u8 *)b - emu_current->mem.base),
+                   (unsigned long)emu_current->frame);
+        return 0;
+    }
+    off = (u32)((u8 *)b - emu_current->mem.base) + b->size;
+    if (off + EMU_BLOCK_HDR > EMU_HEAP_TOP) return 0;
+    n = (emu_block *)(emu_current->mem.base + off);
+    return n->magic == EMU_BLOCK_MAGIC ? n : 0;
+}
+
+/* First fit. Splits when the tail is still big enough to be worth a header. */
+static u32 emu_alloc(u32 bytes)
+{
+    emu_block *b;
+
+    bytes = (bytes + 7u) & ~7u;                       /* AllocMem rounds to 8 */
+    if (bytes == 0) bytes = 8;
+    for (b = heapFirst; b != 0; b = heap_next(b))
+    {
+        if (b->used || b->size < bytes + EMU_BLOCK_HDR) continue;
+        if (b->size >= bytes + EMU_BLOCK_HDR + 16u)
+        {
+            emu_block *rest = (emu_block *)((u8 *)b + EMU_BLOCK_HDR + bytes);
+            rest->magic = EMU_BLOCK_MAGIC;
+            rest->size = b->size - EMU_BLOCK_HDR - bytes;
+            rest->used = 0;
+            b->size = EMU_BLOCK_HDR + bytes;
+        }
+        b->used = 1;
+        memset((u8 *)b + EMU_BLOCK_HDR, 0, b->size - EMU_BLOCK_HDR);
+        return (u32)((u8 *)b - emu_current->mem.base) + EMU_BLOCK_HDR;
+    }
+    printf("emu: out of memory asking for %lu bytes (frame %lu)\n",
+           (unsigned long)bytes, (unsigned long)emu_current->frame);
+    return 0;
+}
+
+void emu_free(u32 addr)
+{
+    emu_block *b, *n;
+
+    if (addr < EMU_HEAP_BASE + EMU_BLOCK_HDR || addr >= EMU_HEAP_TOP) return;   /* not ours */
+    b = (emu_block *)(emu_current->mem.base + addr - EMU_BLOCK_HDR);
+    if (b->magic != EMU_BLOCK_MAGIC || !b->used) return;  /* corrupt or double free: ignore */
+    b->used = 0;
+    /* Coalesce forwards as far as the neighbours are free, then backwards once. */
+    while ((n = heap_next(b)) != 0 && !n->used)
+        b->size += n->size;
+    {
+        emu_block *p = heapFirst;
+        while (p != 0 && heap_next(p) != b) p = heap_next(p);
+        if (p != 0 && !p->used)
+        {
+            while ((n = heap_next(p)) != 0 && !n->used) p->size += n->size;
+        }
+    }
+}
+
+/* Public form for the graphics shim (MrgCop's copper list). */
+u32 emu_alloc_bytes(u32 bytes)
+{
+    return emu_alloc(bytes);
+}
 
 /* The launched Process. dshell is started from a shell - the disk's HDesert script is just
  * `assign` lines and then `dshell` with no arguments - so what FindTask(0) returns must be a
@@ -322,6 +463,36 @@ static const char *libraryName[EMU_LIB_SLOTS] = {
     "diskfont.library", "utility.library", "version.library", "keymap.library"
 };
 #define EMU_LIB_RESOURCE 15                  /* the catch-all base OpenResource returns */
+
+void emu_lvo_report(void)
+{
+    int i, j;
+    u32 calls = 0, missing = 0;
+    int missingKinds = 0;
+
+    for (i = 0; i < lvoStatCount; i++)
+    {
+        calls += lvoStats[i].calls;
+        missing += lvoStats[i].unhandled;
+        if (lvoStats[i].unhandled != 0) missingKinds++;
+    }
+    printf("emu: %d library call(s) used, %lu call(s) total, %d kind(s) answered with 0 (%lu call(s))\n",
+           lvoStatCount, (unsigned long)calls, missingKinds, (unsigned long)missing);
+    if (!lvoStatCount) return;
+    /* Selection sort by call count: 96 entries at most, and the report is read, not timed. */
+    for (i = 0; i < lvoStatCount; i++)
+    {
+        int best = i;
+        lvo_stat t;
+        for (j = i + 1; j < lvoStatCount; j++)
+            if (lvoStats[j].calls > lvoStats[best].calls) best = j;
+        t = lvoStats[i]; lvoStats[i] = lvoStats[best]; lvoStats[best] = t;
+    }
+    for (i = 0; i < lvoStatCount; i++)
+        printf("emu:   %-12s %5ld %8lu call(s)  %s\n", libraryName[lvoStats[i].lib],
+               (long)lvoStats[i].lvo, (unsigned long)lvoStats[i].calls,
+               lvoStats[i].unhandled ? "IMPLEMENT" : "ok");
+}
 
 /* Reads a C string out of emulated memory. */
 static void read_cstr(u32 addr, char *out, int max)
@@ -397,28 +568,6 @@ static void emu_build_process(emu_machine *m)
 #define LIST_HEAD(a)     ((a) + 0u)
 #define LIST_TAILPRED(a) ((a) + 8u)
 
-static u32 emu_alloc(u32 bytes)
-{
-    u32 p;
-    bytes = (bytes + 7u) & ~7u;
-    p = heapTop;
-    heapTop = (heapTop + bytes + 7u) & ~7u;
-    if (heapTop > EMU_HEAP_TOP)
-    {
-        printf("emu: heap exhausted asking for %lu bytes (top %06lX)\n",
-               (unsigned long)bytes, (unsigned long)(heapTop - bytes));
-        return 0;
-    }
-    memset(emu_current->mem.base + p, 0, bytes);
-    return p;
-}
-
-/* Public form for the graphics shim (MrgCop's copper list). */
-u32 emu_alloc_bytes(u32 bytes)
-{
-    return emu_alloc(bytes);
-}
-
 static void emu_new_list(emu_machine *m, u32 a)
 {
     emu_write32(&m->mem, a + 0, a + 4);          /* lh_Head   = &lh_Tail */
@@ -481,6 +630,10 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
     int i;
 
     i = (int)(-lvo / 6) % 64;
+    {
+        lvo_stat *st = lvo_stat_get(lib, lvo);
+        if (st != 0) st->calls++;
+    }
 
     if (lib == 0)                                 /* exec.library */
     {
@@ -492,7 +645,10 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
         case -198:                               /* AllocMem(bytes, flags) */
             result = emu_alloc(arg32(sp, 0));
             break;
-        case -210:                               /* FreeMem */
+        case -210:                               /* FreeMem(block, bytes) */
+            /* Must actually free: the game releases a scene's bitmaps and allocates the next
+             * screen's, so a heap that only ever grows runs dry inside the first menu. */
+            emu_free(arg32(sp, 0));
             result = 0;
             break;
         case -552:                               /* OpenLibrary(name, version) */
@@ -635,8 +791,8 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
                 read_cstr(arg32(sp, 0), name, (int)sizeof(name));
                 result = emu_file_open(m, name);
                 if (m->dosLog)
-                    printf("     dos.Open(\"%s\",%ld) = %06lX\n", name, (long)arg32(sp, 1),
-                           (unsigned long)result);
+                    printf("     dos.Open(\"%s\",%ld) = %06lX from %06lX\n", name, (long)arg32(sp, 1),
+                           (unsigned long)result, (unsigned long)ret);
             }
             break;
         case -36:                                /* Close(fh) */
@@ -918,6 +1074,10 @@ static int emu_dispatch(emu_machine *m, int lib, s32 lvo)
     goto done;
 
 unhandled:
+    {
+        lvo_stat *st = lvo_stat_get(lib, lvo);
+        if (st != 0) st->unhandled++;
+    }
     if (lvoSeen[i]++ == 0)
     {
         printf("emu: unhandled LVO %ld (%s) on %s (base %06lX) from %06lX"
@@ -961,7 +1121,7 @@ int emu_init(emu_machine *m)
     emu_library_new(m);
     emu_library_new(m);
     while (m->libraries < EMU_LIB_SLOTS) emu_library_new(m);
-    heapTop = EMU_HEAP_BASE;
+    emu_heap_reset();
     m->insnToTick = EMU_INSN_PER_FRAME;
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
@@ -1178,7 +1338,12 @@ static void emu_tick(emu_machine *m)
     m->frame++;
     m->insnToTick = EMU_INSN_PER_FRAME;
     if (m->pressAt != 0)
-        m->fireDown = (m->frame >= m->pressAt) ? 1u : 0u;
+        m->fireDown = (m->frame >= m->pressAt && (m->releaseAt == 0 || m->frame < m->releaseAt))
+                          ? 1u : 0u;
+    /* The tool's once-per-frame hook. Input must be read here and not on a present, because the
+     * game spends long stretches with nothing to present (it waits for /FIRE inside the menus) and
+     * a window that is only pumped when a raster is shown stops responding exactly then. */
+    if (m->on_frame) m->on_frame(m);
     if (m->inTick) return;             /* a handler cannot be interrupted by the next vblank */
     m->inTick = 1;
     emu_save_regs(save);
@@ -1274,6 +1439,7 @@ u32 emu_run(emu_machine *m, long maxInsns)
                    (unsigned long)m->blits, (unsigned long)m->blitDrops,
                    (unsigned long)m->firePolls, (unsigned long)m->handlerRuns);
     }
+    emu_lvo_report();
     return m68k_get_reg(0, M68K_REG_PC);
 }
 
