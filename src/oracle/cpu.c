@@ -297,12 +297,16 @@ int oracle_step(rt_machine *m)
          * caller. The translated build does exactly the same thing with its own registers. */
         int lib = rt_library_of(m, pc, &lvo);
         u32 sp = m68k_get_reg(0, M68K_REG_A7);
-        u32 a1 = m68k_get_reg(0, M68K_REG_A1);   /* one shim takes its argument in A1 */
+        /* graphics.library takes its arguments in A0/A1/D0/D1, everything else on the stack. */
+        u32 a0 = m68k_get_reg(0, M68K_REG_A0);
+        u32 a1 = m68k_get_reg(0, M68K_REG_A1);
+        u32 d0 = m68k_get_reg(0, M68K_REG_D0);
+        u32 d1 = m68k_get_reg(0, M68K_REG_D1);
         u32 ret = rt_read32(&m->mem, sp);
         u32 result;
 
         m->pc = pc;
-        result = rt_os_call(m, sp, a1, lib, lvo);
+        result = rt_os_call(m, sp, a0, a1, d0, d1, lib, lvo);
         if (m->osUnhandled)
         {
             m->osUnhandled = 0;

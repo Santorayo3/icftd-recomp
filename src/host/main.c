@@ -82,6 +82,7 @@ static void host_frame(cpu_t *c, rt_machine *m)
  * drawing, so input cannot wait for a present) and a 50 Hz clock. */
 static u32 g_window;
 static u8  g_fireShown;
+static const char *shotPath;
 
 static void host_input(rt_machine *m)
 {
@@ -105,14 +106,60 @@ static void host_input(rt_machine *m)
     plat_frame_sync();
 }
 
+/* Writes the presented raster as a 24-bit BMP (bottom-up); --shot makes screen content testable. */
+static void shot_write(const char *path)
+{
+    const u8 *fb = rt_gfx_framebuffer();
+    const u8 *pal = rt_gfx_palette();
+    int w = rt_gfx_width(), h = rt_gfx_height();
+    u32 rowBytes, dataSize;
+    u8 hdr[54], row[EMU_FB_MAX_W * 3 + 4];
+    FILE *f;
+    int x, y;
+
+    if (fb == 0 || pal == 0 || w <= 0 || h <= 0) return;
+    rowBytes = (u32)((w * 3 + 3) & ~3);
+    dataSize = rowBytes * (u32)h;
+    f = fopen(path, "wb");
+    if (f == 0) return;
+    memset(hdr, 0, sizeof hdr);
+    hdr[0] = 'B'; hdr[1] = 'M';
+#define PUT32(o, v) do { u32 v_ = (u32)(v); hdr[o] = (u8)v_; hdr[o+1] = (u8)(v_ >> 8); \
+                         hdr[o+2] = (u8)(v_ >> 16); hdr[o+3] = (u8)(v_ >> 24); } while (0)
+    PUT32(2, 54 + dataSize); PUT32(10, 54); PUT32(14, 40);
+    PUT32(18, w); PUT32(22, h); PUT32(34, dataSize);
+    PUT32(38, 2835); PUT32(42, 2835);
+#undef PUT32
+    hdr[26] = 1;                            /* planes */
+    hdr[28] = 24;                           /* bits per pixel */
+    fwrite(hdr, 1, sizeof hdr, f);
+    for (y = h - 1; y >= 0; y--)
+    {
+        memset(row, 0, rowBytes);
+        for (x = 0; x < w; x++)
+        {
+            u32 p = (u32)fb[(u32)y * EMU_FB_MAX_W + x] * 3;
+            row[x * 3 + 0] = pal[p + 2];
+            row[x * 3 + 1] = pal[p + 1];
+            row[x * 3 + 2] = pal[p + 0];
+        }
+        fwrite(row, 1, rowBytes, f);
+    }
+    fclose(f);
+}
+
 static void host_present(rt_machine *m)
 {
     const u8 *fb = rt_gfx_framebuffer();
     const u8 *pal = rt_gfx_palette();
     int w = rt_gfx_width(), h = rt_gfx_height();
-    u8 *dst = plat_framebuffer();
-    int y, cw = w < SCREEN_W ? w : SCREEN_W;
+    u8 *dst;
+    int y, cw;
 
+    if (shotPath != 0) shot_write(shotPath);
+    if (!g_window) return;
+    dst = plat_framebuffer();
+    cw = w < SCREEN_W ? w : SCREEN_W;
     plat_set_palette(0, 256, pal);
     for (y = 0; y < SCREEN_H && y < h; y++)
         memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
@@ -135,6 +182,7 @@ int main(int argc, char **argv)
     int ring = 0;
     int runForever = 0;
     int dosLog = 0;
+    int textLog = 0;
     long speedPercent = 100;
     const char *inputPath = 0;
     long insns = 40000000L;
@@ -156,6 +204,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
+        if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
+        if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
         {
             speedPercent = strtol(argv[++i], 0, 0);
@@ -195,6 +245,7 @@ int main(int argc, char **argv)
     m.dataDir = dataDir;
     m.progress = progress;
     m.dosLog = dosLog;
+    m.textLog = textLog;
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;
@@ -209,13 +260,13 @@ int main(int argc, char **argv)
             return 1;
         }
         m.on_frame = host_input;
-        m.on_present = host_present;
         /* 100% = 50 Hz, the Amiga's rate; lower is a debugging aid for comparing content. */
         plat_set_frame_hz((u32)(50 * speedPercent / 100));
         if (speedPercent != 100)
             printf("recomp: %ld%% speed (%lu Hz)\n", speedPercent,
                    (unsigned long)(50 * speedPercent / 100));
     }
+    if (g_window || shotPath != 0) m.on_present = host_present;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
@@ -290,6 +341,16 @@ int main(int argc, char **argv)
     }
     state_close();
     if (ramStop != 0) state_ram_snapshot(&m, ramStop);
+    if (shotPath != 0)
+    {
+        const u8 *pal = rt_gfx_palette();
+        int i;
+        printf("shot: %dx%d  pal", rt_gfx_width(), rt_gfx_height());
+        for (i = 0; i < 16 && pal != 0; i++)
+            printf(" %02lX%02lX%02lX", (unsigned long)pal[i * 3], (unsigned long)pal[i * 3 + 1],
+                   (unsigned long)pal[i * 3 + 2]);
+        printf("\n");
+    }
     rt_shutdown(&m);
     if (g_window) plat_shutdown();
     rc = 0;

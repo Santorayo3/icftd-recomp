@@ -419,6 +419,43 @@ static u32 arg32(u32 sp, int n)
     return rt_read32(&rt_current->mem, sp + 4 + (u32)n * 4);
 }
 
+/* --- graphics.library text: what the engine actually asks for -------------------------------
+ * One dump of the RastPort/BitMap/TextFont the game passes, so the drawing code can be written
+ * against the real structures instead of the header file. */
+void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted)
+{
+    u32 bm, font;
+    int i;
+
+    if (!m->textLog || m->textSeen >= 3) return;
+    m->textSeen++;
+    bm = rt_read32(&m->mem, rp + 4);
+    printf("text: frame %ld rp %06lX bm %06lX str %06lX count %ld plotted %ld\n",
+           (long)m->frame, (unsigned long)rp, (unsigned long)bm, (unsigned long)text, (long)count,
+           (unsigned long)plotted);
+    {
+        int k;
+        printf("  \"");
+        for (k = 0; k < (int)count && k < 80; k++)
+        {
+            u8 c = (u8)rt_read8(&m->mem, text + (u32)k);
+            printf("%c", (c >= 32 && c < 127) ? c : '.');
+        }
+        printf("\"\n");
+    }
+    if (bm != 0)
+        printf("  bm: bytesPerRow %ld rows %ld flags %02lx depth %ld plane0 %06lX\n",
+               (long)rt_read16(&m->mem, bm), (long)rt_read16(&m->mem, bm + 2),
+               (unsigned long)rt_read8(&m->mem, bm + 4), (long)rt_read8(&m->mem, bm + 5),
+               (unsigned long)rt_read32(&m->mem, bm + 8));
+    font = rt_read32(&m->mem, rp + 36);      /* rp->Font (see below) */
+    printf("  font %06lX  rp pens fg %ld bg %ld mode %ld cp %ld,%ld\n",
+           (unsigned long)font, (long)(s8)rt_read8(&m->mem, rp + 29),
+           (long)(s8)rt_read8(&m->mem, rp + 30), (long)(s8)rt_read8(&m->mem, rp + 32),
+           (long)(s16)rt_read16(&m->mem, rp + 40), (long)(s16)rt_read16(&m->mem, rp + 42));
+    (void)i;
+}
+
 static void write_cstr(u32 addr, const char *s)
 {
     while (*s != 0) rt_write8(&rt_current->mem, addr++, (u8)*s++);
@@ -513,21 +550,177 @@ static u32 rt_get_msg(rt_machine *m, u32 port)
     return head;
 }
 
+/* --- diskfont.library --------------------------------------------------------------------
+ * FUN_00004cb6 asks diskfont for textAttr{ "newnem.font", ySize } and hands the result to
+ * graphics SetFont. A font file is a hunk file whose single segment holds a TextFont (ln_Type
+ * NT_FONT) plus four blobs it addresses by *offsets into that segment*: CharData (tf_YSize rows of
+ * tf_Modulo bytes), CharLoc (a u16 {bit offset, width} pair per character), CharSpace (u16 advance
+ * per character) and CharKern. The disk loader relocates those four words against the segment it
+ * allocated; we copy the segment to the heap and do exactly that, so graphics.library draws with
+ * the font the disk ships. */
+
+static u8 *rt_host_file(rt_machine *m, const char *rel, u32 *outSize)
+{
+    char path[256];
+    plat_file *f;
+    u8 *buf;
+    u32 size, d;
+    int found = 0;
+
+    for (d = 0; d <= 3 && !found; d++)
+    {
+        if (d == 0) sprintf(path, "%s\\%s", m->dataDir, rel);
+        else sprintf(path, "%s\\disk%lu\\%s", m->dataDir, (unsigned long)d, rel);
+        f = plat_open(path);
+        found = f != 0;
+        if (!found) continue;
+        size = plat_size(f);
+        buf = (u8 *)plat_alloc(size != 0 ? size : 1u);
+        if (buf == 0 || plat_read(f, 0, buf, size) != size)
+        {
+            if (buf != 0) plat_free(buf);
+            plat_close(f);
+            return 0;
+        }
+        plat_close(f);
+        *outSize = size;
+        if (m->dosLog) printf("emu: font data %s (%lu bytes)\n", path, (unsigned long)size);
+        return buf;
+    }
+    return 0;
+}
+
+static u32 be16(const u8 *p) { return ((u32)p[0] << 8) | p[1]; }
+static u32 be32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
+
+/* Builds the TextFont of one font file for the size the caller asked for. */
+static u32 rt_font_build(rt_machine *m, const u8 *data, u32 size, int ySize)
+{
+    u32 seg = 0, len = 0, t, base = 0;
+    static const u32 reloc[4] = { EMU_TF_CHAR_DATA, EMU_TF_CHAR_LOC, EMU_TF_CHAR_SPACE,
+                                  EMU_TF_CHAR_KERN };
+
+    for (t = 0; t + 8 <= size && t < 64; t += 2)
+        if (be16(data + t) == 0x3E9u)                  /* HUNK_CODE */
+        {
+            len = be32(data + t + 2) * 4u;
+            seg = t + 6;
+            break;
+        }
+    if (seg == 0 || seg + len > size) return 0;
+
+    for (t = 0; t + 52u <= len; t += 2)
+    {
+        const u8 *f = data + seg + t;
+        u32 cd = be32(f + EMU_TF_CHAR_DATA), cl = be32(f + EMU_TF_CHAR_LOC);
+        u32 cs = be32(f + EMU_TF_CHAR_SPACE), ck = be32(f + EMU_TF_CHAR_KERN);
+        u32 k;
+
+        if (f[EMU_TF_TYPE] != 12) continue;             /* NT_FONT */
+        if ((int)be16(f + EMU_TF_Y_SIZE) != ySize) continue;
+        if (f[EMU_TF_LO_CHAR] >= f[EMU_TF_HI_CHAR]) continue;
+        if (cd >= len || cl >= len || cs >= len || ck >= len) continue;
+
+        base = rt_alloc(len);
+        if (base == 0) return 0;
+        for (k = 0; k < len; k++) rt_write8(&m->mem, base + k, data[seg + k]);
+        for (k = 0; k < 4; k++)
+        {
+            u32 field = t + reloc[k];
+            rt_write32(&m->mem, base + field, base + rt_read32(&m->mem, base + field));
+        }
+        if (m->dosLog)
+            printf("emu: TextFont at %06lX: %d row(s), modulo %ld, chars %d..%d, data %06lX loc %06lX"
+                   " space %06lX kern %06lX\n",
+                   (unsigned long)(base + t), (int)be16(f + EMU_TF_Y_SIZE),
+                   (long)be16(f + EMU_TF_MODULO), (int)f[EMU_TF_LO_CHAR],
+                   (int)f[EMU_TF_HI_CHAR],
+                   (unsigned long)rt_read32(&m->mem, base + t + EMU_TF_CHAR_DATA),
+                   (unsigned long)rt_read32(&m->mem, base + t + EMU_TF_CHAR_LOC),
+                   (unsigned long)rt_read32(&m->mem, base + t + EMU_TF_CHAR_SPACE),
+                   (unsigned long)rt_read32(&m->mem, base + t + EMU_TF_CHAR_KERN));
+        return base + t;                        /* the TextFont sits inside the loaded segment */
+    }
+    return 0;
+}
+
+/* OpenDiskFont(textAttr): textAttr{ name @0, ySize @4, style @6, flags @7 }. The FontContents file
+ * (fch_FileID 0x0F00, entry count, then 260-byte {name[256], ySize, style, flags} records) maps a
+ * size onto the file that holds it. */
+static u32 rt_font_open_disk(rt_machine *m, u32 ta)
+{
+    char name[128], rel[192];
+    u32 size = 0, i;
+    u8 *buf;
+    u32 fileName = ta != 0 ? rt_read32(&m->mem, ta) : 0;
+    int ySize = ta != 0 ? (int)(s16)rt_read16(&m->mem, ta + 4) : 0;
+
+    if (fileName == 0 || ySize <= 0) return 0;
+    for (i = 0; i < sizeof name - 1u; i++)
+    {
+        u8 c = (u8)rt_read8(&m->mem, fileName + i);
+        name[i] = (char)c;
+        if (c == 0) break;
+    }
+    name[sizeof name - 1u] = 0;
+    sprintf(rel, "fonts\\%s", name);
+    buf = rt_host_file(m, rel, &size);
+    if (buf == 0)
+    {
+        sprintf(rel, "%s", name);
+        buf = rt_host_file(m, rel, &size);
+    }
+    if (buf == 0) return 0;
+
+    if (size >= 4 && be16(buf) == 0x0F00u)             /* FontContents */
+    {
+        u32 n = be16(buf + 2), e;
+        for (e = 0; e < n; e++)
+        {
+            u32 o = 4u + e * 260u;
+            if (o + 260u > size) break;
+            if ((int)be16(buf + o + 256) != ySize) continue;
+            {
+                char sub[192];
+                sprintf(sub, "fonts\\%.200s", (const char *)(buf + o));   /* "newnem/7" */
+                for (i = 0; sub[i] != 0; i++) if (sub[i] == '/') sub[i] = '\\';
+                plat_free(buf);
+                buf = rt_host_file(m, sub, &size);
+                if (buf == 0) return 0;
+            }
+            break;
+        }
+        if (e == n)
+        {
+            plat_free(buf);
+            return 0;
+        }
+    }
+    i = rt_font_build(m, buf, size, ySize);
+    plat_free(buf);
+    return i;
+}
+
 /* One library call, as the program makes it.
  *
  * The 68k ABI is `jsr (lvo,A6)`: the return address is at A7, the arguments above it, the result
  * goes to D0 and A7 stays popped by 4. None of that belongs here - the caller owns the CPU. This
- * takes the stack pointer and A1 (one shim, OpenLibrary, receives its name in A1) as plain values
- * and returns the result, plus two flags the caller must act on:
+ * takes the stack pointer, A0/A1 and D0/D1 as plain values and returns the result, plus two flags
+ * the caller must act on:
  *
  *   m->waitVblank   a WaitTOF/WaitBOVP ran: the frame is over (see rt_request_vblank)
  *   m->stop         the program halted (Alert)
+ *
+ * The registers matter because that is how graphics.library takes its arguments (A1 = RastPort,
+ * A0 = a string or a font, D0/D1 = coordinates) - see the wrappers at 0x218d0..0x21960 in
+ * re\disasm\dshell.asm, which load them from the stack and then *jump* to the vector, so the
+ * arguments are still above the return address for arg32() as well.
  *
  * That is the only seam between the machine model and whatever executes the code: the Musashi
  * front end in src\oracle for the original binary, and the translated function dispatcher for the
  * shipped game. `lib` is the base index from rt_library_of(), because the same LVO means different
  * functions per library. */
-u32 rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo)
+u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s32 lvo)
 {
     u32 ret = rt_read32(&m->mem, sp);
     u32 result = 0;
@@ -845,6 +1038,10 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo)
             rt_gfx_set_drmd(m, arg32(sp, 0), arg32(sp, 1));
             result = 0;
             break;
+        case -66:                                /* SetFont(rp=A1, font=A0) */
+            rt_gfx_set_font(m, a1, a0);
+            result = 0;
+            break;
         case -192:                               /* LoadRGB4(vp, table, count) */
             rt_gfx_load_rgb4(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
             result = 0;
@@ -866,12 +1063,23 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo)
         case -282:                               /* InitArea */
         case -468:                               /* InitTmpRas */
         case -366:                               /* CBump */
-        case -240:                               /* Move */
-        case -246:                               /* Draw */
-        case -54:                                /* TextLength - no font, so no width */
-        case -60:                                /* Text */
         case -216:                               /* MakeVPort */
             result = 0;
+            break;
+        case -240:                               /* Move(rp=A1, x=D0, y=D1) */
+            rt_gfx_move(m, a1, (s32)d0, (s32)d1);
+            result = 0;
+            break;
+        case -246:                               /* Draw(rp=A1, x=D0, y=D1) */
+            rt_gfx_line(m, a1, (s32)d0, (s32)d1);
+            result = 0;
+            break;
+        case -60:                                /* Text(rp=A1, string=A0, count=D0) */
+            rt_text_log(m, a1, a0, d0, rt_gfx_text(m, a1, a0, d0));
+            result = 0;
+            break;
+        case -54:                                /* TextLength(rp=A1, string=A0, count=D0) */
+            result = (u32)rt_gfx_text_length(m, a1, a0, d0);
             break;
         case -210:                               /* MrgCop(view) - the game patches this list */
             rt_gfx_mrg_cop(m, arg32(sp, 0));
@@ -924,6 +1132,17 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo)
                 }
                 result = 0;
             }
+            break;
+        default:
+            goto unhandled;
+        }
+    }
+    else if (lib == 16)                          /* diskfont.library */
+    {
+        switch (lvo)
+        {
+        case -30:                                /* OpenDiskFont(textAttr=A0) */
+            result = rt_font_open_disk(m, a0);
             break;
         default:
             goto unhandled;

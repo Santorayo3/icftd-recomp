@@ -88,11 +88,49 @@ internal static class Program
                 Console.WriteLine($"extracted {files} files to {args[2]}");
                 return 0;
             }
+            case "fontinfo":
+            {
+                // Lists an Amiga font file: hunk kinds, sizes and exported symbols.
+                foreach (string path in args.Skip(1))
+                {
+                    byte[] bytes = File.ReadAllBytes(path);
+                    Console.WriteLine($"== {Path.GetFileName(path)}: {bytes.Length} bytes");
+                    if (bytes.Length >= 2 && bytes[0] == 0x0F && bytes[1] == 0x00)
+                    {
+                        int n = (bytes[2] << 8) | bytes[3];
+                        Console.WriteLine($"   font contents, {n} entry(ies)");
+                        for (int i = 0; i < n; i++)
+                        {
+                            int o = 4 + i * 260;
+                            if (o + 260 > bytes.Length) break;
+                            string name = System.Text.Encoding.ASCII.GetString(bytes, o, 256).TrimEnd('\0');
+                            int ySize = (bytes[o + 256] << 8) | bytes[o + 257];
+                            Console.WriteLine($"   [{i}] '{name}' ySize {ySize} style {bytes[o + 258]} flags 0x{bytes[o + 259]:x2}");
+                        }
+                        continue;
+                    }
+                    var h = new Hunk(bytes);
+                    h.Parse(0);
+                    Console.WriteLine($"   {h.Segments.Count} hunk(s), image {h.ImageSize} bytes");
+                    foreach (var s in h.Segments)
+                    {
+                        Console.WriteLine($"   #{s.Index} {s.Kind,-4} {s.Size,6} bytes at {s.Address:x}  {s.Symbols.Count} symbol(s)");
+                        foreach (var (off, name) in s.Symbols)
+                            Console.WriteLine($"        {off,6:x}  {name}");
+                        Console.Write("      head:");
+                        for (int k = 0; k < Math.Min(48, s.Data.Length); k++) Console.Write($" {s.Data[k]:x2}");
+                        Console.WriteLine();
+                        for (int k = 0; k + 3 < s.Data.Length; k++)
+                            if (s.Data[k] == 0x0F && (s.Data[k + 1] == 0x02 || s.Data[k + 1] == 0x00))
+                                Console.WriteLine($"      magic 0F{s.Data[k + 1]:x2} at {k:x}");
+                    }
+                }
+                return 0;
+            }
             case "bank":
             {
                 var bank = new ResBank(File.ReadAllBytes(args[1]));
-                Console.WriteLine($"entries={bank.Entries.Count} base={bank.Base}");
-                foreach (var e in bank.Entries)
+                Console.WriteLine($"entries={bank.Entries.Count} base={bank.Base}");                foreach (var e in bank.Entries)
                     Console.WriteLine($"  {e.Name,-16} off {e.Offset,8} size {e.Size,8} abs {e.AbsOffset,8}  head {Head(bank.Data, e.AbsOffset)}");
                 return 0;
             }

@@ -31,6 +31,18 @@ enum { EMU_VP_COLORMAP = 4, EMU_VP_WIDTH = 0x18, EMU_VP_HEIGHT = 0x1A, EMU_VP_RA
 enum { EMU_RI_BITMAP = 4 };
 enum { EMU_CM_COUNT = 0x0F, EMU_CM_TABLE = 0x10 };
 
+/* RastPort fields this port keeps, so the drawing calls behave like the library's: the pen and the
+ * draw mode belong to the port, not to the module. */
+enum { EMU_RP_FG = 29, EMU_RP_BG = 30, EMU_RP_MODE = 32, EMU_RP_FONT = 36,
+       EMU_RP_CPX = 40, EMU_RP_CPY = 42 };
+
+/* TextFont (graphics/text.h), the layout a disk font file ships. */
+enum {
+    EMU_TF_TYPE = 8, EMU_TF_Y_SIZE = 20, EMU_TF_X_SIZE = 24, EMU_TF_BASELINE = 26,
+    EMU_TF_LO_CHAR = 32, EMU_TF_HI_CHAR = 33, EMU_TF_CHAR_DATA = 34, EMU_TF_MODULO = 38,
+    EMU_TF_CHAR_LOC = 40, EMU_TF_CHAR_SPACE = 44, EMU_TF_CHAR_KERN = 48
+};
+
 void rt_gfx_reset(rt_machine *m);
 
 /* InitBitMap(bitmap, depth, width, height) */
@@ -50,6 +62,14 @@ void rt_gfx_area_end(rt_machine *m, u32 rp);
 void rt_gfx_set_apen(rt_machine *m, u32 rp, u32 pen);
 void rt_gfx_set_bpen(rt_machine *m, u32 rp, u32 pen);
 void rt_gfx_set_drmd(rt_machine *m, u32 rp, u32 mode);
+/* SetFont(rp, font) - Text and TextLength read the glyphs back out of this TextFont. */
+void rt_gfx_set_font(rt_machine *m, u32 rp, u32 font);
+/* Move(rp,x,y) / Draw(rp,x,y) / Text(rp,string,count) / TextLength(...) - the cursor lives in the
+ * RastPort, as the engine's own draw calls expect. */
+void rt_gfx_move(rt_machine *m, u32 rp, s32 x, s32 y);
+void rt_gfx_line(rt_machine *m, u32 rp, s32 x, s32 y);
+u32  rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count);   /* returns pixels plotted */
+s32  rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count);
 /* LoadRGB4(vp, table, count) / SetRGB4(vp, index, r, g, b) fill the ColorMap palette. */
 void rt_gfx_load_rgb4(rt_machine *m, u32 vp, u32 table, u32 count);
 void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b);

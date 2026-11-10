@@ -488,7 +488,7 @@ static u32 os_call(cpu_t *c, rt_machine *m, int lib, s32 lvo)
     }
     sp0 = sp;
     m->pc = c->pc;
-    return rt_os_call(m, sp0, c->a[1], lib, lvo);
+    return rt_os_call(m, sp0, c->a[0], c->a[1], c->d[0], c->d[1], lib, lvo);
 }
 
 void rc_os_call(cpu_t *c, rt_machine *m, int lib, s32 lvo)

@@ -122,6 +122,8 @@ typedef struct rt_machine
     void *callLog;                        /* --calllog: one line per library call, for bisection */
     long    traceFrom, traceTo;           /* --trace: print insns/budget/pc in this window */
     int     tickLog;                      /* --ticklog: one line per vblank, entry and exit */
+    int     textLog;                      /* --textlog: dump the RastPort/BitMap a Text call gets */
+    int     textSeen;
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
     void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */
@@ -136,11 +138,10 @@ int  rt_load_image(rt_machine *m, u32 addr, const char *path);
 u32  rt_library_new(rt_machine *m);
 
 /* --- the seam between the machine model and whatever executes the code ---------------------
- * rt_os_call is one library call: the stack pointer and A1 are plain values, the result is
- * returned, and m->waitVblank / m->stop / m->osUnhandled report what the caller must do next.
- * The Musashi front end (src\oracle) and the translated dispatcher (src\recomp) both call it and
- * differ only in how they get `sp`, `a1` and the return address. */
-u32  rt_os_call(rt_machine *m, u32 sp, u32 a1, int lib, s32 lvo);
+ * rt_os_call is one library call: the stack pointer plus the registers the Amiga library ABI
+ * uses for arguments (graphics primitives take them in A0/A1/D0/D1, exec and dos on the stack),
+ * and the result is returned. */
+u32  rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s32 lvo);
 /* Opens the call log: "<insns> <lib> <lvo>" per library call, so two runs can be compared where
  * their instruction counts start to differ. */
 int  rt_calllog_open(rt_machine *m, const char *path);
@@ -148,6 +149,8 @@ int  rt_calllog_open(rt_machine *m, const char *path);
 void rt_ram_snapshot(rt_machine *m, const char *path);
 /* "<insns> <budget> <pc>" when the run is inside the --trace window. */
 void rt_trace(rt_machine *m, u32 pc);
+/* Dumps a graphics.library Text call's pointers and pens (development aid). */
+void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
 /* A shim asked for the next vertical blank: end this frame without executing anything. */
 void rt_request_vblank(rt_machine *m);
 /* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */

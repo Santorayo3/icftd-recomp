@@ -163,6 +163,18 @@ static u32 bm_of_rastport(rt_machine *m, u32 rp)
     return rp != 0 ? rt_read32(&m->mem, rp + 4) : 0;
 }
 
+/* Pen and draw mode live in the port, the way the library keeps them: SetAPen(rp, pen) writes
+ * rp->FgPen and every primitive reads it back. */
+static u8 pen_of(rt_machine *m, u32 rp)
+{
+    return rp != 0 ? (u8)rt_read8(&m->mem, rp + EMU_RP_FG) : gfx->fgPen;
+}
+
+static u8 mode_of(rt_machine *m, u32 rp)
+{
+    return rp != 0 ? (u8)rt_read8(&m->mem, rp + EMU_RP_MODE) : gfx->drMd;
+}
+
 static void plot(rt_machine *m, u32 bm, int x, int y, u8 pen)
 {
     int bpr = bm_bpr(m, bm), depth = bm_depth(m, bm), p;
@@ -190,7 +202,7 @@ void rt_gfx_rect_fill(rt_machine *m, u32 rp, s32 x1, s32 y1, s32 x2, s32 y2)
     if (y2 >= bm_rows(m, bm)) y2 = bm_rows(m, bm) - 1;
     for (y = y1; y <= y2; y++)
         for (x = x1; x <= x2; x++)
-            plot(m, bm, (int)x, (int)y, gfx->fgPen);
+            plot(m, bm, (int)x, (int)y, pen_of(m, rp));
 }
 
 void rt_gfx_area_move(rt_machine *m, u32 rp, s32 x, s32 y)
@@ -257,7 +269,7 @@ void rt_gfx_area_end(rt_machine *m, u32 rp)
             if (xb < 0 || xa >= bm_bpr(m, bm) * 8) continue;
             if (xa < 0) xa = 0;
             if (xb >= bm_bpr(m, bm) * 8) xb = bm_bpr(m, bm) * 8 - 1;
-            for (x = xa; x <= xb; x++) plot(m, bm, (int)x, (int)y, gfx->fgPen);
+            for (x = xa; x <= xb; x++) plot(m, bm, (int)x, (int)y, pen_of(m, rp));
         }
     }
     gfx->areaCount = 0;
@@ -265,20 +277,227 @@ void rt_gfx_area_end(rt_machine *m, u32 rp)
 
 void rt_gfx_set_apen(rt_machine *m, u32 rp, u32 pen)
 {
-    (void)m; (void)rp;
+    if (rp != 0) rt_write8(&m->mem, rp + EMU_RP_FG, pen);
     gfx->fgPen = (u8)pen;
 }
 
 void rt_gfx_set_bpen(rt_machine *m, u32 rp, u32 pen)
 {
-    (void)m; (void)rp;
+    if (rp != 0) rt_write8(&m->mem, rp + EMU_RP_BG, pen);
     gfx->bgPen = (u8)pen;
 }
 
 void rt_gfx_set_drmd(rt_machine *m, u32 rp, u32 mode)
 {
-    (void)m; (void)rp;
+    if (rp != 0) rt_write8(&m->mem, rp + EMU_RP_MODE, mode);
     gfx->drMd = (u8)mode;
+}
+
+void rt_gfx_set_font(rt_machine *m, u32 rp, u32 font)
+{
+    if (rp != 0) rt_write32(&m->mem, rp + EMU_RP_FONT, font);
+}
+
+/* --- text ----------------------------------------------------------------------------------
+ * Text draws with the glyphs of the RastPort's TextFont, which diskfont.library built from the
+ * game's own font file (machine.c, OpenDiskFont). A glyph is a rectangle in the font's CharData
+ * bitmap: row r of character c is the tf_CharLoc[c] bit offset, in the row that starts tf_Modulo
+ * bytes on from CharData + r*tf_Modulo. The cursor is the *baseline* point: the top row of the
+ * glyph sits at cp_y - tf_Baseline, and the next character starts at cp_x + tf_CharSpace[c].
+ *
+ * Without a font the port cannot draw text at all; the built-in 5x7 stand-in below only keeps a
+ * diagnostic readable when a font file is missing. */
+static const char g_fontIndex[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,'?!-:;()/";
+static const u8 g_fontGlyphs[][7] =
+{
+    { 0x00,0x00,0x00,0x00,0x00,0x00,0x00 },   /* space */
+    { 0x0E,0x11,0x11,0x1F,0x11,0x11,0x11 },   /* A */
+    { 0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E },   /* B */
+    { 0x0E,0x11,0x10,0x10,0x10,0x11,0x0E },   /* C */
+    { 0x1E,0x11,0x11,0x11,0x11,0x11,0x1E },   /* D */
+    { 0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F },   /* E */
+    { 0x1F,0x10,0x10,0x1E,0x10,0x10,0x10 },   /* F */
+    { 0x0E,0x11,0x10,0x17,0x11,0x11,0x0F },   /* G */
+    { 0x11,0x11,0x11,0x1F,0x11,0x11,0x11 },   /* H */
+    { 0x0E,0x04,0x04,0x04,0x04,0x04,0x0E },   /* I */
+    { 0x07,0x02,0x02,0x02,0x02,0x12,0x0C },   /* J */
+    { 0x11,0x12,0x14,0x18,0x14,0x12,0x11 },   /* K */
+    { 0x10,0x10,0x10,0x10,0x10,0x10,0x1F },   /* L */
+    { 0x11,0x1B,0x15,0x15,0x11,0x11,0x11 },   /* M */
+    { 0x11,0x19,0x15,0x13,0x11,0x11,0x11 },   /* N */
+    { 0x0E,0x11,0x11,0x11,0x11,0x11,0x0E },   /* O */
+    { 0x1E,0x11,0x11,0x1E,0x10,0x10,0x10 },   /* P */
+    { 0x0E,0x11,0x11,0x11,0x15,0x12,0x0D },   /* Q */
+    { 0x1E,0x11,0x11,0x1E,0x14,0x12,0x11 },   /* R */
+    { 0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E },   /* S */
+    { 0x1F,0x04,0x04,0x04,0x04,0x04,0x04 },   /* T */
+    { 0x11,0x11,0x11,0x11,0x11,0x11,0x0E },   /* U */
+    { 0x11,0x11,0x11,0x11,0x11,0x0A,0x04 },   /* V */
+    { 0x11,0x11,0x11,0x15,0x15,0x1B,0x11 },   /* W */
+    { 0x11,0x11,0x0A,0x04,0x0A,0x11,0x11 },   /* X */
+    { 0x11,0x11,0x0A,0x04,0x04,0x04,0x04 },   /* Y */
+    { 0x1F,0x01,0x02,0x04,0x08,0x10,0x1F },   /* Z */
+    { 0x0E,0x11,0x13,0x15,0x19,0x11,0x0E },   /* 0 */
+    { 0x04,0x0C,0x04,0x04,0x04,0x04,0x0E },   /* 1 */
+    { 0x0E,0x11,0x01,0x02,0x04,0x08,0x1F },   /* 2 */
+    { 0x1F,0x02,0x04,0x02,0x01,0x11,0x0E },   /* 3 */
+    { 0x02,0x06,0x0A,0x12,0x1F,0x02,0x02 },   /* 4 */
+    { 0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E },   /* 5 */
+    { 0x06,0x08,0x10,0x1E,0x11,0x11,0x0E },   /* 6 */
+    { 0x1F,0x01,0x02,0x04,0x08,0x08,0x08 },   /* 7 */
+    { 0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E },   /* 8 */
+    { 0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C },   /* 9 */
+    { 0x00,0x00,0x00,0x00,0x00,0x0C,0x0C },   /* . */
+    { 0x00,0x00,0x00,0x00,0x0C,0x04,0x08 },   /* , */
+    { 0x04,0x04,0x00,0x00,0x00,0x00,0x00 },   /* ' */
+    { 0x0E,0x11,0x01,0x02,0x04,0x00,0x04 },   /* ? */
+    { 0x04,0x04,0x04,0x04,0x04,0x00,0x04 },   /* ! */
+    { 0x00,0x00,0x00,0x1F,0x00,0x00,0x00 },   /* - */
+    { 0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00 },   /* : */
+    { 0x00,0x0C,0x0C,0x00,0x0C,0x04,0x08 },   /* ; */
+    { 0x02,0x04,0x08,0x08,0x08,0x04,0x02 },   /* ( */
+    { 0x08,0x04,0x02,0x02,0x02,0x04,0x08 },   /* ) */
+    { 0x01,0x02,0x02,0x04,0x08,0x08,0x10 }    /* / */
+};
+#define FONT_W 5
+#define FONT_H 7
+#define FONT_ADVANCE 6
+
+static const u8 *glyph_of(rt_machine *m, u32 text, u32 index)
+{
+    int ch = (int)rt_read8(&m->mem, text + index);
+    const char *p;
+
+    if (ch >= 'a' && ch <= 'z') ch -= 32;
+    p = ch != 0 ? strchr(g_fontIndex, ch) : 0;
+    return p != 0 ? g_fontGlyphs[p - g_fontIndex] : g_fontGlyphs[0];
+}
+
+void rt_gfx_move(rt_machine *m, u32 rp, s32 x, s32 y)
+{
+    rt_write16(&m->mem, rp + EMU_RP_CPX, (u16)x);
+    rt_write16(&m->mem, rp + EMU_RP_CPY, (u16)y);
+}
+
+void rt_gfx_line(rt_machine *m, u32 rp, s32 x, s32 y)
+{
+    u32 bm = bm_of_rastport(m, rp);
+    s32 x0 = (s16)rt_read16(&m->mem, rp + EMU_RP_CPX), y0 = (s16)rt_read16(&m->mem, rp + EMU_RP_CPY);
+    s32 dx = x > x0 ? x - x0 : x0 - x, dy = y > y0 ? y - y0 : y0 - y, sx, sy, err;
+    u8 fg = pen_of(m, rp);
+
+    if (bm == 0) return;
+    sx = x0 < x ? 1 : -1;
+    sy = y0 < y ? 1 : -1;
+    err = dx - dy;
+    for (;;)
+    {
+        plot(m, bm, (int)x0, (int)y0, fg);
+        if (x0 == x && y0 == y) break;
+        if (2 * err > -dy) { err -= dy; x0 += sx; }
+        if (2 * err < dx) { err += dx; y0 += sy; }
+    }
+    rt_write16(&m->mem, rp + EMU_RP_CPX, (u16)x);
+    rt_write16(&m->mem, rp + EMU_RP_CPY, (u16)y);
+}
+
+/* Draws one character of the port's font and returns its advance. */
+static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baseline, u8 fg, u8 bg,
+                     u8 mode)
+{
+    int ySize = (int)rt_read16(&m->mem, font + EMU_TF_Y_SIZE);
+    int lo    = (int)rt_read8(&m->mem, font + EMU_TF_LO_CHAR);
+    int hi    = (int)rt_read8(&m->mem, font + EMU_TF_HI_CHAR);
+    int base  = (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
+    u32 data  = rt_read32(&m->mem, font + EMU_TF_CHAR_DATA);
+    int mod   = (int)rt_read16(&m->mem, font + EMU_TF_MODULO);
+    u32 loc   = rt_read32(&m->mem, font + EMU_TF_CHAR_LOC);
+    u32 space = rt_read32(&m->mem, font + EMU_TF_CHAR_SPACE);
+    u32 kern  = rt_read32(&m->mem, font + EMU_TF_CHAR_KERN);
+    int i = (ch >= lo && ch <= hi) ? ch - lo : -1;
+    u32 bits = i >= 0 ? (u32)rt_read16(&m->mem, loc + (u32)i * 4u) : 0u;   /* bit offset in row */
+    int  w   = i >= 0 ? (int)rt_read16(&m->mem, loc + (u32)i * 4u + 2u) : 0;  /* glyph width */
+    int top  = (int)baseline - base;                             /* cp_y is the baseline */
+    int row, col;
+
+    if (i >= 0 && data != 0 && mod > 0 && loc != 0)
+    {
+        for (row = 0; row < ySize; row++)
+            for (col = 0; col < w; col++)
+            {
+                u32 bit = bits + (u32)col;
+                u8 byte = (u8)rt_read8(&m->mem, data + (u32)row * (u32)mod + (bit >> 3));
+                int on = (byte >> (7 - (bit & 7u))) & 1;
+                if (mode == 1)                       /* JAM2: the background shows through */
+                {
+                    plot(m, bm, (int)(x + col), top + row, on ? fg : bg);
+                }
+                else if (on)                         /* JAM1 */
+                {
+                    plot(m, bm, (int)(x + col), top + row, fg);
+                }
+            }
+    }
+    if (space == 0) return (s32)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
+    return (s32)rt_read16(&m->mem, space + (u32)(i >= 0 ? i : 0) * 2u) +
+           (kern != 0 && i >= 0 ? (s32)rt_read16(&m->mem, kern + (u32)i * 2u) : 0);
+}
+
+u32 rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count)
+{
+    u32 bm = bm_of_rastport(m, rp);
+    u32 font = rt_read32(&m->mem, rp + EMU_RP_FONT);
+    s32 x = (s16)rt_read16(&m->mem, rp + EMU_RP_CPX), y = (s16)rt_read16(&m->mem, rp + EMU_RP_CPY);
+    u8 fg = pen_of(m, rp), bg = (u8)rt_read8(&m->mem, rp + EMU_RP_BG), mode = mode_of(m, rp);
+    u32 i, plotted = 0;
+
+    if (bm == 0) return 0;
+    for (i = 0; i < count; i++)
+    {
+        int ch = (int)rt_read8(&m->mem, text + i);
+
+        if (font != 0)
+        {
+            x += put_glyph(m, bm, font, ch, x, y, fg, bg, mode);
+            plotted++;
+            continue;
+        }
+        {   /* no font open: the stand-in keeps the geometry, not the typeface */
+            const u8 *g = glyph_of(m, text, i);
+            int row, col;
+            for (row = 0; row < FONT_H; row++)
+                for (col = 0; col < FONT_W; col++)
+                    if ((g[row] & (1u << (FONT_W - 1 - col))) != 0)
+                    {
+                        plot(m, bm, (int)(x + col), (int)(y + row), fg);
+                        plotted++;
+                    }
+            x += FONT_ADVANCE;
+        }
+    }
+    rt_write16(&m->mem, rp + EMU_RP_CPX, (u16)x);
+    return plotted;
+}
+
+s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
+{
+    u32 font = rp != 0 ? rt_read32(&m->mem, rp + EMU_RP_FONT) : 0;
+    int lo, hi, xSize;
+    u32 space, i;
+    s32 n = 0;
+
+    if (font == 0) return (s32)count * FONT_ADVANCE;
+    lo = (int)rt_read8(&m->mem, font + EMU_TF_LO_CHAR);
+    hi = (int)rt_read8(&m->mem, font + EMU_TF_HI_CHAR);
+    xSize = (int)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
+    space = rt_read32(&m->mem, font + EMU_TF_CHAR_SPACE);
+    for (i = 0; i < count; i++)
+    {
+        int ch = (int)rt_read8(&m->mem, text + i);
+        n += (space != 0 && ch >= lo && ch <= hi)
+                 ? (s32)rt_read16(&m->mem, space + (u32)(ch - lo) * 2u) : (s32)xSize;
+    }
+    return n;
 }
 
 /* --- palette ------------------------------------------------------------------------------- */
