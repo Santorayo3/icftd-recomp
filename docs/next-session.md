@@ -199,3 +199,95 @@ still reachable through the interpreter, so it is a coverage gap, not a crash.
 * The integrated terminal dies after heavy use, and `Measure-Command`/pipelines can swallow a
   native command's output. One VS Code task, `dev: run`, executes `out\dev-run.ps1`; edit that
   script per job instead of adding tasks.
+
+---
+
+# Session 2 (2026-11-10, later) — the translated build *plays*
+
+Whole-program parity is proven (120M instructions, 36,721 frame records byte-identical,
+`tools\gate.ps1` 4/4, fixtures 225 verified / 19 skipped / 0 failed). The session then made the
+translated build playable and fixed the first real screen.
+
+## What the playable build is
+
+```
+play.cmd                                  # --run at --speed 30 (explicit --speed wins)
+bin\win32\icftd-recomp.exe <img> <insns> [--window|--run] [--speed N] [--input file] [--shot f.bmp]
+```
+
+Intro runs ~592 vblanks (12 s), the YES/NO prompt appears, arrow keys move the selection, fire
+confirms. Audio is still silent (only unmodelled device).
+
+## The four fixes that made screens work
+
+| defect | cause | fix |
+|---|---|---|
+| text drawn with an invented typeface | `diskfont OpenDiskFont` answered 0, so `SetFont` never ran | `rt_font_open_disk()` in `machine.c`: FontContents lookup, hunk font load, segment copied to the heap with `CharData/CharLoc/CharSpace/CharKern` relocated like the loader; `Text`/`TextLength` draw from `tf_CharData` with `tf_Modulo` rows, baseline at `cp_y` |
+| a screen drawn once and then waiting never appeared | presenting only on `LoadView` | `oracle_tick` presents `m->view` every vblank (both front ends share it) |
+| every interpolation the engine computed started from garbage | maths through `mathffp` (`SPFix/SPFlt/SPDiv`) answered 0 | FFP implemented in `machine.c` (sign, 7-bit excess-64 exponent bits 30..24, 24-bit fraction; `1.0 = 0x40800000`) |
+| prompt invisible; arrows did nothing | see below | see below |
+
+## Font file format (measured, both sizes agree)
+
+`fonts/newnem.font` = FontContents: `0x0F00`, entry count, then 260-byte `{name[256], ySize, style,
+flags}`. `fonts/newnem/<size>` = hunk file, `HUNK_CODE`, one segment; the `TextFont` inside it is
+found by `ln_Type == 12`, `tf_YSize`, sane `tf_LoChar/HiChar`, and four in-segment offsets:
+
+```
+0x03A TextFont   YSize@20 XSize@24 Baseline@26 LoChar@32 HiChar@33
+                 CharData@34 Modulo@38 CharLoc@40 CharSpace@44 CharKern@48
+7  px: CharData 110  Modulo 40  CharLoc 390  CharSpace 806  CharKern 1014  (segment 1224)
+10 px: CharData 110  Modulo 40  CharLoc 510  CharSpace 926  CharKern 1134  (segment 1344)
+```
+
+CharLoc is `{bit offset, width}` per character; glyph rows are `Modulo` bytes apart.
+
+## Display/palette pipeline (all measured, no screenshots)
+
+* the engine never touches `COLORxx`, `BPLxPT`, `COP1LC` or sprites — the blitter is the only
+  directly programmed device, and `blitter.c` already models it. Colours and bitplane pointers live
+  **only** in the copper list our `MrgCop` builds. A copper interpreter is *not* needed.
+* live colour table = `0x298D2` (runtime `0x2D8D2`). Writers: `FUN_000007F4` panel open
+  (pc `0x4842`, 5 words), `FUN_0001d96e` fade stepper (pc `0x219C2`, all 32 words **every** frame,
+  final black copy at pc `0x21996`). The fade target `0x29964` is written with zeros by the engine
+  at frame 30 and never re-armed — so the intro fades to black and, 11 frames after the panel
+  opens, it wipes the panel's five colours. That overlap is invariant to the vblank model
+  (141,875 and 35,469 instructions/frame tested) and identical in the interpreter.
+* **workaround in place** (`display.c`, `rt_gfx_present`): while the panel-open flag `0x21F5A` is
+  set, palette entries 0..4 are taken from the engine's own panel palette `0x21F50`
+  (`0222 088C 0226 0559 0E00`). Documented as a port-side patch for that fade collision.
+
+## Input decoding (`FUN_00011bf0`, the routine every menu polls)
+
+```
+JOY0DAT ($DFF00C):  bit1 = up, bit9 = down
+                    bit0 ^ bit1 = left, bit8 ^ bit9 = right      => idle is all zero
+$BFE001 bit7 = /FIRE (active low)
+result: 0x24A80 = vertical (+1/-1), 0x24A82 = horizontal (+1/-1), 0x24A84 = "fire released"
+```
+
+The prompt's selection is the **horizontal** value: `-1` = YES (line redrawn in pen 4), `+1` = NO.
+The host used to feed an active-low `0xFFFF` with bits 0..3, which the poller read as a permanent
+"down"; `src\host\main.c` now emits the pattern above. Verified through the engine: right →
+`0x24A82 = -1`. A frame-indexed `--input` script owns fire and joystick while one is loaded.
+
+## Cheap state-based screen checks (use these, never a screenshot)
+
+```
+bin\win32\icftd-recomp.exe <img> <insns> [--input f] --shot out\f.bmp   # raster + palette + pen histogram
+bin\win32\icftd-oracle.exe <img> 0x4000 <insns> --data export          # prints the library census
+```
+
+The census is the first thing to run after any shim change: it must say
+`0 kind(s) answered with 0` (49 kinds, 4,716 calls today). A remaining 0 silently corrupts engine
+control flow — that is how the font and the FFP maths were found.
+
+## Next steps, revised
+
+1. Play on: reach the map/first scene with fire and triage the next screen the same way
+   (`--shot` histogram first, then the engine's own tables before any drawing code).
+2. Audio: `AUD0/1/3 VOL+DAT+PER` are written directly (~1,300 writes/20M instructions). Nothing else.
+3. The 24 untranslated functions + 1 refused block (26,645 interpreted instructions per 21M run —
+   coverage gap, not a crash) once a screen depends on one of them.
+4. Keep the rule: machine state is evidence; frames and pictures are not.
+
