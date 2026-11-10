@@ -55,6 +55,17 @@ static void step_budget(cpu_t *c, rt_machine *m)
         if (rc_stopJump != 0) longjmp(*rc_stopJump, 1);
         return;
     }
+    /* A WaitTOF/WaitBOVP ended the last frame early: the rest of that frame is idle, so this
+     * instruction belongs to the NEXT frame and its budget slot is the idle one. Exactly what
+     * oracle_run does - the request is seen between two instructions, the counter is forced to 0
+     * and the decrement below turns it negative. Spending the slot in rc_os_call_a6 instead put
+     * the straddling instruction on the old frame's side and shifted every later vblank by one
+     * instruction (measured: frame 487, tick 5308877 vs the oracle's 5308878). */
+    if (m->waitVblank && rc_frame_hook != 0)
+    {
+        m->waitVblank = 0;
+        m->insnToTick = 0;
+    }
     if (rc_frame_hook != 0 && --m->insnToTick < 0) rc_frame_hook(c, m);
     m->insns++;
 }
@@ -524,16 +535,12 @@ void rc_os_call_a6(cpu_t *c, rt_machine *m, s32 lvo)
 
     /* WaitTOF/WaitBOVP end the frame here: the oracle's run loop sees the request between two
      * instructions and runs the vblank before the next one, so the translated stream must too.
-     * A bisection stop lands between the call and that vblank, as it does in the interpreter. */
+     * A bisection stop lands between the call and that vblank, as it does in the interpreter.
+     * The vblank itself is run by the next instruction's budget step (step_budget), not here:
+     * the request is a flag the loop consumes, exactly like oracle_run's `if (m->waitVblank)`. */
     if (rc_stopAt > 0 && m->insns >= rc_stopAt)
     {
         m->stop = 1;
         return;
-    }
-    if (m->waitVblank && rc_frame_hook != 0)
-    {
-        m->waitVblank = 0;
-        m->insnToTick = 0;
-        rc_frame_hook(c, m);
     }
 }
