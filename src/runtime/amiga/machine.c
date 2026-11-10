@@ -38,13 +38,23 @@ static int rt_volume_index(const char *name)
     return -1;
 }
 
-static void rt_path_after_volume(const char *name, char *out, int max)
+/* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3
+ * name a disk; any other volume is one of HDesert's assigns to the game directory, so it gets
+ * vol = -1 and the file is searched on every disk. A name without a volume keeps its whole
+ * string as the path. */
+static void rt_split_name(const char *name, char *out, int max, int *vol)
 {
     const char *p = name;
     int i = 0;
 
-    while (*p != 0 && *p != ':' && *p != '/') p++;
-    if (*p != 0) p++;
+    *vol = -1;
+    while (*p != 0 && *p != ':' && *p != '/' && *p != '\\') p++;
+    if (*p == ':')
+    {
+        *vol = rt_volume_index(name);
+        p++;
+    }
+    else p = name;                              /* no volume: the path starts at the name */
     while (*p == '/' || *p == '\\') p++;
     while (*p != 0 && i < max - 1)
     {
@@ -55,23 +65,109 @@ static void rt_path_after_volume(const char *name, char *out, int max)
     out[i] = 0;
 }
 
+/* A bare name is relative to whatever CurrentDir last selected: FUN_000002f4 locks "Desert2:",
+ * makes it current and then opens "desert.dat". Without this the name lost its whole string to
+ * the volume scan and every such open failed. */
+static int rt_full_name(rt_machine *m, const char *name, char *out, int max)
+{
+    const char *p = name;
+    int i = 0;
+
+    if (name == 0 || name[0] == 0) return 0;
+    if (strchr(name, ':') == 0 && name[0] != '/' && name[0] != '\\' && m->cwd[0] != 0)
+    {
+        while (m->cwd[i] != 0 && i < max - 2)
+        {
+            out[i] = m->cwd[i];
+            i++;
+        }
+        /* "Desert2:" already ends a path; "Desert1:sfx" does not. */
+        if (i > 0 && out[i - 1] != ':' && out[i - 1] != '\\' && out[i - 1] != '/')
+            out[i++] = '\\';
+        while (*p == '/' || *p == '\\') p++;
+    }
+    while (*p != 0 && i < max - 1) out[i++] = *p++;
+    out[i] = 0;
+    return i > 0;
+}
+
+/* Does the object exist? Lock is the engine's existence test - it decides whether to prompt for
+ * another disk - so it has to answer truthfully. */
+static int rt_exists(rt_machine *m, const char *name)
+{
+    char full[256], rel[192], path[256];
+    int vol, d;
+
+    if (!rt_full_name(m, name, full, (int)sizeof(full))) return 0;
+    rt_split_name(full, rel, (int)sizeof(rel), &vol);
+    if (rel[0] == 0)                            /* a volume on its own: its directory */
+    {
+        if (vol >= 0) sprintf(path, "%s\\disk%d", m->dataDir, vol + 1);
+        else          sprintf(path, "%s", m->dataDir);
+        return plat_path_kind(path) == PLAT_PATH_DIR;
+    }
+    if (vol >= 0)
+    {
+        sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
+        if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
+    }
+    sprintf(path, "%s\\%s", m->dataDir, rel);
+    if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
+    for (d = 1; d <= 3; d++)                    /* the file may sit on another disk */
+    {
+        sprintf(path, "%s\\disk%d\\%s", m->dataDir, d, rel);
+        if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
+    }
+    return 0;
+}
+
+/* --- dos.library locks -------------------------------------------------------------------- */
+static rt_lock *rt_lock_of(rt_machine *m, u32 token)
+{
+    int i;
+
+    if (token == 0) return 0;
+    for (i = 0; i < EMU_MAX_LOCKS; i++)
+        if (m->locks[i].token == token) return &m->locks[i];
+    return 0;
+}
+
+/* Returns a lock token, or 0 when the object does not exist (AmigaDOS answers 0 there). */
+static u32 rt_lock_new(rt_machine *m, const char *name)
+{
+    int i, len = 0;
+
+    if (!rt_exists(m, name)) return 0;
+    for (i = 0; i < EMU_MAX_LOCKS; i++)
+        if (m->locks[i].token == 0) break;
+    if (i >= EMU_MAX_LOCKS) i = 0;              /* the engine keeps the locks it makes */
+    m->locks[i].token = 0x10000u + (u32)i;
+    while (name[len] != 0 && len < (int)sizeof(m->locks[i].name) - 1)
+    {
+        m->locks[i].name[len] = name[len];
+        len++;
+    }
+    m->locks[i].name[len] = 0;
+    return m->locks[i].token;
+}
+
 static u32 rt_alloc(u32 bytes);
 static void rt_add_server(rt_machine *m, u32 code, u32 data);
 static void rt_remove_server(rt_machine *m, u32 code);
 
 static u32 rt_file_open(rt_machine *m, const char *name)
 {
-    char path[256], rel[192];
+    char path[256], rel[192], full[256];
     int vol, slot;
 
     for (slot = 0; slot < EMU_MAX_FILES; slot++)
         if (m->files[slot].f == 0) break;
     if (slot >= EMU_MAX_FILES) return 0;
 
-    rt_path_after_volume(name, rel, (int)sizeof(rel));
+    if (!rt_full_name(m, name, full, (int)sizeof(full))) return 0;
+    rt_split_name(full, rel, (int)sizeof(rel), &vol);
     if (rel[0] == 0) return 0;
 
-    vol = rt_volume_index(name);
     if (vol >= 0)
         sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
     else
@@ -135,7 +231,9 @@ static u32 rt_file_read(rt_machine *m, u32 fh, u32 buf, u32 len)
 
     if (f == 0 || buf == 0 || len == 0) return 0;
     if (len > f->size - f->pos) len = f->size - f->pos;
-    if (len > 0x8000u) len = 0x8000u;
+    /* The engine loads a whole pack with one Read and does not loop on a short return, so this
+     * has to be able to satisfy the full request. */
+    if (len > 0x100000u) len = 0x100000u;
     if (len == 0) return 0;
 
     got = plat_read((plat_file *)f->f, f->pos, m->mem.base + buf, len);
@@ -488,6 +586,14 @@ void rt_build_process(rt_machine *m)
     rt_write8(&m->mem, EMU_CLI_ADDR + 0x14, 20);      /* cli_FailLevel */
     rt_write32(&m->mem, proc + 0xAC, (EMU_CLI_ADDR + 4u) >> 2);   /* pr_CLI */
     rt_write8(&m->mem, EMU_ARGS_ADDR, 0);             /* no arguments */
+
+    /* A real machine hands a process recycled stack memory, never zeroes. That matters: the 8SVX
+     * chunk scanner FUN_00009ae0 tests an uninitialised frame word (`tst.w -0xE(A5)`, bytes
+     * 4E55FFF2 4A6DFFF2 at 0x9AE0) before its first read and only scans when it is non-zero. With
+     * zeroed RAM it returns "not found" at once, the VHDR parse shifts by 4 and the sample rate
+     * reads 0. Fill the block so that path is deterministic instead of depending on our heap. */
+    memset(m->mem.base + EMU_SYS_BASE + 0x200u, 0xA5,
+           (size_t)(EMU_STACK_TOP - 4u - (EMU_SYS_BASE + 0x200u)));
 
     /* AbsExecBase. Written here and not only in rt_init, because the image load comes in between:
      * at base 0 the flattened image covers address 4, so the load would replace it. */
@@ -971,22 +1077,53 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
                      * MovE script lookup failed with no error path to show for it. */
                     s32 base = (mode < 0) ? 0 : (mode == 0 ? (s32)f->pos : (s32)f->size);
                     s32 np = base + off;
+                    u32 old = f->pos;
                     if (np < 0) np = 0;
                     f->pos = (u32)np;
-                    result = (u32)np;
+                    /* AmigaDOS returns the PREVIOUS position, not the new one: the engine reads
+                     * a file's size as Seek(f,0,END) then Seek(f,0,START). */
+                    result = old;
                     if (m->dosLog)
-                        printf("     dos.Seek(%06lX,%ld,%ld) = %ld\n", (unsigned long)arg32(sp, 0),
-                               (long)off, (long)mode, (long)result);
+                        printf("     dos.Seek(%06lX,%ld,%ld) = %ld (now %ld)\n",
+                               (unsigned long)arg32(sp, 0), (long)off, (long)mode,
+                               (long)result, (long)np);
                 }
             }
             break;
         case -126:                               /* CurrentDir(lock) */
-            result = 0xFFFFFFFFu;                /* DOSTRUE */
+            {
+                /* Returns the previous directory's lock, which the caller then unlocks. The
+                 * engine locks a volume, makes it current and only then opens bare file names,
+                 * so the name has to be remembered here, not in the lock token. */
+                rt_lock *l = rt_lock_of(m, arg32(sp, 0));
+                u32 prev = m->cwdLock;
+                if (l != 0)
+                {
+                    strcpy(m->cwd, l->name);
+                    m->cwdLock = l->token;
+                }
+                result = prev;
+                if (m->dosLog)
+                    printf("     dos.CurrentDir(%06lX) -> \"%s\" (previous %06lX)\n",
+                           (unsigned long)arg32(sp, 0), m->cwd, (unsigned long)prev);
+            }
             break;
-        case -84:                                /* Lock(name, mode) - no directory support yet */
-            result = 1;                          /* a token the game can hand back */
+        case -84:                                /* Lock(name, mode) */
+            {
+                char name[192];
+                read_cstr(arg32(sp, 0), name, (int)sizeof(name));
+                result = rt_lock_new(m, name);   /* 0 when the object does not exist */
+                if (m->dosLog || result == 0)
+                    printf("     dos.Lock(\"%s\",%ld) = %06lX from %06lX\n", name,
+                           (long)arg32(sp, 1), (unsigned long)result, (unsigned long)ret);
+            }
             break;
-        case -90:                                /* UnLock */
+        case -90:                                /* UnLock(lock) */
+            {
+                rt_lock *l = rt_lock_of(m, arg32(sp, 0));
+                /* The selected directory keeps its own reference, as a real process does. */
+                if (l != 0 && l->token != m->cwdLock) l->token = 0;
+            }
             result = 0;
             break;
         case -192:                               /* DateStamp(ds) */

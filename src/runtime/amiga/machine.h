@@ -71,6 +71,15 @@ typedef struct rt_gfx_state{
     u32   addr;                           /* the FileHandle block; dos returns addr>>2 */
 } rt_file;
 
+/* One dos.library Lock. The engine locks a volume, calls CurrentDir on it and then opens the
+ * bare file name, so the name has to stay reachable from the lock token. */
+#define EMU_MAX_LOCKS 16
+typedef struct rt_lock
+{
+    u32  token;                           /* 0 = free */
+    char name[160];
+} rt_lock;
+
 /* --- the chipset blitter (blit.c) --------------------------------------------------------- */
 /* The engine's compositor writes these registers directly rather than calling BltBitMap. */
 typedef struct rt_blitter
@@ -104,6 +113,9 @@ typedef struct rt_machine
     int     ringPos;
     const char *dataDir;                  /* where the extracted disk folders live */
     rt_file files[EMU_MAX_FILES];        /* dos.library handles */
+    rt_lock locks[EMU_MAX_LOCKS];        /* dos.library locks (Lock/CurrentDir/UnLock) */
+    char    cwd[160];                     /* the name CurrentDir last selected */
+    u32     cwdLock;                      /* that lock's token */
     u32     frame;                        /* 50 Hz tick counter */
     long    insns;
     u32     pc;                           /* current PC, reported by the CPU front end */
