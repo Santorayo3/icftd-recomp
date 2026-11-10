@@ -14,7 +14,7 @@ You supply the images; the tools decode them locally.
 | phase | what it is | state |
 |---|---|---|
 | **A — run the original** | The real `dshell` image executing on the vendored Musashi 68000 core plus our own Amiga OS shims. This is the **oracle** (`src\oracle` + `src\runtime`): it is how we learn what the program actually does, and where the fixtures come from. A tool — the shipped game links no 68000 core. | **Done, frozen.** Boots, plays the intro, runs the game loop: 30M instructions reach frame 5823 with a raster presented every frame, 0 dropped blit writes. OS surface measured every run: **49 library calls used, 45 kinds implemented, 4 answered with 0** (`OpenDiskFont`, three IEEE single-precision ops). |
-| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Not started — this is the work.** |
+| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Started.** `recomp` emits 726 of 750 functions (102,920 of 121,362 bytes) plus 21 blocks of code the model does not cover; the other 24 are reported with the construct that is missing. The differential is green: **235 of 244 fixtures verified, 9 skipped, 0 failed**. |
 
 ## How correctness is decided
 
@@ -66,7 +66,9 @@ powershell -ExecutionPolicy Bypass -File tools\oracle-run.ps1 -Insns 30000000 -P
 
 Flags worth knowing: `--progress` (counters every million steps), `--lvo` (library-call census),
 `--press <frame>` / `--release <frame>` (scripted fire), `--doslog`, `--dfflog`, `--watch <pc>`,
-`--dump <prefix> [n]` (BMP per presented raster), `--state` / `--input` (Phase B harness, to build).
+`--dump <prefix> [n]` (BMP per presented raster), `--state <prefix> [--every n] [--ram <frames>]`
+(canonical machine-state dump per frame boundary) and `--input <script>` (frame-indexed input:
+`<frame> <fire> <joy0> [<joy1>]`). `tools\state-diff.ps1 -A -B` compares two dumps.
 
 ## Layout
 
@@ -82,7 +84,7 @@ src/runtime            the machine the game code runs on: memory, library shims,
                        structures, blitter, planar display, platform   (ships)
 src/oracle             the 68000 front end: executes the original binary so it can be measured
                        and mined for fixtures   (dev tool, links Musashi)
-src/recomp             (to be created) the translated functions and fn_table
+src/recomp            the translated functions (`fn_<addr>.c`), `fn_table.c`, `cpu_t`, the fixture replay
 third_party/musashi    MIT 68000 core
 tools/                 see below
 docs/                  architecture, plan, program model
@@ -92,9 +94,12 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
+| `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
+| `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
+| `tools\recomp-fixtures.ps1` | translated vs interpreted, one fixture at a time (`-Rand n` for random fields) |
 | `tools\musashi-gen.ps1` | generate Musashi's `m68kops.c` (git-ignored) |
 | `tools\extract.ps1` | disk images → `export\` |
 | `tools\ghidra\run-ghidra.ps1` | decompile + export the program model (`-ModelOnly`, `-Annotated`) |

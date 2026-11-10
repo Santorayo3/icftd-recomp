@@ -108,6 +108,7 @@ typedef struct rt_machine
     int     osUnhandled;                  /* the last rt_os_call hit a shim we do not implement */
     int     trace;
     u8      fireDown;                     /* /FIRE on CIA-A PRA ($BFE001 bit 7), active low */
+    u16     joy0, joy1;                   /* JOY0DAT/JOY1DAT, raw and active low (0xFFFF = idle) */
     u32     pressAt;                      /* frame to press /FIRE on (0 = never), for tools */
     u32     releaseAt;                    /* frame to release it again (0 = never) */
     int     stop;                         /* tool hook: set to end the run (window closed) */
@@ -150,6 +151,9 @@ void rt_lvo_report(void);
 /* Which library base (0..EMU_LIB_SLOTS-1) the address `pc` falls inside, or -1. The bases are
  * machine state; mapping a code address onto one is how the front end recognises `jsr (lvo,A6)`. */
 int  rt_library_of(rt_machine *m, u32 pc, s32 *lvo);
+
+/* Which library *base value* this is (the translated `jmp (d16,A6)` knows A6, not the PC), or -1. */
+int  rt_lib_index(rt_machine *m, u32 base);
 
 extern rt_machine *rt_current;
 

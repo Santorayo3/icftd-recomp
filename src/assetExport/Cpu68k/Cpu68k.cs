@@ -1048,10 +1048,13 @@ public sealed class Cpu68k
 
         // Unmodelled slot: run what the stub points at. Engine-internal slots then execute
         // their real code, and Amiga library wrappers end in jmp (d16,A6), which is caught
-        // by DoLibraryCall and named by its LVO.
+        // by DoLibraryCall and named by its LVO. The stub is *called*, so its rts returns to the
+        // jsr's caller (`_depth` mirrors that; without it the run stopped one frame deep and the
+        // differential compared a truncated execution against a complete one).
         call.Note = "passthrough";
         _stubs.Add(call);
         PC = call.Target;
+        _depth++;
     }
 
     /// <summary>A call into an Amiga library: the displacement is the LVO, so no base is needed.</summary>

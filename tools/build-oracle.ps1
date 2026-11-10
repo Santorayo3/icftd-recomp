@@ -35,6 +35,8 @@ $args = @(
     # the oracle: the 68000 front end
     ('"' + (Join-Path $root 'src\oracle\main.c') + '"'),
     ('"' + (Join-Path $root 'src\oracle\cpu.c') + '"'),
+    ('"' + (Join-Path $root 'src\oracle\state.c') + '"'),
+    ('"' + (Join-Path $root 'src\oracle\input.c') + '"'),
     # the runtime: everything the shipped game also links
     ('"' + (Join-Path $rt 'amiga\memory.c') + '"'),
     ('"' + (Join-Path $rt 'amiga\machine.c') + '"'),

@@ -1,0 +1,40 @@
+/* fn_00021400 - 12 byte(s), 3 instruction(s).
+ * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
+ * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
+#include "cpu.h"
+
+void fn_00021400(cpu_t *c, rt_machine *m)
+{
+    u32 t0;
+
+    switch (c->pc)
+    {
+    case 0x00021400u: goto L_21400;
+    case 0x00021404u: goto L_21404;
+    case 0x00021408u: goto L_21408;
+    default:
+        rc_bad_entry(c, m);
+        return;
+    }
+
+L_21400:
+    /* 00021400   4  move.l (4,A7),D1 */
+    c->pc = 0x00021400u;
+    t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
+    rc_d_set(c, 1, RC_L, t0);
+    rc_set_nzvc(c, t0, RC_L);
+
+L_21404:
+    /* 00021404   4  movea.l (3af8,A4),A6 */
+    c->pc = 0x00021404u;
+    t0 = rc_rd32(c, m, (c->a[4] + 0x3af8u));
+    c->a[6] = t0;
+
+L_21408:
+    /* 00021408   4  jmp (ffffffdc,A6) */
+    c->pc = 0x00021408u;
+    rc_os_call_a6(c, m, -36);
+    return;
+
+}

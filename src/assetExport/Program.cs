@@ -30,6 +30,8 @@ internal static class Program
                 return Cpu68k.Harness.Rrun(args);
             case "rleaf":
                 return Cpu68k.Harness.Rleaf(args);
+            case "recomp":
+                return Recomp.RecompCommand.Run(args);
             case "export":
             {
                 string diskDir = args[1], outDir = args[2];

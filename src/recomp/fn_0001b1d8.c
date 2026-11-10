@@ -1,0 +1,102 @@
+/* fn_0001b1d8 - 36 byte(s), 10 instruction(s).
+ * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
+ * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
+#include "cpu.h"
+
+void fn_0001b1d8(cpu_t *c, rt_machine *m)
+{
+    u32 t0;
+
+    switch (c->pc)
+    {
+    case 0x0001b1d8u: goto L_1B1D8;
+    case 0x0001b1dcu: goto L_1B1DC;
+    case 0x0001b1e0u: goto L_1B1E0;
+    case 0x0001b1e4u: goto L_1B1E4;
+    case 0x0001b1e8u: goto L_1B1E8;
+    case 0x0001b1ecu: goto L_1B1EC;
+    case 0x0001b1f0u: goto L_1B1F0;
+    case 0x0001b1f4u: goto L_1B1F4;
+    case 0x0001b1f8u: goto L_1B1F8;
+    case 0x0001b1fau: goto L_1B1FA;
+    default:
+        rc_bad_entry(c, m);
+        return;
+    }
+
+L_1B1D8:
+    /* 0001b1d8   4  link.w A5,#0 */
+    c->pc = 0x0001b1d8u;
+    c->a[7] -= 4;
+    rc_wr32(c, m, c->a[7], c->a[5]);
+    c->a[5] = c->a[7];
+
+L_1B1DC:
+    /* 0001b1dc   4  move.w #40,-(A7) */
+    c->pc = 0x0001b1dcu;
+    t0 = 0x00000040u;
+    c->a[7] -= 2u;
+    rc_wr16(c, m, c->a[7], t0);
+    rc_set_nzvc(c, t0, RC_W);
+
+L_1B1E0:
+    /* 0001b1e0   4  move.w #3,-(A7) */
+    c->pc = 0x0001b1e0u;
+    t0 = 0x00000003u;
+    c->a[7] -= 2u;
+    rc_wr16(c, m, c->a[7], t0);
+    rc_set_nzvc(c, t0, RC_W);
+
+L_1B1E4:
+    /* 0001b1e4   4  move.l (2268,A4),-(A7) */
+    c->pc = 0x0001b1e4u;
+    t0 = rc_rd32(c, m, (c->a[4] + 0x2268u));
+    c->a[7] -= 4u;
+    rc_wr32(c, m, c->a[7], t0);
+    rc_set_nzvc(c, t0, RC_L);
+
+L_1B1E8:
+    /* 0001b1e8   4  move.w (2254,A4),-(A7) */
+    c->pc = 0x0001b1e8u;
+    t0 = rc_rd16(c, m, (c->a[4] + 0x2254u));
+    c->a[7] -= 2u;
+    rc_wr16(c, m, c->a[7], t0);
+    rc_set_nzvc(c, t0, RC_W);
+
+L_1B1EC:
+    /* 0001b1ec   4  move.l (2244,A4),-(A7) */
+    c->pc = 0x0001b1ecu;
+    t0 = rc_rd32(c, m, (c->a[4] + 0x2244u));
+    c->a[7] -= 4u;
+    rc_wr32(c, m, c->a[7], t0);
+    rc_set_nzvc(c, t0, RC_L);
+
+L_1B1F0:
+    /* 0001b1f0   4  jsr (ffff80d4,A4) */
+    c->pc = 0x0001b1f0u;
+    /* vector 35 */
+    rc_push32(c, m, 0x0001b1f4u);
+    rc_depth++;
+    c->pc = 0x00009c3cu;
+    return;
+
+L_1B1F4:
+    /* 0001b1f4   4  lea (e,A7),A7 */
+    c->pc = 0x0001b1f4u;
+    c->a[7] = (c->a[7] + 0xeu);
+
+L_1B1F8:
+    /* 0001b1f8   2  unlk A5 */
+    c->pc = 0x0001b1f8u;
+    c->a[7] = c->a[5];
+    c->a[5] = rc_rd32(c, m, c->a[7]);
+    c->a[7] += 4;
+
+L_1B1FA:
+    /* 0001b1fa   2  rts */
+    c->pc = 0x0001b1fau;
+    rc_ret(c, m);
+    return;
+
+}

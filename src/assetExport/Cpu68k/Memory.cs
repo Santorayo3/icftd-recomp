@@ -179,25 +179,40 @@ public sealed class Memory
         var ranges = new List<MemRange>();
         if (!_armed) return ranges;
 
-        int start = -1;
+        /* Only saved pages have a "before" image, so a run must not span a page that was never
+         * written: its bytes are not part of the change, and bridging them prints half the address
+         * space as modified. Runs that do continue across adjacent saved pages stay one range. */
+        int start = -1, end = -1;
         for (int page = 0; page < PageCount; page++)
         {
-            if (!_saved[page]) continue;
             int baseAddr = page << PageShift;
+            if (!_saved[page])
+            {
+                if (start >= 0)
+                {
+                    AddRange(ranges, start, end - start);
+                    start = -1; end = -1;
+                    if (ranges.Count >= maxRanges) return ranges;
+                }
+                continue;
+            }
             for (int i = 0; i < PageSize; i++)
             {
                 int a = baseAddr + i;
-                bool differs = _ram[a] != _before[a];
-                if (differs && start < 0) start = a;
-                if (!differs && start >= 0)
+                if (_ram[a] != _before[a])
                 {
-                    AddRange(ranges, start, a - start);
-                    start = -1;
+                    if (start < 0) start = a;
+                    end = a + 1;
+                }
+                else if (start >= 0)
+                {
+                    AddRange(ranges, start, end - start);
+                    start = -1; end = -1;
                     if (ranges.Count >= maxRanges) return ranges;
                 }
             }
         }
-        if (start >= 0 && ranges.Count < maxRanges) AddRange(ranges, start, Size - start);
+        if (start >= 0 && ranges.Count < maxRanges) AddRange(ranges, start, end - start);
         return ranges;
     }
 

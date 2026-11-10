@@ -24,6 +24,10 @@ param(
     [switch]$Trace,
     [switch]$Progress,
     [switch]$DffLog,
+    [string]$State = '',
+    [int]$StateEvery = 1,
+    [string]$Ram = '',
+    [string]$InputScript = '',
     [int]$TimeoutSec = 60,
     [string[]]$EmuArgs = @()
 )
@@ -44,6 +48,9 @@ if ($DffLog)   { $emuArgs += '--dfflog' }
 if ($Window)   { $emuArgs += '--window' }
 if ($Watch -ne '') { $emuArgs += @('--watch', $Watch) }
 if ($Dump -ne '') { $emuArgs += @('--dump', $Dump, "$DumpCount", '--every', "$DumpEvery") }
+if ($State -ne '') { $emuArgs += @('--state', $State, '--every', "$StateEvery") }
+if ($Ram -ne '')   { $emuArgs += @('--ram', $Ram) }
+if ($InputScript -ne '') { $emuArgs += @('--input', $InputScript) }
 $emuArgs += $EmuArgs
 
 # Rebuild when a core source is newer than the exe: running a stale binary has already cost a
@@ -59,7 +66,7 @@ foreach ($f in @((Join-Path $root 'src\oracle\main.c'), (Join-Path $root 'src\or
 if ($newest -and $newest.LastWriteTime -gt (Get-Item $exe).LastWriteTime)
 {
     "rebuilding (source newer: $($newest.Name))"
-    & (Join-Path $PSScriptRoot 'build-emu.ps1') | Out-Host
+    & (Join-Path $PSScriptRoot 'build-oracle.ps1') | Out-Host
     if (-not (Test-Path $exe)) { throw 'build failed' }
 }
 

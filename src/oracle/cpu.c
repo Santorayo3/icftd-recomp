@@ -12,6 +12,8 @@
 #include "blitter.h"
 #include "display.h"
 #include "m68k.h"
+#include "input.h"
+#include "state.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -60,8 +62,10 @@ unsigned int m68k_read_memory_16(unsigned int a)
      * outside the RAM block" noise came from. */
     /* The joystick and pot inputs are active low and read all-ones when nothing is plugged in.
      * Returning the last write (zero) told the intro that up, down, left, right and both buttons
-     * were held for the whole run, and its input/menu loop never settled. */
-    if (a == 0xDFF00Cu || a == 0xDFF00Eu) return 0xFFFFu;    /* JOY0DAT / JOY1DAT */
+     * were held for the whole run, and its input/menu loop never settled. The words come from the
+     * machine so a frame-indexed input script (--input) can move them. */
+    if (a == 0xDFF00Cu) return rt_current->joy0;             /* JOY0DAT */
+    if (a == 0xDFF00Eu) return rt_current->joy1;             /* JOY1DAT */
     if (a == 0xDFF016u) return 0xFFFFu;                      /* POTINP */
     if (a >= 0xDFF000u && a < 0xDFF100u) return rt_current->custom[(a - 0xDFF000u) >> 1];
     if (!ram_has(a + 1u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
@@ -241,6 +245,8 @@ static void oracle_tick(rt_machine *m)
     if (m->pressAt != 0)
         m->fireDown = (m->frame >= m->pressAt && (m->releaseAt == 0 || m->frame < m->releaseAt))
                           ? 1u : 0u;
+    /* A frame-indexed script overrides the press/release convenience: it is the reproducible form. */
+    input_apply(m);
     /* The tool's once-per-frame hook. Input must be read here and not on a present, because the
      * game spends long stretches with nothing to present (it waits for /FIRE inside the menus) and
      * a window that is only pumped when a raster is shown stops responding exactly then. */
@@ -257,6 +263,8 @@ static void oracle_tick(rt_machine *m)
     }
     oracle_restore_regs(save);
     m->inTick = 0;
+    /* Frame boundary: the state between two frames, after this frame's interrupt servers. */
+    state_sample(m);
 }
 
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */

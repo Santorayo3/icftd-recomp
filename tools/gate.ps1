@@ -3,12 +3,14 @@
     One command that answers "is the project green?".
 
 .DESCRIPTION
-    The gate for the *recompilation*: it builds the two things the project is made of and proves
-    that the oracle still agrees with its own fixtures.
+    The gate for the *recompilation*: it builds what the project is made of and proves that the
+    oracle still agrees with its own fixtures and that the translated functions agree with the
+    interpreter.
 
-      1. exporter build        (src\assetExport - the formats AND the 68000 interpreter/oracle)
+      1. exporter build        (src\assetExport - the formats AND the 68000 interpreter)
       2. oracle build          (tools\build-oracle.ps1 - the original binary on Musashi + runtime)
       3. interpreter fixtures  (tools\harness-check.ps1 - hand-checked 68k cases + SMS planes)
+      4. translated vs interpreted (tools\recomp-fixtures.ps1 - src\recomp against rcmp, per fixture)
 
     There is no pixel, frame, capture or reference-image step, by design: correctness is decided by
     machine state (translated function == interpreted function, interpreted build == translated
@@ -68,6 +70,7 @@ if (-not $Quick) {
 }
 
 Step 'interpreter fixtures' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\harness-check.ps1 }
+Step 'translated vs interpreted (fixtures)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\recomp-fixtures.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String

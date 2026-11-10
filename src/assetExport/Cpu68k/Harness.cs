@@ -244,12 +244,16 @@ internal static class Harness
     }
 
     /// <summary>
-    /// Binary form of a fixture for the C test harness (tools\ctest): magic "ICFX", version,
-    /// entry, flags, D0-D7/A0-A7, then the memory blocks. Little-endian, host only.
+    /// Binary form of a fixture for the C replay (src\recomp\check.c): magic "ICFX", version 2,
+    /// entry, flags, D0-D7/A0-A7, SR, the memory blocks and the stub models. Little-endian, host
+    /// only.
     ///
     /// The bytes are read back out of the CPU, not out of the fixture, so randomised ranges
     /// (--rand/--seed) are part of the state the C side replays. Only declared and randomised
     /// ranges are emitted: a port that needs more memory must ask the fixture for it.
+    ///
+    /// The stub models are resolved from vector-slot numbers to (library, LVO), because the
+    /// translated code calls `rt_os_call()` with an LVO and never sees a slot.
     /// </summary>
     static void WriteRawFixture(string path, uint entry, Cpu68k cpu, Fixture fixture)
     {
@@ -276,11 +280,12 @@ internal static class Harness
 
         using var w = new BinaryWriter(File.Create(path));
         w.Write(new byte[] { (byte)'I', (byte)'C', (byte)'F', (byte)'X' });
-        w.Write(1u);
+        w.Write(2u);
         w.Write(entry);
-        w.Write(0u);
+        w.Write(fixture.AllowOsStubs ? 1u : 0u);      // bit 0: an unmodelled call answers 0
         for (int i = 0; i < 8; i++) w.Write(cpu.D[i]);
         for (int i = 0; i < 8; i++) w.Write(cpu.A[i]);
+        w.Write(cpu.SR);
         w.Write((uint)merged.Count);
         foreach (var (addr, len) in merged)
         {
@@ -288,6 +293,86 @@ internal static class Harness
             w.Write((uint)len);
             w.Write(cpu.Mem.Slice(addr, len));
         }
+
+        var stubs = ResolveStubs(cpu.Mem, fixture);
+        w.Write((uint)stubs.Count);
+        foreach (var s in stubs)
+        {
+            w.Write((uint)s.Lib);
+            w.Write((uint)s.Lvo);
+            w.Write((uint)s.Slot);
+            w.Write(s.Model);
+            w.Write(s.Base);
+        }
+    }
+
+    /// <summary>One stub model as the C replay needs it: a library index and an LVO.</summary>
+    readonly record struct RawStub(int Lib, int Lvo, int Slot, uint Model, uint Base);
+
+    const uint ExecBaseGlobal = 0x0002_D54A;      // A4+0x3AF4, where the cstart stores AbsExecBase
+
+    /// <summary>Model ids understood by src\recomp\check.c.</summary>
+    static uint ModelId(string model) => model.ToLowerInvariant() switch
+    {
+        "allocmem" => 1,
+        "freemem" => 2,
+        _ => 0,
+    };
+
+    static List<RawStub> ResolveStubs(Memory mem, Fixture fixture)
+    {
+        var list = new List<RawStub>();
+        foreach (var kv in fixture.Stubs)
+        {
+            var resolved = kv.Key >= 0 ? ResolveSlot(mem, kv.Key) : (kv.Key, 0);
+            list.Add(new RawStub(resolved.Item2, resolved.Item1, kv.Key, ModelId(kv.Value.Model), kv.Value.Base));
+        }
+        if (fixture.BasicOs)
+        {
+            // --os-basic models these six exec calls; a fixture saved from such a run names none.
+            foreach (var (lvo, model) in new[] { (-132, "zero"), (-138, "zero"), (-204, "zero"),
+                                                (-216, "zero"), (-198, "allocmem"), (-210, "freemem") })
+            {
+                if (fixture.Stubs.ContainsKey(lvo)) continue;
+                uint b = model == "zero" ? 0u : 0x0080_0000u;   // StubModels.BasicHeap
+                list.Add(new RawStub(0, lvo, -1, ModelId(model), b));
+            }
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Follows a vector-table slot to the library call it makes: stub -> (jmp chain) -> a thunk
+    /// that loads a library base into A6 and tails into `jmp (d16,A6)`. Returns (lvo, lib); lib is
+    /// -1 when the base is not one this build knows (the C side then matches on the LVO alone).
+    /// </summary>
+    static (int lvo, int lib) ResolveSlot(Memory mem, int slot)
+    {
+        if (slot < 0 || slot >= Cpu68k.VectorTableSlots) return (0, -1);
+        uint at = Cpu68k.VectorTableBase + (uint)slot * 6;
+        if (mem.Read16(at) != 0x4EF9) return (0, -1);          // the stubs are `jmp abs.l`
+        uint target = mem.Read32(at + 2);
+        uint baseGlobal = 0;
+
+        for (int hop = 0; hop < 8; hop++)
+        {
+            ushort op = mem.Read16(target);
+            if (op == 0x4EFA) { target = target + 2 + (uint)(short)mem.Read16(target + 2); continue; }
+            if (op == 0x4EF9) { target = mem.Read32(target + 2); continue; }
+            if (op == 0x4CEE || op == 0x4CEF) { target += 6; continue; }        // movem.l (d16,SP),mask
+            if (op == 0x2C6C) { baseGlobal = Fixture.DefaultA4 + (uint)(short)mem.Read16(target + 2); target += 4; continue; }
+            if (op == 0x2C7C) { baseGlobal = (uint)(short)mem.Read16(target + 2); target += 4; continue; }
+            if (op == 0x206F || op == 0x226F) { target += 4; continue; }        // movea.l (d16,SP),A0/A1
+            if (op == 0x202F || op == 0x222F) { target += 4; continue; }        // move.l (d16,SP),D0/D1
+            if (op == 0x4EEE || op == 0x4EAE)                                    // jmp/jsr (d16,A6)
+            {
+                int lvo = (short)mem.Read16(target + 2);
+                int lib = (baseGlobal == 0 || baseGlobal == ExecBaseGlobal) ? 0 : -1;
+                return (lvo, lib);
+            }
+            return (0, -1);
+        }
+        return (0, -1);
     }
 
     static string Shorten(string message)

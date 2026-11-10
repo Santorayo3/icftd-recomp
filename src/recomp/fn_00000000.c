@@ -1,0 +1,24 @@
+/* fn_00000000 - 6 byte(s), 1 instruction(s).
+ * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
+ * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
+#include "cpu.h"
+
+void fn_00000000(cpu_t *c, rt_machine *m)
+{
+
+    switch (c->pc)
+    {
+    case 0x00000000u: goto L_0;
+    default:
+        rc_bad_entry(c, m);
+        return;
+    }
+
+L_0:
+    /* 00000000   6  jmp (00020918).l */
+    c->pc = 0x00000000u;
+    c->pc = 0x00020918u;
+    return;
+
+}

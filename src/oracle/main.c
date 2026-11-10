@@ -16,6 +16,8 @@
 #include "machine.h"
 #include "cpu.h"
 #include "display.h"
+#include "input.h"
+#include "state.h"
 
 #define DEFAULT_ENTRY EMU_ENTRY
 #define DEFAULT_A4    EMU_A4
@@ -65,7 +67,6 @@ static u32  g_window;
 static char g_prefix[192];
 static int  g_shots, g_shotIndex, g_every = 1;
 static u8   g_fireShown;          /* last fire state reported, so a press prints once */
-
 /* Once per emulated frame: read the keyboard, follow the window, and hold the machine to 50 Hz.
  *
  * This has to be independent of presenting. The intro presents every frame, but the menus do not -
@@ -126,6 +127,10 @@ int main(int argc, char **argv)
     u32 pressAt = 0;
     u32 releaseAt = 0;
     const char *dataDir = "export";
+    const char *statePrefix = 0;
+    const char *ramFrames = 0;
+    const char *inputPath = 0;
+    int stateEvery = 1;
 
     /* Unbuffered: a run that is killed (see tools\emu-run.ps1) must still leave its log behind up to
      * the point where it stopped, otherwise a hang is indistinguishable from a crash. */
@@ -157,17 +162,28 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--press") == 0 && i + 1 < argc) { pressAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--release") == 0 && i + 1 < argc) { releaseAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
+        if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) { statePrefix = argv[++i]; continue; }
+        if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) { ramFrames = argv[++i]; continue; }
+        if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
+        /* --every is shared: "--dump <prefix> n --every k" already means "every k-th raster". */
+        if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (image == 0) { image = argv[i]; continue; }
         if (!haveEntry) { entry = (u32)strtoul(argv[i], 0, 0); haveEntry = 1; continue; }
         insns = strtol(argv[i], 0, 0);
     }
     if (image == 0)
     {
-        printf("usage: icftd-emu <image> [<entry>] [<insns>] [--trace] [--watch <pc>] [--data <dir>]\n"
-               "                [--window] [--run] [--dump <prefix> [frames]] [--press <frame>]\n"
-               "  --run   open the window and play until it is closed (space = fire, esc = quit)\n");
+        printf("usage: icftd-oracle <image> [<entry>] [<insns>] [--trace] [--watch <pc>] [--data <dir>]\n"
+               "                    [--window] [--run] [--dump <prefix> [frames]] [--press <frame>]\n"
+               "                    [--state <prefix> [--every <n>] [--ram <frame[,frame...]>]]\n"
+               "                    [--input <script>]\n"
+               "  --run    open the window and play until it is closed (space = fire, esc = quit)\n"
+               "  --state  canonical machine-state dump per frame (registers, custom regs, RAM hash)\n"
+               "  --ram    also write the full RAM image at these frames (<prefix>.<frame>.ram)\n"
+               "  --input  frame-indexed input script: \"<frame> <fire> <joy0> [<joy1>]\"\n");
         return 1;
     }
+    if (inputPath != 0 && !input_load(inputPath)) return 1;
     if (runForever)
     {
         insns = 2000000000L;                 /* ended by the window, not by a budget */
@@ -199,9 +215,17 @@ int main(int argc, char **argv)
 
     oracle_boot(entry, DEFAULT_A4);
     {
-        u32 pc = oracle_run(&m, insns);
+        u32 pc;
         s32 lvo = 0;
-        int lib = rt_library_of(&m, pc, &lvo);
+        int lib;
+
+        if (statePrefix != 0)
+        {
+            if (!state_open(statePrefix, stateEvery, ramFrames)) { rt_shutdown(&m); return 1; }
+            state_sample(&m);                       /* frame 0: the state the program starts from */
+        }
+        pc = oracle_run(&m, insns);
+        lib = rt_library_of(&m, pc, &lvo);
 
         printf("emu: stopped at 0x%lx after %ld instruction(s)\n", (unsigned long)pc,
                (unsigned long)m.insns);
@@ -218,6 +242,7 @@ int main(int argc, char **argv)
         if (m.mem.bad != 0) printf("emu: %lu access(es) outside the RAM block\n",
                                    (unsigned long)m.mem.bad);
         printf("emu: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
+        state_close();
         rc = 0;
     }
 
