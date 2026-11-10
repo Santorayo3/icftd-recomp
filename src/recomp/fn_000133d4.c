@@ -1,6 +1,7 @@
 /* fn_000133d4 - 92 byte(s), 25 instruction(s).
  * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
  * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.
  * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
 #include "cpu.h"
 
@@ -10,31 +11,31 @@ void fn_000133d4(cpu_t *c, rt_machine *m)
 
     switch (c->pc)
     {
-    case 0x000133d4u: goto L_133D4;
-    case 0x000133d8u: goto L_133D8;
-    case 0x000133dcu: goto L_133DC;
-    case 0x000133e0u: goto L_133E0;
-    case 0x000133e2u: goto L_133E2;
-    case 0x000133e6u: goto L_133E6;
-    case 0x000133e8u: goto L_133E8;
-    case 0x000133ecu: goto L_133EC;
-    case 0x000133f0u: goto L_133F0;
-    case 0x000133f4u: goto L_133F4;
-    case 0x000133f8u: goto L_133F8;
-    case 0x000133fcu: goto L_133FC;
-    case 0x00013400u: goto L_13400;
-    case 0x00013402u: goto L_13402;
-    case 0x00013406u: goto L_13406;
-    case 0x0001340au: goto L_1340A;
-    case 0x0001340eu: goto L_1340E;
-    case 0x00013412u: goto L_13412;
-    case 0x00013416u: goto L_13416;
-    case 0x0001341au: goto L_1341A;
-    case 0x0001341eu: goto L_1341E;
-    case 0x00013422u: goto L_13422;
-    case 0x00013426u: goto L_13426;
-    case 0x0001342cu: goto L_1342C;
-    case 0x0001342eu: goto L_1342E;
+    case RC_ADDR(0x000133d4u): goto L_133D4;
+    case RC_ADDR(0x000133d8u): goto L_133D8;
+    case RC_ADDR(0x000133dcu): goto L_133DC;
+    case RC_ADDR(0x000133e0u): goto L_133E0;
+    case RC_ADDR(0x000133e2u): goto L_133E2;
+    case RC_ADDR(0x000133e6u): goto L_133E6;
+    case RC_ADDR(0x000133e8u): goto L_133E8;
+    case RC_ADDR(0x000133ecu): goto L_133EC;
+    case RC_ADDR(0x000133f0u): goto L_133F0;
+    case RC_ADDR(0x000133f4u): goto L_133F4;
+    case RC_ADDR(0x000133f8u): goto L_133F8;
+    case RC_ADDR(0x000133fcu): goto L_133FC;
+    case RC_ADDR(0x00013400u): goto L_13400;
+    case RC_ADDR(0x00013402u): goto L_13402;
+    case RC_ADDR(0x00013406u): goto L_13406;
+    case RC_ADDR(0x0001340au): goto L_1340A;
+    case RC_ADDR(0x0001340eu): goto L_1340E;
+    case RC_ADDR(0x00013412u): goto L_13412;
+    case RC_ADDR(0x00013416u): goto L_13416;
+    case RC_ADDR(0x0001341au): goto L_1341A;
+    case RC_ADDR(0x0001341eu): goto L_1341E;
+    case RC_ADDR(0x00013422u): goto L_13422;
+    case RC_ADDR(0x00013426u): goto L_13426;
+    case RC_ADDR(0x0001342cu): goto L_1342C;
+    case RC_ADDR(0x0001342eu): goto L_1342E;
     default:
         rc_bad_entry(c, m);
         return;
@@ -42,14 +43,14 @@ void fn_000133d4(cpu_t *c, rt_machine *m)
 
 L_133D4:
     /* 000133d4   4  link.w A5,#0 */
-    c->pc = 0x000133d4u;
+    c->pc = RC_ADDR(0x000133d4u);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
 
 L_133D8:
     /* 000133d8   4  move.w #3e8,-(A7) */
-    c->pc = 0x000133d8u;
+    c->pc = RC_ADDR(0x000133d8u);
     t0 = 0x000003e8u;
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -57,58 +58,58 @@ L_133D8:
 
 L_133DC:
     /* 000133dc   4  jsr (ffff8188,A4) */
-    c->pc = 0x000133dcu;
+    c->pc = RC_ADDR(0x000133dcu);
     /* vector 65 */
-    rc_push32(c, m, 0x000133e0u);
+    rc_push32(c, m, RC_ADDR(0x000133e0u));
     rc_depth++;
-    c->pc = 0x00016ee0u;
+    c->pc = RC_ADDR(0x00016ee0u);
     return;
 
 L_133E0:
     /* 000133e0   2  addq.w #2,A7 */
-    c->pc = 0x000133e0u;
+    c->pc = RC_ADDR(0x000133e0u);
     c->a[7] += rc_ext(0x00000002u, RC_W);
 
 L_133E2:
     /* 000133e2   4  cmp.w #1f4,D0 */
-    c->pc = 0x000133e2u;
+    c->pc = RC_ADDR(0x000133e2u);
     t0 = 0x000001f4u;
     t1 = rc_d_get(c, 0, RC_W);
     rc_cmp(c, RC_W, t1, t0);
 
 L_133E6:
     /* 000133e6   2  bge 00013402 */
-    c->pc = 0x000133e6u;
+    c->pc = RC_ADDR(0x000133e6u);
     if (rc_cond(c, 12)) goto L_13402;
 
 L_133E8:
     /* 000133e8   4  move.w (8,A5),D0 */
-    c->pc = 0x000133e8u;
+    c->pc = RC_ADDR(0x000133e8u);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_133EC:
     /* 000133ec   4  muls.w #16,D0 */
-    c->pc = 0x000133ecu;
+    c->pc = RC_ADDR(0x000133ecu);
     t0 = 0x00000016u;
     rc_muls(c, 0, t0);
 
 L_133F0:
     /* 000133f0   4  lea (fffff386,A4),A0 */
-    c->pc = 0x000133f0u;
+    c->pc = RC_ADDR(0x000133f0u);
     c->a[0] = (c->a[4] - 0xc7au);
 
 L_133F4:
     /* 000133f4   4  move.w (a,A5),D1 */
-    c->pc = 0x000133f4u;
+    c->pc = RC_ADDR(0x000133f4u);
     t0 = rc_rd16(c, m, (c->a[5] + 0xau));
     rc_d_set(c, 1, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_133F8:
     /* 000133f8   4  add.w #32,D1 */
-    c->pc = 0x000133f8u;
+    c->pc = RC_ADDR(0x000133f8u);
     t0 = 0x00000032u;
     t1 = rc_d_get(c, 1, RC_W);
     t2 = t1 + t0;
@@ -117,7 +118,7 @@ L_133F8:
 
 L_133FC:
     /* 000133fc   4  move.w D1,(0,A0,D0.w) */
-    c->pc = 0x000133fcu;
+    c->pc = RC_ADDR(0x000133fcu);
     t0 = rc_d_get(c, 1, RC_W);
     t4 = c->d[0];
     rc_wr16(c, m, (c->a[0] + 0x0u + t4), t0);
@@ -125,37 +126,37 @@ L_133FC:
 
 L_13400:
     /* 00013400   2  bra 0001341a */
-    c->pc = 0x00013400u;
+    c->pc = RC_ADDR(0x00013400u);
     goto L_1341A;
 
 L_13402:
     /* 00013402   4  move.w (8,A5),D0 */
-    c->pc = 0x00013402u;
+    c->pc = RC_ADDR(0x00013402u);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_13406:
     /* 00013406   4  muls.w #16,D0 */
-    c->pc = 0x00013406u;
+    c->pc = RC_ADDR(0x00013406u);
     t0 = 0x00000016u;
     rc_muls(c, 0, t0);
 
 L_1340A:
     /* 0001340a   4  lea (fffff386,A4),A0 */
-    c->pc = 0x0001340au;
+    c->pc = RC_ADDR(0x0001340au);
     c->a[0] = (c->a[4] - 0xc7au);
 
 L_1340E:
     /* 0001340e   4  move.w (a,A5),D1 */
-    c->pc = 0x0001340eu;
+    c->pc = RC_ADDR(0x0001340eu);
     t0 = rc_rd16(c, m, (c->a[5] + 0xau));
     rc_d_set(c, 1, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_13412:
     /* 00013412   4  sub.w #32,D1 */
-    c->pc = 0x00013412u;
+    c->pc = RC_ADDR(0x00013412u);
     t0 = 0x00000032u;
     t1 = rc_d_get(c, 1, RC_W);
     t2 = t1 - t0;
@@ -164,7 +165,7 @@ L_13412:
 
 L_13416:
     /* 00013416   4  move.w D1,(0,A0,D0.w) */
-    c->pc = 0x00013416u;
+    c->pc = RC_ADDR(0x00013416u);
     t0 = rc_d_get(c, 1, RC_W);
     t4 = c->d[0];
     rc_wr16(c, m, (c->a[0] + 0x0u + t4), t0);
@@ -172,25 +173,25 @@ L_13416:
 
 L_1341A:
     /* 0001341a   4  move.w (8,A5),D0 */
-    c->pc = 0x0001341au;
+    c->pc = RC_ADDR(0x0001341au);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_1341E:
     /* 0001341e   4  muls.w #16,D0 */
-    c->pc = 0x0001341eu;
+    c->pc = RC_ADDR(0x0001341eu);
     t0 = 0x00000016u;
     rc_muls(c, 0, t0);
 
 L_13422:
     /* 00013422   4  lea (fffff390,A4),A0 */
-    c->pc = 0x00013422u;
+    c->pc = RC_ADDR(0x00013422u);
     c->a[0] = (c->a[4] - 0xc70u);
 
 L_13426:
     /* 00013426   6  move.b #14,(0,A0,D0.w) */
-    c->pc = 0x00013426u;
+    c->pc = RC_ADDR(0x00013426u);
     t0 = 0x00000014u;
     t4 = c->d[0];
     rc_wr8(c, m, (c->a[0] + 0x0u + t4), t0);
@@ -198,14 +199,14 @@ L_13426:
 
 L_1342C:
     /* 0001342c   2  unlk A5 */
-    c->pc = 0x0001342cu;
+    c->pc = RC_ADDR(0x0001342cu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1342E:
     /* 0001342e   2  rts */
-    c->pc = 0x0001342eu;
+    c->pc = RC_ADDR(0x0001342eu);
     rc_ret(c, m);
     return;
 

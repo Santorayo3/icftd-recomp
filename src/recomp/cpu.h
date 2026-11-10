@@ -6,8 +6,10 @@
  * a translated function and an Amiga library call. The runtime never looks at a CPU register and
  * this layer never includes m68k.h.
  *
- * Addresses in emitted code are the ones in `dshell.asm` / the base-0 load image
- * (export\code\dshell\dshell.img), which is also what the interpreter harness (rcmp) runs.
+ * Addresses in emitted code are written as `RC_ADDR(<image offset>)`: the translation is the same
+ * machine code whatever address the image is loaded at, and only that offset changes. The fixture
+ * replay compiles with RC_BASE 0 (it runs the base-0 image rcmp runs); the game is built for the
+ * 0x4000 layout, which is the one the original binary was linked for and the oracle is validated in.
  */
 #ifndef ICFTD_RECOMP_CPU_H
 #define ICFTD_RECOMP_CPU_H
@@ -16,6 +18,11 @@
 
 #include "types.h"
 #include "machine.h"
+
+#ifndef RC_BASE
+#define RC_BASE 0x00000000u
+#endif
+#define RC_ADDR(v) ((v) + RC_BASE)
 
 /* CCR bits, in the low byte of SR. */
 #define RC_X 0x10u

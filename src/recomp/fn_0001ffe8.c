@@ -1,6 +1,7 @@
 /* fn_0001ffe8 - 8 byte(s), 3 instruction(s).
  * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
  * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.
  * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
 #include "cpu.h"
 
@@ -10,9 +11,9 @@ void fn_0001ffe8(cpu_t *c, rt_machine *m)
 
     switch (c->pc)
     {
-    case 0x0001ffe8u: goto L_1FFE8;
-    case 0x0001ffecu: goto L_1FFEC;
-    case 0x0001ffeeu: goto L_1FFEE;
+    case RC_ADDR(0x0001ffe8u): goto L_1FFE8;
+    case RC_ADDR(0x0001ffecu): goto L_1FFEC;
+    case RC_ADDR(0x0001ffeeu): goto L_1FFEE;
     default:
         rc_bad_entry(c, m);
         return;
@@ -20,7 +21,7 @@ void fn_0001ffe8(cpu_t *c, rt_machine *m)
 
 L_1FFE8:
     /* 0001ffe8   4  movem.l (SP)+,{ D4 D5 A2 } */
-    c->pc = 0x0001ffe8u;
+    c->pc = RC_ADDR(0x0001ffe8u);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -37,14 +38,14 @@ L_1FFE8:
 
 L_1FFEC:
     /* 0001ffec   2  unlk A5 */
-    c->pc = 0x0001ffecu;
+    c->pc = RC_ADDR(0x0001ffecu);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
 
 L_1FFEE:
     /* 0001ffee   2  rts */
-    c->pc = 0x0001ffeeu;
+    c->pc = RC_ADDR(0x0001ffeeu);
     rc_ret(c, m);
     return;
 

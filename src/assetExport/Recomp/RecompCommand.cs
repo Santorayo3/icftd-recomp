@@ -203,6 +203,7 @@ public static class RecompCommand
         sb.AppendLine($"/* fn_{f.Entry:x8} - {f.Size} byte(s), {f.Insns.Count} instruction(s).");
         sb.AppendLine(" * Generated from export\\code\\dshell\\dshell.img by `recomp` - one C statement per 68000");
         sb.AppendLine(" * instruction, the original's control flow as labels. Hand edits belong in src\\recomp\\patches.");
+        sb.AppendLine(" * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.");
         sb.AppendLine(" * Verified against the interpreter as `rcmp` runs it: tools\\recomp-fixtures.ps1. */");
         sb.AppendLine("#include \"cpu.h\"");
         sb.AppendLine();
@@ -231,7 +232,7 @@ public static class RecompCommand
         sb.AppendLine("const rc_entry rc_functions[] =");
         sb.AppendLine("{");
         foreach (var f in emitted.OrderBy(x => x.Addr))
-            sb.AppendLine($"    {{ 0x{f.Addr:x8}u, 0x{f.Addr + f.Bytes:x8}u, fn_{f.Addr:x8} }},");
+            sb.AppendLine($"    {{ RC_ADDR(0x{f.Addr:x8}u), RC_ADDR(0x{f.Addr + f.Bytes:x8}u), fn_{f.Addr:x8} }},");
         sb.AppendLine("    { 0x00000000u, 0x00000000u, 0 }");
         sb.AppendLine("};");
         sb.AppendLine();

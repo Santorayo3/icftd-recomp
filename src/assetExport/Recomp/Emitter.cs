@@ -299,6 +299,9 @@ public sealed class Emitter
 
     static string Sz(int size) => size == 1 ? "RC_B" : size == 2 ? "RC_W" : "RC_L";
     static string Imm(uint v) => "0x" + v.ToString("x8", CultureInfo.InvariantCulture) + "u";
+
+    /// <summary>An address (image offset) rather than data: shifts with the image's load address.</summary>
+    static string ImmA(uint v) => "RC_ADDR(" + Imm(v) + ")";
     static string Disp(int d) => d < 0 ? $"- 0x{-d:x}u" : $"+ 0x{d:x}u";
     static string Label(uint addr) => "L_" + addr.ToString("X", CultureInfo.InvariantCulture);
 
@@ -322,7 +325,7 @@ public sealed class Emitter
         // so the function dispatches on c->pc and every instruction is a label.
         c.Sb.Append("    switch (c->pc)\n    {\n");
         foreach (Insn insn in f.Insns)
-            c.Sb.Append("    case ").Append(Imm(insn.Addr)).Append(": goto ").Append(Label(insn.Addr)).Append(";\n");
+            c.Sb.Append("    case ").Append(ImmA(insn.Addr)).Append(": goto ").Append(Label(insn.Addr)).Append(";\n");
         c.Line("default:");
         c.Line("    rc_bad_entry(c, m);");
         c.Line("    return;");
@@ -348,7 +351,7 @@ public sealed class Emitter
         {
             uint next = f.Entry + (uint)f.Size;
             c.Line($"/* falls through into {next:x8} */");
-            c.Line($"c->pc = {Imm(next)};");
+            c.Line($"c->pc = {ImmA(next)};");
             c.Line("return;");
         }
         return c.Sb.ToString();
@@ -363,7 +366,7 @@ public sealed class Emitter
 
     void EmitInsn(Ctx c, Insn i)
     {
-        c.Line($"c->pc = {Imm(i.Addr)};");
+        c.Line($"c->pc = {ImmA(i.Addr)};");
         switch (i.Kind)
         {
             case Opk.Move:
@@ -612,16 +615,16 @@ public sealed class Emitter
                     c.Line($"goto {Label(i.Target)};");
                     break;
                 }
-                c.Line($"c->pc = {Imm(i.Target)};");
+                c.Line($"c->pc = {ImmA(i.Target)};");
                 c.Line("return;");
                 break;
             case Opk.Bsr:
                 // A bsr into its own body is a local subroutine: the pushed return address is a
                 // dispatch case, so its rts resumes this function at the instruction after it.
-                c.Line($"rc_push32(c, m, {Imm(i.Addr + (uint)i.Len)});");
+                c.Line($"rc_push32(c, m, {ImmA(i.Addr + (uint)i.Len)});");
                 c.Line("rc_depth++;");
                 if (c.Labels.Contains(i.Target)) { c.Line($"goto {Label(i.Target)};"); break; }
-                c.Line($"c->pc = {Imm(i.Target)};");
+                c.Line($"c->pc = {ImmA(i.Target)};");
                 c.Line("return;");
                 break;
             case Opk.Bcc:
@@ -639,7 +642,7 @@ public sealed class Emitter
                 // which returns to whoever called us.
                 c.Line($"if (rc_cond(c, {i.Cond}))");
                 c.Line("{");
-                c.Line($"    c->pc = {Imm(i.Target)};");
+                c.Line($"    c->pc = {ImmA(i.Target)};");
                 c.Line("    return;");
                 c.Line("}");
                 break;
@@ -689,9 +692,9 @@ public sealed class Emitter
                 if (ea.IndexReg >= 0)
                 {
                     c.Line($"{TX} = {IndexExpr(ea)};");
-                    return $"({Imm(ea.Abs)} + {TX})";
+                    return $"({ImmA(ea.Abs)} + {TX})";
                 }
-                return Imm(ea.Abs);
+                return ImmA(ea.Abs);
             default:
                 c.Fail($"{ea.Mode}/{ea.Reg}: not an address");
                 return "0u";
@@ -822,8 +825,8 @@ public sealed class Emitter
         {
             if (isCall)
             {
-                c.Line($"c->pc = {Imm(ret)};");
-                c.Line($"rc_push32(c, m, {Imm(ret)});");
+                c.Line($"c->pc = {ImmA(ret)};");
+                c.Line($"rc_push32(c, m, {ImmA(ret)});");
             }
             c.Line($"rc_os_call_a6(c, m, {ea.Disp});");
             if (!isCall) c.Line("return;");
@@ -838,13 +841,13 @@ public sealed class Emitter
             if (IsLibraryThunk(target, out int lib, out int lvo))
             {
                 c.Line($"/* vector {slot}: {LibName(lib)} {lvo} */");
-                if (isCall) c.Line($"c->pc = {Imm(ret)};");
+                if (isCall) c.Line($"c->pc = {ImmA(ret)};");
                 c.Line($"rc_os_call(c, m, {lib}, {lvo});");
                 return;
             }
             c.Line($"/* vector {slot} */");
-            if (isCall) { c.Line($"rc_push32(c, m, {Imm(ret)});"); c.Line("rc_depth++;"); }
-            c.Line($"c->pc = {Imm(Follow(target))};");
+            if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
+            c.Line($"c->pc = {ImmA(Follow(target))};");
             c.Line("return;");
             return;
         }
@@ -856,18 +859,18 @@ public sealed class Emitter
             if (IsLibraryThunk(ea.Abs, out int lib, out int lvo))
             {
                 c.Line($"/* {LibName(lib)} {lvo} */");
-                if (isCall) c.Line($"c->pc = {Imm(ret)};");
+                if (isCall) c.Line($"c->pc = {ImmA(ret)};");
                 c.Line($"rc_os_call(c, m, {lib}, {lvo});");
                 return;
             }
-            if (isCall) { c.Line($"rc_push32(c, m, {Imm(ret)});"); c.Line("rc_depth++;"); }
-            c.Line($"c->pc = {Imm(ea.Abs)};");
+            if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
+            c.Line($"c->pc = {ImmA(ea.Abs)};");
             c.Line("return;");
             return;
         }
 
         // A computed transfer: the address only exists at run time.
-        if (isCall) { c.Line($"rc_push32(c, m, {Imm(ret)});"); c.Line("rc_depth++;"); }
+        if (isCall) { c.Line($"rc_push32(c, m, {ImmA(ret)});"); c.Line("rc_depth++;"); }
         c.Line($"{TA} = {Address(ea, 4, c)};");
         c.Line($"c->pc = {TA};");
         c.Line("return;");

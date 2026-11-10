@@ -298,7 +298,7 @@ static int oracle_step(rt_machine *m)
         oracle_dump_ring(m);
         return 0;
     }
-    if (pc < EMU_IMAGE_BASE)
+    if (pc < m->imageBase)
     {
         printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
         oracle_dump_ring(m);

@@ -1,6 +1,7 @@
 /* fn_00020c98 - 36 byte(s), 13 instruction(s).
  * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
  * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.
  * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
 #include "cpu.h"
 
@@ -10,19 +11,19 @@ void fn_00020c98(cpu_t *c, rt_machine *m)
 
     switch (c->pc)
     {
-    case 0x00020c98u: goto L_20C98;
-    case 0x00020c9cu: goto L_20C9C;
-    case 0x00020ca0u: goto L_20CA0;
-    case 0x00020ca2u: goto L_20CA2;
-    case 0x00020ca4u: goto L_20CA4;
-    case 0x00020ca6u: goto L_20CA6;
-    case 0x00020caau: goto L_20CAA;
-    case 0x00020cacu: goto L_20CAC;
-    case 0x00020caeu: goto L_20CAE;
-    case 0x00020cb2u: goto L_20CB2;
-    case 0x00020cb4u: goto L_20CB4;
-    case 0x00020cb6u: goto L_20CB6;
-    case 0x00020cbau: goto L_20CBA;
+    case RC_ADDR(0x00020c98u): goto L_20C98;
+    case RC_ADDR(0x00020c9cu): goto L_20C9C;
+    case RC_ADDR(0x00020ca0u): goto L_20CA0;
+    case RC_ADDR(0x00020ca2u): goto L_20CA2;
+    case RC_ADDR(0x00020ca4u): goto L_20CA4;
+    case RC_ADDR(0x00020ca6u): goto L_20CA6;
+    case RC_ADDR(0x00020caau): goto L_20CAA;
+    case RC_ADDR(0x00020cacu): goto L_20CAC;
+    case RC_ADDR(0x00020caeu): goto L_20CAE;
+    case RC_ADDR(0x00020cb2u): goto L_20CB2;
+    case RC_ADDR(0x00020cb4u): goto L_20CB4;
+    case RC_ADDR(0x00020cb6u): goto L_20CB6;
+    case RC_ADDR(0x00020cbau): goto L_20CBA;
     default:
         rc_bad_entry(c, m);
         return;
@@ -30,20 +31,20 @@ void fn_00020c98(cpu_t *c, rt_machine *m)
 
 L_20C98:
     /* 00020c98   4  move.w (c,A7),D0 */
-    c->pc = 0x00020c98u;
+    c->pc = RC_ADDR(0x00020c98u);
     t0 = rc_rd16(c, m, (c->a[7] + 0xcu));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
 
 L_20C9C:
     /* 00020c9c   4  movea.l (4,A7),A0 */
-    c->pc = 0x00020c9cu;
+    c->pc = RC_ADDR(0x00020c9cu);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_20CA0:
     /* 00020ca0   2  tst.b (A0)+ */
-    c->pc = 0x00020ca0u;
+    c->pc = RC_ADDR(0x00020ca0u);
     t3 = c->a[0];
     c->a[0] += 1u;
     t0 = rc_rd8(c, m, t3);
@@ -51,23 +52,23 @@ L_20CA0:
 
 L_20CA2:
     /* 00020ca2   2  bne 00020ca0 */
-    c->pc = 0x00020ca2u;
+    c->pc = RC_ADDR(0x00020ca2u);
     if (rc_cond(c, 6)) { rc_tick(); goto L_20CA0; }
 
 L_20CA4:
     /* 00020ca4   2  subq.w #1,A0 */
-    c->pc = 0x00020ca4u;
+    c->pc = RC_ADDR(0x00020ca4u);
     c->a[0] -= rc_ext(0x00000001u, RC_W);
 
 L_20CA6:
     /* 00020ca6   4  movea.l (8,A7),A1 */
-    c->pc = 0x00020ca6u;
+    c->pc = RC_ADDR(0x00020ca6u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     c->a[1] = t0;
 
 L_20CAA:
     /* 00020caa   2  subq.w #1,D0 */
-    c->pc = 0x00020caau;
+    c->pc = RC_ADDR(0x00020caau);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
     rc_flags_sub(c, RC_W, t1, 0x00000001u, t2, 0);
@@ -75,7 +76,7 @@ L_20CAA:
 
 L_20CAC:
     /* 00020cac   2  move.b (A1)+,(A0)+ */
-    c->pc = 0x00020cacu;
+    c->pc = RC_ADDR(0x00020cacu);
     t3 = c->a[1];
     c->a[1] += 1u;
     t0 = rc_rd8(c, m, t3);
@@ -86,7 +87,7 @@ L_20CAC:
 
 L_20CAE:
     /* 00020cae   4  dbeq D0,00020cac */
-    c->pc = 0x00020caeu;
+    c->pc = RC_ADDR(0x00020caeu);
     if (!rc_cond(c, 7)) {
         t2 = (rc_d_get(c, 0, RC_W) + 0xFFFFu) & 0xFFFFu;
         rc_d_set(c, 0, RC_W, t2);
@@ -95,25 +96,25 @@ L_20CAE:
 
 L_20CB2:
     /* 00020cb2   2  beq 00020cb6 */
-    c->pc = 0x00020cb2u;
+    c->pc = RC_ADDR(0x00020cb2u);
     if (rc_cond(c, 7)) goto L_20CB6;
 
 L_20CB4:
     /* 00020cb4   2  clr.b (A0) */
-    c->pc = 0x00020cb4u;
+    c->pc = RC_ADDR(0x00020cb4u);
     rc_wr8(c, m, c->a[0], 0u);
     rc_set_nzvc(c, 0u, RC_B);
 
 L_20CB6:
     /* 00020cb6   4  move.l (4,A7),D0 */
-    c->pc = 0x00020cb6u;
+    c->pc = RC_ADDR(0x00020cb6u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_20CBA:
     /* 00020cba   2  rts */
-    c->pc = 0x00020cbau;
+    c->pc = RC_ADDR(0x00020cbau);
     rc_ret(c, m);
     return;
 

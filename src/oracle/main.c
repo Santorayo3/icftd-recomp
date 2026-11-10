@@ -121,8 +121,11 @@ int main(int argc, char **argv)
     rt_machine m;
     const char *image = 0;
     u32 entry = DEFAULT_ENTRY;
+    u32 base = EMU_IMAGE_BASE;
+    u32 a4 = DEFAULT_A4;
     long insns = 1000;
     int i, rc = 1, trace = 0, haveEntry = 0, dosLog = 0, progress = 0, dffLog = 0, runForever = 0;
+    int haveA4 = 0;
     u32 watch = 0;
     u32 pressAt = 0;
     u32 releaseAt = 0;
@@ -162,6 +165,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--press") == 0 && i + 1 < argc) { pressAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--release") == 0 && i + 1 < argc) { releaseAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
+        if (strcmp(argv[i], "--base") == 0 && i + 1 < argc) { base = (u32)strtoul(argv[++i], 0, 0); continue; }
+        if (strcmp(argv[i], "--entry") == 0 && i + 1 < argc) { entry = (u32)strtoul(argv[++i], 0, 0); haveEntry = 1; continue; }
+        if (strcmp(argv[i], "--a4") == 0 && i + 1 < argc) { a4 = (u32)strtoul(argv[++i], 0, 0); haveA4 = 1; continue; }
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) { statePrefix = argv[++i]; continue; }
         if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) { ramFrames = argv[++i]; continue; }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
@@ -176,11 +182,13 @@ int main(int argc, char **argv)
         printf("usage: icftd-oracle <image> [<entry>] [<insns>] [--trace] [--watch <pc>] [--data <dir>]\n"
                "                    [--window] [--run] [--dump <prefix> [frames]] [--press <frame>]\n"
                "                    [--state <prefix> [--every <n>] [--ram <frame[,frame...]>]]\n"
-               "                    [--input <script>]\n"
+               "                    [--input <script>] [--base <addr>] [--entry <addr>] [--a4 <addr>]\n"
                "  --run    open the window and play until it is closed (space = fire, esc = quit)\n"
                "  --state  canonical machine-state dump per frame (registers, custom regs, RAM hash)\n"
                "  --ram    also write the full RAM image at these frames (<prefix>.<frame>.ram)\n"
-               "  --input  frame-indexed input script: \"<frame> <fire> <joy0> [<joy1>]\"\n");
+               "  --input  frame-indexed input script: \"<frame> <fire> <joy0> [<joy1>]\"\n"
+               "  --base   where the image is loaded (default 0x4000); entry and A4 follow it unless\n"
+               "           --entry/--a4 say otherwise\n");
         return 1;
     }
     if (inputPath != 0 && !input_load(inputPath)) return 1;
@@ -197,7 +205,14 @@ int main(int argc, char **argv)
     }
 
     if (!rt_init(&m)) { printf("emu: out of memory\n"); return 1; }
-    if (!rt_load_image(&m, EMU_IMAGE_BASE, image)) { printf("emu: cannot load %s\n", image); rt_shutdown(&m); return 1; }
+    if (!rt_load_image(&m, base, image)) { printf("emu: cannot load %s\n", image); rt_shutdown(&m); return 1; }
+
+    /* Entry and A4 are relative to the load address: the base-0 image (the one Ghidra models and
+     * the fixtures replay) has A4 = 0x29A56, the 0x4000 image 0x2DA56. At base 0 address 4 is
+     * inside the code hunk, so the entry has to be the cstart itself (0x20918), not the
+     * `jmp 0x20918` stub at 0, whose operand the AbsExecBase write replaces. */
+    if (!haveEntry) entry = base;
+    if (!haveA4) a4 = base + (DEFAULT_A4 - EMU_IMAGE_BASE);
 
     m.trace = trace;
     m.dosLog = dosLog;
@@ -210,10 +225,10 @@ int main(int argc, char **argv)
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
-    printf("emu: %s loaded, entry 0x%lx, A4 0x%lx, %ld instruction(s)\n",
-           image, (unsigned long)entry, (unsigned long)DEFAULT_A4, insns);
+    printf("emu: %s loaded at 0x%lx, entry 0x%lx, A4 0x%lx, %ld instruction(s)\n",
+           image, (unsigned long)base, (unsigned long)entry, (unsigned long)a4, insns);
 
-    oracle_boot(entry, DEFAULT_A4);
+    oracle_boot(entry, a4);
     {
         u32 pc;
         s32 lvo = 0;

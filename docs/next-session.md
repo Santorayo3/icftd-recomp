@@ -23,6 +23,37 @@ busy-waits; 3 stop at the same unmodelled OS call on both sides but at a differe
 interpreter steps into the library thunk before giving up; 1 interpreter ran into data; 1 more) and
 0 differ. All four steps are green.
 
+## The load address: 0x4000, decided by measurement
+
+The translated code is written for base 0 (that is what Ghidra models and what the fixtures replay),
+but the game must run at **0x4000**, the layout the original binary was linked for and the one the
+oracle has been validated in. Measured on the same machine, same image bytes (the two files are one
+hunk relocated by 0x4000):
+
+| run | frame-boundary registers | 30M instructions |
+|---|---|---|
+| oracle, base 0x4000 | baseline | frame 5823, 5752 rasters, 21 out-of-range accesses |
+| oracle, base 0 | **identical for 307 frames**, then diverges (first RAM difference at `0004008c`: heap block size 0x18 vs 0x60) | derails at 6.2M: `PC left the image at 02d598`, 34,684 out-of-range accesses |
+
+At base 0 the AbsExecBase write at address 4 lands inside the image's own entry stub, and the frame
+sentinels (`EMU_EXIT_PC` 0x200, `EMU_INT_RET` 0x204) land inside the image too. Whatever the
+mechanism, base 0 is not the program's layout, so the product does not use it.
+
+The translation is therefore load-address parametric instead of duplicated: every address in the
+generated code is written `RC_ADDR(<image offset>)`, and `RC_BASE` in `src\recomp\cpu.h` is the only
+difference between the two builds.
+
+```
+tools\build-recomp.ps1                     # RC_BASE 0 -> recomp-check.exe, the fixture replay
+tools\build-recomp.ps1 -Base 0x4000 -Exe icftd-recomp.exe -ObjDir recomp-obj4k
+```
+
+`RC_BASE` defaults to 0, so the differential (`tools\recomp-fixtures.ps1`, 235/9/0) still builds and
+runs exactly as before, while the whole set compiles and links at 0x4000 as well. Addresses and
+immediates are told apart in `Emitter.cs`: `Imm()` is data, `ImmA()` is an address, and the table in
+`fn_table.c` uses `RC_ADDR` too because `rc_lookup` compares against `c->pc`, a real address.
+
+
 ## What this session built
 
 ### 1. The state harness (acceptance = machine state, never images)
@@ -140,11 +171,13 @@ still reachable through the interpreter, so it is a coverage gap, not a crash.
 ## Next steps, in order
 
 1. **Whole-program state equality** (the next acceptance layer): a host `bin\win32\icftd-recomp.exe`
-   = the runtime + `src\recomp` + the oracle's register boot, with a Musashi-backed `rc_interpreter`
-   installed so the 24 unemitted functions still run, then compare `--state` dumps of the interpreted
-   and the translated build on one input script. `--state`, `--input` and `state-diff.ps1` are in
-   place. The frame boundary must stay at 141,875 instructions, so the host counts instructions per
-   basic block (`c->insns`), which the trampoline makes cheap.
+   = the runtime + `src\recomp` (built with `-Base 0x4000`) + the oracle's register boot, with a
+   Musashi-backed `rc_interpreter` installed so the 24 unemitted functions still run, then compare
+   `--state` dumps of the interpreted and the translated build on one input script. `--state`,
+   `--input` and `state-diff.ps1` are in place. The frame boundary must stay at 141,875
+   instructions, so the host counts instructions per instruction (`rc_step`), not per unit: at the
+   boundary it must run the game's interrupt servers - interpreted - and resume the translated code
+   with whatever registers they changed.
 2. The runtime gaps that appear once the translated build paints text: `diskfont -30`
    (`OpenDiskFont`), `graphics.Text`/`TextLength`, and the three IEEE single-precision ops
    (`-30/-36/-84` on the `mathffp` base). They are runtime code shared by both builds.

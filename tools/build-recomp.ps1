@@ -5,15 +5,21 @@
 # and prints the same canonical dump `rcmp --dump` prints, so tools\recomp-fixtures.ps1 can diff
 # them (registers + every touched memory byte).
 #
-#   powershell -ExecutionPolicy Bypass -File tools\build-recomp.ps1 [-WatcomHome <dir>]
+#   powershell -ExecutionPolicy Bypass -File tools\build-recomp.ps1 [-WatcomHome <dir>] [-Base 0]
+#
+# -Base is the address the image is loaded at, and it only changes RC_BASE (src\recomp\cpu.h): the
+# fixture replay runs the base-0 image, so it is the default; the game build passes 0x4000.
 param(
-    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" })
+    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" }),
+    [string]$Base = '0',
+    [string]$Exe = 'recomp-check.exe',
+    [string]$ObjDir = 'recomp-obj'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $rt   = Join-Path $root 'src\runtime'
 $rc   = Join-Path $root 'src\recomp'
-$out  = Join-Path $root 'bin\win32\recomp-check.exe'
+$out  = Join-Path $root "bin\win32\$Exe"
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $out) | Out-Null
 
@@ -39,13 +45,13 @@ $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullNam
 # Hundreds of sources do not fit in one command line, so compile in batches into an object
 # directory and link once. Watcom splits unquoted arguments on spaces, and the repository path has
 # spaces, so the compiler runs from the object directory and sees only relative paths.
-$objDir = Join-Path $root 'bin\win32\recomp-obj'
+$objDir = Join-Path $root "bin\win32\$ObjDir"
 if (Test-Path $objDir) { Remove-Item $objDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $objDir | Out-Null
 
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
 $rel = @($sources | ForEach-Object { '..\..\..\' + $_.Substring($root.Length + 1) })
-$common = @('-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99', '-c',
+$common = @('-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99', '-c', "-dRC_BASE=$Base",
             '-i=..\..\..\src\runtime', '-i=..\..\..\src\runtime\amiga', '-i=..\..\..\src\recomp')
 
 $prevEap = $ErrorActionPreference
@@ -59,7 +65,7 @@ try {
         if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEap; throw "compile failed (batch at $i)" }
     }
     $objs = @(Get-ChildItem $objDir -Filter *.obj | ForEach-Object { $_.Name })
-    & $wcl '-bt=nt' '-q' '-fe=..\recomp-check.exe' @objs 2>&1 | Out-Host
+    & $wcl '-bt=nt' '-q' "-fe=..\$Exe" @objs 2>&1 | Out-Host
     $code = $LASTEXITCODE
 }
 finally {

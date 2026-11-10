@@ -451,6 +451,10 @@ void rt_build_process(rt_machine *m)
     rt_write8(&m->mem, EMU_CLI_ADDR + 0x14, 20);      /* cli_FailLevel */
     rt_write32(&m->mem, proc + 0xAC, (EMU_CLI_ADDR + 4u) >> 2);   /* pr_CLI */
     rt_write8(&m->mem, EMU_ARGS_ADDR, 0);             /* no arguments */
+
+    /* AbsExecBase. Written here and not only in rt_init, because the image load comes in between:
+     * at base 0 the flattened image covers address 4, so the load would replace it. */
+    rt_write32(&m->mem, 4, m->libraryBase[0]);
 }
 
 /* --- exec structures ---------------------------------------------------------------------- */
@@ -1053,7 +1057,7 @@ int rt_load_image(rt_machine *m, u32 addr, const char *path)
     got = plat_read(f, 0, buf, size);
     plat_close(f);
     ok = (got == size) && rt_mem_load(&m->mem, addr, buf, size);
-    if (ok) m->imageTop = addr + size;
+    if (ok) { m->imageTop = addr + size; m->imageBase = addr; }
     plat_free(buf);
     return ok;
 }

@@ -1,6 +1,7 @@
 /* fn_000213f4 - 12 byte(s), 3 instruction(s).
  * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
  * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
+ * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.
  * Verified against the interpreter as `rcmp` runs it: tools\recomp-fixtures.ps1. */
 #include "cpu.h"
 
@@ -10,9 +11,9 @@ void fn_000213f4(cpu_t *c, rt_machine *m)
 
     switch (c->pc)
     {
-    case 0x000213f4u: goto L_213F4;
-    case 0x000213f8u: goto L_213F8;
-    case 0x000213fcu: goto L_213FC;
+    case RC_ADDR(0x000213f4u): goto L_213F4;
+    case RC_ADDR(0x000213f8u): goto L_213F8;
+    case RC_ADDR(0x000213fcu): goto L_213FC;
     default:
         rc_bad_entry(c, m);
         return;
@@ -20,20 +21,20 @@ void fn_000213f4(cpu_t *c, rt_machine *m)
 
 L_213F4:
     /* 000213f4   4  movea.l (4,A7),A6 */
-    c->pc = 0x000213f4u;
+    c->pc = RC_ADDR(0x000213f4u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[6] = t0;
 
 L_213F8:
     /* 000213f8   4  move.l (8,A7),D0 */
-    c->pc = 0x000213f8u;
+    c->pc = RC_ADDR(0x000213f8u);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
 
 L_213FC:
     /* 000213fc   4  jmp (fffffff4,A6) */
-    c->pc = 0x000213fcu;
+    c->pc = RC_ADDR(0x000213fcu);
     rc_os_call_a6(c, m, -12);
     return;
 
