@@ -11,10 +11,11 @@
  *
  *   icftd-recomp [<image>] [<insns>] [--state <prefix> [--every n] [--ram f,f]]
  *                [--input <script>] [--data <dir>] [--progress] [--base <addr>]
- *                [--window] [--run]
+ *                [--window] [--run] [--speed <percent>]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
  * arrows are the joystick); without it the build runs headless and only reports machine state.
+ * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -133,6 +134,7 @@ int main(int argc, char **argv)
     int tickLog = 0;
     int ring = 0;
     int runForever = 0;
+    long speedPercent = 100;
     const char *inputPath = 0;
     long insns = 40000000L;
     u32 base = HS_BASE;
@@ -152,6 +154,13 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
+        if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
+        {
+            speedPercent = strtol(argv[++i], 0, 0);
+            if (speedPercent < 1) speedPercent = 1;
+            if (speedPercent > 1000) speedPercent = 1000;
+            continue;
+        }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -198,6 +207,11 @@ int main(int argc, char **argv)
         }
         m.on_frame = host_input;
         m.on_present = host_present;
+        /* 100% = 50 Hz, the Amiga's rate; lower is a debugging aid for comparing content. */
+        plat_set_frame_hz((u32)(50 * speedPercent / 100));
+        if (speedPercent != 100)
+            printf("recomp: %ld%% speed (%lu Hz)\n", speedPercent,
+                   (unsigned long)(50 * speedPercent / 100));
     }
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
@@ -262,6 +276,15 @@ int main(int argc, char **argv)
     if (m.mem.bad != 0)
         printf("recomp: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);
     printf("recomp: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
+    printf("recomp: %d interrupt server(s), %lu handler run(s)\n", m.intCount,
+           (unsigned long)m.handlerRuns);
+    {
+        /* Emulated time vs wall clock: 50 frames per second is the Amiga's rate. */
+        u32 ms = plat_ticks_ms();
+        if (g_window)
+            printf("recomp: %lu frame(s) in %lu ms (%.1f frame/s)\n", (unsigned long)m.frame,
+                   (unsigned long)ms, ms != 0 ? (double)m.frame * 1000.0 / (double)ms : 0.0);
+    }
     state_close();
     if (ramStop != 0) state_ram_snapshot(&m, ramStop);
     rt_shutdown(&m);

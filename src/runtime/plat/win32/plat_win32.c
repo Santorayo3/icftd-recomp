@@ -230,10 +230,19 @@ u32 plat_pump(input_state *in)
     return (u32)(!g_quit);
 }
 
+static u32 g_frame_ms = 20;                /* 50 Hz, the Amiga frame rate */
+
+void plat_set_frame_hz(u32 hz)
+{
+    if (hz == 0) hz = 50;
+    g_frame_ms = (1000u + hz / 2u) / hz;
+    if (g_frame_ms == 0) g_frame_ms = 1;
+}
+
 void plat_frame_sync(void)
 {
     u32 now;
-    g_next_frame_ms += 20;                 /* 50 Hz */
+    g_next_frame_ms += g_frame_ms;
     for (;;) {
         now = GetTickCount();
         if ((s32)(now - g_next_frame_ms) >= 0) break;

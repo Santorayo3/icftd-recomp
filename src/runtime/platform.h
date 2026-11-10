@@ -46,6 +46,10 @@ u32  plat_pump(input_state *in);
 /* Blocks until the next 50 Hz game tick (the Amiga frame rate). */
 void plat_frame_sync(void);
 
+/* Frame rate for plat_frame_sync, default 50 Hz. A slower rate is a debugging aid: the same
+ * animation content, shown for longer. */
+void plat_set_frame_hz(u32 hz);
+
 /* Milliseconds since plat_init (monotonic). */
 u32  plat_ticks_ms(void);
 
