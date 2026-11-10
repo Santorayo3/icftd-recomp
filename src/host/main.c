@@ -87,22 +87,23 @@ static const char *shotPath;
 
 /* JOY0DAT for the sixteen key combinations, indexed up|down<<1|left<<2|right<<3.
  *
- * FUN_00011bf0 (and FUN_0000a500) decode the port as
- *     v = bit1 ? +1 : (bit9 ? -1 : 0)                      +1 = down, -1 = up
- *     h = (bit8 ^ bit9) ? -1 : ((bit0 ^ bit1) ? +1 : 0)     -1 = left, +1 = right
- * and every consumer adds v to a screen Y and h to a screen X (FUN_00012202, FUN_00011cdc), so a
- * *single* direction bit is wrong twice over: bit1 alone reads as down AND right (the diagonal
- * cursor), and bit0/bit8 alone read as right/left swapped. The engine wants the whole 2-bit pair
- * per axis - bit and its partner - so one key sets both and leaves the XOR quiet:
- *     up 0300  down 0003  left 0100  right 0001
- * and a diagonal drops one partner where the two directions share a pair:
- *     up+left 0200  up+right 0301  down+left 0103  down+right 0002 */
+ * FUN_00011bf0 (and FUN_0000a500) decode the port into two axes:
+ *     v = bit1 ? +1 : (bit9 ? -1 : 0)                      the engine's X  (+1 right, -1 left)
+ *     h = (bit8 ^ bit9) ? -1 : ((bit0 ^ bit1) ? +1 : 0)     the engine's Y  (+1 down, -1 up)
+ * v feeds DAT_000297ee and h DAT_000297f0 (FUN_00012202 moves the map cursor, FUN_00011cdc
+ * scrolls it at the edges), so the axes are NOT interchangeable.
+ *
+ * These are the words a real joystick presents - one switch grounds one line of its pair (UAE's
+ * joymousecounter -> JOY0DAT gives exactly these): up 0100, down 0001, left 0300, right 0003, and
+ * a diagonal 0200 (up+left), 0103 (up+right), 0301 (down+left), 0002 (down+right). Under this
+ * decode each one moves exactly one axis and leaves the other at 0, which is what makes the
+ * engine's own consumers agree. */
 static const u16 g_joyDirs[16] =
 {
-    0x0000u, 0x0300u, 0x0003u, 0x0000u,     /* idle          up            down          up+down   */
-    0x0100u, 0x0200u, 0x0103u, 0x0100u,     /* left          up+left       down+left     up+down+left   */
-    0x0001u, 0x0301u, 0x0002u, 0x0001u,     /* right         up+right      down+right    up+down+right  */
-    0x0000u, 0x0300u, 0x0003u, 0x0000u      /* left+right    +left         +right        all four  */
+    0x0000u, 0x0100u, 0x0001u, 0x0000u,     /* idle          up            down          up+down   */
+    0x0300u, 0x0200u, 0x0301u, 0x0300u,     /* left          up+left       down+left     up+down+left   */
+    0x0003u, 0x0103u, 0x0002u, 0x0003u,     /* right         up+right      down+right    up+down+right  */
+    0x0000u, 0x0100u, 0x0001u, 0x0000u      /* left+right    +left         +right        all four  */
 };
 
 static void host_input(rt_machine *m)
