@@ -12,10 +12,12 @@
  *   icftd-recomp [<image>] [<insns>] [--state <prefix> [--every n] [--ram f,f]]
  *                [--input <script>] [--data <dir>] [--progress] [--base <addr>]
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
+ *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
  * arrows are the joystick, F1..F4 pick a save slot and F5 cycles them); without it the build runs
- * headless and only reports machine state.
+ * headless and only reports machine state. `--call` enters one of the engine's own routines at a
+ * frame boundary, with the program-end sentinel as its return address.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  */
 #include <stdio.h>
@@ -71,6 +73,11 @@ static void scatter(cpu_t *c, rt_machine *m)
     oracle_regs_set(r);
     (void)m;
 }
+
+/* --call: enter one of the engine's own routines once, at a chosen frame. */
+static u32 g_callPc;
+static u32 g_callFrame;
+static int g_called;
 
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
@@ -309,6 +316,13 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--osd") == 0 && i + 1 < argc) { osdText = argv[++i]; continue; }
+        if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
+        {
+            char *p = argv[++i];
+            g_callPc = (u32)strtoul(p, &p, 0);
+            g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 300u;
+            continue;
+        }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
         {
             speedPercent = strtol(argv[++i], 0, 0);
@@ -402,7 +416,25 @@ int main(int argc, char **argv)
 
     while (m.insns < insns && !m.stop)
     {
-        u32 pc = m68k_get_reg(0, M68K_REG_PC);
+        u32 pc;
+
+        if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
+        {
+            /* Enter one of the engine's own routines as if its caller had just called it: a frame
+             * is pushed with the program-end sentinel as the return address, so the run stops
+             * cleanly when it returns. This is how a scene is reached without playing to it. The
+             * core's PC has to be set here - translated code rewrites c->pc per instruction. */
+            u32 r[18];
+            g_called = 1;
+            oracle_regs_get(r);
+            r[REGS_A + 7] -= 4;
+            rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
+            r[REGS_PC] = g_callPc;
+            oracle_regs_set(r);
+            printf("recomp: calling %06lX at frame %lu\n", (unsigned long)g_callPc,
+                   (unsigned long)m.frame);
+        }
+        pc = m68k_get_reg(0, M68K_REG_PC);
 
         if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
         {

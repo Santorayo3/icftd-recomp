@@ -72,16 +72,32 @@ Verified so far (machine state, not pictures):
   (Lock → CurrentDir → Open(1006) → Write ×2 → Close) for a slot that does not exist yet: the file
   appears at `bin\win32\saves\slot3\ICFTD` with **12 444** bytes, both ranges byte-identical, and
   reads back identically with `Open(1005)`.
+* **The save runs end to end** (2026-11-11). `--call 0x1442A:900` enters `FUN_0001042a` at a frame
+  boundary with the program-end sentinel as its return address, so the routine's own code runs on
+  the live machine state: `dos.Info` says "validated", `Open("ICFTD",1006)` succeeds,
+  `recomp: saved 12444 byte(s) to slot 1`, and the file is **byte-identical to the engine's RAM**
+  at `0x021E18..0x021E90` (120 B) and `0x02686C..0x029890` (12 324 B) from a `--ramstop` dump taken
+  at the same stop point (0 differing bytes in both ranges). A later run opens it back with mode
+  `1005`.
 * A real run of the game reaches the load routine and resolves the volume: `dos.Lock("DSAVE:",-2)`
-  answers, `CurrentDir` selects it, and `Open("ICFTD",1005)` opens the file the test wrote.
+  answers, `CurrentDir` selects it, and `Open("ICFTD",1005)` opens the file.
 * With an empty slot the engine's own "no save yet" path runs unchanged: it writes a **1-byte**
   placeholder (`FUN_0000067c`) before opening for reading — that placeholder must not be reported
   as a save, so the icon only fires for a write of at least `EMU_SAVE_BYTES`.
 
-Still open: the **save itself has not been observed end to end**, because it only happens after a
-session ends (`FUN_000000e4`: the inner loop stops when the player walks into a location), which
-needs real play. The path is identical to the one the test drives, but it has not been seen write
-12444 bytes of live game state yet.
+### The bug the first real save found: `dos.Info` was missing
+
+`FUN_0000050e` (vector slot 3, the save wrapper) does not just open the file. It allocates a
+36-byte `InfoData`, calls `dos.Info(lock, infoData)` (slot 129 → LVO −114) and then loops until
+`id_DiskState` (offset **+8**) is `ID_VALIDATED` (**0x52**); for `ID_WRITE_PROTECTED` (**0x50**) it
+draws "The disk: / <volume> / is write protected. / Unprotect and re-insert it.". The runtime never
+implemented LVO −114, so it answered 0 and left the block zeroed: the state matched neither branch
+and the game retried the volume forever — the first real save (from "Take a Flight") hung with the
+save panel up. `dos.Info` is now implemented: `0x52` for the save volume (the only writable one),
+`0x50` for the game's read-only disk folders.
+
+Still open: nothing on the save path itself. The remaining Phase 2 items are conveniences (`.bak`,
+write-to-temp-then-rename, `meta.txt`).
 
 ## Planned, not implemented
 

@@ -1145,8 +1145,38 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
                 result = len;
             }
             break;
-        case -66:                                /* Seek(fh, offset, offsetMode) */
+        case -114:                               /* Info(lock, InfoData) */
             {
+                /* FUN_0000050e, the save wrapper, asks for the volume's id_DiskState and only
+                 * leaves its retry loop on ID_VALIDATED (0x52); ID_WRITE_PROTECTED (0x50) shows
+                 * the "is write protected" panel. Answering 0 left the block zeroed, so the game
+                 * retried the volume forever - the save appeared to hang. Only the save volume is
+                 * writable: the game's disk folders are read-only extractions, and the engine
+                 * never writes to them. */
+                u32 block = arg32(sp, 1);
+                rt_lock *l = rt_lock_of(m, arg32(sp, 0));
+                int writable = l != 0 && rt_volume_index(l->name) == -2;
+
+                if (block != 0)
+                {
+                    rt_write32(&m->mem, block + 0, 0);           /* id_NumSoftErrors */
+                    rt_write32(&m->mem, block + 4, 0xFFFFFFFFu); /* id_UnitNumber (none) */
+                    rt_write32(&m->mem, block + 8, writable ? 82u : 80u); /* id_DiskState */
+                    rt_write32(&m->mem, block + 12, 1760);       /* id_NumBlocks */
+                    rt_write32(&m->mem, block + 16, 0);          /* id_NumBlocksUsed */
+                    rt_write32(&m->mem, block + 20, 512);        /* id_BytesPerBlock */
+                    rt_write32(&m->mem, block + 24, 0x444F5301u);/* id_DiskType 'DOS\1' */
+                    rt_write32(&m->mem, block + 28, 0);          /* id_VolumeNode */
+                    rt_write32(&m->mem, block + 32, 0xFFFFFFFFu);/* id_InUse */
+                }
+                result = 0xFFFFFFFFu;                            /* DOSTRUE */
+                if (m->dosLog)
+                    printf("     dos.Info(%06lX) = %s (block %06lX)\n",
+                           (unsigned long)arg32(sp, 0), writable ? "validated" : "write protected",
+                           (unsigned long)block);
+            }
+            break;
+        case -66:                                /* Seek(fh, offset, offsetMode) */            {
                 rt_file *f = rt_file_of(m, arg32(sp, 0));
                 s32 off = (s32)arg32(sp, 1);
                 s32 mode = (s32)arg32(sp, 2);

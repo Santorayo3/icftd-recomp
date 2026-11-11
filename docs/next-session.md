@@ -284,9 +284,17 @@ bin\win32\icftd-recomp.exe <img> 12000000 --shot out\osd.bmp --osd save
 raster, so "the overlay is really there" is a pixel count: 87 pixels of `(0,255,0)` in
 `x 3..62, y 2..7`, 141 icon pixels in `x 306..317, y 2..14`.
 
-Not yet observed end to end: the save itself only runs when a session ends (walk into a location),
-which needs real play. The sequence it uses is the one `dos-save-test.ps1` drives, but the first
-real save is still worth watching (`--doslog` prints `recomp: saved <n> byte(s) to slot <n>`).
+**The save runs end to end** (measured 2026-11-11). `--call 0x1442A:900` enters `FUN_0001042a` at a
+frame boundary with the program-end sentinel as its return address, so the engine's own routine runs
+on the live machine state: `dos.Info` → "validated", `Open("ICFTD",1006)`, `saved 12444 byte(s) to
+slot 1`, and the file is byte-identical to the RAM at `0x25E18..` (120 B) and `0x2A86C..` (12 324 B)
+from a `--ramstop` dump at the same stop point.
+
+That first real save (the user's "Take a Flight") found the last missing shim: **`dos.Info` (LVO
+−114)**. `FUN_0000050e` calls it and loops until `id_DiskState` (+8) is `ID_VALIDATED` 0x52, drawing
+"is write protected" for 0x50; answering 0 left the block zeroed, so neither branch matched and the
+game retried the volume forever. The runtime now answers 0x52 for the save volume and 0x50 for the
+read-only disk folders.
 
 ## The four fixes that made screens work
 
