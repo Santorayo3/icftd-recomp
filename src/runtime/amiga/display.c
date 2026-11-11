@@ -692,6 +692,28 @@ void rt_gfx_present(rt_machine *m, u32 view)
         count = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
         table = rt_read32(&m->mem, cm + EMU_CM_TABLE);
     }
+    /* The installed list is the palette the engine fades, but it only covers the colours its own
+     * MrgCop built for THAT view. A screen whose ViewPort asks for more colours than the list
+     * carries (measured in the flight: list 14, ViewPort 32, ColorMap 32) would otherwise render
+     * the extra indices with stale/black entries, so fill the tail from the ViewPort's ColorMap -
+     * the list still wins wherever it has an entry. */
+    else if (cm != 0)
+    {
+        int cmCount = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
+        u32 cmTable = rt_read32(&m->mem, cm + EMU_CM_TABLE);
+
+        if (cmTable != 0 && cmCount > count && cmCount <= 256)
+        {
+            for (p = count; p < cmCount; p++)
+            {
+                u32 v = rt_read16(&m->mem, cmTable + (u32)p * 2u);
+                gfx->pal[p * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
+                gfx->pal[p * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
+                gfx->pal[p * 3 + 2] = (u8)((v & 0xF) * 17);
+            }
+            count = cmCount;
+        }
+    }
     if (count > 0 && count <= 256 && table != 0)
     {
         for (p = 0; p < count; p++)
