@@ -759,12 +759,14 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 if (hit) { if (first < 0) first = y2; last = y2; }
             }
             printf("emu: present %lu frame %lu: vp %06lX bm %06lX %dx%d bpr %d rows %d depth %d "
-                   "vpDx %d vpDy %d riRx %d riRy %d pal %d; painted rows %d..%d, %d lit px\n",
+                   "vpDx %d vpDy %d riRx %d riRy %d pal %d vcol %d cm %d; painted rows %d..%d, %d lit px\n",
                    (unsigned long)gfx->frames, (unsigned long)m->frame, (unsigned long)vp,
                    (unsigned long)bm, w, h, bpr, rows, depth,
                    (int)(s16)rt_read16(&m->mem, vp + 0x1C), (int)(s16)rt_read16(&m->mem, vp + 0x1E),
                    (int)(s16)rt_read16(&m->mem, ri + 4), (int)(s16)rt_read16(&m->mem, ri + 6),
-                   gfx->palCount, first, last, nz);
+                   gfx->palCount, (int)rt_read16(&m->mem, view + 0x12),
+                   cm != 0 ? (int)rt_read8(&m->mem, cm + EMU_CM_COUNT) : -1,
+                   first, last, nz);
         }
     }
     /* FUN_000007F4 (panel open, flag 0x21F5A) loads five colours from 0x21F50 into the live table
