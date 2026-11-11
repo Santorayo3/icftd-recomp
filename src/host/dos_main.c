@@ -49,6 +49,7 @@ static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
 static const char *g_dumpPath;  /* --dump <frame> <file>: the RAM image at that vblank */
 static int    g_noAudio;        /* --noaudio: leave the Sound Blaster alone */
+static int    g_sbTest;         /* --sbtest: diagnose the audio device and exit */
 u32    g_dumpFrame;
 static int    g_dumped;
 static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
@@ -282,6 +283,8 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--trace") == 0) { g_trace = 1; continue; }
         if (strcmp(argv[i], "--crashlog") == 0) { g_crashLog = 1; continue; }
+        if (strcmp(argv[i], "--noaudio") == 0) { g_noAudio = 1; continue; }
+        if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
         if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
         {
@@ -341,6 +344,12 @@ int main(int argc, char **argv)
         printf("icftd: cannot set a video mode\n");
         rt_shutdown(&m);
         return 1;
+    }
+    if (g_sbTest)
+    {
+        plat_audio_probe();
+        rt_shutdown(&m);
+        return 0;
     }
     /* Paula is mixed here and played through the Sound Blaster the BLASTER variable names. Without
      * one the mixer is not started at all (rt_time_slice keeps its cheap path) and the player is
@@ -479,7 +488,7 @@ int main(int argc, char **argv)
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);
     if (audioPlayed != 0 || audioDropped != 0)
-        printf("icftd: audio %lu byte(s) played by the card, %lu frame(s) dropped\n",
+        printf("icftd: audio %lu byte(s) sent to the card, %lu frame(s) dropped\n",
                (unsigned long)audioPlayed, (unsigned long)audioDropped);
     printf("icftd: settings %s, saves %lu\n",
            rt_config_path()[0] != 0 ? rt_config_path() : "(none)", (unsigned long)m.saves);

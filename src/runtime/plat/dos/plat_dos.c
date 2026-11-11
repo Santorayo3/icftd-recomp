@@ -341,6 +341,8 @@ static struct
     u32 allocSeg;                      /* its real-mode segment */
     u32 phys;                          /* its physical address (the aligned window) */
     u32 written;                       /* bytes handed to the ring (free-running) */
+    u32 consumed;                      /* bytes the card is due to have taken */
+    u32 lastConsMs;                    /* g_ms of the last consumption step */
     u32 lastPos;                       /* last DMA position read */
     u32 played;                        /* bytes the card has played (free-running) */
     u32 dropped;                       /* frames the ring could not take */
@@ -580,14 +582,28 @@ static u32 sb_played(void)
 static void sb_service(void);
 
 /* The card consumes in real time, the mixer produces in emulated time; waiting here is what keeps
- * the two in step, and it is how the Windows build behaves too (the wave device blocks there). A
- * card that stops consuming must not hang the game, so the wait is bounded - after that the
- * samples are dropped and counted, exactly as before. */
+ * the two in step, and it is how the Windows build behaves too (the wave device blocks there).
+ *
+ * What the card has taken comes from the rate we programmed and the 8254 clock, not from the 8237
+ * position register: that register counts in units the card chooses and read back a factor of two
+ * away from the byte offset, which made every earlier attempt at pacing run the emulator at half
+ * speed. A card that stops consuming must not hang the game, so the wait is bounded - after that
+ * the samples are dropped and counted. */
+static u32 sb_consumed(void)
+{
+    u32 dt = g_ms - g_sb.lastConsMs;
+
+    g_sb.lastConsMs = g_ms;
+    g_sb.consumed += (g_sb.rate * g_sb.bytesFrame * dt) / 1000u;
+    if ((s32)(g_sb.consumed - g_sb.written) > 0) g_sb.consumed = g_sb.written;
+    return g_sb.consumed;
+}
+
 static void sb_wait_for_room(u32 bytes)
 {
     u32 start = g_ms;
 
-    while ((s32)(g_sb.written - sb_played()) + (s32)bytes > (s32)SB_BUF_BYTES)
+    while ((s32)(g_sb.written - sb_consumed()) + (s32)bytes > (s32)SB_BUF_BYTES)
     {
         pit_update();
         if (g_ms - start >= 30u) return;
@@ -596,7 +612,7 @@ static void sb_wait_for_room(u32 bytes)
 
 static void sb_put(const u8 *src, u32 bytes)
 {
-    u32 played = sb_played();
+    u32 played = sb_consumed();
     s32 used = (s32)(g_sb.written - played);
     u32 free;
 
@@ -672,6 +688,7 @@ static void sb_service(void)
 u32 plat_audio_open(u32 rate)
 {
     int ver;
+    u32 tcUsed = 0;
 
     memset(&g_sb, 0, sizeof g_sb);
     if (!sb_parse())
@@ -707,18 +724,27 @@ u32 plat_audio_open(u32 rate)
     /* Speaker, rate, block size, then the DMA channel, then the transfer: the order every real
      * driver uses. From here on a failure has to undo the ring and the IRQ mask. */
     sb_write(0xD1);
-    if (g_sb.major >= 4)
     {
-        if (!sb_write(0x41)) goto fail;                 /* SB16 sets the rate directly */
-        sb_write((u8)(g_sb.rate >> 8));
-        sb_write((u8)(g_sb.rate & 0xFFu));
-    }
-    else
-    {
-        u32 dr = g_sb.rate * (g_sb.stereo ? 2u : 1u);
+        /* Two rate commands, one per DSP generation, and never both: an SB16 takes 0x41 with the
+         * exact rate, the earlier cards only know the time constant 0x40. Sending 0x40 first and
+         * then 0x41 halves the SB16's rate (measured: 89,400 B/s instead of 176,400), and 0x41 is
+         * an unknown command on a DSP 1.x-3.x. The time constant is a byte rate on the old cards -
+         * they halve it themselves for stereo - so it takes the bytes per frame as a factor. */
+        if (g_sb.major >= 4)
+        {
+            if (!sb_write(0x41)) goto fail;
+            sb_write((u8)(g_sb.rate >> 8));
+            sb_write((u8)(g_sb.rate & 0xFFu));
+        }
+        else
+        {
+            u32 target = g_sb.rate * g_sb.bytesFrame;
+            u32 tc = 256u - ((1000000u + target / 2u) / target);
 
-        if (!sb_write(0x40)) goto fail;                 /* older cards: a time constant */
-        sb_write((u8)(256u - (1000000u / dr)));
+            if (!sb_write(0x40)) goto fail;
+            sb_write((u8)(tc & 0xFFu));
+            tcUsed = tc;
+        }
         if (g_sb.major == 3)
         {
             /* Pro: the CT1345 mixer's register 0x0E bit 1 is the stereo switch. */
@@ -735,12 +761,18 @@ u32 plat_audio_open(u32 rate)
     sb_irq_take();
     if (!sb_start_stream()) goto fail;
 
+    /* The ring starts full of silence, so the write pointer starts one ring ahead of the read
+     * pointer and the card has a full ring to work through before it needs anything from us. */
+    g_sb.written = SB_BUF_BYTES;
+    g_sb.consumed = 0;
+    g_sb.lastConsMs = g_ms;
+
     g_sb.open = 1;
     g_sb.posValid = 0;
-    printf("audio: Sound Blaster %u.%02u at %03X, IRQ %u, DMA %u/%u - %lu Hz %u-bit %s\n",
+    printf("audio: Sound Blaster %u.%02u at %03X, IRQ %u, DMA %u/%u - %lu Hz %u-bit %s (tc %lu)\n",
            (unsigned)g_sb.major, (unsigned)g_sb.minor, g_sb.base, (unsigned)g_sb.irq,
            (unsigned)g_sb.dma8, (unsigned)g_sb.dma16, (unsigned long)g_sb.rate,
-           (unsigned)g_sb.bits, g_sb.stereo ? "stereo" : "mono");
+           (unsigned)g_sb.bits, g_sb.stereo ? "stereo" : "mono", (unsigned long)tcUsed);
     (void)rate;
     return 1;
 
@@ -763,6 +795,230 @@ void plat_audio_close(void)
                    (unsigned long)g_sb.resumes);
     }
     sb_irq_release();
+    sb_free_mem();
+    g_sb.open = 0;
+}
+
+/* --- the --sbtest probe -------------------------------------------------------------------- */
+
+/* Sets up one format, lets the card read the ring for ~400 ms with nothing else touching it, and
+ * reports what it actually consumed. The 8237 position register reads back HALF the byte rate, so
+ * the numbers need doubling: at 44,100 Hz mono 16-bit expect ~44,000 here and stereo ~88,000. A
+ * stereo case that matches the mono one means the card never took the stereo bit. */
+static u32 probe_case(const char *title, int bits16, u8 cmd, u8 mode, u32 rate, int mixerStereo)
+{
+    u32 t0, last, units = 0, elapsed = 0, mask = SB_BUF_BYTES - 1u, len;
+    int i;
+
+    printf("%-48s ", title);
+    if (!sb_reset()) { printf("no DSP\n"); return 0; }
+
+    g_sb.bits = bits16 ? 16 : 8;
+    g_sb.stereo = 1;
+    g_sb.bytesFrame = (u32)(bits16 ? 4 : 2);
+    g_sb.played = 0;
+    g_sb.written = 0;
+    g_sb.posValid = 0;
+
+    sb_write(0xD1);                                    /* speaker on */
+    if (rate != 0u)
+    {
+        if (g_sb.major >= 4)                           /* SB16: a plain sample rate */
+        {
+            sb_write(0x41);
+            sb_write((u8)(rate >> 8));
+            sb_write((u8)(rate & 0xFFu));
+        }
+        else                                           /* earlier cards: a time constant */
+        {
+            sb_write(0x40);
+            sb_write((u8)(256u - (1000000u / rate)));
+        }
+    }
+    if (mixerStereo >= 0)
+    {
+        outp(DSP_MIXER(g_sb.base), 0x0E);
+        sb_udelay();
+        outp(DSP_MIXER(g_sb.base) + 1, (unsigned)(mixerStereo ? 0x02u : 0x00u));
+        sb_udelay();
+    }
+
+    memset(g_sb.buf, bits16 ? 0x00 : 0x80, SB_BUF_BYTES);
+    sb_dma_start();
+
+    len = (bits16 ? (SB_BUF_BYTES / 2u) : SB_BUF_BYTES) - 1u;
+    if (bits16 || cmd == 0xC6)                         /* commands that carry mode and length */
+    {
+        sb_write(cmd);
+        sb_write(mode);
+        sb_write((u8)(len & 0xFFu));
+        sb_write((u8)((len >> 8) & 0xFFu));
+    }
+    else                                               /* 0x1C: length from 0x48 */
+    {
+        sb_write(0x48);
+        sb_write((u8)(len & 0xFFu));
+        sb_write((u8)((len >> 8) & 0xFFu));
+        sb_write(cmd);
+    }
+
+    pit_update();
+    t0 = g_ms;
+    last = sb_dma_pos();
+    do
+    {
+        u32 now = sb_dma_pos();
+
+        units += (now - last) & mask;
+        last = now;
+        (void)inp(DSP_STATUS(g_sb.base));
+        (void)inp(DSP_ACK16(g_sb.base));
+        pit_update();
+        elapsed = g_ms - t0;
+    } while (elapsed < 400u);
+
+    sb_write(0xD0);                                    /* halt */
+    sb_write(0xD5);
+    sb_write(0xDA);                                    /* exit auto-init */
+    sb_write(0xD9);
+    sb_write(0xD3);                                    /* speaker off */
+
+    if (elapsed == 0u) elapsed = 1u;
+    printf("%lu byte/s over %lu ms\n", (unsigned long)(units * 1000u / elapsed),
+           (unsigned long)elapsed);
+    for (i = 0; i < 1; i++) ;                          /* keep the compiler quiet about i */
+    return units * 1000u / elapsed;
+}
+
+/* Same as probe_case, but sets the rate with the time constant command 0x40 (the pre-SB16 way,
+ * which an SB16 still honours) and optionally sends 0x41 twice. */
+static u32 probe_rate_style(const char *title, int style, u32 rate)
+{
+    u32 t0, last, units = 0, elapsed = 0, len;
+
+    printf("%-48s ", title);
+    if (!sb_reset()) { printf("no DSP\n"); return 0; }
+    g_sb.bits = 16;
+    g_sb.stereo = 1;
+    g_sb.bytesFrame = 4;
+    g_sb.played = 0;
+    g_sb.written = 0;
+    g_sb.posValid = 0;
+
+    sb_write(0xD1);
+    if (style == 1)                                    /* 0x40 + time constant */
+    {
+        u8 tc = (u8)(256u - (1000000u / rate));
+
+        sb_write(0x40);
+        sb_write(tc);
+        printf("[tc %u] ", (unsigned)tc);
+    }
+    else                                               /* 0x41 + rate, twice */
+    {
+        sb_write(0x41);
+        sb_write((u8)(rate >> 8));
+        sb_write((u8)(rate & 0xFFu));
+        sb_write(0x41);
+        sb_write((u8)(rate >> 8));
+        sb_write((u8)(rate & 0xFFu));
+    }
+
+    memset(g_sb.buf, 0x00, SB_BUF_BYTES);
+    sb_dma_start();
+    len = (SB_BUF_BYTES / 2u) - 1u;
+    sb_write(0xB6);
+    sb_write(0x30);
+    sb_write((u8)(len & 0xFFu));
+    sb_write((u8)((len >> 8) & 0xFFu));
+
+    pit_update();
+    t0 = g_ms;
+    last = sb_dma_pos();
+    do
+    {
+        u32 now = sb_dma_pos();
+
+        units += (now - last) & (SB_BUF_BYTES - 1u);
+        last = now;
+        (void)inp(DSP_STATUS(g_sb.base));
+        (void)inp(DSP_ACK16(g_sb.base));
+        pit_update();
+        elapsed = g_ms - t0;
+    } while (elapsed < 400u);
+
+    sb_write(0xD0);
+    sb_write(0xD5);
+    sb_write(0xDA);
+    sb_write(0xD9);
+    sb_write(0xD3);
+
+    if (elapsed == 0u) elapsed = 1u;
+    printf("%lu byte/s over %lu ms\n", (unsigned long)(units * 1000u / elapsed),
+           (unsigned long)elapsed);
+    return units * 1000u / elapsed;
+}
+
+void plat_audio_probe(void)
+{
+    u32 mono, stereo, mixer, noRate;
+    u32 ticks0 = *(volatile u32 *)0x46Cu;            /* BIOS tick count, 18.2 Hz */
+    u32 ms0;
+
+    memset(&g_sb, 0, sizeof g_sb);
+    if (!sb_parse())
+    {
+        printf("sbtest: BLASTER is not set, nothing to probe\n");
+        return;
+    }
+    if (!sb_reset() || !sb_write(0xE1))
+    {
+        printf("sbtest: no Sound Blaster answered at %03X\n", g_sb.base);
+        return;
+    }
+    g_sb.major = (u8)sb_read();
+    g_sb.minor = (u8)sb_read();
+    printf("sbtest: BLASTER [%s], DSP %u.%02u, IRQ %u, DMA %u/%u\n",
+           getenv("BLASTER"), (unsigned)g_sb.major, (unsigned)g_sb.minor, (unsigned)g_sb.irq,
+           (unsigned)g_sb.dma8, (unsigned)g_sb.dma16);
+    if (!sb_alloc(SB_BUF_BYTES, g_sb.bits == 16 ? 0x20000u : 0x10000u))
+    {
+        printf("sbtest: no base memory for the ring\n");
+        return;
+    }
+    printf("sbtest: ring at %06lX; position halves the rate, so expect ~44000 B/s mono at 44100\n",
+           (unsigned long)g_sb.phys);
+    pit_update();
+    ms0 = g_ms;
+
+    if (g_sb.major >= 4)
+    {
+        mono   = probe_case("16-bit auto-init, mode 10h (signed mono)", 1, 0xB6, 0x10, 44100u, -1);
+        stereo = probe_case("16-bit auto-init, mode 30h (signed stereo)", 1, 0xB6, 0x30, 44100u, -1);
+        mixer  = probe_case("16-bit auto-init, mode 30h, mixer 0Eh stereo", 1, 0xB6, 0x30, 44100u, 1);
+        noRate = probe_case("16-bit auto-init, mode 30h, no rate command", 1, 0xB6, 0x30, 0u, -1);
+        printf("sbtest: stereo/mono = %lu.%02lu%s (mixer 0Eh: %lu, no-rate: %lu)\n",
+               (unsigned long)(mono ? stereo / mono : 0u),
+               (unsigned long)(mono ? (stereo % mono) * 100u / mono : 0u),
+               (mono != 0u && stereo >= mono * 2u) ? " - stereo is applied" : " - stream is mono",
+               (unsigned long)mixer, (unsigned long)noRate);
+        probe_rate_style("16-bit stereo, rate via 0x40 time constant", 1, 44100u);
+        probe_rate_style("16-bit stereo, 0x41 sent twice", 2, 44100u);
+    }
+    else
+    {
+        mono = probe_case("8-bit auto-init 1Ch, mixer 0Eh stereo", 0, 0x1C, 0x00, 22050u, 1);
+        stereo = probe_case("8-bit auto-init C6h, mode 20h (stereo)", 0, 0xC6, 0x20, 22050u, -1);
+        printf("sbtest: 8-bit byte rates: 1Ch %lu, C6h %lu\n", (unsigned long)mono,
+               (unsigned long)stereo);
+    }
+
+    /* Both clocks measure the same interval: a case reports half the rate it should when the
+     * millisecond clock runs fast, and this line says which of the two is lying. */
+    pit_update();
+    printf("sbtest: %lu ms by the 8254, %lu ms by the BIOS tick\n", (unsigned long)(g_ms - ms0),
+           (unsigned long)((*(volatile u32 *)0x46Cu - ticks0) * 1000u / 182u));
+
     sb_free_mem();
     g_sb.open = 0;
 }
@@ -811,7 +1067,7 @@ u32 plat_audio_dropped(void)
 
 u32 plat_audio_played(void)
 {
-    return g_sb.open ? sb_played() : 0;
+    return g_sb.open ? g_sb.written : 0;
 }
 
 /* --- input and clock ----------------------------------------------------------------------- */

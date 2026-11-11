@@ -75,6 +75,10 @@ u32  plat_audio_dropped(void);
 /* Bytes the device has consumed since it opened (0 when it cannot report it). */
 u32  plat_audio_played(void);
 
+/* Diagnoses the audio device: sets up each format it supports, measures what the card actually
+ * consumes and prints one line per case. DOS only; a no-op elsewhere. */
+void plat_audio_probe(void);
+
 /* Fills in the input state and drains OS messages.  Returns 0 when the user asked to quit. */
 u32  plat_pump(input_state *in);
 
