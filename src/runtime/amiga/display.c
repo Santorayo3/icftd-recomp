@@ -30,6 +30,59 @@ static int g_nibReady;
  * group loop below can read all five planes unconditionally. Must cover a 640-pixel row. */
 static const u8 g_zeroRow[128];
 
+/* --- one conversion per changed picture ---------------------------------------------------
+ * The chunky buffer is a pure function of the plane bytes, so it only has to be rebuilt when those
+ * bytes (or the geometry) changed since the last time this view was converted. Comparing them is
+ * an exact test - whoever wrote the bytes: the blitter, a shim or translated code - and it costs a
+ * memcmp per plane instead of the whole group loop. The intro presents 1.54 times per frame
+ * (`LoadView` presents, and the vblank presents the same view again); the second one is normally
+ * this case. Draws that land in the chunky buffer itself (graphics primitives on the pseudo
+ * bitmap, the OSD) make the comparison meaningless and invalidate it. */
+#define CONV_PLANES  5
+#define CONV_SRC_MAX (CONV_PLANES * 80 * EMU_FB_MAX_H)   /* a 640-wide, five-plane raster */
+static u8  *g_src;
+static int  g_srcValid;
+static u32  g_srcBm;
+static int  g_srcW, g_srcH, g_srcBpr, g_srcPlanes, g_srcLen;
+
+/* 1 when gfx->fb still holds what these planes would convert to. */
+static int conv_same(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes)
+{
+    int p;
+
+    if (!g_srcValid || g_srcPlanes != np || g_srcBm != bm || g_srcW != w || g_srcH != h ||
+        g_srcBpr != bpr || g_srcLen != bpr * h)
+        return 0;
+    for (p = 0; p < np; p++)
+        if (memcmp(g_src + (u32)p * (u32)g_srcLen, m->mem.base + planes[p], (size_t)g_srcLen) != 0)
+            return 0;
+    return 1;
+}
+
+/* Remembers the bytes that were just converted. A picture whose rows are not all inside RAM is not
+ * a plane-byte conversion at all (the accessor answers 0 outside), so it is not remembered. */
+static void conv_saved(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes)
+{
+    int p, len = bpr * h;
+
+    g_srcValid = 0;
+    if (np > CONV_PLANES || len <= 0 || len > CONV_SRC_MAX / CONV_PLANES) return;
+    if (g_src == 0) g_src = (u8 *)plat_alloc(CONV_SRC_MAX);
+    if (g_src == 0) return;
+    for (p = 0; p < np; p++)
+    {
+        if (planes[p] == 0 || planes[p] + (u32)len > m->mem.size) return;
+        memcpy(g_src + (u32)p * (u32)len, m->mem.base + planes[p], (size_t)len);
+    }
+    g_srcBm = bm;
+    g_srcW = w;
+    g_srcH = h;
+    g_srcBpr = bpr;
+    g_srcPlanes = np;
+    g_srcLen = len;
+    g_srcValid = 1;
+}
+
 /* Bit 3 of a nibble is its leftmost pixel, matching the 0x80 mask the bitplane format uses. */
 static void nib_tables(void)
 {
@@ -259,6 +312,9 @@ static void plot(rt_machine *m, u32 bm, int x, int y, u8 pen)
 
     if (bm == EMU_BM_FRAMEBUFFER)
     {
+        /* Drawn straight into the chunky buffer: the plane comparison can no longer tell whether
+         * the buffer is current, so a later present must rebuild it. */
+        g_srcValid = 0;
         if (gfx->fb != 0 && x >= 0 && y >= 0 && x < gfx->fbW && y < gfx->fbH)
             gfx->fb[(u32)y * (u32)EMU_FB_MAX_W + (u32)x] = pen;
         return;
@@ -685,6 +741,92 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
                (unsigned long)start);
 }
 
+/* One planar -> chunky pass over the whole visible area. The plane pointers are read once per row;
+ * a row that does not lie wholly inside the RAM block keeps the general accessor (which answers 0
+ * outside); up to five planes go through the nibble tables above, wider bitmaps keep the per-pixel
+ * rule. */
+static void conv_picture(rt_machine *m, int w, int h, int bpr, int np, const u32 *planes)
+{
+    int x, y, p;
+
+    for (y = 0; y < h; y++)
+    {
+        u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
+        const u8 *src[8];
+        int fast = 1;
+
+        for (p = 0; p < 8; p++) src[p] = 0;
+        for (p = 0; p < np; p++)
+        {
+            u32 off;
+            if (planes[p] == 0) continue;
+            off = planes[p] + (u32)y * (u32)bpr;
+            if (off + (u32)bpr > m->mem.size) { fast = 0; break; }
+            src[p] = m->mem.base + off;
+        }
+        if (fast && np <= 5)
+        {
+            int groups = w >> 3;
+            int g;
+            /* A plane a shallow screen does not have is read from a zero row, so the group loop
+             * needs no per-plane test: five loads, six table reads and two dword stores for eight
+             * pixels. This loop is 40 % of a frame (measured with it switched off), so the branch
+             * per plane and the eight byte stores per group are worth this much care - the values
+             * are the same either way. */
+            const u8 *s0 = src[0] != 0 ? src[0] : g_zeroRow;
+            const u8 *s1 = src[1] != 0 ? src[1] : g_zeroRow;
+            const u8 *s2 = src[2] != 0 ? src[2] : g_zeroRow;
+            const u8 *s3 = src[3] != 0 ? src[3] : g_zeroRow;
+            const u8 *s4 = src[4] != 0 ? src[4] : g_zeroRow;
+
+            for (g = 0; g < groups; g++)
+            {
+                u32 b0 = s0[g], b1 = s1[g], b2 = s2[g], b3 = s3[g], b4 = s4[g];
+                u32 lo = g_nib01[(b0 & 0xF0u) | (b1 >> 4)] |
+                         g_nib23[(b2 & 0xF0u) | (b3 >> 4)] |
+                         g_nib4[b4 >> 4];
+                u32 hi = g_nib01[((b0 & 0x0Fu) << 4) | (b1 & 0x0Fu)] |
+                         g_nib23[((b2 & 0x0Fu) << 4) | (b3 & 0x0Fu)] |
+                         g_nib4[b4 & 0x0Fu];
+                u32 *out = (u32 *)(void *)(row + (g << 3));   /* 8 pixels, 4-aligned row */
+                out[0] = lo;
+                out[1] = hi;
+            }
+            for (x = groups << 3; x < w; x++)
+            {
+                u8 mask = (u8)(0x80u >> (x & 7));
+                int byte = x >> 3;
+                int idx = 0;
+                for (p = 0; p < np; p++)
+                    if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
+                row[x] = (u8)idx;
+            }
+        }
+        else if (fast)
+        {
+            for (x = 0; x < w; x++)
+            {
+                u8 mask = (u8)(0x80u >> (x & 7));
+                int byte = x >> 3;
+                int idx = 0;
+                for (p = 0; p < np; p++)
+                    if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
+                row[x] = (u8)idx;
+            }
+        }
+        else
+        {
+            for (x = 0; x < w; x++)
+            {
+                int idx = 0;
+                for (p = 0; p < np; p++)
+                    if (planes[p] != 0) idx |= plane_get(m, planes[p], bpr, x, y) << p;
+                row[x] = (u8)idx;
+            }
+        }
+    }
+}
+
 void rt_gfx_present(rt_machine *m, u32 view)
 {
     u32 vp, cm, ri, bm, table;
@@ -828,9 +970,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
     }
 
     /* Planar -> chunky. This is the one loop that runs over the whole screen every frame - and it
-     * used to be 68% of a frame. The plane pointers are read once per row; a row that does not lie
-     * wholly inside the RAM block keeps the general accessor (which answers 0 outside); up to five
-     * planes go through the nibble tables above, wider bitmaps keep the per-pixel rule. */
+     * used to be 68% of a frame. One conversion per changed picture: see conv_same() above. */
     {
         u32 pt0 = plat_pit_now();
         int np = depth < 8 ? depth : 8;
@@ -838,81 +978,10 @@ void rt_gfx_present(rt_machine *m, u32 view)
         nib_tables();
         for (p = 0; p < 8; p++) planes[p] = 0;
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
-        for (y = 0; y < h; y++)
+        if (!conv_same(m, bm, w, h, bpr, np, planes))
         {
-            u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
-            const u8 *src[8];
-            int fast = 1;
-
-            for (p = 0; p < 8; p++) src[p] = 0;
-            for (p = 0; p < np; p++)
-            {
-                u32 off;
-                if (planes[p] == 0) continue;
-                off = planes[p] + (u32)y * (u32)bpr;
-                if (off + (u32)bpr > m->mem.size) { fast = 0; break; }
-                src[p] = m->mem.base + off;
-            }
-            if (fast && np <= 5)
-            {
-                int groups = w >> 3;
-                int g;
-                /* A plane a shallow screen does not have is read from a zero row, so the group loop
-                 * needs no per-plane test: five loads, six table reads and two dword stores for
-                 * eight pixels. This loop is 40 % of a frame (measured with it switched off), so the
-                 * branch per plane and the eight byte stores per group are worth this much care -
-                 * the values are the same either way. */
-                const u8 *s0 = src[0] != 0 ? src[0] : g_zeroRow;
-                const u8 *s1 = src[1] != 0 ? src[1] : g_zeroRow;
-                const u8 *s2 = src[2] != 0 ? src[2] : g_zeroRow;
-                const u8 *s3 = src[3] != 0 ? src[3] : g_zeroRow;
-                const u8 *s4 = src[4] != 0 ? src[4] : g_zeroRow;
-
-                for (g = 0; g < groups; g++)
-                {
-                    u32 b0 = s0[g], b1 = s1[g], b2 = s2[g], b3 = s3[g], b4 = s4[g];
-                    u32 lo = g_nib01[(b0 & 0xF0u) | (b1 >> 4)] |
-                             g_nib23[(b2 & 0xF0u) | (b3 >> 4)] |
-                             g_nib4[b4 >> 4];
-                    u32 hi = g_nib01[((b0 & 0x0Fu) << 4) | (b1 & 0x0Fu)] |
-                             g_nib23[((b2 & 0x0Fu) << 4) | (b3 & 0x0Fu)] |
-                             g_nib4[b4 & 0x0Fu];
-                    u32 *out = (u32 *)(void *)(row + (g << 3));   /* 8 pixels, 4-aligned row */
-                    out[0] = lo;
-                    out[1] = hi;
-                }
-                for (x = groups << 3; x < w; x++)
-                {
-                    u8 mask = (u8)(0x80u >> (x & 7));
-                    int byte = x >> 3;
-                    int idx = 0;
-                    for (p = 0; p < np; p++)
-                        if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
-                    row[x] = (u8)idx;
-                }
-            }
-            else if (fast)
-            {
-                for (x = 0; x < w; x++)
-                {
-                    u8 mask = (u8)(0x80u >> (x & 7));
-                    int byte = x >> 3;
-                    int idx = 0;
-                    for (p = 0; p < np; p++)
-                        if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
-                    row[x] = (u8)idx;
-                }
-            }
-            else
-            {
-                for (x = 0; x < w; x++)
-                {
-                    int idx = 0;
-                    for (p = 0; p < np; p++)
-                        if (planes[p] != 0) idx |= plane_get(m, planes[p], bpr, x, y) << p;
-                    row[x] = (u8)idx;
-                }
-            }
+            conv_picture(m, w, h, bpr, np, planes);
+            conv_saved(m, bm, w, h, bpr, np, planes);
         }
         if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }
@@ -1176,11 +1245,20 @@ static void osd_draw_icon(rt_machine *m)
 
 static void osd_draw(rt_machine *m)
 {
+    static int wasUp;
     int textUp = gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
     int iconUp = (s32)(gfx->osdIconUntil - m->frame) > 0;
     int i;
 
-    if (!textUp && !iconUp) return;
+    if (!textUp && !iconUp)
+    {
+        /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
+         * to rebuild the picture to clear those pixels. */
+        if (wasUp) { g_srcValid = 0; wasUp = 0; }
+        return;
+    }
+    wasUp = 1;
+    g_srcValid = 0;                     /* the overlay's pixels are not in the planes */
     osd_colour(OSD_PEN_TEXT, 0, 255, 0);
     for (i = 0; i < OSD_ICON_COLOURS; i++)
         osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],

@@ -19,29 +19,42 @@
 #include <stdio.h>
 #include <string.h>
 
-static u16 rd16(rt_machine *m, u32 a) { return (u16)rt_read16(&m->mem, a); }
+/* Word access, direct. A blit moves tens of thousands of words and every one of them went through
+ * rt_read16/rt_write16 - a call, a mask and a range check per word per channel - which was most of
+ * what a blit cost. The rule is unchanged and stays here: inside the RAM block the two bytes are
+ * read and written as the big-endian word the blitter sees; anything else goes to the checked
+ * accessor, which masks, counts m->bad and reports. */
+static u16 rd16(rt_machine *m, u32 a)
+{
+    a &= 0xFFFFFFu;
+    if (a + 1u < m->mem.size)
+        return (u16)(((u32)m->mem.base[a] << 8) | (u32)m->mem.base[a + 1]);
+    return (u16)rt_read16(&m->mem, a);
+}
 
 /* Every write goes through here: a blit whose geometry is wrong must show up as a report, not as
  * silent corruption of whatever follows the destination in the heap. */
 static void wr16(rt_machine *m, u32 a, u16 v)
 {
-    if (a + 1u >= m->mem.size)
+    a &= 0xFFFFFFu;
+    if (a + 1u < m->mem.size)
     {
-        m->blitDrops++;
-        if (m->blitLogs < 200)
-        {
-            m->blitLogs++;
-            printf("emu: blit write outside RAM at %08lX (con0 %04lX con1 %04lX A %06lX B %06lX "
-                   "C %06lX D %06lX mods %ld/%ld/%ld/%ld size %04lX) from pc %06lX\n",
-                   (unsigned long)a, (unsigned long)m->blit.con0, (unsigned long)m->blit.con1,
-                   (unsigned long)m->blit.apt, (unsigned long)m->blit.bpt,
-                   (unsigned long)m->blit.cpt, (unsigned long)m->blit.dpt,
-                   (long)m->blit.amod, (long)m->blit.bmod, (long)m->blit.cmod,
-                   (long)m->blit.dmod, (unsigned long)m->blit.size, (unsigned long)m->pc);
-        }
+        m->mem.base[a] = (u8)(v >> 8);
+        m->mem.base[a + 1] = (u8)v;
         return;
     }
-    rt_write16(&m->mem, a, v);
+    m->blitDrops++;
+    if (m->blitLogs < 200)
+    {
+        m->blitLogs++;
+        printf("emu: blit write outside RAM at %08lX (con0 %04lX con1 %04lX A %06lX B %06lX "
+               "C %06lX D %06lX mods %ld/%ld/%ld/%ld size %04lX) from pc %06lX\n",
+               (unsigned long)a, (unsigned long)m->blit.con0, (unsigned long)m->blit.con1,
+               (unsigned long)m->blit.apt, (unsigned long)m->blit.bpt,
+               (unsigned long)m->blit.cpt, (unsigned long)m->blit.dpt,
+               (long)m->blit.amod, (long)m->blit.bmod, (long)m->blit.cmod,
+               (long)m->blit.dmod, (unsigned long)m->blit.size, (unsigned long)m->pc);
+    }
 }
 
 /* The minterm bit for the three data inputs A, B and C has the index 4*A + 2*B + C. It is a

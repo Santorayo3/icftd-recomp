@@ -81,6 +81,9 @@ Order for the next session - the **emitter** step, measured after each slice at 
 | 1. block cycle accounting, as specified | 82.5 |
 | ... the same build with the per-instruction model forced | 80.5 |
 | reference with the planar->chunky loop switched off (measurement only) | **48.0** |
+| blitter pixel loop switched off (measurement only) | 57.0 |
+| after the conversion group loop (`d2ab556`) | 66.0 |
+| after the inlined blitter accessors + one conversion per changed picture | **58.0** |
 
 - **Step 1 was implemented, measured and reverted.** A block charge cannot cover the device clock:
   batching Paula/CIA to the block boundary takes the interrupt at a different instruction, which
@@ -99,18 +102,24 @@ Order for the next session - the **emitter** step, measured after each slice at 
   run printed the same 397 rasters / 1,871,324 instructions as the reference.
 
 Revised order, highest measured item first:
-1. **The conversion.** First done (commit after `20f9098`): the five per-plane tests inside the
-   8-pixel group loop were unnecessary (a missing plane reads a zero row) and two dword stores
-   replace eight byte stores - **79.5 -> 66.0 ms (17 %), 63 % -> 76 % of the original**, fingerprint
-   and gate unchanged. Left: one pass per frame instead of 1.55 (worth ~11 ms, but a mid-frame
-   LoadView flip must then be presented at the vblank, which is a display-model decision).
-2. Then the "game" 64 %: the software blitter (`blit_row` calls the bounds-checked `rd16`/`wr16`
-   per word per channel - hoist the range check out of the row loop) and the ~2000 library calls
-   per frame. Measure each the same way: switch the loop off, keep the cycle charge, and check the
-   400-frame fingerprint does not move.
-3. Then the emitter slices as originally planned: the 68k register file in locals (step 2 below),
-   vblank/CIA handlers through the translated dispatcher (needs a `run_handler` hook like `on_cia`,
-   595 instructions/frame on Musashi today), present straight into VGA memory.
+1. **The conversion** (40 % of the frame; attributed by switching the loop off, 79.5 -> 48.0).
+   Landed in two steps: the eight-pixel group loop lost its per-plane null tests (a missing plane
+   reads a zero row) and writes two dword stores instead of eight bytes (**79.5 -> 66.0 ms**); then
+   the conversion itself is skipped when the plane bytes and the geometry are unchanged since the
+   last present of that view (**66.0 -> 58.0 ms**) - an exact test, because the chunky picture is a
+   pure function of them, and it does not care who wrote the bytes (blitter, shim or translated
+   code). Anything that draws into the chunky buffer itself (graphics primitives on the pseudo
+   bitmap, the OSD) invalidates the comparison. `--perf` at `cycles=max`: conversion 6.1 -> 1.8 ms.
+   (The `--perf` line "conversion runs N time(s)/frame" is frames/raster, not conversion passes -
+   it never measured the pass count.)
+2. **The blitter** (9.0 ms; attributed by switching its pixel loop off, 66.0 -> 57.0). Its per-word
+   accessors were `rt_read16`/`rt_write16` - a call, a mask and a range check per word per channel -
+   and are now direct with the same bounds rule inlined (**66.0 -> 65.0 ms**, so the calls were only
+   an eighth of it). What is left is the loop body: `alu_word` evaluates all eight minterm products
+   per word, and the shift-register and modulo arithmetic could be hoisted.
+3. Then the vblank: 595 instructions/frame still run on Musashi (the interrupt servers), which is
+   most of what the vblank costs now, plus the emitter slices as originally planned (the 68k
+   register file in locals, present straight into VGA memory).
 
 Original plan, kept for the record:
 1. Cycle accounting per basic block (measured above: no).
