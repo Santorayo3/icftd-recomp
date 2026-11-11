@@ -464,6 +464,10 @@ int main(int argc, char **argv)
         u32 ms = plat_ticks_ms();
         if (ms != 0)
             printf("icftd: %.1f frame/s\n", (double)m.frame * 1000.0 / (double)ms);
+        /* The two clocks measure the whole run: if they disagree, the game's pacing clock is not
+         * real time and every speed figure - frames and audio both - is scaled by the ratio. */
+        printf("icftd: %lu ms by the 8254, %lu ms by the RTC\n",
+               (unsigned long)ms, (unsigned long)plat_rtc_elapsed_ms());
     }
     if (g_perf && g_perfFrames != 0)
     {

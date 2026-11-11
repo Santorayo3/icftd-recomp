@@ -66,6 +66,17 @@ static u32 pit_counter(void)
     return v;
 }
 
+/* Counts per real second, and the amplification the emulator introduces in between.
+ *
+ * On a real machine the 8254 counts at 1,193,182 Hz, so a 20 ms Amiga frame is 23,863 counts. Under
+ * an emulator that is not guaranteed: DOSBox with cycles=max runs the whole machine - timers
+ * included - about twice as fast as real time, and then the same wait yields a hundred frames per
+ * second, so the game and its music run at double tempo while the Sound Blaster, the one device on
+ * real time, is overrun (that overrun is the crackle). The CMOS clock cannot be stretched, so it is
+ * the reference: one second of it is measured once at startup and both the frame wait and the
+ * mixer's millisecond clock follow real time from then on - which is what they do on hardware. */
+static u32 g_ticksPerSec = PIT_HZ;
+
 /* Counts since the previous call (the counter counts down and wraps at 65536). */
 static void pit_update(void)
 {
@@ -75,10 +86,48 @@ static void pit_update(void)
 
     g_lastPit = now;
     g_pitAcc += d;
-    /* Whole milliseconds, with the remainder carried - 1193182 counts per second. */
+    /* Whole milliseconds, with the remainder carried. */
     ms = g_msFrac + d * 1000u;
-    g_ms += ms / PIT_HZ;
-    g_msFrac = ms % PIT_HZ;
+    g_ms += ms / g_ticksPerSec;
+    g_msFrac = ms % g_ticksPerSec;
+}
+
+static u32 rtc_secs(void)
+{
+    u8 s, m, b;
+
+    outp(0x70, 0x00); s = (u8)inp(0x71);
+    outp(0x70, 0x02); m = (u8)inp(0x71);
+    outp(0x70, 0x0B); b = (u8)inp(0x71);
+    if ((b & 0x04u) != 0)                  /* register B bit 2: binary units, not BCD */
+        return (u32)m * 60u + (u32)s;
+    return (u32)((m >> 4) & 0xFu) * 600u + (u32)(m & 0xFu) * 60u +
+           (u32)((s >> 4) & 0xFu) * 10u + (u32)(s & 0xFu);
+}
+
+static u32 g_rtc0;
+
+static void clock_calibrate(void)
+{
+    u32 t0, prev, now, total = 0;
+
+    t0 = rtc_secs();
+    while (rtc_secs() == t0) { }           /* align to the RTC's own second boundary */
+    t0 = rtc_secs();
+    prev = pit_counter();
+    for (;;)
+    {
+        now = pit_counter();
+        total += (prev - now) & 0xFFFFu;
+        prev = now;
+        if (rtc_secs() != t0) break;
+    }
+    if (total > 100000u) g_ticksPerSec = total;   /* anything less is a broken RTC: keep the nominal */
+}
+
+u32 plat_rtc_elapsed_ms(void)
+{
+    return (rtc_secs() - g_rtc0) * 1000u;
 }
 
 /* --- keyboard ------------------------------------------------------------------------------ */
@@ -193,6 +242,8 @@ u32 plat_init(const char *title)
     g_pitAcc = 0;
     g_ms = 0;
     g_msFrac = 0;
+    clock_calibrate();
+    g_rtc0 = rtc_secs();
     return 1;
 }
 
@@ -591,8 +642,10 @@ static void sb_service(void);
  * the samples are dropped and counted. */
 static u32 sb_consumed(void)
 {
-    u32 dt = g_ms - g_sb.lastConsMs;
+    u32 dt;
 
+    pit_update();                      /* a stale millisecond clock would overfill the ring */
+    dt = g_ms - g_sb.lastConsMs;
     g_sb.lastConsMs = g_ms;
     g_sb.consumed += (g_sb.rate * g_sb.bytesFrame * dt) / 1000u;
     if ((s32)(g_sb.consumed - g_sb.written) > 0) g_sb.consumed = g_sb.written;
@@ -1093,7 +1146,7 @@ void plat_set_frame_hz(u32 hz)
 {
     if (hz == 0) hz = 50;
     g_frameHz = hz;
-    g_period = PIT_HZ / hz;
+    g_period = g_ticksPerSec / hz;
     if (g_period == 0) g_period = 1;
 }
 
