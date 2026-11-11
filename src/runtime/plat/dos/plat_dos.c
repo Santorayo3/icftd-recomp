@@ -33,7 +33,6 @@
 #define KBC_STATUS  0x64
 #define KBC_DATA    0x60
 
-static u8   g_fb[SCREEN_PIXELS];            /* what plat_framebuffer() returns */
 static u8   g_dac[PAL_ENTRIES * 3];         /* what the DAC currently holds */
 static int  g_videoMode = 3;                /* mode to restore on shutdown */
 
@@ -248,12 +247,14 @@ void plat_shutdown(void)
 
 u8 *plat_framebuffer(void)
 {
-    return g_fb;
+    /* Mode 13h is linear 320x200x256, exactly the runtime's chunky layout, so the screen *is* the
+     * framebuffer: a staging buffer plus a 64 KB copy per present bought nothing. */
+    return (u8 *)(u32)VGA_MEMORY;
 }
 
 void plat_present(void)
 {
-    memcpy((void *)VGA_MEMORY, g_fb, SCREEN_PIXELS);
+    /* Nothing to copy: the presenter wrote the screen directly. */
 }
 
 /* Only entries the DAC does not already hold are written: the presenter hands over all 256 every

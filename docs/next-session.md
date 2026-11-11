@@ -84,6 +84,7 @@ Order for the next session - the **emitter** step, measured after each slice at 
 | blitter pixel loop switched off (measurement only) | 57.0 |
 | after the conversion group loop (`d2ab556`) | 66.0 |
 | after the inlined blitter accessors + one conversion per changed picture | **58.0** |
+| after the short-form blitter ALU + direct-to-VGA presenter | **57.0** |
 
 - **Step 1 was implemented, measured and reverted.** A block charge cannot cover the device clock:
   batching Paula/CIA to the block boundary takes the interrupt at a different instruction, which
@@ -112,14 +113,19 @@ Revised order, highest measured item first:
    bitmap, the OSD) invalidates the comparison. `--perf` at `cycles=max`: conversion 6.1 -> 1.8 ms.
    (The `--perf` line "conversion runs N time(s)/frame" is frames/raster, not conversion passes -
    it never measured the pass count.)
-2. **The blitter** (9.0 ms; attributed by switching its pixel loop off, 66.0 -> 57.0). Its per-word
-   accessors were `rt_read16`/`rt_write16` - a call, a mask and a range check per word per channel -
-   and are now direct with the same bounds rule inlined (**66.0 -> 65.0 ms**, so the calls were only
-   an eighth of it). What is left is the loop body: `alu_word` evaluates all eight minterm products
-   per word, and the shift-register and modulo arithmetic could be hoisted.
-3. Then the vblank: 595 instructions/frame still run on Musashi (the interrupt servers), which is
+2. **The blitter** (9.0 ms; attributed by switching its pixel loop off, 66.0 -> 57.0). Three measured
+   attempts: the per-word accessors had been `rt_read16`/`rt_write16` - a call, a mask and a range
+   check per word per channel - and are now inline with the same bounds rule (**66.0 -> 65.0 ms**); a
+   generic "expand the minterm into a term array once per row" was **3.5 ms slower** - the array
+   traffic cost more than the predictable bit tests it saved - and is not in the tree; naming the
+   short forms of the frequent minterms (`0x0FCA`, the engine's ordinary blit, is "D = A ? B : C")
+   and skipping the shift register when ASH/BSH are 0 is worth ~0.5 ms. All three are
+   byte-identical: the 16 MB RAM dump at frame 200 has the same SHA256 before and after.
+3. **Present straight into VGA memory**: mode 13h is linear 320x200x256, so the DOS framebuffer *is*
+   the screen - the staging buffer and its 64 KB copy per present are gone (~0.5 ms, 64 KB less BSS).
+4. Then the vblank: 595 instructions/frame still run on Musashi (the interrupt servers), which is
    most of what the vblank costs now, plus the emitter slices as originally planned (the 68k
-   register file in locals, present straight into VGA memory).
+   register file in locals).
 
 Original plan, kept for the record:
 1. Cycle accounting per basic block (measured above: no).
@@ -127,6 +133,11 @@ Original plan, kept for the record:
    block end, at library calls and anywhere the frame hook can observe).
 3. vblank/CIA handlers through the translated dispatcher, one conversion pass per frame, present
    straight into VGA memory.
+
+**The wall clock is host-load sensitive.** At a fixed `cycles` the emulator has to keep up with the
+emulated clock, so a loaded host inflates every figure. Before trusting a delta under ~2 ms, check
+that a `cycles=max --perf` run still reads ~20 ms/frame (it was 20.1 before the conversion work and
+~20 since), and prefer back-to-back A/B inside one time window.
 
 Gates for every step: `tools\gate.ps1` 4/4; the 400-frame fingerprint must still read
 `596 raster(s), 2418803 instruction(s)`; emitter changes require regenerating `src\recomp\fn_*.c`

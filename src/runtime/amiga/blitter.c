@@ -61,12 +61,36 @@ static void wr16(rt_machine *m, u32 a, u16 v)
  * bitwise boolean function, so it evaluates on whole words: the result is the OR of the product
  * terms the minterm selects, each (a ? A : ~A) & (b ? B : ~B) & (c ? C : ~C). Sixteen per-bit
  * iterations become a handful of word operations, which matters: the intro runs tens of thousands
- * of blits per second. */
+ * of blits per second.
+ *
+ * The one the engine uses for ordinary blits (BLTCON0 = 0x0FCA) has the short form "D = A ? B : C",
+ * and the plain pass-throughs are one operation each; those are named here because they are what
+ * the intro actually executes. A generic "expand the minterm into a term array once per row" was
+ * measured *slower* (61.5 ms against 58.0): the array traffic cost more than the predictable bit
+ * tests it saved. */
 static u16 alu_word(u16 minterm, u16 aw, u16 bw, u16 cw)
 {
-    u16 na = (u16)~aw, nb = (u16)~bw, nc = (u16)~cw;
-    u16 out = 0;
+    u16 na, nb, nc, out;
 
+    switch (minterm)
+    {
+    case 0x00u: return 0;
+    case 0xFFu: return 0xFFFFu;
+    case 0xF0u: return aw;
+    case 0x0Fu: return (u16)~aw;
+    case 0xCCu: return bw;
+    case 0x33u: return (u16)~bw;
+    case 0xAAu: return cw;
+    case 0x55u: return (u16)~cw;
+    case 0xCAu: return (u16)((aw & bw) | (~aw & cw));   /* D = A ? B : C */
+    case 0xACu: return (u16)((aw & cw) | (~aw & bw));
+    default: break;
+    }
+
+    na = (u16)~aw;
+    nb = (u16)~bw;
+    nc = (u16)~cw;
+    out = 0;
     if (minterm & 0x01u) out |= (u16)(na & nb & nc);
     if (minterm & 0x02u) out |= (u16)(na & nb & cw);
     if (minterm & 0x04u) out |= (u16)(na & bw & nc);
@@ -179,6 +203,7 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
              * round; the engine never sets DESC, but the data path is transcribed faithfully so a
              * DESC blit cannot silently take the ascending route. */
             if (descending) aw = (u16)((((u32)cur << 16) | (u32)*holdA) >> (16 - ash));
+            else if (ash == 0) aw = cur;              /* the pair shifts to the word itself */
             else            aw = (u16)((((u32)*holdA << 16) | (u32)cur) >> ash);
             *holdA = cur;
         }
@@ -187,6 +212,7 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
         {
             u16 cur = (u16)rd16(m, (u32)(boff + off));
             if (descending) bw = (u16)((((u32)cur << 16) | (u32)*holdB) >> (16 - bsh));
+            else if (bsh == 0) bw = cur;
             else            bw = (u16)((((u32)*holdB << 16) | (u32)cur) >> bsh);
             *holdB = cur;
         }
