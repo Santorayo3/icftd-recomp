@@ -357,19 +357,24 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
 }
 
 /* --- audio ----------------------------------------------------------------------------------
- * waveOut with a ring of small buffers. The runtime renders emulated time ahead of the device,
- * so a write only has to hand one buffer over; when all of them are still queued the samples are
- * dropped rather than blocking the emulation. */
+ * waveOut with a ring of small buffers plus a short waiting queue. The runtime renders emulated
+ * time ahead of the device, so a write only hands a chunk over; a chunk that finds every buffer
+ * still playing waits in the queue (up to AUDIO_QUEUE of them) instead of being lost, which is
+ * what absorbs a frame the emulation produced in a catch-up burst. */
 
 #define AUDIO_BUFFERS 8
 /* 512 frames is ~12 ms; eight of them queue 93 ms. The mixer hands over a whole frame's worth at
  * each vblank and catches up back to back after a slow frame, so a 46 ms queue (4) dropped ~16 %
  * of the samples where eight drop none (measured). */
 #define AUDIO_FRAMES  512
+#define AUDIO_QUEUE   4           /* chunks waiting for a free device buffer, ~46 ms */
 
 static HWAVEOUT g_wave;
 static WAVEHDR  g_hdr[AUDIO_BUFFERS];
 static s16     *g_abuf[AUDIO_BUFFERS];
+static s16      g_queue[AUDIO_QUEUE][AUDIO_FRAMES * 2];
+static u32      g_qsize[AUDIO_QUEUE];
+static int      g_qcount;
 static int      g_aopen;
 static int      g_anext;
 static u32      g_adropped;
@@ -402,6 +407,7 @@ u32 plat_audio_open(u32 rate)
         g_hdr[i].dwFlags |= WHDR_DONE;      /* never queued yet: a free buffer */
     }
     g_anext = 0;
+    g_qcount = 0;
     g_adropped = 0;
     g_aopen = 1;
     return 1;
@@ -422,31 +428,43 @@ void plat_audio_close(void)
     }
     waveOutClose(g_wave);
     g_wave = 0;
+    g_qcount = 0;
     g_aopen = 0;
 }
 
 void plat_audio_write(const s16 *frames, u32 count)
 {
-    int tries, i;
-    WAVEHDR *h;
+    int i, slot, tries;
 
     if (!g_aopen || frames == 0 || count == 0) return;
     if (count > AUDIO_FRAMES) count = AUDIO_FRAMES;
-    for (tries = 0; tries < AUDIO_BUFFERS; tries++) {
-        i = g_anext;
-        g_anext = (g_anext + 1) % AUDIO_BUFFERS;
-        h = &g_hdr[i];
-        if ((h->dwFlags & WHDR_DONE) == 0) continue;     /* still playing */
-        memcpy(g_abuf[i], frames, count * 4);
-        h->dwBufferLength = count * 4;
-        h->dwFlags &= ~WHDR_DONE;
-        if (waveOutWrite(g_wave, h, sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
-            h->dwFlags |= WHDR_DONE;
-            g_adropped += count;
+    if (g_qcount >= AUDIO_QUEUE) { g_adropped += count; return; }
+    memcpy(g_queue[g_qcount], frames, count * 4);
+    g_qsize[g_qcount] = count;
+    g_qcount++;
+    /* Hand over whatever the device can take now, oldest chunk first. */
+    for (i = 0; i < g_qcount; ) {
+        slot = -1;
+        for (tries = 0; tries < AUDIO_BUFFERS; tries++) {
+            int k = (g_anext + tries) % AUDIO_BUFFERS;
+            if ((g_hdr[k].dwFlags & WHDR_DONE) != 0) { slot = k; break; }
         }
-        return;
+        if (slot < 0) break;                           /* every buffer still playing */
+        g_anext = (slot + 1) % AUDIO_BUFFERS;
+        memcpy(g_abuf[slot], g_queue[i], g_qsize[i] * 4);
+        g_hdr[slot].dwBufferLength = g_qsize[i] * 4;
+        g_hdr[slot].dwFlags &= ~WHDR_DONE;
+        if (waveOutWrite(g_wave, &g_hdr[slot], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+            g_hdr[slot].dwFlags |= WHDR_DONE;
+            g_adropped += g_qsize[i];
+        }
+        i++;
     }
-    g_adropped += count;
+    if (i > 0) {
+        memmove(g_queue[0], g_queue[i], (u32)(g_qcount - i) * sizeof(g_queue[0]));
+        memmove(g_qsize, g_qsize + i, (u32)(g_qcount - i) * sizeof(g_qsize[0]));
+        g_qcount -= i;
+    }
 }
 
 u32 plat_audio_dropped(void)
