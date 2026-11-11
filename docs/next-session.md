@@ -391,3 +391,47 @@ control flow — that is how the font and the FFP maths were found.
    coverage gap, not a crash) once a screen depends on one of them.
 4. Keep the rule: machine state is evidence; frames and pictures are not.
 
+---
+
+# FLIGHT MINIGAME ("Take a Flight") — continue here
+
+## What is already proven (do not redo)
+
+- **The recompilation is faithful.** Oracle (patched image, `src\oracle`) and the translated build
+  enter `FUN_000107a6` at the *same instruction and PC* and stay identical for **1562 frame
+  records** (registers, custom-chip file, RAM hash). So anything wrong on screen is shared-runtime
+  (blitter / present / palette) or a shim answer — not a translation bug.
+  Reproduce with `out\flight-parity2.ps1 -Step host|oracle|diff -Insns 150000000` (driven from the
+  `dev: run` task, which runs `out\dev-run.ps1`).
+- **Instruments**: oracle `--callat <pc>:<insns>:<arg>[:<atpc>]` (inject at an exact instruction,
+  optionally only at that PC); the host's `--call` line prints the pre-injection pc so the oracle can
+  match the boundary; `--progress` in `display.c` prints the present geometry, palette sources and
+  the row range that carries non-black colour.
+- **Fixed so far**: the divu in the 8SVX loader (entry seed for `FUN_00009ae0`'s uninitialised loop
+  flag, in *both* front ends — see the `oracle_step` comment and `fn_00009ae0.c`), and the flight
+  palette (a 14-entry copper list against a 32-colour ViewPort; the ColorMap now fills the tail).
+
+## State of the flight screen (measured, identical in both front ends)
+
+- 320x200 view, bitmap **bpr 40, 216 rows, depth 5**, palette now 32.
+- Engine bitmap carries content in **rows 0..109 only**; rows 110..199 are all index 0.
+- ~6 hardware blits per frame, **0 dropped writes** (oracle `--progress` counters).
+
+## Where to look next (in this order)
+
+1. **Who fills rows 110..199?** `FUN_0000bfca` (flight scene, called from `FUN_000107a6`) sets up the
+   320x216 / 5-plane screen (`0x140, 0xD8, 5, 0x21C0`) and then loops
+   `FUN_0000c390 / c75e / ca5e / c310 / d5e8 / beda / d376`. `FUN_0000beda` clears the instrument
+   strip (y = `0xB8`) with `_DAT_00021ddc` (RectFill-shaped call) in **pen 0**; `FUN_0000d5e8` draws
+   the sprites. Decide from the code what the strip should contain and which call is not landing.
+2. **Raw-blitter path**: `FUN_0000e03c` programs `$DFF040/042/04C/054/058/060-066` directly
+   (BLTCON0/1/APTH/DPTH/BLTSIZE/mods/DAT). It runs, but nothing proves the *result* is right — this
+   is the first place to compare against HRM/UAE (`blitter.c`, `docs\graphics-notes.md`).
+3. **The world area itself**: with the correct 32-colour palette the 320x110 area went from 35,200 to
+   29,733 non-black pixels. If it still looks wrong, compare the planes against the *engine's own*
+   picture data (map buffer `DAT_00028d4e`, sprite canvas at `unaff_A6[0x83]`) rather than a picture.
+4. **Shims the flight leans on**: `graphics` RectFill/SetAPen (implemented, `display.c`),
+   `MrgCop`/`LoadView` (implemented), `dos` reads of `Desert3:WANI`, `sfx\ants`, `sfx\exp`,
+   `DES4:SCORES`, `DES4:INSTS` (all resolve), audio (`DoIO` is a no-op — the flight starts samples).
+
+
