@@ -23,54 +23,70 @@ it (without it `OpenDiskFont` returns 0 and the engine takes the no-font path). 
 Windows RAM are byte-identical at the same vblank, the tick logs match, and the call census shows
 41 kinds / 2014 calls / **0 answered with 0**.
 
-### Performance — as a percentage of the original
+### Performance — as a percentage of the original (hand-off after `20f9098`)
 
 The reference is the original's own frame. Measured with the oracle, the engine consumes its whole
 141,875-cycle vblank budget every frame (3,449 of 3,926 frames run out of budget, average overspend
 322 cycles = 0.2 %), so one engine frame is 20 ms on a 7.09 MHz A500 and 100 % means "our build
-finishes a frame in the time the original did, on the same class of machine".
+finishes a frame in the time the original did, on the same class of machine". The owner's memory of
+"~20 fps on the original" does not move the ratio: our build runs the same engine at the same pacing.
 
-Measured end to end from outside the program (wall clock, differencing a 60-frame and a 160-frame
-run so the ~35M-cycle startup drops out) in the launcher's own configuration, `cycles=30000` = a
-486DX2-66 (a Ryzen 7 5800X3D sustains it, confirmed by ear as well: at `cycles=max` the game is
-fluid, at 30000 it runs at 4-5 fps):
+**DOSBox `cycles` is instructions per millisecond, not MHz** - 66000 ~ a 486DX2-66, 100000 ~ a
+DX4-100 (both at IPC ~0.5; lore tables that call 3000-5000 a DX2-66 are off by an order of
+magnitude). Measured by wall clock, differencing a 60-frame and a 260/360-frame run so the
+~35M-cycle startup drops out:
 
-| | |
-|---|---|
-| now | 179 ms/frame = **5.6 frame/s** = **28 %** of the original |
-| 100 % | 50 ms/frame (20 fps) |
+| target | wall time per frame | % of the original |
+|---|---|---|
+| 66 000 (486DX2-66) | 79.5 ms | **63 %** |
+| 100 000 (486DX4-100) | 57.0 ms | **88 %** |
+| 200 000 | 29.7 ms | 169 % |
 
-**The old "cycles/frame" figure is dead - do not use it.** `plat_pit_now()` extends a 16-bit 8254
-snapshot with `& 0xFFFF`, so any interval longer than 65,536 counts (55 ms) is silently truncated,
-and a frame at the 486 clock is 180 ms. Worse, the low-clock derivation an earlier session used
-(fix `cycles=3000`, difference an 11-frame and a 1-frame run) reported **the same 3,570,000
-cycles/frame for the per-pixel and the nibble-table conversion**, two builds that differ by 4.7x in
-real work and are visibly different speeds. It was measuring DOSBox's pacing, not our code. The
-same run also reported identical numbers for `core=normal` and `core=dynamic`, which settles it.
+**Validate the throttle before believing any of these**: 100000 vs 200000 halves the frame time, so
+the emulated clock is the limiter and the figure is a machine-model figure. Need **1.6x** for 100 %
+on a DX2-66, **1.14x** on a DX4-100.
 
-Landing already: the planar->chunky conversion used to be the single biggest hot spot - a per-pixel,
-per-plane inner loop (five bit tests per pixel, 320x200, run 1.49 times per frame). It now goes
-through nibble tables (two plane bytes name four pixels), verified byte-identical on five screens,
-and is 4.7x cheaper in that loop (host time per frame 36.6 -> 24.0 ms at `cycles=max`).
+**Two dead ends, recorded so nobody re-walks them.** The old "cycles/frame" figure (fix
+`cycles=3000`, difference an 11-frame and a 1-frame run) reported the *same* 3,570,000 for the
+per-pixel and the nibble-table conversion - two builds that differ by 4.7x in real work - and the
+same number for `core=normal` and `core=dynamic`. It measures DOSBox's pacing, not our code. And
+`--perf` is only valid at `cycles=max`: `plat_pit_now()`/`plat_ticks_ms()` extend a 16-bit 8254
+snapshot, so any interval over 55 ms (a whole frame at a fixed clock) is truncated. A per-frame
+split needs the interval subdivided - build that profiler before trusting any fine-grained claim.
 
-What the profile says now (measured at `cycles=max`, where the 8254 tracks real time and the samples
-stay inside one wrap): 6,062 68k instructions per frame, 274 of them in the CIA handler (the music
-driver, 0.93 runs/frame); the conversion runs 1.49 times per frame; the copy into VGA is 64 KB.
+Landed in `20f9098` (all verified): nibble-table planar->chunky, 4.7x cheaper in that loop and
+byte-identical on five screens (it still runs 1.49 times per frame: `LoadView` converts, then
+`rt_frame_present` converts the same view again); the PC ring off in the DOS build
+(`-dEMU_TRACE_RING=0`); `rt_trace` behind a `traceTo` test; `rt_cia_service` only when an interrupt
+is pending; `rt_time_slice()` instead of a per-instruction `rt_time_run`; a RAM fast path in
+`rc_rd*/rc_wr*`; `rc_d_get/set`, `rc_a_get/set`, `rc_trunc`, `rc_ext` static in `cpu.h`; the crash
+journal behind `--crashlog`. Proof: `tools\gate.ps1` 4/4 **and** an exact fingerprint - 400 frames,
+596 rasters, 2,418,803 emulated instructions, unchanged from before.
 
-Order for the next session (biggest first, in the percentage metric):
-1. **The per-instruction seams.** Every translated 68k instruction makes 4-6 out-of-line calls
-   (`rc_step`, `rt_trace`, `rt_time_run`, `rt_cia_service`, plus one or two memory helpers). That is
-   what a frame's 6,062 instructions turn into 179 ms. Inline the no-op cases, call `rt_time_run` /
-   `rt_cia_service` only when a timer is actually armed, and give the memory helpers a RAM fast path.
-2. **Run the vblank/CIA handlers through the translated dispatcher** instead of `oracle_run_handler`
-   - 595 instructions per frame currently go through the interpreter, which costs an order of
-   magnitude more per instruction. Needs a machine hook like `on_cia` so `src\oracle\cpu.c` keeps its
-   interpreted dev path; verify with `--ticklog` + `--ram` equality against the Windows build.
-3. **Convert once per frame.** 1.49 conversion passes per frame: `LoadView` converts, then
-   `rt_frame_present` converts the same view again at the vblank. Proving when the second pass can be
-   skipped is worth ~1/3 of the conversion cost.
-4. Present straight into VGA memory through a byte-pair lookup (no second 64 KB copy), and a blitter
-   fast path for the common minterm 0xCA with direct byte-swapped word access.
+What those two items bought: 66 MHz 84 -> 79.5 ms (5 %), host work at `cycles=max` 2.6 -> 1.9 ms
+(1.35x). So the per-instruction *calls* were not the bulk; the emitted code's own straight-line work
+is. Work volume today: **6,062 emulated 68k instructions/frame** (274 in the CIA/music handler) and
+~5.5M x86 instruction-equivalents per frame at the model clock - ~900 per emulated instruction,
+because the 68000 register file lives in memory inside `cpu_t`. 595 vblank-server instructions per
+frame also still run on Musashi.
+
+Order for the next session - the **emitter** step, measured after each slice at `cycles=66000`
+(intro, frames 60 vs 260), acting only on a number that moved:
+1. **Cycle accounting per basic block.** The emitter knows every instruction's cost already, so a
+   block carries a constant total: one subtract and one compare per block instead of `rc_step()` per
+   instruction. Keep tick cadence exact by bisecting only the block that straddles a vblank.
+2. **The 68k register file in locals for the block** (`D0..D7/A0..A7/SR` as C locals, written back at
+   block end, at library calls and anywhere the frame hook can observe). That is what attacks the
+   ~900 instruction-equivalents per emulated instruction.
+3. Then, if still needed: vblank/CIA handlers through the translated dispatcher (needs a
+   `run_handler` hook like `on_cia`, 595 instructions/frame on Musashi today), one conversion pass
+   per frame, present straight into VGA memory.
+
+Gates for every step: `tools\gate.ps1` 4/4; the 400-frame fingerprint must still read
+`596 raster(s), 2418803 instruction(s)`; emitter changes require regenerating `src\recomp\fn_*.c`
+(the 0x9AE0 IFF-skipper seed moved into `step_budget()`, so regeneration is safe), header-only
+changes just need a rebuild. On a 486 with 8 KB L1 the 2.7 MB of emitted code is part of the cost:
+a change that shrinks instructions but grows code is not automatically a win.
 
 
 ## Where the last session left off (2026-11-11)
