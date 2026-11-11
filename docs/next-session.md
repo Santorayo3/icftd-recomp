@@ -250,6 +250,44 @@ bin\win32\icftd-recomp.exe <img> <insns> [--window|--run] [--speed N] [--input f
 Intro runs ~592 vblanks (12 s), the YES/NO prompt appears, arrow keys move the selection, fire
 confirms. Audio is still silent (only unmodelled device).
 
+## Save slots and the on-screen display (2026-11-11)
+
+The engine has exactly one save file: `ICFTD` on volume `DSAVE:`, a raw dump of two fixed engine
+ranges (120 B at `0x021E18`, 12 324 B at `0x02686C` — 12 444 bytes, no header). Details and the
+plan: `docs/savegames.md`.
+
+* The runtime maps `DSAVE:` to `<exe dir>\saves\slot<N>\` and creates both directory levels on
+  demand — the engine `Lock`s the volume before it opens anything, and a failed lock parks it in
+  its "insert volume" panel.
+* `dos.Open` honours the mode now (`1005` read, `1006`/`1004` create), and `dos.Write` writes
+  through a real handle and returns the count. Handle 0 is still the console and still echoes.
+* **F1..F4 pick a save slot, F5 steps to the next; `--slot N` does the same headless.** There is no
+  ini entry for it on purpose.
+* Feedback goes through the runtime's own overlay (`rt_osd_text` / `rt_osd_icon` in `display.c`),
+  not through the windowing layer: "Save Slot - N" in #00FF00 with the game's own disk font
+  (`m->osdFont`, `newnem/7`) 2 px in from the top **left**, and the save icon 2 px in from the top
+  **right** for 2 s. It is drawn into the chunky framebuffer at the end of `rt_gfx_present`, so a
+  DOS/VGA build inherits it; only `plot()`'s `EMU_BM_FRAMEBUFFER` case is platform-visible.
+  Palette indices 240..245 (icon) and 255 (text) are the OSD's, set after the game's table.
+* The icon sprite is `assets\autosave.png` → `src\runtime\amiga\osd_icon.h` via
+  `tools\mkosdicon.ps1` (16x17, six colours, own 2 px transparent border).
+
+Checks that do not need a screenshot:
+
+```
+powershell -File tools\dos-save-test.ps1     # the save path through rt_os_call, slot3
+bin\win32\icftd-recomp.exe <img> 12000000 --shot out\osd.bmp --osd "Save Slot - 2"
+bin\win32\icftd-recomp.exe <img> 12000000 --shot out\osd.bmp --osd save
+```
+
+`--osd <text>|save` keeps an overlay up (a development aid), and `--shot` writes the last presented
+raster, so "the overlay is really there" is a pixel count: 87 pixels of `(0,255,0)` in
+`x 3..62, y 2..7`, 141 icon pixels in `x 306..317, y 2..14`.
+
+Not yet observed end to end: the save itself only runs when a session ends (walk into a location),
+which needs real play. The sequence it uses is the one `dos-save-test.ps1` drives, but the first
+real save is still worth watching (`--doslog` prints `recomp: saved <n> byte(s) to slot <n>`).
+
 ## The four fixes that made screens work
 
 | defect | cause | fix |

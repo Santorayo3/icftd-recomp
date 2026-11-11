@@ -11,10 +11,11 @@
  *
  *   icftd-recomp [<image>] [<insns>] [--state <prefix> [--every n] [--ram f,f]]
  *                [--input <script>] [--data <dir>] [--progress] [--base <addr>]
- *                [--window] [--run] [--speed <percent>]
+ *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
- * arrows are the joystick); without it the build runs headless and only reports machine state.
+ * arrows are the joystick, F1..F4 pick a save slot and F5 cycles them); without it the build runs
+ * headless and only reports machine state.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  */
 #include <stdio.h>
@@ -37,6 +38,9 @@
 #define HS_BASE       EMU_IMAGE_BASE
 #define HS_ENTRY      EMU_ENTRY
 #define HS_A4         EMU_A4
+
+/* How many save slots the game exposes: saves\slot1 .. slot4. */
+#define MAX_SAVE_SLOTS 4
 
 /* The 68000 register file, as oracle_regs_get/set order it: d0-d7, a0-a7, sr, pc. */
 #define REGS_D 0
@@ -84,6 +88,7 @@ static void host_frame(cpu_t *c, rt_machine *m)
 static u32 g_window;
 static u8  g_fireShown;
 static const char *shotPath;
+static const char *osdText;      /* --osd: keep this overlay up, instead of only on a slot change */
 static int g_interpStat;
 
 /* Which refused functions actually run, and what they cost: one entry per interpreted stretch,
@@ -162,6 +167,25 @@ static void host_input(rt_machine *m)
         plat_frame_sync();
         return;
     }
+    /* Save slot: F1..F4 pick one, F5 steps to the next. The engine writes its save into
+     * DSAVE:, which the runtime maps onto saves\slot<N>, so the only feedback is the overlay. */
+    {
+        int slot = 0;
+        if (in.pressed[KEY_F1]) slot = 1;
+        if (in.pressed[KEY_F2]) slot = 2;
+        if (in.pressed[KEY_F3]) slot = 3;
+        if (in.pressed[KEY_F4]) slot = 4;
+        if (in.pressed[KEY_F5]) slot = m->saveSlot >= MAX_SAVE_SLOTS ? 1 : m->saveSlot + 1;
+        if (slot != 0 || in.pressed[KEY_F5])
+        {
+            char msg[24];
+            if (slot == 0) slot = m->saveSlot;
+            m->saveSlot = slot;
+            sprintf(msg, "Save Slot - %d", m->saveSlot);
+            rt_osd_text(m, msg, EMU_OSD_FRAMES);
+            printf("recomp: %s (frame %lu)\n", msg, (unsigned long)m->frame);
+        }
+    }
     m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
@@ -225,6 +249,13 @@ static void host_present(rt_machine *m)
     u8 *dst;
     int y, cw;
 
+    /* --osd keeps a line (or "save" for the icon) up, so a headless --shot can be checked by
+     * pixel instead of by eye. Armed here so it works without a window. */
+    if (osdText != 0)
+    {
+        if (strcmp(osdText, "save") == 0) rt_osd_icon(m, EMU_OSD_FRAMES);
+        else rt_osd_text(m, osdText, EMU_OSD_FRAMES);
+    }
     if (shotPath != 0) shot_write(shotPath);
     if (!g_window) return;
     dst = plat_framebuffer();
@@ -257,6 +288,7 @@ int main(int argc, char **argv)
     long insns = 40000000L;
     u32 base = HS_BASE;
     int i, rc = 1, progress = 0, stateEvery = 1;
+    int slot = 1;
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -276,6 +308,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--osd") == 0 && i + 1 < argc) { osdText = argv[++i]; continue; }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
         {
             speedPercent = strtol(argv[++i], 0, 0);
@@ -294,6 +327,13 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
+        if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
+        {
+            slot = (int)strtol(argv[++i], 0, 0);
+            if (slot < 1) slot = 1;
+            if (slot > MAX_SAVE_SLOTS) slot = MAX_SAVE_SLOTS;
+            continue;
+        }
         if (strcmp(argv[i], "--base") == 0 && i + 1 < argc) { base = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--progress") == 0) { progress = 1; continue; }
         if (strcmp(argv[i], "--stopat") == 0 && i + 1 < argc)
@@ -316,6 +356,7 @@ int main(int argc, char **argv)
     m.progress = progress;
     m.dosLog = dosLog;
     m.textLog = textLog;
+    m.saveSlot = slot;
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;

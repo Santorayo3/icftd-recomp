@@ -10,6 +10,7 @@
 # the runtime pack.  Rebuilt on first start (see src/game/core/assets.c).
 /assets/*
 !/assets/README.md
+!/assets/autosave.png
 /export/
 
 # WinUAE reference captures of the original game.

@@ -27,6 +27,10 @@
 
 #define EMU_MAX_FILES 16
 
+/* What FUN_0001042a writes: 0x78 bytes at 0x021E18 and 0x3024 at 0x02686C. A shorter write on the
+ * save volume is the engine's own "no save yet" placeholder, not a save. */
+#define EMU_SAVE_BYTES (0x78u + 0x3024u)
+
 /* The chunky framebuffer the graphics.library shim presents into (emu\gfx.c). The planar model
  * the game draws into lives in emulated memory; this is only the present-time image. */
 #define EMU_FB_MAX_W 640
@@ -45,6 +49,9 @@ typedef struct rt_gfx_state{
     u32  frames;                  /* rasters presented */
     u32  presentFrame;            /* last vertical blank we presented on */
     u32  cprList;                 /* copper list installed by the last LoadView */
+    char osdText[40];             /* overlay line in the top left corner, "" when idle */
+    u32  osdTextUntil;            /* m->frame the line disappears on */
+    u32  osdIconUntil;            /* m->frame the save icon disappears on */
 } rt_gfx_state;
 /* The exec structures we hand the game: the Process that FindTask returns and its CLI record.
  * Reserved above the AllocMem heap and below the stack - the image's BSS reaches 0x31598, so
@@ -69,6 +76,8 @@ typedef struct rt_gfx_state{
     u32   size;
     u32   pos;
     u32   addr;                           /* the FileHandle block; dos returns addr>>2 */
+    int   writable;                       /* opened with a write mode */
+    int   inSaveDir;                      /* DSAVE: - closing it means a save completed */
 } rt_file;
 
 /* One dos.library Lock. The engine locks a volume, calls CurrentDir on it and then opens the
@@ -117,6 +126,10 @@ typedef struct rt_machine
     char    cwd[160];                     /* the name CurrentDir last selected */
     u32     cwdLock;                      /* that lock's token */
     u32     frame;                        /* 50 Hz tick counter */
+    u32     osdFont;                      /* the game's TextFont, for the on-screen display */
+    int     saveSlot;                     /* saves\slot<N> - the player picks it with F1..F5 */
+    const char *saveDir;                  /* "saves" relative to the executable */
+    u32     saves;                        /* save files completed, for the log */
     long    insns;
     u32     pc;                           /* current PC, reported by the CPU front end */
     int     osUnhandled;                  /* the last rt_os_call hit a shim we do not implement */

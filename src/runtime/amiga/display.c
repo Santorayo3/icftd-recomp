@@ -10,7 +10,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "osd_icon.h"
+
 static rt_gfx_state *gfx;                /* the one machine's graphics state */
+
+/* A plot target that means "the chunky framebuffer" instead of a planar BitMap in emulated RAM:
+ * the on-screen display draws through the same primitives the game's own text does. */
+#define EMU_BM_FRAMEBUFFER 0xFFFFFFF0u
+
+static void osd_draw(rt_machine *m);
 
 /* --- BitMap accessors ---------------------------------------------------------------------- */
 static int bm_bpr(rt_machine *m, u32 bm)   { return (int)rt_read16(&m->mem, bm + EMU_BM_BYTES_ROW); }
@@ -177,7 +185,16 @@ static u8 mode_of(rt_machine *m, u32 rp)
 
 static void plot(rt_machine *m, u32 bm, int x, int y, u8 pen)
 {
-    int bpr = bm_bpr(m, bm), depth = bm_depth(m, bm), p;
+    int bpr, depth, p;
+
+    if (bm == EMU_BM_FRAMEBUFFER)
+    {
+        if (gfx->fb != 0 && x >= 0 && y >= 0 && x < gfx->fbW && y < gfx->fbH)
+            gfx->fb[(u32)y * (u32)EMU_FB_MAX_W + (u32)x] = pen;
+        return;
+    }
+    bpr = bm_bpr(m, bm);
+    depth = bm_depth(m, bm);
     if (bm == 0 || bpr <= 0) return;
     if (y < 0 || y >= bm_rows(m, bm) || x < 0 || x >= bpr * 8) return;
     for (p = 0; p < depth && p < 8; p++)
@@ -364,14 +381,18 @@ static const u8 g_fontGlyphs[][7] =
 #define FONT_H 7
 #define FONT_ADVANCE 6
 
-static const u8 *glyph_of(rt_machine *m, u32 text, u32 index)
+static const u8 *glyph_for_char(int ch)
 {
-    int ch = (int)rt_read8(&m->mem, text + index);
     const char *p;
 
     if (ch >= 'a' && ch <= 'z') ch -= 32;
     p = ch != 0 ? strchr(g_fontIndex, ch) : 0;
     return p != 0 ? g_fontGlyphs[p - g_fontIndex] : g_fontGlyphs[0];
+}
+
+static const u8 *glyph_of(rt_machine *m, u32 text, u32 index)
+{
+    return glyph_for_char((int)rt_read8(&m->mem, text + index));
 }
 
 void rt_gfx_move(rt_machine *m, u32 rp, s32 x, s32 y)
@@ -734,6 +755,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
             gfx->pal[p * 3 + 2] = (u8)((v & 0xF) * 17);
         }
     }
+    /* OSD last: it sits on top of whatever the engine composed, and its palette entries are set
+     * after the game's own table was built. */
+    osd_draw(m);
     gfx->frames++;
     /* Trace the flip cadence: the emulated frame number each present belongs to is the only way to
      * tell "the intro drew nothing" from "the intro never flipped". */
@@ -741,6 +765,97 @@ void rt_gfx_present(rt_machine *m, u32 view)
         printf("emu: present %lu at frame %lu\n", (unsigned long)gfx->frames,
                (unsigned long)m->frame);
     if (m->on_present != 0) m->on_present(m);
+}
+
+/* --- on-screen display ----------------------------------------------------------------------
+ *
+ * A port feature, not a library call. It runs after the engine's frame has been composed and its
+ * palette built, so the overlay lands in the pixels the presenter copies out and can use palette
+ * entries the game never touches. Drawing through plot() and the disk font's own glyphs is what
+ * lets a DOS/VGA build inherit this unchanged.
+ *
+ * The text sits 2 pixels in from the top left corner and the icon 2 pixels in from the top right;
+ * the icon PNG ships its own 2-pixel transparent border, so it is placed flush. */
+#define OSD_PAD       2
+#define OSD_PEN_TEXT  255              /* #00FF00 */
+#define OSD_PEN_ICON  240              /* 240..245: the save icon's colours */
+#define OSD_TEXT_MAX  40
+
+static void osd_colour(u32 index, u32 r, u32 g, u32 b)
+{
+    gfx->pal[index * 3 + 0] = (u8)r;
+    gfx->pal[index * 3 + 1] = (u8)g;
+    gfx->pal[index * 3 + 2] = (u8)b;
+}
+
+void rt_osd_text(rt_machine *m, const char *text, u32 frames)
+{
+    int i = 0;
+
+    if (text != 0)
+        for (; text[i] != 0 && i < OSD_TEXT_MAX - 1; i++) gfx->osdText[i] = text[i];
+    gfx->osdText[i] = 0;
+    gfx->osdTextUntil = m->frame + frames;
+}
+
+void rt_osd_icon(rt_machine *m, u32 frames)
+{
+    gfx->osdIconUntil = m->frame + frames;
+}
+
+static void osd_draw_text(rt_machine *m)
+{
+    u32 font = m->osdFont;
+    int x = OSD_PAD, top = OSD_PAD, i;
+
+    for (i = 0; gfx->osdText[i] != 0; i++)
+    {
+        int ch = (int)(u8)gfx->osdText[i];
+
+        if (font != 0)
+        {
+            int base = top + (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
+            x += (int)put_glyph(m, EMU_BM_FRAMEBUFFER, font, ch, x, base, OSD_PEN_TEXT, 0, 1);
+        }
+        else
+        {   /* no disk font open: the built-in stand-in keeps the line readable */
+            const u8 *g = glyph_for_char(ch);
+            int row, col;
+            for (row = 0; row < FONT_H; row++)
+                for (col = 0; col < FONT_W; col++)
+                    if ((g[row] & (1u << (FONT_W - 1 - col))) != 0)
+                        plot(m, EMU_BM_FRAMEBUFFER, x + col, top + row, OSD_PEN_TEXT);
+            x += FONT_ADVANCE;
+        }
+    }
+}
+
+static void osd_draw_icon(rt_machine *m)
+{
+    int x0 = gfx->fbW - OSD_ICON_W, row, col;
+
+    if (x0 < 0) return;
+    for (row = 0; row < OSD_ICON_H; row++)
+        for (col = 0; col < OSD_ICON_W; col++)
+        {
+            u8 v = g_osdIcon[row * OSD_ICON_W + col];
+            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, x0 + col, row, (u8)(OSD_PEN_ICON + v - 1));
+        }
+}
+
+static void osd_draw(rt_machine *m)
+{
+    int textUp = gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
+    int iconUp = (s32)(gfx->osdIconUntil - m->frame) > 0;
+    int i;
+
+    if (!textUp && !iconUp) return;
+    osd_colour(OSD_PEN_TEXT, 0, 255, 0);
+    for (i = 0; i < OSD_ICON_COLOURS; i++)
+        osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],
+                   g_osdIconPal[i * 3 + 2]);
+    if (textUp) osd_draw_text(m);
+    if (iconUp) osd_draw_icon(m);
 }
 
 const u8 *rt_gfx_framebuffer(void) { return gfx != 0 ? gfx->fb : 0; }

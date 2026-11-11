@@ -1,6 +1,7 @@
 @echo off
 rem Play the translated game (src\recomp - the original instructions as C).
 rem   space = fire, arrows = joystick, esc = quit
+rem   F1..F4 = pick a save slot, F5 = next slot; saves land in bin\win32\saves\slot<N>
 rem Runs at 30% of the Amiga's 50 Hz by default; pass --speed 100 for the full rate.
 rem Extra arguments are passed through:
 rem   play.cmd --speed 100

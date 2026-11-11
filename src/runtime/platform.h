@@ -18,6 +18,11 @@ enum {
     KEY_FIRE,
     KEY_ESCAPE,
     KEY_ENTER,
+    KEY_F1,
+    KEY_F2,
+    KEY_F3,
+    KEY_F4,
+    KEY_F5,
     KEY_COUNT
 };
 
@@ -70,6 +75,14 @@ plat_file *plat_open(const char *path);
 void       plat_close(plat_file *f);
 u32        plat_size(const plat_file *f);
 u32        plat_read(const plat_file *f, u32 offset, void *dst, u32 len);
+
+/* Creates (or truncates) a file for writing. The caller writes it sequentially with
+ * plat_write and finishes with plat_close. */
+plat_file *plat_create(const char *path);
+
+/* Writes len bytes at offset; returns the number written. Offsets leave a gap filled with
+ * zeroes on every platform this is meant for, but the runtime only appends. */
+u32        plat_write(plat_file *f, u32 offset, const void *src, u32 len);
 
 /* --- heap ----------------------------------------------------------------- */
 /* The DOS implementation maps this to _fmalloc so the 64000-byte picture buffer

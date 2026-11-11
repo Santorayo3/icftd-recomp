@@ -54,6 +54,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_RIGHT)  g_keys[KEY_RIGHT] = 1;
         if (wp == VK_RETURN) g_keys[KEY_ENTER] = 1;
         if (wp == VK_SPACE)  g_keys[KEY_FIRE] = 1;
+        if (wp == VK_F1)     g_keys[KEY_F1] = 1;
+        if (wp == VK_F2)     g_keys[KEY_F2] = 1;
+        if (wp == VK_F3)     g_keys[KEY_F3] = 1;
+        if (wp == VK_F4)     g_keys[KEY_F4] = 1;
+        if (wp == VK_F5)     g_keys[KEY_F5] = 1;
         return 0;
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
@@ -63,6 +68,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_RIGHT)  g_keys[KEY_RIGHT] = 0;
         if (wp == VK_RETURN) g_keys[KEY_ENTER] = 0;
         if (wp == VK_SPACE)  g_keys[KEY_FIRE] = 0;
+        if (wp == VK_F1)     g_keys[KEY_F1] = 0;
+        if (wp == VK_F2)     g_keys[KEY_F2] = 0;
+        if (wp == VK_F3)     g_keys[KEY_F3] = 0;
+        if (wp == VK_F4)     g_keys[KEY_F4] = 0;
+        if (wp == VK_F5)     g_keys[KEY_F5] = 0;
         return 0;
     }
     return DefWindowProc(h, msg, wp, lp);
@@ -412,6 +422,30 @@ u32 plat_read(const plat_file *f, u32 offset, void *dst, u32 len)
     if (SetFilePointer(f->h, (LONG)offset, 0, FILE_BEGIN) == INVALID_SET_FILE_POINTER) return 0;
     if (!ReadFile(f->h, dst, len, &got, 0)) return 0;
     return (u32)got;
+}
+
+plat_file *plat_create(const char *path)
+{
+    HANDLE h;
+    plat_file *f;
+
+    h = CreateFileA(path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (h == INVALID_HANDLE_VALUE) return NULLP;
+    f = (plat_file *)malloc(sizeof(plat_file));
+    if (!f) { CloseHandle(h); return NULLP; }
+    f->h = h;
+    f->size = 0;
+    return f;
+}
+
+u32 plat_write(plat_file *f, u32 offset, const void *src, u32 len)
+{
+    DWORD put = 0;
+    if (!f || !src || len == 0) return 0;
+    if (SetFilePointer(f->h, (LONG)offset, 0, FILE_BEGIN) == INVALID_SET_FILE_POINTER) return 0;
+    if (!WriteFile(f->h, src, len, &put, 0)) return 0;
+    if (offset + put > f->size) f->size = offset + put;
+    return (u32)put;
 }
 
 void *plat_alloc(u32 bytes)

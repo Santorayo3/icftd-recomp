@@ -41,12 +41,13 @@ version, no checksum:
 
 | # | length | image range | what it covers |
 |---|---|---|---|
-| 1 | 152 B (`0x98`) | `0x021E18..0x021EB0` | starts exactly where the 160-entry vector table ends |
+| 1 | 120 B (`0x78`) | `0x021E18..0x021E90` | starts exactly where the 160-entry vector table ends |
 | 2 | 12 324 B (`0x3024`) | `0x02686C..0x029890` | the engine's world/state block |
 
-Total **12 476 bytes**. Load is the same two reads into the same addresses. The lengths are not
-literals — the code computes `buf2 - buf1` with `lea (d16,A4),A0` pairs, which is why the byte
-counts here are derived rather than quoted.
+Total **12 444 bytes**. Load is the same two reads into the same addresses. The lengths are not
+literals — the code computes `buf2 - buf1` from two `lea (d16,A4),A0` pairs (`0x00010328`:
+`lea (-0x7C3E,A4)` to `0x00010330`: `lea (-0x7BC6,A4)`), which is why the counts here are derived
+rather than quoted.
 
 Consequence that shapes the whole plan: **we never have to understand the save format.** It is the
 game's own memory image at the game's own load address (0x4000), and the file name is the only
@@ -54,15 +55,38 @@ handle the engine has on it.
 
 ## What the runtime does today
 
+**Implementing (2026-11-11) — Phase 0 and part of Phase 1/2 are in.**
+
 | piece | state |
 |---|---|
-| `plat_open` | **read-only** (`platform.h` has open/close/size/read, no write, no create) |
-| `dos.Open` | ignores the mode; always `plat_open` → an existing file or 0 |
-| `dos.Write` (LVO −48) | only echoes the bytes to stdout as a diagnostic, writes nothing, returns 0 |
-| `DSAVE:` | unknown volume → `rt_volume_index()` returns −1 → path `<dataDir>\ICFTD`, read-only |
+| `plat_create` / `plat_write` | added; `plat_open` is unchanged and still read-only |
+| `dos.Open` | honours the mode: `1005` opens for reading, `1006`/`1004` create (`plat_create`) |
+| `dos.Write` (LVO −48) | writes through a real handle and returns the byte count; handle 0 is the console and still echoes to stdout |
+| `DSAVE:` | first-class volume → `<exe dir>\saves\slot<N>\`, both directory levels created on demand (a `Lock` on a missing directory would park the engine in its "insert volume" panel) |
+| slot | `m->saveSlot`, default 1; **F1..F4 pick a slot, F5 cycles** — no ini entry; `--slot N` overrides for tests |
+| feedback | the OSD: "Save Slot - N" in the top left (2 s) on a slot change, the save icon in the top right (2 s) when a save completes |
 
-So saving does **not** work at all today: the save prompt can be answered, but the file is never
-created. Loading "works" only in the sense that it fails cleanly when the file is missing.
+Verified so far (machine state, not pictures):
+
+* `tools\dos-save-test.ps1` drives the exact call sequence of `FUN_0001042a` through `rt_os_call`
+  (Lock → CurrentDir → Open(1006) → Write ×2 → Close) for a slot that does not exist yet: the file
+  appears at `bin\win32\saves\slot3\ICFTD` with **12 444** bytes, both ranges byte-identical, and
+  reads back identically with `Open(1005)`.
+* A real run of the game reaches the load routine and resolves the volume: `dos.Lock("DSAVE:",-2)`
+  answers, `CurrentDir` selects it, and `Open("ICFTD",1005)` opens the file the test wrote.
+* With an empty slot the engine's own "no save yet" path runs unchanged: it writes a **1-byte**
+  placeholder (`FUN_0000067c`) before opening for reading — that placeholder must not be reported
+  as a save, so the icon only fires for a write of at least `EMU_SAVE_BYTES`.
+
+Still open: the **save itself has not been observed end to end**, because it only happens after a
+session ends (`FUN_000000e4`: the inner loop stops when the player walks into a location), which
+needs real play. The path is identical to the one the test drives, but it has not been seen write
+12444 bytes of live game state yet.
+
+## Planned, not implemented
+
+Phase 2 leftovers: `.bak` generation, write-to-temp-then-rename, `meta.txt` with the image checksum.
+Phase 4: refuse a save from a different image, a native slot picker, an engine-side save screen.
 
 ## Plan
 
@@ -79,6 +103,11 @@ created. Loading "works" only in the sense that it fails cleanly when the file i
 
 ### Phase 1 — one slot, original compatibility
 
+**Decision (2026-11-11): the slot is chosen with function keys, not from the ini.** F1..F4 select
+slot 1..4, F5 steps to the next one, and the runtime shows "Save Slot - N" for two seconds. The
+ini entry below is therefore *not* implemented; it is kept here only as the alternative that was
+considered.
+
 `icftd.ini`:
 
 ```ini
@@ -90,12 +119,12 @@ directory=saves
 ```
 
 The DOS shim maps `DSAVE:ICFTD` to `<exe>\<directory>\slot<slot>\ICFTD`. Nothing else changes: the
-engine still writes its own 12 476 bytes, so a save written by a real Amiga (WinUAE on the same
+engine still writes its own 12 444 bytes, so a save written by a real Amiga (WinUAE on the same
 image, base 0x4000) can be dropped into a slot unchanged, and ours can be taken back out.
 
 **Verification (machine state, per the project rules):**
 - `--state` a run that reaches the end of a session, answer the save prompt "NO" (i.e. do save),
-  check the host file exists with exactly 12 476 bytes and that its two halves equal the engine
+  check the host file exists with exactly 12 444 bytes and that its two halves equal the engine
   RAM at `0x021E18`/`0x02686C` (read out of a `--ramstop` dump — a direct `cmp`, no guessing).
 - Load it back in a second run and compare the two RAM ranges and the `--state` records against the
   first run. Loading must restore the same bytes that were written.
@@ -122,6 +151,8 @@ Three options, cheapest first:
 1. **Host shortcuts** (no UI work): `F5` cycles the active slot and shows it in the window title (or
    a one-line OSD), `F6` re-reads the ini, `F7`/`F8` = quick load / quick save into the active slot.
    This alone satisfies "more than one savegame" for a player who can read the ini.
+   **Done, with a different key set:** F1..F4 pick a slot, F5 cycles, and the OSD shows which one
+   is active. Quick load / quick save are not implemented (the engine's own prompt already asks).
 2. **Runtime-side dialog**: when the engine opens `DSAVE:ICFTD` for writing, show a native "save to
    slot N?" box; on a read, show a slot picker. Zero engine changes, but the UI is host-styled.
 3. **Engine-side UI**: replace routines 49/50 (vector slots) with our own screens using the game's
@@ -141,10 +172,14 @@ Recommended order: 1 now, 3 later if the look matters; 2 is a stopgap that adds 
 
 ## Open questions for the implementation session
 
-1. What exactly are the slot-2 / slot-3 calls with `("DSAVE:", "ICFTD")`? Most likely `Lock`/`Assign`
-   wrappers. They must return non-zero for a writable `saves\slotN` directory, so the shim needs to
-   answer them for a volume that does not exist yet (create on demand).
+1. ~~What exactly are the slot-2 / slot-3 calls with `("DSAVE:", "ICFTD")`?~~ **Answered:**
+   `FUN_000002f4` / `FUN_0000050e` are the load / save wrappers. They `Lock("DSAVE:", -2)`,
+   `CurrentDir` onto it and then open the bare name `ICFTD`; when the lock fails they park the game
+   in the "insert volume" panel and retry. So the shim must answer the lock and create the slot
+   directory on demand — which it now does.
 2. Does anything else write to `DSAVE:`? Only these two routines reference the string, so no.
+   (One more thing does write there: `FUN_0000067c`, the load path's "no save yet" placeholder —
+   a single byte from image offset `0x75A`.)
 3. Does the save blob contain absolute pointers into OS structures (library bases, file handles)?
    The two ranges are engine state only, and the load path restores them before any library call —
    but this must be verified by the save → load → compare test in Phase 1, not assumed.

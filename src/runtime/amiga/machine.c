@@ -35,7 +35,28 @@ static int rt_volume_index(const char *name)
         (name[5] == 'T' || name[5] == 't') &&
         name[6] >= '1' && name[6] <= '3' && (name[7] == ':' || name[7] == '/'))
         return name[6] - '1';
+    /* DSAVE: is where the engine keeps its save file; the runtime owns that directory. */
+    if ((name[0] == 'D' || name[0] == 'd') && (name[1] == 'S' || name[1] == 's') &&
+        (name[2] == 'A' || name[2] == 'a') && (name[3] == 'V' || name[3] == 'v') &&
+        (name[4] == 'E' || name[4] == 'e') && (name[5] == ':' || name[5] == '/'))
+        return -2;
     return -1;
+}
+
+/* DSAVE:<name> is <exe dir>\<saveDir>\slot<slot>\<name>. Both directory levels are created on
+ * demand: the engine locks DSAVE: before it opens anything, and a lock on a missing directory
+ * would send it into its "please insert volume" panel. */
+static void rt_save_ensure(rt_machine *m, char *out, int max)
+{
+    const char *dir = m->saveDir != 0 ? m->saveDir : "saves";
+    char top[256];
+
+    out[0] = 0;
+    if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 16 >= (int)sizeof(top)) return;
+    sprintf(top, "%s\\%s", plat_exe_dir(), dir);
+    if (!plat_mkdir(top)) return;
+    sprintf(out, "%s\\slot%d", top, m->saveSlot);
+    plat_mkdir(out);
 }
 
 /* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3
@@ -103,8 +124,21 @@ static int rt_exists(rt_machine *m, const char *name)
     if (rel[0] == 0)                            /* a volume on its own: its directory */
     {
         if (vol >= 0) sprintf(path, "%s\\disk%d", m->dataDir, vol + 1);
+        else if (vol == -2)
+        {
+            rt_save_ensure(m, path, (int)sizeof(path));
+            return path[0] != 0 && plat_path_kind(path) == PLAT_PATH_DIR;
+        }
         else          sprintf(path, "%s", m->dataDir);
         return plat_path_kind(path) == PLAT_PATH_DIR;
+    }
+    if (vol == -2)
+    {
+        char dir[256];
+        rt_save_ensure(m, dir, (int)sizeof(dir));
+        if (dir[0] == 0) return 0;
+        sprintf(path, "%s\\%s", dir, rel);
+        return plat_path_kind(path) != PLAT_PATH_MISSING;
     }
     if (vol >= 0)
     {
@@ -155,7 +189,7 @@ static u32 rt_alloc(u32 bytes);
 static void rt_add_server(rt_machine *m, u32 code, u32 data);
 static void rt_remove_server(rt_machine *m, u32 code);
 
-static u32 rt_file_open(rt_machine *m, const char *name)
+static u32 rt_file_open(rt_machine *m, const char *name, int mode)
 {
     char path[256], rel[192], full[256];
     int vol, slot;
@@ -167,6 +201,23 @@ static u32 rt_file_open(rt_machine *m, const char *name)
     if (!rt_full_name(m, name, full, (int)sizeof(full))) return 0;
     rt_split_name(full, rel, (int)sizeof(rel), &vol);
     if (rel[0] == 0) return 0;
+
+    m->files[slot].writable = 0;
+    m->files[slot].inSaveDir = 0;
+    if (vol == -2)
+    {
+        /* The save volume. MODE_NEWFILE (1006) and MODE_READWRITE (1004) create; MODE_OLDFILE
+         * (1005) reads. Nothing is searched across the disks here. */
+        char dir[256];
+        rt_save_ensure(m, dir, (int)sizeof(dir));
+        if (dir[0] == 0) return 0;
+        sprintf(path, "%s\\%s", dir, rel);
+        m->files[slot].inSaveDir = 1;
+        m->files[slot].writable = (mode == 1006 || mode == 1004);
+        m->files[slot].f = m->files[slot].writable ? plat_create(path) : plat_open(path);
+        if (m->files[slot].f == 0) return 0;
+        goto opened;
+    }
 
     if (vol >= 0)
         sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
@@ -185,6 +236,7 @@ static u32 rt_file_open(rt_machine *m, const char *name)
     }
     if (m->files[slot].f == 0) return 0;
 
+opened:
     m->files[slot].size = plat_size(m->files[slot].f);
     m->files[slot].pos = 0;
     /* AmigaDOS hands out BPTRs (address >> 2) and callers may dereference the handle, so give it
@@ -222,6 +274,17 @@ static void rt_file_close(rt_machine *m, u32 fh)
     if (f == 0) return;
     plat_close((plat_file *)f->f);
     f->f = 0;
+    if (f->writable && f->inSaveDir && f->pos >= EMU_SAVE_BYTES)
+    {
+        /* A completed save: the icon in the top right corner is the only feedback the player
+         * gets, because the engine writes the file silently. The size matters - when the load
+         * routine finds no save it creates a one-byte placeholder through the same path. */
+        m->saves++;
+        rt_osd_icon(m, EMU_OSD_FRAMES);
+        printf("recomp: saved %lu byte(s) to slot %d\n", (unsigned long)f->pos, m->saveSlot);
+    }
+    f->writable = 0;
+    f->inSaveDir = 0;
 }
 
 static u32 rt_file_read(rt_machine *m, u32 fh, u32 buf, u32 len)
@@ -239,6 +302,18 @@ static u32 rt_file_read(rt_machine *m, u32 fh, u32 buf, u32 len)
     got = plat_read((plat_file *)f->f, f->pos, m->mem.base + buf, len);
     f->pos += got;
     return got;
+}
+
+/* The engine's save routine writes its two memory ranges and closes the file; nothing seeks. */
+static u32 rt_file_write(rt_machine *m, u32 fh, u32 buf, u32 len)
+{
+    rt_file *f = rt_file_of(m, fh);
+    u32 put;
+
+    if (f == 0 || !f->writable || buf == 0 || len == 0) return 0;
+    put = plat_write((plat_file *)f->f, f->pos, m->mem.base + buf, len);
+    f->pos += put;
+    return put;
 }
 
 /* --- OS call census -----------------------------------------------------------------------
@@ -1028,7 +1103,7 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             {
                 char name[192];
                 read_cstr(arg32(sp, 0), name, (int)sizeof(name));
-                result = rt_file_open(m, name);
+                result = rt_file_open(m, name, (int)arg32(sp, 1));
                 if (m->dosLog)
                     printf("     dos.Open(\"%s\",%ld) = %06lX from %06lX\n", name, (long)arg32(sp, 1),
                            (unsigned long)result, (unsigned long)ret);
@@ -1049,12 +1124,18 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             break;
         case -48:                                /* Write(fh, buf, len) */
             {
-                /* The game prints its own diagnostics here ("Can't allocate animation bitmaps"
-                 * and friends), so passing them through is the cheapest way to hear what the
-                 * original is complaining about. */
                 u32 buf = arg32(sp, 1);
                 u32 len = arg32(sp, 2);
                 u32 k;
+
+                /* A real file handle is the engine writing its save; handle 0 is the console,
+                 * where the game prints its own diagnostics ("Can't allocate animation bitmaps"
+                 * and friends), so those still go to stdout. */
+                if (rt_file_of(m, arg32(sp, 0)) != 0)
+                {
+                    result = rt_file_write(m, arg32(sp, 0), buf, len);
+                    break;
+                }
                 for (k = 0; k < len; k++)
                 {
                     u8 ch = (u8)rt_read8(&m->mem, buf + k);
@@ -1335,6 +1416,8 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
         {
         case -30:                                /* OpenDiskFont(textAttr=A0) */
             result = rt_font_open_disk(m, a0);
+            /* The OSD draws in the game's own font, not the Amiga ROM one. */
+            if (result != 0) m->osdFont = result;
             break;
         default:
             goto unhandled;
@@ -1444,6 +1527,9 @@ int rt_init(rt_machine *m)
      * axis and the XOR of the two bit pairs as the horizontal one, so 0xFFFF read as "down". */
     m->joy0 = 0x0000u;
     m->joy1 = 0x0000u;
+    /* Save slots: the player cycles them with F1..F5, so there is nothing to configure. */
+    m->saveSlot = 1;
+    m->saveDir = "saves";
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
     rt_write32(&m->mem, 4, m->libraryBase[0]);

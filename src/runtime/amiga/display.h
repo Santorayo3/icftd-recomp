@@ -84,6 +84,14 @@ void rt_gfx_present(rt_machine *m, u32 view);
 /* MrgCop(view): builds the copper list the game walks to find its bitplane pointers. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view);
 
+/* --- on-screen display --------------------------------------------------------------------- */
+/* The port's own overlay, drawn into the chunky framebuffer after the game's frame has been
+ * composed: a line of text in the top left corner (the game's disk font) and the save icon in the
+ * top right. Both stay up for `frames` 50 Hz ticks. */
+#define EMU_OSD_FRAMES 100         /* 2 seconds */
+void rt_osd_text(rt_machine *m, const char *text, u32 frames);
+void rt_osd_icon(rt_machine *m, u32 frames);
+
 const u8 *rt_gfx_framebuffer(void);
 const u8 *rt_gfx_palette(void);
 int  rt_gfx_width(void);
