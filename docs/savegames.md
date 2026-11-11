@@ -64,7 +64,7 @@ handle the engine has on it.
 | `dos.Write` (LVO −48) | writes through a real handle and returns the byte count; handle 0 is the console and still echoes to stdout |
 | `DSAVE:` | first-class volume → `<exe dir>\saves\slot<N>\`, both directory levels created on demand (a `Lock` on a missing directory would park the engine in its "insert volume" panel) |
 | slot | `m->saveSlot`, default 1; **F1..F4 pick a slot, F5 cycles** — no ini entry; `--slot N` overrides for tests |
-| feedback | the OSD: "Save Slot - N" in the top left (2 s) on a slot change, the save icon in the top right (2 s) when a save completes |
+| feedback | the OSD: "Save Slot - N" in the top left (2 s) on a slot change, the save icon in the top right (2 s) when a save completes. " **(Empty)**" is appended when the slot's directory holds no file yet (`rt_save_slot_empty` → `plat_dir_empty`), and `--slot N` shows the same line at start-up, so a headless `--shot` can check it. The line is drawn **JAM1** (glyph pixels only): JAM2 with pen 0 used to paint a black box around every letter. |
 
 Verified so far (machine state, not pictures):
 

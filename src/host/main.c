@@ -223,10 +223,11 @@ static void host_input(rt_machine *m)
         if (in.pressed[KEY_F5]) slot = m->saveSlot >= MAX_SAVE_SLOTS ? 1 : m->saveSlot + 1;
         if (slot != 0 || in.pressed[KEY_F5])
         {
-            char msg[24];
+            char msg[40];
             if (slot == 0) slot = m->saveSlot;
             m->saveSlot = slot;
-            sprintf(msg, "Save Slot - %d", m->saveSlot);
+            sprintf(msg, "Save Slot - %d%s", m->saveSlot,
+                    rt_save_slot_empty(m, m->saveSlot) ? " (Empty)" : "");
             rt_osd_text(m, msg, EMU_OSD_FRAMES);
             printf("recomp: %s (frame %lu)\n", msg, (unsigned long)m->frame);
         }
@@ -340,6 +341,7 @@ int main(int argc, char **argv)
     u32 spriteLogFrom = 0;
     int blitBytePtr = 0;
     int slot = 1;
+    int slotGiven = 0;
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -406,6 +408,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
         {
             slot = (int)strtol(argv[++i], 0, 0);
+            slotGiven = 1;
             if (slot < 1) slot = 1;
             if (slot > MAX_SAVE_SLOTS) slot = MAX_SAVE_SLOTS;
             continue;
@@ -466,6 +469,16 @@ int main(int argc, char **argv)
     m.dosLog = dosLog;
     m.textLog = textLog;
     m.saveSlot = slot;
+    if (slotGiven)
+    {
+        /* The command line picked a slot: say so the way the F-keys do, so a headless --shot can
+         * check the overlay (and the empty marker) without a keyboard. */
+        char msg[40];
+        sprintf(msg, "Save Slot - %d%s", m.saveSlot,
+                rt_save_slot_empty(&m, m.saveSlot) ? " (Empty)" : "");
+        printf("recomp: %s\n", msg);
+        rt_osd_text(&m, msg, EMU_OSD_FRAMES);
+    }
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     m.traceFrom = traceFrom;

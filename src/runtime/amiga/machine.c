@@ -59,6 +59,17 @@ static void rt_save_ensure(rt_machine *m, char *out, int max)
     plat_mkdir(out);
 }
 
+/* Whether a slot has ever been written: its directory is the slot, so an empty one is unused. */
+int rt_save_slot_empty(const rt_machine *m, int slot)
+{
+    const char *dir = m->saveDir != 0 ? m->saveDir : "saves";
+    char path[288];
+
+    if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 24 >= (int)sizeof(path)) return 1;
+    sprintf(path, "%s\\%s\\slot%d", plat_exe_dir(), dir, slot);
+    return (int)plat_dir_empty(path);
+}
+
 /* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3
  * name a disk; any other volume is one of HDesert's assigns to the game directory, so it gets
  * vol = -1 and the file is searched on every disk. A name without a volume keeps its whole

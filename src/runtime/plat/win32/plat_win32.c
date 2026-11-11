@@ -525,6 +525,27 @@ u32 plat_mkdir(const char *path)
     return plat_path_kind(path) == PLAT_PATH_DIR;
 }
 
+/* A save slot is a directory the engine writes its save file into, so "no file in it" is what an
+ * unused slot looks like. A missing directory counts as empty. */
+u32 plat_dir_empty(const char *path)
+{
+    char pattern[288];
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+
+    if (!path || !*path) return 1;
+    if (strlen(path) + 3 >= sizeof pattern) return 1;
+    sprintf(pattern, "%s\\*", path);
+    h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 1;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) { FindClose(h); return 0; }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return 1;
+}
+
 s32 plat_spawn(const char *exe, const char *args)
 {
     STARTUPINFOA si;

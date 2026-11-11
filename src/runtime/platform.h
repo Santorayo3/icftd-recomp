@@ -106,6 +106,10 @@ u32 plat_path_kind(const char *path);
 /* Creates one directory level; 1 when it exists afterwards. */
 u32 plat_mkdir(const char *path);
 
+/* 1 when the directory holds no file. A missing directory counts as empty: each save slot is a
+ * directory, so a slot nothing was written to yet is an empty one. */
+u32 plat_dir_empty(const char *path);
+
 /* Runs exe with the given argument string (already quoted) and waits for it.
  * Returns the child's exit code, or -1 when it could not be started. */
 s32 plat_spawn(const char *exe, const char *args);

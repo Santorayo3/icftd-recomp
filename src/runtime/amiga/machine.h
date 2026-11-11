@@ -200,6 +200,8 @@ void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
 void rt_request_vblank(rt_machine *m);
 /* dos.Delay(n): the calling task is asleep for n of the 50 Hz ticks, i.e. n frame boundaries. */
 void rt_delay_ticks(rt_machine *m, u32 ticks);
+/* 1 when the save slot's DSAVE: directory holds no file yet (the overlay shows "(Empty)"). */
+int  rt_save_slot_empty(const rt_machine *m, int slot);
 /* Frame boundary: shows the loaded view, so drawing done since the last flip becomes visible. */
 void rt_frame_present(rt_machine *m);
 /* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */

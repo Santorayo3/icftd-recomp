@@ -1021,7 +1021,9 @@ static void osd_draw_text(rt_machine *m)
         if (font != 0)
         {
             int base = top + (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
-            x += (int)put_glyph(m, EMU_BM_FRAMEBUFFER, font, ch, x, base, OSD_PEN_TEXT, 0, 1);
+            /* JAM1 (mode 0), not JAM2: the overlay sits on top of the game's picture, so only the
+             * glyph pixels are written. Passing 1 here painted pen 0 (black) around every letter. */
+            x += (int)put_glyph(m, EMU_BM_FRAMEBUFFER, font, ch, x, base, OSD_PEN_TEXT, 0, 0);
         }
         else
         {   /* no disk font open: the built-in stand-in keeps the line readable */
