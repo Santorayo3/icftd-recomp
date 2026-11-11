@@ -25,7 +25,7 @@ void fn_0001f89c(cpu_t *c, rt_machine *m)
 L_1F89C:
     /* 0001f89c   6  cmp.l #1c,D0 */
     c->pc = RC_ADDR(0x0001f89cu);
-    rc_step(c, m);
+    rc_step(c, m, 14);
     t0 = 0x0000001cu;
     t1 = rc_d_get(c, 0, RC_L);
     rc_cmp(c, RC_L, t1, t0);
@@ -33,19 +33,19 @@ L_1F89C:
 L_1F8A2:
     /* 0001f8a2   2  bcc 0001f8ae */
     c->pc = RC_ADDR(0x0001f8a2u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 4)) goto L_1F8AE;
 
 L_1F8A4:
     /* 0001f8a4   2  asl.l #1,D0 */
     c->pc = RC_ADDR(0x0001f8a4u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     rc_d_set(c, 0, RC_L, rc_shift(c, 0, 1, 0x00000001u, rc_d_get(c, 0, RC_L), RC_L));
 
 L_1F8A6:
     /* 0001f8a6   4  move.w (0001f864),D0 */
     c->pc = RC_ADDR(0x0001f8a6u);
-    rc_step(c, m);
+    rc_step(c, m, 14);
     t4 = rc_ext(c->d[0], RC_W);
     t0 = rc_rd16(c, m, (RC_ADDR(0x0001f864u) + t4));
     rc_d_set(c, 0, RC_W, t0);
@@ -54,7 +54,7 @@ L_1F8A6:
 L_1F8AA:
     /* 0001f8aa   4  jmp (0001f8ac) */
     c->pc = RC_ADDR(0x0001f8aau);
-    rc_step(c, m);
+    rc_step(c, m, 14);
     t4 = rc_ext(c->d[0], RC_W);
     t3 = (RC_ADDR(0x0001f8acu) + t4);
     c->pc = t3;
@@ -63,7 +63,7 @@ L_1F8AA:
 L_1F8AE:
     /* 0001f8ae   4  bra 0001f2ca */
     c->pc = RC_ADDR(0x0001f8aeu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x0001f2cau);
     return;
 

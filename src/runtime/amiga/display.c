@@ -51,6 +51,28 @@ static int minterm_bit(u32 minterm, int a, int b, int c)
     return (int)((minterm >> ((a << 2) | (b << 1) | c)) & 1u);
 }
 
+/* --- screen-write diagnostics -------------------------------------------------------------- */
+u32 rt_gfx_screen_bitmap(rt_machine *m)
+{
+    u32 vp, ri;
+    if (m->view == 0) return 0;
+    vp = rt_read32(&m->mem, m->view);
+    if (vp == 0) return 0;
+    ri = rt_read32(&m->mem, vp + EMU_VP_RASINFO);
+    return ri != 0 ? rt_read32(&m->mem, ri + EMU_RI_BITMAP) : 0;
+}
+
+/* Rows are reported in bands of 8 so one u32 says which part of the screen something reached. */
+void rt_gfx_screen_touched(rt_machine *m, int first, int last)
+{
+    int b;
+    if (first > last) return;
+    if (first < 0) first = 0;
+    if (last > 255) last = 255;
+    for (b = first >> 3; b <= (last >> 3) && b < 32; b++) m->screenBands |= 1u << b;
+    m->screenWrites++;
+}
+
 /* --- state ---------------------------------------------------------------------------------- */
 void rt_gfx_reset(rt_machine *m)
 {
@@ -136,6 +158,7 @@ void rt_gfx_blt_bitmap(rt_machine *m, u32 src, s32 sx, s32 sy, u32 dst, s32 dx, 
     sbpr = bm_bpr(m, src);  srows  = bm_rows(m, src);  sdepth = bm_depth(m, src);
     dbpr = bm_bpr(m, dst);  drows  = bm_rows(m, dst);  ddepth = bm_depth(m, dst);
     if (sbpr <= 0 || dbpr <= 0) return;
+    if (m->progress && dst == rt_gfx_screen_bitmap(m)) rt_gfx_screen_touched(m, (int)dy, (int)(dy + h - 1));
 
     for (y = 0; y < h; y++)
     {
@@ -217,6 +240,7 @@ void rt_gfx_rect_fill(rt_machine *m, u32 rp, s32 x1, s32 y1, s32 x2, s32 y2)
     if (y1 < 0) y1 = 0;
     if (x2 >= bm_bpr(m, bm) * 8) x2 = bm_bpr(m, bm) * 8 - 1;
     if (y2 >= bm_rows(m, bm)) y2 = bm_rows(m, bm) - 1;
+    if (m->progress && bm == rt_gfx_screen_bitmap(m)) rt_gfx_screen_touched(m, (int)y1, (int)y2);
     for (y = y1; y <= y2; y++)
         for (x = x1; x <= x2; x++)
             plot(m, bm, (int)x, (int)y, pen_of(m, rp));
@@ -265,6 +289,7 @@ void rt_gfx_area_end(rt_machine *m, u32 rp)
         if (gfx->areaY[i] < minY) minY = gfx->areaY[i];
         if (gfx->areaY[i] > maxY) maxY = gfx->areaY[i];
     }
+    if (m->progress && bm == rt_gfx_screen_bitmap(m)) rt_gfx_screen_touched(m, (int)minY, (int)maxY);
     for (y = minY; y <= maxY; y++)
     {
         s32 xs[EMU_AREA_MAX];
@@ -477,6 +502,7 @@ u32 rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count)
     u32 i, plotted = 0;
 
     if (bm == 0) return 0;
+    m->textDraws++;
     for (i = 0; i < count; i++)
     {
         int ch = (int)rt_read8(&m->mem, text + i);
@@ -601,7 +627,7 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
     }
     rt_write32(&m->mem, list + 0, 0);                    /* Next */
     rt_write32(&m->mem, list + 4, start);
-    rt_write16(&m->mem, list + 8, (u32)(colours * 2));   /* MaxCount, in words */
+    rt_write16(&m->mem, list + 8, (u32)colours);         /* MaxCount, in entries (FUN_0001FD7A) */
     rt_write32(&m->mem, view + 4, list);                 /* v_LOFCprList */
     rt_write32(&m->mem, view + 8, list);                 /* v_SHFCprList */
     gfx->cprList = list;
@@ -615,7 +641,8 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
 void rt_gfx_present(rt_machine *m, u32 view)
 {
     u32 vp, cm, ri, bm, table;
-    int bpr, rows, depth, w, h, x, y, p, count;
+    int bpr, rows, depth, w, h, x, y, p, count, entries;
+    static int s_progTiles;
 
     if (view == 0 || gfx == 0 || gfx->fb == 0) return;
     /* LoadView installs the view's copper list, and the copper keeps running whatever list was
@@ -665,19 +692,25 @@ void rt_gfx_present(rt_machine *m, u32 view)
 
     /* Palette: the copper list that is installed, because the game patches *those* words every
      * frame (that is what the pointers it kept from FUN_0001FDE8 are for). Fall back to the
-     * ViewPort's ColorMap when no list was ever built. */
+     * ViewPort's ColorMap when no list was ever built.
+     *
+     * MaxCount counts (register, value) ENTRIES, not words - the engine's own reader FUN_0001FD7A
+     * steps `psVar4 + 2` once per decrement of it. Reading it as words halved the window and cut a
+     * 32-colour list down to its first 14 colours (measured on the flight screen, list 0x931F0: 69
+     * entries, all 32 CLRx moves present, 18 of them beyond the halved window). */
     cm = rt_read32(&m->mem, vp + EMU_VP_COLORMAP);
     count = 0;
+    entries = 0;
     table = 0;
     {
         u32 list = gfx->cprList;
         u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
-        int words = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
-        int w;
-        for (w = 0; start != 0 && w + 1 < words; w += 2)
+        int e;
+        entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
+        for (e = 0; start != 0 && e < entries && e < 256; e++)
         {
-            u32 reg = rt_read16(&m->mem, start + (u32)w * 2u);
-            u32 val = rt_read16(&m->mem, start + (u32)w * 2u + 2u);
+            u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
+            u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
             int idx;
             if (reg < 0x180u || reg > 0x1BEu || (reg & 1u) != 0) continue;
             idx = (int)((reg - 0x180u) >> 1);
@@ -692,11 +725,10 @@ void rt_gfx_present(rt_machine *m, u32 view)
         count = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
         table = rt_read32(&m->mem, cm + EMU_CM_TABLE);
     }
-    /* The installed list is the palette the engine fades, but it only covers the colours its own
-     * MrgCop built for THAT view. A screen whose ViewPort asks for more colours than the list
-     * carries (measured in the flight: list 14, ViewPort 32, ColorMap 32) would otherwise render
-     * the extra indices with stale/black entries, so fill the tail from the ViewPort's ColorMap -
-     * the list still wins wherever it has an entry. */
+    /* The installed list is the palette the engine fades, but it only covers the colours it put in
+     * that particular list. A screen whose ViewPort asks for more colours than the list carries
+     * would otherwise render the extra indices with stale/black entries, so fill the tail from the
+     * ViewPort's ColorMap - the list still wins wherever it has an entry. */
     else if (cm != 0)
     {
         int cmCount = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
@@ -765,11 +797,15 @@ void rt_gfx_present(rt_machine *m, u32 view)
     {
         /* --progress diagnostic: what the composed picture really is - geometry, palette size and
          * the row range that carries visible (non-black) colour. This is how a scene whose screen
-         * looks empty is told apart from one where the presenter dropped rows. */
+         * looks empty is told apart from one where the presenter dropped rows. `--progress <frame>`
+         * starts the detailed reports there, so a scene entered by --call is not drowned by the
+         * intro. */
         static int dbg;
-        if (m->frame > 1060 && (dbg++ % 8) == 0 && dbg < 400)
+        if (m->frame >= m->progressFrom && (dbg++ % 8) == 0 && dbg < 3200)
         {
             int y2, first = -1, last = -1, nz = 0;
+            int band[14], bw = 20, nb = (h + bw - 1) / bw, yb;
+            for (yb = 0; yb < 14; yb++) band[yb] = 0;
             for (y2 = 0; y2 < h; y2++)
             {
                 int hit = 0;
@@ -780,6 +816,20 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 }
                 if (hit) { if (first < 0) first = y2; last = y2; }
             }
+            /* Bit content per 20-row band, independent of the palette: this is what tells "nothing
+             * was drawn here" apart from "drawn in a black pen". */
+            for (p = 0; p < depth && p < 8; p++)
+            {
+                u32 plane = bm_plane(m, bm, p);
+                if (plane == 0) continue;
+                for (y2 = 0; y2 < h; y2++)
+                {
+                    yb = y2 / bw;
+                    if (yb >= 14) break;
+                    for (x = 0; x < bpr; x++)
+                        band[yb] += (rt_read8(&m->mem, plane + (u32)y2 * (u32)bpr + (u32)x) != 0);
+                }
+            }
             printf("emu: present %lu frame %lu: vp %06lX bm %06lX %dx%d bpr %d rows %d depth %d "
                    "vpDx %d vpDy %d riRx %d riRy %d pal %d vcol %d cm %d; painted rows %d..%d, %d lit px\n",
                    (unsigned long)gfx->frames, (unsigned long)m->frame, (unsigned long)vp,
@@ -789,6 +839,110 @@ void rt_gfx_present(rt_machine *m, u32 view)
                    gfx->palCount, (int)rt_read16(&m->mem, view + 0x12),
                    cm != 0 ? (int)rt_read8(&m->mem, cm + EMU_CM_COUNT) : -1,
                    first, last, nz);
+            printf("emu:   writes %lu into the shown bitmap, rows bands %08lX; bytes/plane per "
+                   "%d rows:", (unsigned long)m->screenWrites, (unsigned long)m->screenBands, bw);
+            for (yb = 0; yb < nb && yb < 14; yb++) printf(" %d", band[yb]);
+            printf("\n");
+            /* One trace line per sample: frame, presented View/ViewPort and all 32 colours, so a
+             * scene whose sprites come out black can be paired with the palette in force. */
+            /* One trace line per sample: frame, presented View/ViewPort, the installed list and all
+             * 32 colours, so a screen whose palette comes out short can be paired with the list it
+             * was read from. `len` = cprlist MaxCount (entries), `cols` = colours it carries. */
+            printf("emu: pal32 f%lu view %06lX vp %06lX clist %06lX start %06lX eng %06lX len %d cols %d",
+                   (unsigned long)m->frame, (unsigned long)view, (unsigned long)vp,
+                   (unsigned long)rt_read32(&m->mem, view + 4),
+                   (unsigned long)(rt_read32(&m->mem, view + 4) != 0
+                                       ? rt_read32(&m->mem, rt_read32(&m->mem, view + 4) + 4) : 0),
+                   (unsigned long)rt_read32(&m->mem, 0x2A566u), entries, count);
+            for (p = 0; p < 32; p++)
+                printf(" %02X%02X%02X", gfx->pal[p * 3], gfx->pal[p * 3 + 1], gfx->pal[p * 3 + 2]);
+            printf("\n");
+            printf("\n");
+            printf("\nemu:   drawn bitmap %06lX planes", (unsigned long)rt_gfx_screen_bitmap(m));
+            {
+                u32 sbm = rt_gfx_screen_bitmap(m);
+                int sd = sbm != 0 ? bm_depth(m, sbm) : 0;
+                for (yb = 0; sbm != 0 && yb < sd && yb < 8; yb++)
+                    printf(" %06lX", (unsigned long)bm_plane(m, sbm, yb));
+            }
+            printf("\n");
+            /* The engine double-buffers by swapping its two BitMap pointers (0x56E0, 0x170C8) and
+             * handing the current one to the ViewPort's RasInfo. Printing the bands of both makes
+             * "the flight draws into the other buffer" a measurement instead of a guess. */
+            {
+                u32 a = rt_read32(&m->mem, 0x2A612u), bb = rt_read32(&m->mem, 0x2A60Eu);
+                int k;
+                for (k = 0; k < 2; k++)
+                {
+                    u32 t = k == 0 ? a : bb;
+                    int tb[14], td = t != 0 ? bm_depth(m, t) : 0;
+                    int tp = t != 0 ? bm_bpr(m, t) : 0;
+                    int tt = 0, ty, tplane;
+                    for (yb = 0; yb < 14; yb++) tb[yb] = 0;
+                    for (tplane = 0; tplane < td && tplane < 8; tplane++)
+                    {
+                        u32 plane = bm_plane(m, t, tplane);
+                        if (plane == 0) continue;
+                        for (ty = 0; ty < h; ty++)
+                        {
+                            yb = ty / bw;
+                            if (yb >= 14 || tp <= 0) break;
+                            for (x = 0; x < tp; x++)
+                                tb[yb] += (rt_read8(&m->mem, plane + (u32)ty * (u32)tp + (u32)x) != 0);
+                        }
+                    }
+                    printf("emu:   engine %s %06lX band bytes:", k == 0 ? "26612" : "2660E",
+                           (unsigned long)t);
+                    for (yb = 0; yb < 14; yb++) { printf(" %d", tb[yb]); tt += tb[yb]; }
+                    printf(" (total %d)\n", tt);
+                }
+            }
+        }
+        m->screenBands = 0;
+        m->screenWrites = 0;
+    }
+    /* The tile renderer's own parameters (FUN_00010e48 / FUN_00011094 write them): bpr/rows, the
+     * two loop counters, the tile size, the source row delta and the BLTSIZE it will use. Printed
+     * with the blit count, so "the map renderer ran but drew nothing" is distinguishable from
+     * "it never ran". Addresses are engine image offsets + 0x4000, like EMU_PANEL_FLAG above. */
+    if (m->progress && m->frame >= m->progressFrom && (s_progTiles++ % 8) == 0 && s_progTiles < 3200)
+    {
+        int wr = (int)rt_read16(&m->mem, 0x2CD24u), hr = (int)rt_read16(&m->mem, 0x2CD26u);
+        printf("emu:   tiles bpr %d rows %d loops %d/%d delta %d tile %dx%d map %d/%d sheet %d/%d "
+               "size %04lX; %lu blit(s) so far\n",
+               wr, hr,
+               (int)rt_read16(&m->mem, 0x2E840u), (int)rt_read16(&m->mem, 0x2E842u),
+               (int)rt_read16(&m->mem, 0x2CD3Eu),
+               (int)rt_read16(&m->mem, 0x2CD42u), (int)rt_read16(&m->mem, 0x2CD44u),
+               (int)rt_read16(&m->mem, 0x2CD46u), (int)rt_read16(&m->mem, 0x2CD48u),
+               (int)rt_read16(&m->mem, 0x2CD4Au), (int)rt_read16(&m->mem, 0x2CD4Cu),
+               (unsigned long)rt_read16(&m->mem, 0x2E83Eu), (unsigned long)m->blits);
+        /* The flight driver's own state: stage counter (FUN_0000bfca loops while it is < 8),
+         * the strip's scroll offsets (FUN_0000beda fills y = 0xB8 + 0x28cd6 .. +5 in pen 0 with a
+         * pen-6 border while 0x2a18e != 0) and the rastport's bitmap. If the stage stops moving,
+         * the loop that issues the strip has already exited whatever the blits say. */
+        {
+            u32 rp = rt_read32(&m->mem, 0x2A56Au);
+            printf("emu:   flight stage %d/+%d timer %d strip %d dx %d dy %d rp %06lX bm %06lX\n",
+                   (int)rt_read16(&m->mem, 0x2E170u), (int)rt_read16(&m->mem, 0x2E172u),
+                   (int)rt_read16(&m->mem, 0x2E16Eu),
+                   (int)rt_read16(&m->mem, 0x2E18Eu),
+                   (int)rt_read16(&m->mem, 0x2CDD4u), (int)rt_read16(&m->mem, 0x2CDD6u),
+                   (unsigned long)rp, (unsigned long)(rp != 0 ? rt_read32(&m->mem, rp + 4) : 0));
+            /* The fire-held readout: FUN_00016588 arms while 0x24a8c > 6 (consecutive frames with
+             * /FIRE down) and then prints numbers at 0xf/0xe with graphics.Text. textDraws proves
+             * whether that path is reached. */
+            printf("emu:   hud fireHeld %d armed %d gate %d; %lu Text call(s) so far, %lu blit(s)\n",
+                   (int)rt_read16(&m->mem, 0x24A8Cu), (int)rt_read16(&m->mem, 0x2AD30u),
+                   (int)rt_read16(&m->mem, 0x2AB0Eu),
+                   (unsigned long)m->textDraws, (unsigned long)m->blits);
+            /* Game mode (FUN_00002cc8's switch): 9 = "Take a Flight", 10 = "Fire Game",
+             * 2 = "Go to Map", 6 = "Escape Hospital", 1 = "Make a Call". Plus the location id
+             * that decides which actions the menu even offers. */
+            printf("emu:   mode %d loc %d/%d day %d act %d\n",
+                   (int)rt_read16(&m->mem, 0x2A9D6u),
+                   (int)rt_read16(&m->mem, 0x2E9A6u), (int)rt_read16(&m->mem, 0x2E9A8u),
+                   (int)rt_read16(&m->mem, 0x25E1Eu), (int)rt_read16(&m->mem, 0x2CA3Au));
         }
     }
     /* FUN_000007F4 (panel open, flag 0x21F5A) loads five colours from 0x21F50 into the live table

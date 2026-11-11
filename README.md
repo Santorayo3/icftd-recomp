@@ -9,6 +9,16 @@ Watcom)**; the DOS target stays possible but is not being worked on.
 decoded from them (`assets/`, `export/`, `re/`, `ref/`); `.gitignore` keeps all of it out of git.
 You supply the images; the tools decode them locally.
 
+## RULE 0 — a bug is a DIFFERENCE, never a symptom
+
+Every fix is a diff against the original — for bugs of any kind: picture, sound, crash, hang, wrong
+value, wrong speed, ignored input. Find the path the original takes, find the same path in our code,
+close the gap. A change that only makes the symptom go away is rejected, even when all tests pass;
+and a real fix never stays behind an opt-in flag. The one exception is code the original does not
+have — save slots, OSD, the present/window backend, host input, our tooling. Full text:
+[`.github/copilot-instructions.md`](.github/copilot-instructions.md) and the top of
+[`docs/recomp-architecture.md`](docs/recomp-architecture.md).
+
 ## The two phases
 
 | phase | what it is | state |

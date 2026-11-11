@@ -28,7 +28,7 @@ void fn_00020de6(cpu_t *c, rt_machine *m)
 L_20DE6:
     /* 00020de6   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00020de6u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -36,14 +36,14 @@ L_20DE6:
 L_20DEA:
     /* 00020dea   4  movea.l (ffffce12,A4),A0 */
     c->pc = RC_ADDR(0x00020deau);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] - 0x31eeu));
     c->a[0] = t0;
 
 L_20DEE:
     /* 00020dee   4  addq.l #1,(ffffce12,A4) */
     c->pc = RC_ADDR(0x00020deeu);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t3 = (c->a[4] - 0x31eeu);
     t1 = rc_rd32(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -53,7 +53,7 @@ L_20DEE:
 L_20DF2:
     /* 00020df2   4  move.b (9,A5),D0 */
     c->pc = RC_ADDR(0x00020df2u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd8(c, m, (c->a[5] + 0x9u));
     rc_d_set(c, 0, RC_B, t0);
     rc_set_nzvc(c, t0, RC_B);
@@ -61,7 +61,7 @@ L_20DF2:
 L_20DF6:
     /* 00020df6   2  move.b D0,(A0) */
     c->pc = RC_ADDR(0x00020df6u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t0 = rc_d_get(c, 0, RC_B);
     rc_wr8(c, m, c->a[0], t0);
     rc_set_nzvc(c, t0, RC_B);
@@ -69,13 +69,13 @@ L_20DF6:
 L_20DF8:
     /* 00020df8   2  ext.w D0 */
     c->pc = RC_ADDR(0x00020df8u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     rc_ext_w(c, 0);
 
 L_20DFA:
     /* 00020dfa   4  and.w #ff,D0 */
     c->pc = RC_ADDR(0x00020dfau);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     t0 = 0x000000ffu;
     t2 = t0 & rc_d_get(c, 0, RC_W);
     rc_set_nzvc(c, t2, RC_W);
@@ -84,7 +84,7 @@ L_20DFA:
 L_20DFE:
     /* 00020dfe   2  unlk A5 */
     c->pc = RC_ADDR(0x00020dfeu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -92,7 +92,7 @@ L_20DFE:
 L_20E00:
     /* 00020e00   2  rts */
     c->pc = RC_ADDR(0x00020e00u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

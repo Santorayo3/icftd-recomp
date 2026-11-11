@@ -34,6 +34,42 @@ static void note_bad(u32 a, u32 pc)
 
 static int ram_has(u32 a) { return rt_current != 0 && a < rt_current->mem.size; }
 
+/* Musashi's per-opcode 68000 cycle counts, already built by m68k_pulse_reset. Written out for
+ * tools\gen-cycles.ps1 so the translated build charges the same time per instruction. */
+extern unsigned char m68ki_cycles[][0x10000];
+
+/* Time one instruction takes, in 68000 cycles: the base count from Musashi's own 68000 table,
+ * indexed by the opcode word (which encodes the addressing modes, so `MOVE.W (A0),D0` and
+ * `MOVE.W D1,D0` differ by themselves). The +2/+4 an indexed EA costs is NOT included - it lives in
+ * the extension word, not the opcode, and leaving it out keeps this a single array lookup that the
+ * translated code can compute at translation time. Measured error: see docs\next-session.md.
+ *
+ * This is the one definition of "time" in the project: the interpreter, the host's interpreted
+ * fallback and the translated stream all charge exactly this. */
+u32 oracle_cycle_cost(u32 pc)
+{
+    /* A library entry is not an instruction: the trap is performed by the OS call, and the words
+     * "at" the LVO are whatever the stub area holds. It costs nothing, which is what the
+     * translated stream charges for the same slot (src\recomp\cpu.c, rc_os_call_a6). */
+    if (rt_library_of(rt_current, pc, 0) >= 0) return 0;
+    return (u32)m68ki_cycles[0][rt_read16(&rt_current->mem, pc)];
+}
+
+int oracle_dump_cycle_table(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == 0) { printf("emu: cannot write %s\n", path); return 0; }
+    if (fwrite(m68ki_cycles[0], 1, 0x10000u, f) != 0x10000u)
+    {
+        fclose(f);
+        printf("emu: short write on %s\n", path);
+        return 0;
+    }
+    fclose(f);
+    printf("emu: 68000 cycle table (%u opcodes) written to %s\n", 0x10000u, path);
+    return 1;
+}
+
 /* --- Musashi memory interface ------------------------------------------------------------- */
 
 unsigned int m68k_read_memory_8(unsigned int a)
@@ -220,10 +256,15 @@ void oracle_tick(rt_machine *m)
     int i;
 
     if (m->tickLog)
-        printf("tick %lu in insns %ld budget %ld pc %06lx\n", (unsigned long)m->frame,
-               (long)m->insns, (long)m->insnToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+        printf("tick %lu in insns %ld budget %ld blitcyc %ld pc %06lx\n", (unsigned long)m->frame,
+               (long)m->insns, (long)m->cyclesToTick, (long)m->blitCycles,
+               (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     m->frame++;
-    m->insnToTick = EMU_INSN_PER_FRAME;
+    /* The budget carries whatever the last frame overspent: a blit can cost several frames, and the
+     * CPU is stuck waiting for it (blitter.c). Only a WaitTOF/WaitBOVP resets it, because that is
+     * the program declaring the rest of the frame idle. A debt bigger than one frame therefore
+     * costs more than one vblank - the next instruction triggers the tick again. */
+    m->cyclesToTick += EMU_CYCLES_PER_FRAME;
     /* The raster has finished the last frame: what was drawn into the loaded view is on screen. */
     rt_frame_present(m);
     if (m->pressAt != 0)
@@ -251,7 +292,7 @@ void oracle_tick(rt_machine *m)
     state_sample(m);
     if (m->tickLog)
         printf("tick %lu out insns %ld budget %ld pc %06lx\n", (unsigned long)m->frame,
-               (long)m->insns, (long)m->insnToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+               (long)m->insns, (long)m->cyclesToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
 }
 
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */
@@ -385,14 +426,16 @@ u32 oracle_run(rt_machine *m, long maxInsns)
         if (m->waitVblank)
         {
             /* The program asked for the next vblank: the rest of this frame is idle, so no
-             * instruction is executed for it. One budget step is enough to end the frame. */
+             * cycle is spent for it. Zero budget is enough to end the frame. */
             m->waitVblank = 0;
-            m->insnToTick = 0;          /* the check below goes negative: this frame ends now */
+            m->cyclesToTick = 0;        /* the check below goes negative: this frame ends now */
         }
-        /* The counter goes negative, so a frame is exactly EMU_INSN_PER_FRAME instructions - the
-         * same rule the translated code follows (src\recomp\cpu.c, rc_step). */
+        /* The budget is charged per instruction from the 68000 cycle table, so a frame is
+         * EMU_CYCLES_PER_FRAME cycles - the same rule the translated code follows
+         * (src\recomp\cpu.c, rc_step, and the host's interpreted path in src\host\main.c). */
         rt_trace(m, m68k_get_reg(0, M68K_REG_PC));
-        if (--m->insnToTick < 0) oracle_tick(m);
+        m->cyclesToTick -= oracle_cycle_cost(m68k_get_reg(0, M68K_REG_PC));
+        if (m->cyclesToTick < 0) oracle_tick(m);
         if (!oracle_step(m)) return m68k_get_reg(0, M68K_REG_PC);
         if (m->progress && (m->insns % 1000000L) == 0)
             printf("emu: %ld steps, pc %06lx, frame %lu, %lu raster(s), %lu blit(s), %lu drop(s), %lu fire poll(s), %lu handler(s)\n",
@@ -411,6 +454,12 @@ void oracle_boot(u32 entry, u32 a4)
     m68k_init();
     m68k_set_cpu_type(M68K_CPU_TYPE_68000);
     m68k_pulse_reset();
+    /* m68k_execute() starts by draining the cycle count m68k_pulse_reset() queued (RESET_CYCLES)
+     * and returns without retiring an instruction if that uses up the slice. Step once here to get
+     * that out of the way: otherwise the run's first oracle_step() counts an instruction that never
+     * ran (and now would also charge its cycles), and the translated build - which has no phantom
+     * step - drifts one instruction behind at the very first frame boundary. */
+    m68k_execute(1);
     m68k_set_reg(M68K_REG_PC, entry);
     m68k_set_reg(M68K_REG_A7, EMU_STACK_TOP - 4);
     m68k_set_reg(M68K_REG_A4, a4);
@@ -422,7 +471,7 @@ void oracle_boot(u32 entry, u32 a4)
     /* After the image load: the image's BSS ends at 0x31598 and the Process block must survive. */
     rt_build_process(rt_current);
     /* The first frame is a full frame, in both front ends (rt_init leaves the budget at zero). */
-    rt_current->insnToTick = EMU_INSN_PER_FRAME;
+    rt_current->cyclesToTick = EMU_CYCLES_PER_FRAME;
     /* The hunk loader would have called us, so leave a return address the program can rts to.
      * The DOS loader does the same: the entry code ends with `rts`. */
     rt_write32(&rt_current->mem, EMU_STACK_TOP - 4, EMU_EXIT_PC);

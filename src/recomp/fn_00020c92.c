@@ -21,7 +21,7 @@ void fn_00020c92(cpu_t *c, rt_machine *m)
 L_20C92:
     /* 00020c92   4  move.w #7fff,D0 */
     c->pc = RC_ADDR(0x00020c92u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t0 = 0x00007fffu;
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -29,7 +29,7 @@ L_20C92:
 L_20C96:
     /* 00020c96   2  bra 00020c9c */
     c->pc = RC_ADDR(0x00020c96u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x00020c9cu);
     return;
 

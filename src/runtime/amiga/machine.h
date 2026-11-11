@@ -62,11 +62,14 @@ typedef struct rt_gfx_state{
  * engine trampolines before the LVO is reached, so 16 entries lost the interesting caller. */
 #define EMU_RING_SIZE 64
 
-/* The vertical-blank cadence. A PAL A500 runs at 7,093,790 cycles/s with 50 fields/s, and this
- * core counts instructions, not cycles, so the tick is a straightforward instruction budget:
- * 141,875 instructions per frame - the exact period the game's own frame counter expects.
- * Nothing in the game reads a cycle counter, so the approximation is invisible to it. */
-#define EMU_INSN_PER_FRAME 141875L
+/* The vertical-blank cadence, in 68000 clock cycles.
+ *
+ * A PAL A500 runs at 7,093,790 cycles/s with 50 fields/s, so a frame is 141,875 cycles. The budget
+ * has to be cycles and not instructions: an instruction costs 4-40 of them, and the game's own
+ * loops (a blitter wait, a MovE step) only run out of frame when the *cycles* run out. With an
+ * instruction budget nothing ever ran out, so scenes the original can only manage at ~10 Hz played
+ * at the full 50 Hz (docs\drawing-model.md, "Measured timing"). */
+#define EMU_CYCLES_PER_FRAME 141875L
 #define EMU_MAX_INT        8          /* interrupt servers the game can add */
 
 /* One dos.library handle: a host file plus a cursor. Read-only for now; the game only ever
@@ -113,7 +116,8 @@ typedef struct rt_machine
     u32     intCode[EMU_MAX_INT];         /* AddIntServer/AddICRVector: is_Code */
     u32     intData[EMU_MAX_INT];         /*                            is_Data */
     int     intCount;
-    long    insnToTick;                   /* instruction budget left before the next vblank */
+    long    cyclesToTick;                 /* 68000 cycles left before the next vblank */
+    long    blitCycles;                   /* cycles the blitter took, for the timing report */
     int     inTick;                       /* the tick handler is running */
     int     waitVblank;                   /* WaitTOF/WaitBOVP is pending: end this frame early */
     u32     view;                         /* last View passed to LoadView */
@@ -141,11 +145,22 @@ typedef struct rt_machine
     int     stop;                         /* tool hook: set to end the run (window closed) */
     int     dosLog;                       /* log dos Open/Read/Seek/Close */
     int     progress;                     /* heartbeat every 1M steps */
+    u32     progressFrom;                 /* ... and the row/palette report from this frame on */
     int     dffLog;                       /* log the first chipset register writes */
     int     dffSeen;
+    int     blitLog;                      /* log the geometry of every hardware blit */
+    int     blitLogN;
+    u32     blitLogFrame;                 /* ... from this emulated frame on (--blitlog <frame>) */
+    void   *spriteLog;                    /* --spritelog: FILE* for sprite-blit source/result dumps */
+    int     spriteLogN;
+    u32     spriteLogFrom;                /* ... from this emulated frame on */
+    int     blitBytePtr;                  /* --byteptr: byte pointers instead of word pointers */
     int     blitLogs;
     u32     blits;                        /* blits started, for --progress */
     u32     blitDrops;                    /* blit writes the range check refused */
+    u32     screenBands;                  /* --progress: bit b = a write reached rows 8b..8b+7 */
+    u32     screenWrites;                 /* --progress: writes that reached the shown bitmap */
+    u32     textDraws;                    /* graphics.Text calls so far, for --progress */
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
     void *callLog;                        /* --calllog: one line per library call, for bisection */
     long    traceFrom, traceTo;           /* --trace: print insns/budget/pc in this window */

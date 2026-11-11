@@ -10,7 +10,7 @@
  * must be identical. Machine state is the acceptance criterion (repo memory); pictures are not.
  *
  *   icftd-recomp [<image>] [<insns>] [--state <prefix> [--every n] [--ram f,f]]
- *                [--input <script>] [--data <dir>] [--progress] [--base <addr>]
+ *                [--input <script>] [--data <dir>] [--progress] [--blitlog] [--base <addr>]
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *
@@ -79,6 +79,15 @@ static u32 g_callPc;
 static u32 g_callFrame;
 static u32 g_callArg;
 static int g_called;
+
+/* --poke <frame>:<addr>=<value>[,<addr>=<value>...] writes engine globals at a frame boundary, so
+ * a state the game's own menus would produce (e.g. DAT_000269d6 = 9, "Take a Flight") can be set
+ * without playing the UI. Machine state, like --call - never a picture. */
+#define HOST_MAX_POKES 8
+static struct { u32 addr, val; } g_pokes[HOST_MAX_POKES];
+static int g_pokeCount;
+static u32 g_pokeFrame;
+static int g_poked;
 
 /* The last few addresses the dispatcher entered, newest last: a crash inside translated code is
  * located by m->pc (set per instruction), a crash in a shim by the entry that made the call. */
@@ -324,6 +333,12 @@ int main(int argc, char **argv)
     long insns = 40000000L;
     u32 base = HS_BASE;
     int i, rc = 1, progress = 0, stateEvery = 1;
+    int blitLog = 0;
+    u32 blitLogFrame = 0;
+    u32 progressFrom = 0;
+    const char *spriteLogPath = 0;
+    u32 spriteLogFrom = 0;
+    int blitBytePtr = 0;
     int slot = 1;
     u32 translated = 0, interpreted = 0;
 
@@ -345,6 +360,23 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--osd") == 0 && i + 1 < argc) { osdText = argv[++i]; continue; }
+        if (strcmp(argv[i], "--poke") == 0 && i + 1 < argc)
+        {
+            char *p = argv[++i];
+            g_pokeFrame = (u32)strtoul(p, &p, 0);
+            while (*p == ':' || *p == ',') p++;
+            while (*p != 0 && g_pokeCount < HOST_MAX_POKES)
+            {
+                u32 a = (u32)strtoul(p, &p, 0);
+                u32 v = 0;
+                if (*p == '=') v = (u32)strtoul(p + 1, &p, 0);
+                g_pokes[g_pokeCount].addr = a;
+                g_pokes[g_pokeCount].val = v;
+                g_pokeCount++;
+                while (*p == ',') p++;
+            }
+            continue;
+        }
         if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -379,7 +411,27 @@ int main(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--base") == 0 && i + 1 < argc) { base = (u32)strtoul(argv[++i], 0, 0); continue; }
-        if (strcmp(argv[i], "--progress") == 0) { progress = 1; continue; }
+        if (strcmp(argv[i], "--progress") == 0)
+        {
+            progress = 1;
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') progressFrom = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
+        if (strcmp(argv[i], "--blitlog") == 0)
+        {
+            blitLog = 1;
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') blitLogFrame = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
+        if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
+        if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
+        if (strcmp(argv[i], "--spritelog") == 0 && i + 1 < argc)
+        {
+            spriteLogPath = argv[++i];
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
+                spriteLogFrom = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--stopat") == 0 && i + 1 < argc)
         {
             rc_stopAt = strtol(argv[++i], 0, 0); insns = rc_stopAt; continue;
@@ -398,6 +450,19 @@ int main(int argc, char **argv)
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
     m.dataDir = dataDir;
     m.progress = progress;
+    m.progressFrom = progressFrom;
+    m.blitLog = blitLog;
+    m.blitLogFrame = blitLogFrame;
+    m.blitBytePtr = blitBytePtr;
+    if (spriteLogPath != 0)
+    {
+        FILE *f = fopen(spriteLogPath, "w");
+        if (f == 0) { printf("recomp: cannot write %s\n", spriteLogPath); rt_shutdown(&m); return 2; }
+        m.spriteLog = (void *)f;
+        m.spriteLogFrom = spriteLogFrom;
+        printf("recomp: sprite blits -> %s (from frame %lu)\n", spriteLogPath,
+               (unsigned long)spriteLogFrom);
+    }
     m.dosLog = dosLog;
     m.textLog = textLog;
     m.saveSlot = slot;
@@ -448,6 +513,18 @@ int main(int argc, char **argv)
     {
         u32 pc;
 
+        if (g_pokeCount != 0 && !g_poked && m.frame >= g_pokeFrame)
+        {
+            int k;
+            g_poked = 1;
+            for (k = 0; k < g_pokeCount; k++)
+            {
+                rt_write32(&m.mem, g_pokes[k].addr, g_pokes[k].val);
+                printf("recomp: poke %06lX = %08lX at frame %lu (%ld insns)\n",
+                       (unsigned long)g_pokes[k].addr, (unsigned long)g_pokes[k].val,
+                       (unsigned long)m.frame, (long)m.insns);
+            }
+        }
         if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
         {
             /* Enter one of the engine's own routines as if its caller had just called it: a frame
@@ -484,9 +561,10 @@ int main(int argc, char **argv)
         }
         interpreted++;
         interp_note(pc, !g_isActive);
-        if (m.waitVblank) { m.waitVblank = 0; m.insnToTick = 0; }
+        if (m.waitVblank) { m.waitVblank = 0; m.cyclesToTick = 0; }
         rt_trace(&m, pc);
-        if (--m.insnToTick < 0) oracle_tick(&m);
+        m.cyclesToTick -= (long)oracle_cycle_cost(pc);
+        if (m.cyclesToTick < 0) oracle_tick(&m);
         if (!oracle_step(&m)) break;
         if (progress && (m.insns % 1000000L) == 0)
             printf("recomp: %ld steps, frame %lu, %lu raster(s), %lu translated entry(ies)\n",

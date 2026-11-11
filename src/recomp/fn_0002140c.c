@@ -19,7 +19,7 @@ void fn_0002140c(cpu_t *c, rt_machine *m)
 L_2140C:
     /* 0002140c   4  jmp (00021410) */
     c->pc = RC_ADDR(0x0002140cu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x00021410u);
     return;
 

@@ -25,7 +25,7 @@ void fn_000214c6(cpu_t *c, rt_machine *m)
 L_214C6:
     /* 000214c6   4  movem.l { D2 A0 },-(SP) */
     c->pc = RC_ADDR(0x000214c6u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t3 = c->a[7];
     t3 -= 4u;
     rc_wr32(c, m, t3, c->a[5]);
@@ -36,7 +36,7 @@ L_214C6:
 L_214CA:
     /* 000214ca   6  movem.l (SP)+,{ D7 A5 } */
     c->pc = RC_ADDR(0x000214cau);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[7] + 0xcu);
     t0 = rc_rd32(c, m, t3);
     c->d[7] = t0;
@@ -48,14 +48,14 @@ L_214CA:
 L_214D0:
     /* 000214d0   4  movea.l (3af4,A4),A6 */
     c->pc = RC_ADDR(0x000214d0u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] + 0x3af4u));
     c->a[6] = t0;
 
 L_214D4:
     /* 000214d4   4  jsr (ffffff94,A6) */
     c->pc = RC_ADDR(0x000214d4u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     c->pc = RC_ADDR(0x000214d8u);
     rc_push32(c, m, RC_ADDR(0x000214d8u));
     rc_depth++;
@@ -64,7 +64,7 @@ L_214D4:
 L_214D8:
     /* 000214d8   4  movem.l (SP)+,{ D7 A5 } */
     c->pc = RC_ADDR(0x000214d8u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -79,7 +79,7 @@ L_214D8:
 L_214DC:
     /* 000214dc   2  rts */
     c->pc = RC_ADDR(0x000214dcu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

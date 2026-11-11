@@ -23,14 +23,14 @@ void fn_000218fa(cpu_t *c, rt_machine *m)
 L_218FA:
     /* 000218fa   4  movea.l (4,A7),A1 */
     c->pc = RC_ADDR(0x000218fau);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_218FE:
     /* 000218fe   4  move.l (8,A7),D0 */
     c->pc = RC_ADDR(0x000218feu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
@@ -38,14 +38,14 @@ L_218FE:
 L_21902:
     /* 00021902   4  movea.l (ffffcba0,A4),A6 */
     c->pc = RC_ADDR(0x00021902u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_21906:
     /* 00021906   4  jmp (fffffe9e,A6) */
     c->pc = RC_ADDR(0x00021906u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_os_call_a6(c, m, -354);
     return;
 

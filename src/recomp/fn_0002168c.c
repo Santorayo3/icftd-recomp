@@ -19,7 +19,7 @@ void fn_0002168c(cpu_t *c, rt_machine *m)
 L_2168C:
     /* 0002168c   4  jmp (00021690) */
     c->pc = RC_ADDR(0x0002168cu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x00021690u);
     return;
 

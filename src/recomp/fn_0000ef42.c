@@ -26,7 +26,7 @@ void fn_0000ef42(cpu_t *c, rt_machine *m)
 L_EF42:
     /* 0000ef42   4  movem.l { D1 D2 D3 D4 D5 D6 A0 A1 A2 A3 },-(SP) */
     c->pc = RC_ADDR(0x0000ef42u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t3 = c->a[7];
     t3 -= 4u;
     rc_wr32(c, m, t3, c->a[6]);
@@ -53,7 +53,7 @@ L_EF42:
 L_EF46:
     /* 0000ef46   4  move.l (2c,A7),D0 */
     c->pc = RC_ADDR(0x0000ef46u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x2cu));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
@@ -61,21 +61,21 @@ L_EF46:
 L_EF4A:
     /* 0000ef4a   4  movea.l (ae0,A4),A3 */
     c->pc = RC_ADDR(0x0000ef4au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] + 0xae0u));
     c->a[3] = t0;
 
 L_EF4E:
     /* 0000ef4e   4  movea.l (ffffa208,A4),A6 */
     c->pc = RC_ADDR(0x0000ef4eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] - 0x5df8u));
     c->a[6] = t0;
 
 L_EF52:
     /* 0000ef52   4  jsr (0000f046) */
     c->pc = RC_ADDR(0x0000ef52u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x0000ef56u));
     rc_depth++;
     c->pc = RC_ADDR(0x0000f046u);
@@ -84,7 +84,7 @@ L_EF52:
 L_EF56:
     /* 0000ef56   4  movem.l (SP)+,{ D4 D5 D6 D7 A1 A2 A3 A4 A5 A6 } */
     c->pc = RC_ADDR(0x0000ef56u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -123,7 +123,7 @@ L_EF56:
 L_EF5A:
     /* 0000ef5a   2  rts */
     c->pc = RC_ADDR(0x0000ef5au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

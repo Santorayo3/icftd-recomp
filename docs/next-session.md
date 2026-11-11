@@ -1,9 +1,53 @@
 # Next session — the translator runs; the differential is the gate
 
-Hand-off as of 2026-11-10 (Phase B, session 1). Read this, then the binding rules at the top of the
-repo memory. They are not suggestions.
+Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and the binding rules at
+the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
+is a difference from the original, never a symptom, and that holds for every kind of bug.
 
-## Where the project stands
+## Where the last session left off (2026-11-11)
+
+Done and verified in this session, in order:
+
+1. **Palette:** `cprlist` `MaxCount` is a *count of entries*, not of register/longword pairs
+   (`rt_gfx_mrg_cop` wrote `colours`, `rt_gfx_present` read pairs). Half the window was never
+   loaded, so CLR14..31 stayed blank. Both sides fixed; the user confirmed the colours.
+2. **Time is cycles, not instructions** (`docs/recomp-architecture.md`, "Time — cycles, not
+   instructions"): `EMU_CYCLES_PER_FRAME 141875`, per-opcode cost baked into every generated
+   `rc_step()` from Musashi's own table (`tools\gen-cycles.ps1` -> `Recomp\CycleTable.cs`), the
+   blitter charging its DMA slots (`words*rows*channels*2`), `play.cmd --speed 30` deleted. Measured
+   50.0 frame/s in the playable build, capability 285 f/s; MovE steps 160k/513k cycles against the
+   A500 reference 146k/543k.
+3. **Oracle cadence:** `m68k_execute(1)` now drains `RESET_CYCLES`, so oracle and translation agree
+   exactly on insns + leftover budget at every vblank (previously one phantom step).
+4. **Flight crash (divu)** after regenerating `src\recomp\fn_*.c`: the hand-edited IFF-skipper seed in
+   `fn_00009ae0.c` was wiped and `ants`' 8SVHDR was parsed before it existed. The seed now lives in
+   `step_budget()` (`src\recomp\cpu.c`), where regeneration cannot reach it. **Regenerating `fn_*.c`
+   deletes hand edits - there is no `src\recomp\patches` yet, so keep every fix at a seam.**
+5. **Garbled player/plane sprites - root cause found and closed:** the blitter's `BLTxPT` are *word*
+   pointers. `FUN_00011208` fetches `w+2` bytes/row (extra word for the shift register,
+   `BLTALWM = 0`) and writes `BLTAMOD = BLTBMOD = -1`, i.e. `w+1` read as bytes; with bit 0 dropped
+   it is exactly `w`. `blitter.c row_advance()` now clears bit 0 for all channels and the write-back,
+   and the pointer registers mask bit 0 on write. Proof in `docs/next-session.md` ("word pointer"),
+   nothing flag-gated: `--byteptr` exists only to reproduce the old wrong model.
+6. **RULE 0** written down (`.github/copilot-instructions.md`, README, `docs/recomp-architecture.md`,
+   repo memory) after it became clear that a flag-gated "correction" plus a lost hand edit had
+   let a fixed bug come back.
+
+State after this session: `tools\gate.ps1` **4/4**, `out\tilecheck.ps1` 2 mismatched cells
+(baseline), oracle vs translated `--state`/`--ram` identical at frame 100, 50.0 frame/s.
+
+Known open items:
+
+- `tools\state-diff.ps1` reports **frame 30 with D0 only** (0x1 vs 0xFFFFFFFF); RAM is byte-identical
+  at frames 100-500. Non-blocking, unexplained.
+- **Phase 4 (not started, wait for the user's go-ahead):** `dos.Delay` still falls through
+  `unhandled` and must advance the emulated clock; beam-position / CIA / TOD reads must derive from
+  the same cycle clock; `plat_frame_sync` should use `QueryPerformanceCounter` instead of
+  `GetTickCount`.
+- The DOS build stays a first-class target: no runtime cycle table, costs are baked into the
+  generated C.
+
+## Where the project stood before (2026-11-10, Phase B session 1)
 
 | directory | role | ships? |
 |---|---|---|
@@ -417,21 +461,172 @@ control flow — that is how the font and the FFP maths were found.
 - Engine bitmap carries content in **rows 0..109 only**; rows 110..199 are all index 0.
 - ~6 hardware blits per frame, **0 dropped writes** (oracle `--progress` counters).
 
+## SOLVED 2026-11-11: rows 110..199 were the tile renderer's chained blits
+
+**Cause (measured, not guessed): the blitter did not write its pointer registers back.** The world
+renderer (`FUN_00011512` and its variants at `0x11748/0x117f8/0x11a02/0x11a42/0x11a88/0x11adc/
+0x11b2c`) writes `BLTDPT` **once per column** and then issues 20 blits of one 16x10 tile each,
+letting the hardware leave D advanced by `2*words + dmod` (= one bpr) after every blit. Our model
+computed every row from the start pointer and never stored the result, so all 20 tiles of a column
+landed on the same 10 rows: the world filled 12 tile rows (~110 px) instead of 20 (~200 px).
+`blitter.c` now advances `BLTAPT/BPT/CPT/DPT` after the blit (only for the DMA channels that blit
+enabled), exactly as UAE/HRM have them, via `row_stride()`.
+
+| measurement (`--progress 1200`, injection `--call 0x147A6:1000:0x20000`, 150M insns) | before | after |
+|---|---|---|
+| non-black rows of the presented picture | 0..109 | **0..199** |
+| lit pixels | 29,733 | **57,320** |
+| engine-bitmap bytes per 20-row band (bands 6..9 = rows 120..199) | 0 0 0 0 | **1386 1603 1372 1421** |
+
+Checks that passed with the fix: `tools\gate.ps1` 4/4; flight parity oracle vs translated **1562
+frame records identical**; the intro's frames are unchanged (lit px 7145/13359/18337/35721 at frames
+185/189/193/197, the same before and after) because every other blit path in the engine reloads its
+pointers per blit.
+
+## The picture blits: modulo -1 is a word pointer losing its low bit
+
+`FUN_00011208` fetches `w+2` bytes per row - one word more than the picture is wide (000112ce
+`addq.w #2,D1` before `lsr.w #1,D1`), the extra word only filling the shift register and silenced
+by `BLTALWM = 0` - and sets `BLTAMOD = BLTBMOD = -1` (000112be/000112c6). A byte-pointer reading of
+that gives a row step of `2*words - 1 = w+1`, and every picture row shears by 8 px.
+
+The buffers are `w` bytes per row, and the original never has to care: `BLTxPTH/BLTxPTL` are
+**word** pointers, bit 0 of the low register does not exist, so the odd step loses that bit and
+comes out as `w`. Three independent checks say so:
+
+- `FUN_0001e504` (the mask builder) `AllocVec`s `h*w` bytes and steps its own one-word blits by
+  `AMOD = w-2`, i.e. `w` for a 2-byte fetch (as written: no residue).
+- `FUN_00011208`'s other two paths compute `w` from even modulos alone - clipped: `mod = k-2` with a
+  `w-k+2` fetch; wide: `mod = w+m-bpr` with a `bpr-m` fetch - so only the narrow path relies on the
+  truncation, which is exactly where the engine writes the odd `-1`.
+- The flight's five sprite blits (frame 1305, `--blitlog 1200`) have B pointers `0x3A0 = 928` bytes
+  apart, and `928 = 16` (MemHeader) `+ 24 rows * 38 bytes`: `w = 38`, the step the truncated pointer
+  gives (the mask at 0x09EA38 also lines up at pitch 38 and drifts at 39).
+
+`blitter.c` therefore uses `row_advance()` = `2*words + mod` with bit 0 cleared, for all four
+channels and for the pointer write-back. Even steps are untouched, so the tile renderer, the mask
+builder and the flipped scroll blits behave exactly as before. `--byteptr` (formerly `--blitfix`,
+also accepted as `--noblitfix`) restores the wrong byte-pointer arithmetic for bisection; the
+oracle takes it too, so both sides stay comparable.
+
+**The composition chain, all measured:**
+
+```
+FUN_000107a6 -> FUN_00010e48   (tile geometry: 2-byte/16px wide, 10-row tiles, sheet 70x18,
+                               map 1200 rows; FUN_00011094/slot 55 precomputes BLTSIZE 0x281)
+FUN_0000bfca   loop: c390/c75e/ca5e/c310 -> slot 58 (tile renderer) -> d5e8 (sprites) ->
+                                beda (RectFill strip, pen 0 + pen 6 border) -> d376
+tile renderer  20 columns x 20 tile blits into the offscreen world planes (0x05BBE0.., 5 planes
+               0x1F50 apart), chained on the blitter's pointer registers
+pc 0x15730     5 blits, con0 0x09F0 (minterm F0 = copy A), 320x200, world planes -> screen planes
+               (0442A8.. = 0x044270, or 04F460.. = 0x04F428: the two buffers alternate per frame)
+pc 0x151F0     the scroll strips (32x5) that update the world buffer as the camera moves
+```
+
+Instrumentation added for this (all behind existing dev flags, no output by default):
+`--progress [<frame>]` now also prints the bit content per 20-row band of the presented bitmap, the
+8-row screen-write band mask, and **both** engine buffers (`0x26612`/`0x2660E`) plus the tile
+renderer's parameters; `--blitlog [<frame>]` prints each hardware blit with its issuing pc, pointers,
+modulos, size and whether it lands in the bitmap on screen (host only).
+
 ## Where to look next (in this order)
 
-1. **Who fills rows 110..199?** `FUN_0000bfca` (flight scene, called from `FUN_000107a6`) sets up the
-   320x216 / 5-plane screen (`0x140, 0xD8, 5, 0x21C0`) and then loops
-   `FUN_0000c390 / c75e / ca5e / c310 / d5e8 / beda / d376`. `FUN_0000beda` clears the instrument
-   strip (y = `0xB8`) with `_DAT_00021ddc` (RectFill-shaped call) in **pen 0**; `FUN_0000d5e8` draws
-   the sprites. Decide from the code what the strip should contain and which call is not landing.
-2. **Raw-blitter path**: `FUN_0000e03c` programs `$DFF040/042/04C/054/058/060-066` directly
+0. **The injected flight carries no flight state — and the game's own way in is the menu.**
+   `FUN_0000247a` builds the location's action list and maps action characters to modes:
+   `'~'` Make a Call = 1, `'|'` Go to Map = 2, `'%'` Fight = 3, `'}'` Escape Hospital = 6, `'{'`
+   **Take a Flight = 9**, `` '`' `` Fire Game = 0xb, `'&'` = 0xc, `'/'` = 0xe, plus a synthetic
+   "Situation Map" entry (4/0xf) for location `0x17`. It commits when `DAT_00026896 != 0` and moves
+   the highlight by `DAT_00026894`. Setting `DAT_000269d6` from outside does not stick (the menu
+   rewrites it every frame): poking 9 at frame 1060 was back to 0 within four frames. The tap
+   script's sweeps only ever produce modes **0, 2 and 4** (measured over 300M instructions), so the
+   current entry is `/fire` under a joystick sweep — reaching `{` needs the right location and the
+   right number of highlight steps. Dev seam added for this: `--poke <frame>:<addr>=<val>[,...]`
+   writes engine globals at a frame boundary (machine state, same class as `--call`).
+1. **The world render is verified end to end.** `out\mapcheck.ps1` reads the tile map back:
+   **3600 cells, indices 0..608 of the 630 the offset table holds, 0 out of range, 63 distinct
+   tiles** — every cell indexes the table `FUN_00010e48` fills. `out\tilecheck.ps1` then matches
+   every 16x10 destination cell against the engine's own sheet (`tiles.pic`, 560x180, 5 planes,
+   record 0xde8): **398 of 400 byte-identical, 0 blank, 2 = the 16x20 seam at x 160, y 60..79** that
+   the per-frame scroll strip (`FUN_00011130`, dest 0x04FF14 = row 68, byte 20) rewrites.
+2. **The sprite path is only exercised through fixtures, not in the flight.** `FUN_000125aa` is the
+   object update: it walks 8 slots (`DAT_0002a970` state, `0x2a9ac` frame, `0x2a8bc`/`0x2a8f8`
+   position), draws each through slot `0x21BAE` (`FUN_00011208`) at `x - DAT_0002a850`,
+   `y - DAT_0002a852`, and sets `DAT_0002a544` (flight over) on a crosshair hit. With no flight
+   state every slot is idle, so the flight issues **no** slot-57 blit at all. Fixtures pinned this
+   session: `ref\fixtures\000125aa.json` (36 compared lines) and `00016588.json` (20) — both PASS.
+   `0x11130`, `0x11208`, `0x116e6`, `0x11748` already had fixtures.
+3. **The readouts are text, gated on `DAT_0002ab0e == 0`.** `FUN_00016588` formats numbers into a
+   stack buffer and prints them at (0xf,0xe) with `graphics.Text` while /FIRE has been held for
+   >6 frames (`0x24a8c`); it is skipped entirely while `0x2ab0e != 0` (measured 634). Only 613
+   `Text` calls in the whole run, all narration. `pbar`/`rbar` (290x24, 5 planes) unused so far.
+4. **Raw-blitter path**: `FUN_0000e03c` programs `$DFF040/042/04C/054/058/060-066` directly
    (BLTCON0/1/APTH/DPTH/BLTSIZE/mods/DAT). It runs, but nothing proves the *result* is right — this
    is the first place to compare against HRM/UAE (`blitter.c`, `docs\graphics-notes.md`).
-3. **The world area itself**: with the correct 32-colour palette the 320x110 area went from 35,200 to
-   29,733 non-black pixels. If it still looks wrong, compare the planes against the *engine's own*
-   picture data (map buffer `DAT_00028d4e`, sprite canvas at `unaff_A6[0x83]`) rather than a picture.
-4. **Shims the flight leans on**: `graphics` RectFill/SetAPen (implemented, `display.c`),
+5. **Shims the flight leans on**: `graphics` RectFill/SetAPen (implemented, `display.c`),
    `MrgCop`/`LoadView` (implemented), `dos` reads of `Desert3:WANI`, `sfx\ants`, `sfx\exp`,
    `DES4:SCORES`, `DES4:INSTS` (all resolve), audio (`DoIO` is a no-op — the flight starts samples).
+
+## A real blitter differential (started 2026-11-11, one open mismatch)
+
+UAE's source is **vendored** at `third_party\reference\winuae\` — that is the reference for the
+blitter, not guesswork. `blitter_dofast()` (blitter.cpp:481) confirms our model line by line: the
+AFWM/ALWM table masks the A word **as fetched, before the shift**, the shift registers hold across
+rows but are cleared per blit, and the pointer write-back is
+`(hblitsize*2 + mod) * vblitsize` **per channel that has DMA enabled** — exactly what `blitter.c`
+now does (this is the fix that filled rows 110..199 of the flight).
+
+`out\blitverify.ps1` is a true differential: it takes a frame's blit log (`--blitlog <frame>`), the
+RAM dump of the frame **before** and the one **after** (`--state out\nav --every 1 --ram F,F+1`),
+replays every blit with UAE's algorithm on a copy of the "before" dump, and compares each
+destination word with the machine's own result:
+
+```
+bin\win32\icftd-recomp.exe <img> 90000000 --input out\tap.txt --blitlog 999 --state out\nav --every 1 --ram 1000,1001,1002
+powershell -File out\blitverify.ps1 -Before out\nav.1000.ram -After out\nav.1001.ram -Frame 1001
+```
+
+First run (frame 1001, the message-strip scene): 10 blits, 20,945 destination words replayed,
+**310 disagree**, all inside a fixed **8-byte band (bytes 16..23 of the 42-byte row)**. The debug
+trace shows the machine keeping the destination where the *overlay* blit's mask read `0xFFFF` and
+the source had data (`con0 2FCA ash 2 bsh 2 r 0 i 9: A 0xFFFF B 0x063F -> replay 0x018F,
+machine 0x0008`), i.e. our blitter did not copy where the mask was opaque.
+
+**That was the frame window, not a blitter defect.** Sampling is at the *end* of a tick and the
+engine draws after the vblank, so blits logged `f N` land *after* the `N` sample. With the window
+shifted one frame (`-Before out\nav.1001.ram -After out\nav.1002.ram -Frame 1001`) the same 10 blits
+give **310 -> 28** differing words, and filtering to one destination plane gives **4**, all
+single-bit differences where the machine has `0`:
+
+```
+MISMATCH at 0462e0: replay 0020 vs machine 0000   (frame 1002, same shape)
+```
+
+Those are **`graphics.Text`/RectFill pixels**, which this runtime draws through `plot()` (CPU
+plane writes) and which therefore never appear in the blit log — the replay cannot know about them.
+So: the blit arithmetic now matches UAE on the engine's own register values; a frame's residual
+differences are the non-blitter drawing. To make the check exact, restrict it to a frame with no
+text the whole run.
+
+**What this excludes for the "character and plane sprites are garbled, background is fine" report**
+(user, 2026-11-11): the blit arithmetic is not the cause (UAE-identical on the engine's own
+registers, including the shifted/masked sprite case `con0 2FCA con1 2000 afwm FFFF alwm 0000`), and
+neither is the tile/world pipeline. What is left is the *input* to the sprite blits — the picture
+and mask the engine hands over (mask cached at `bitmap+0x30`, built by `FUN_0001E504`; animation
+frame chosen from `DAT_0002a9ac`) — or the engine state that positions them. Next step: run the
+same differential on a frame where a *sprite* is drawn and where no text is drawn in that frame, so
+the only writer of the destination is that one blit.
+
+## Entry argument: the game pushes word 6 (and 2), never 0x20000
+
+`out\flight-parity2.ps1` now injects `--call 0x147A6:1000:0x6`. Measured at 150M instructions:
+
+| argument | picture | out-of-RAM accesses | parity |
+|---|---|---|---|
+| 0x6 / 0x2 / 0x6\|0x10000 | identical (57,320 lit px) | **27** | 1562 frames identical |
+| 0x20000 (the earlier guess) | identical | 3,763 | 1562 frames identical |
+
+0x20000 turns on `FUN_000131ac`/`FUN_00017b22` — a mode no call site ever requests — and the
+out-of-RAM accesses are the price. Parity still holds either way (both front ends run the same code),
+so parity alone could not have caught it.
 
 

@@ -389,11 +389,12 @@ public sealed class Emitter
 
     void EmitInsn(Ctx c, Insn i)
     {
-        /* The frame budget is spent per instruction, as the interpreter spends it, so a translated
-         * run hits the same vblank at the same instruction. The pc is set first: rc_step may stop
-         * the run here, and the state then has to name the instruction that has not run. */
+        /* The frame budget is spent per instruction, in the 68000 cycles the interpreter charges for
+         * the same opcode (CycleTable, generated from its own table), so a translated run hits the
+         * same vblank at the same instruction. The pc is set first: rc_step may stop the run here,
+         * and the state then has to name the instruction that has not run. */
         c.Line($"c->pc = {ImmA(i.Addr)};");
-        c.Line("rc_step(c, m);");
+        c.Line($"rc_step(c, m, {CycleTable.Of(i.Op)});");
         switch (i.Kind)
         {
             case Opk.Move:
@@ -945,7 +946,7 @@ public sealed class Emitter
             foreach (uint hop in hops)
             {
                 c.Line($"c->pc = {ImmA(hop)};");
-                c.Line("rc_step(c, m);");
+                c.Line($"rc_step(c, m, {CycleTable.Of(_dec.Decode(hop).Op)});");
             }
             c.Line($"c->pc = {ImmA(target)};");
             c.Line("return;");

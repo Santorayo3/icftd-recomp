@@ -19,7 +19,7 @@ void fn_000014d2(cpu_t *c, rt_machine *m)
 L_14D2:
     /* 000014d2   4  bra 0000111e */
     c->pc = RC_ADDR(0x000014d2u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x0000111eu);
     return;
 

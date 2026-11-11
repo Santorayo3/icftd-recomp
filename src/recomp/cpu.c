@@ -38,14 +38,22 @@ static jmp_buf rc_stopBuf;
 static jmp_buf *rc_stopJump;
 
 /* One instruction's worth of bookkeeping, exactly the interpreter's rule (src\oracle\cpu.c,
- * oracle_run): the budget is spent before the instruction, going negative runs the vblank first,
- * and the bisection stop leaves the stream on the instruction that has not run. The emitted code
- * sets c->pc to that instruction before calling rc_step, so a stop reports the state the
+ * oracle_run): the instruction's cycles are charged before it, going negative runs the vblank
+ * first, and the bisection stop leaves the stream on the instruction that has not run. The emitted
+ * code sets c->pc to that instruction before calling rc_step, so a stop reports the state the
  * interpreter reports. */
-static void step_budget(cpu_t *c, rt_machine *m)
+static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
 {
     tick();
     rt_trace(m, c->pc);
+    /* The IFF chunk skipper (0x9AE0) reads its loop flag from the word at (A5-0xE) *before* anything
+     * writes it. On the Amiga that frame slot holds leftover stack data, non-zero in practice, so the
+     * skip loop always ran at least once; our zeroed RAM made it return without skipping, FUN_00009984
+     * parsed the 8SVX VHDR four bytes early, and the flight's "ants" sample divided 3,579,545 by a
+     * samplesPerSec of 0 (divu, image 0x21218). Seed the slot as the routine is entered - the
+     * interpreter does the identical store in oracle_step (src\oracle\cpu.c), so the two front ends
+     * stay in lockstep. Lives here, not in fn_00009ae0.c, because that file is regenerated. */
+    if (c->pc == RC_ADDR(0x00009AE0u)) rc_wr16(c, m, c->a[7] - 0x12u, 1u);
     /* The emitted code has already named the instruction, so the ring means the same thing here
      * as in the interpreter (src\oracle\cpu.c, oracle_step). */
     m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = c->pc;
@@ -64,18 +72,22 @@ static void step_budget(cpu_t *c, rt_machine *m)
     if (m->waitVblank && rc_frame_hook != 0)
     {
         m->waitVblank = 0;
-        m->insnToTick = 0;
+        m->cyclesToTick = 0;
     }
-    if (rc_frame_hook != 0 && --m->insnToTick < 0) rc_frame_hook(c, m);
+    if (rc_frame_hook != 0)
+    {
+        m->cyclesToTick -= (long)cost;
+        if (m->cyclesToTick < 0) rc_frame_hook(c, m);
+    }
     /* The instruction about to run, for diagnostics: a native crash leaves this in the machine
      * (and the host writes it to the crash journal every vblank). */
     m->pc = c->pc;
     m->insns++;
 }
 
-void rc_step(cpu_t *c, rt_machine *m)
+void rc_step(cpu_t *c, rt_machine *m, u32 cycles)
 {
-    step_budget(c, m);
+    step_budget(c, m, cycles);
 }
 
 static u32 mask_size(int size)
@@ -616,12 +628,14 @@ void rc_os_call_a6(cpu_t *c, rt_machine *m, s32 lvo)
     u32 sp = c->a[7];
     int lib = rt_lib_index(m, c->a[6]);
 
-    /* The core jumps into the library and traps there: that entry is an instruction of its own in
-     * the oracle (jmp -> library -> trap), so it must spend one budget slot here as well or the
-     * vblank cadence drifts by one instruction per library call. The PC is the trap address, so a
-     * stop inside the call reports where the interpreter would be standing. */
+    /* The core jumps into the library and traps there: that entry is a budget slot of its own in
+     * the oracle (jmp -> library -> trap), so it must spend one here as well or the vblank cadence
+     * drifts by one instruction per library call. The PC is the trap address, so a stop inside the
+     * call reports where the interpreter would be standing. The slot costs nothing: the
+     * interpreter charges the cycle table entry of the word at that address, and a library entry is
+     * inside the zero-filled stub area. */
     c->pc = c->a[6] + (u32)lvo;
-    step_budget(c, m);
+    step_budget(c, m, 0);
     if (m->stop) return;
 
     c->d[0] = os_call(c, m, lib, lvo);

@@ -30,7 +30,7 @@ void fn_00001954(cpu_t *c, rt_machine *m)
 L_1954:
     /* 00001954   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00001954u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -38,7 +38,7 @@ L_1954:
 L_1958:
     /* 00001958   4  move.w (ffffefe4,A4),D0 */
     c->pc = RC_ADDR(0x00001958u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x101cu));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -46,20 +46,20 @@ L_1958:
 L_195C:
     /* 0000195c   4  mulu.w #12,D0 */
     c->pc = RC_ADDR(0x0000195cu);
-    rc_step(c, m);
+    rc_step(c, m, 42);
     t0 = 0x00000012u;
     rc_mulu(c, 0, t0);
 
 L_1960:
     /* 00001960   4  lea (ffff8588,A4),A0 */
     c->pc = RC_ADDR(0x00001960u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     c->a[0] = (c->a[4] - 0x7a78u);
 
 L_1964:
     /* 00001964   4  tst.b (0,A0,D0.w) */
     c->pc = RC_ADDR(0x00001964u);
-    rc_step(c, m);
+    rc_step(c, m, 14);
     t4 = c->d[0];
     t0 = rc_rd8(c, m, (c->a[0] + 0x0u + t4));
     rc_set_nzvc(c, t0, RC_B);
@@ -67,20 +67,20 @@ L_1964:
 L_1968:
     /* 00001968   2  beq 00001970 */
     c->pc = RC_ADDR(0x00001968u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 7)) goto L_1970;
 
 L_196A:
     /* 0000196a   2  moveq #1,D0 */
     c->pc = RC_ADDR(0x0000196au);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->d[0] = 0x00000001u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_196C:
     /* 0000196c   2  unlk A5 */
     c->pc = RC_ADDR(0x0000196cu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -88,21 +88,21 @@ L_196C:
 L_196E:
     /* 0000196e   2  rts */
     c->pc = RC_ADDR(0x0000196eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 
 L_1970:
     /* 00001970   2  moveq #0,D0 */
     c->pc = RC_ADDR(0x00001970u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->d[0] = 0x00000000u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_1972:
     /* 00001972   2  bra 0000196c */
     c->pc = RC_ADDR(0x00001972u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_tick();
     goto L_196C;
 

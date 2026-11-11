@@ -23,7 +23,7 @@ void fn_00003532(cpu_t *c, rt_machine *m)
 L_3532:
     /* 00003532   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00003532u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -31,7 +31,7 @@ L_3532:
 L_3536:
     /* 00003536   2  bsr 000034bc */
     c->pc = RC_ADDR(0x00003536u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00003538u));
     rc_depth++;
     c->pc = RC_ADDR(0x000034bcu);
@@ -40,7 +40,7 @@ L_3536:
 L_3538:
     /* 00003538   2  bsr 0000350a */
     c->pc = RC_ADDR(0x00003538u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x0000353au));
     rc_depth++;
     c->pc = RC_ADDR(0x0000350au);
@@ -49,7 +49,7 @@ L_3538:
 L_353A:
     /* 0000353a   2  unlk A5 */
     c->pc = RC_ADDR(0x0000353au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -57,7 +57,7 @@ L_353A:
 L_353C:
     /* 0000353c   2  rts */
     c->pc = RC_ADDR(0x0000353cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

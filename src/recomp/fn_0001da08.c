@@ -27,21 +27,21 @@ void fn_0001da08(cpu_t *c, rt_machine *m)
 L_1DA08:
     /* 0001da08   4  movea.l (4,A7),A0 */
     c->pc = RC_ADDR(0x0001da08u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[0] = t0;
 
 L_1DA0C:
     /* 0001da0c   4  movea.l (8,A7),A1 */
     c->pc = RC_ADDR(0x0001da0cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x8u));
     c->a[1] = t0;
 
 L_1DA10:
     /* 0001da10   4  move.w (c,A7),D0 */
     c->pc = RC_ADDR(0x0001da10u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[7] + 0xcu));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -49,7 +49,7 @@ L_1DA10:
 L_1DA14:
     /* 0001da14   2  subq.w #1,D0 */
     c->pc = RC_ADDR(0x0001da14u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     t1 = rc_d_get(c, 0, RC_W);
     t2 = t1 - 0x00000001u;
     rc_flags_sub(c, RC_W, t1, 0x00000001u, t2, 0);
@@ -58,7 +58,7 @@ L_1DA14:
 L_1DA16:
     /* 0001da16   2  movea.l (A0)+,A6 */
     c->pc = RC_ADDR(0x0001da16u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[0];
     c->a[0] += 4u;
     t0 = rc_rd32(c, m, t3);
@@ -67,7 +67,7 @@ L_1DA16:
 L_1DA18:
     /* 0001da18   2  move.w (A1)+,(A6) */
     c->pc = RC_ADDR(0x0001da18u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[1];
     c->a[1] += 2u;
     t0 = rc_rd16(c, m, t3);
@@ -77,7 +77,7 @@ L_1DA18:
 L_1DA1A:
     /* 0001da1a   4  dbf D0,0001da16 */
     c->pc = RC_ADDR(0x0001da1au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     if (!rc_cond(c, 1)) {
         t2 = (rc_d_get(c, 0, RC_W) + 0xFFFFu) & 0xFFFFu;
         rc_d_set(c, 0, RC_W, t2);
@@ -87,7 +87,7 @@ L_1DA1A:
 L_1DA1E:
     /* 0001da1e   2  rts */
     c->pc = RC_ADDR(0x0001da1eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

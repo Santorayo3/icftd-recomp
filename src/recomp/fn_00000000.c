@@ -19,7 +19,7 @@ void fn_00000000(cpu_t *c, rt_machine *m)
 L_0:
     /* 00000000   6  jmp (00020918).l */
     c->pc = RC_ADDR(0x00000000u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x00020918u);
     return;
 

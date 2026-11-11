@@ -31,7 +31,7 @@ void fn_0000518e(cpu_t *c, rt_machine *m)
 L_518E:
     /* 0000518e   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0000518eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -39,7 +39,7 @@ L_518E:
 L_5192:
     /* 00005192   4  move.l (8,A5),-(A7) */
     c->pc = RC_ADDR(0x00005192u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -48,31 +48,31 @@ L_5192:
 L_5196:
     /* 00005196   4  jsr (ffff82ae,A4) */
     c->pc = RC_ADDR(0x00005196u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 114 */
     rc_push32(c, m, RC_ADDR(0x0000519au));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d04u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x00020820u);
     return;
 
 L_519A:
     /* 0000519a   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x0000519au);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_519C:
     /* 0000519c   2  ext.l D0 */
     c->pc = RC_ADDR(0x0000519cu);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     rc_ext_l(c, 0);
 
 L_519E:
     /* 0000519e   4  add.l D0,(8,A5) */
     c->pc = RC_ADDR(0x0000519eu);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
     t2 = t1 + rc_d_get(c, 0, RC_L);
@@ -82,14 +82,14 @@ L_519E:
 L_51A2:
     /* 000051a2   4  movea.l (8,A5),A0 */
     c->pc = RC_ADDR(0x000051a2u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_51A6:
     /* 000051a6   4  addq.l #1,(8,A5) */
     c->pc = RC_ADDR(0x000051a6u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -99,7 +99,7 @@ L_51A6:
 L_51AA:
     /* 000051aa   4  move.b #20,(A0) */
     c->pc = RC_ADDR(0x000051aau);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = 0x00000020u;
     rc_wr8(c, m, c->a[0], t0);
     rc_set_nzvc(c, t0, RC_B);
@@ -107,7 +107,7 @@ L_51AA:
 L_51AE:
     /* 000051ae   4  move.l (8,A5),D0 */
     c->pc = RC_ADDR(0x000051aeu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_L, t0);
     rc_set_nzvc(c, t0, RC_L);
@@ -115,7 +115,7 @@ L_51AE:
 L_51B2:
     /* 000051b2   2  unlk A5 */
     c->pc = RC_ADDR(0x000051b2u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -123,7 +123,7 @@ L_51B2:
 L_51B4:
     /* 000051b4   2  rts */
     c->pc = RC_ADDR(0x000051b4u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

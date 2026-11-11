@@ -20,13 +20,13 @@ void fn_0002098a(cpu_t *c, rt_machine *m)
 L_2098A:
     /* 0002098a   6  lea (00029a56).l,A4 */
     c->pc = RC_ADDR(0x0002098au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[4] = RC_ADDR(0x00029a56u);
 
 L_20990:
     /* 00020990   2  rts */
     c->pc = RC_ADDR(0x00020990u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

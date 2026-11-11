@@ -26,7 +26,7 @@ void fn_0000df1e(cpu_t *c, rt_machine *m)
 L_DF1E:
     /* 0000df1e   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0000df1eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -34,7 +34,7 @@ L_DF1E:
 L_DF22:
     /* 0000df22   4  move.l (a1a,A4),-(A7) */
     c->pc = RC_ADDR(0x0000df22u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[4] + 0xa1au));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -43,7 +43,7 @@ L_DF22:
 L_DF26:
     /* 0000df26   4  move.l (fffff2f8,A4),-(A7) */
     c->pc = RC_ADDR(0x0000df26u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[4] - 0xd08u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -52,27 +52,27 @@ L_DF26:
 L_DF2A:
     /* 0000df2a   4  jsr (ffff8344,A4) */
     c->pc = RC_ADDR(0x0000df2au);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 139 */
     rc_push32(c, m, RC_ADDR(0x0000df2eu));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d9au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x000216ccu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x000216d0u);
     return;
 
 L_DF2E:
     /* 0000df2e   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x0000df2eu);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_DF30:
     /* 0000df30   2  unlk A5 */
     c->pc = RC_ADDR(0x0000df30u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -80,7 +80,7 @@ L_DF30:
 L_DF32:
     /* 0000df32   2  rts */
     c->pc = RC_ADDR(0x0000df32u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

@@ -28,7 +28,7 @@ void fn_00009cf2(cpu_t *c, rt_machine *m)
 L_9CF2:
     /* 00009cf2   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00009cf2u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -36,7 +36,7 @@ L_9CF2:
 L_9CF6:
     /* 00009cf6   4  move.l (8,A5),-(A7) */
     c->pc = RC_ADDR(0x00009cf6u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -45,25 +45,25 @@ L_9CF6:
 L_9CFA:
     /* 00009cfa   4  jsr (ffff810a,A4) */
     c->pc = RC_ADDR(0x00009cfau);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 44 */
     rc_push32(c, m, RC_ADDR(0x00009cfeu));
     rc_depth++;
     c->pc = RC_ADDR(0x00021b60u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x0000e804u);
     return;
 
 L_9CFE:
     /* 00009cfe   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x00009cfeu);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_9D00:
     /* 00009d00   4  move.l (c,A5),-(A7) */
     c->pc = RC_ADDR(0x00009d00u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] + 0xcu));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -72,7 +72,7 @@ L_9D00:
 L_9D04:
     /* 00009d04   2  bsr 00009cc4 */
     c->pc = RC_ADDR(0x00009d04u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00009d06u));
     rc_depth++;
     c->pc = RC_ADDR(0x00009cc4u);
@@ -81,13 +81,13 @@ L_9D04:
 L_9D06:
     /* 00009d06   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x00009d06u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_9D08:
     /* 00009d08   2  unlk A5 */
     c->pc = RC_ADDR(0x00009d08u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -95,7 +95,7 @@ L_9D08:
 L_9D0A:
     /* 00009d0a   2  rts */
     c->pc = RC_ADDR(0x00009d0au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

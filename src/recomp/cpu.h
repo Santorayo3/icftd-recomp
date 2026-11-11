@@ -132,12 +132,13 @@ void rc_ret(cpu_t *c, rt_machine *m);
 void rc_tick(void);
 
 /* --- the frame boundary ---------------------------------------------------------------------
- * Emitted first in every instruction: the machine's frame cadence is an instruction budget
- * (EMU_INSN_PER_FRAME), so the translated code has to spend it exactly like the interpreter does.
+ * Emitted first in every instruction with that instruction's cost in 68000 cycles: the machine's
+ * frame cadence is a cycle budget (EMU_CYCLES_PER_FRAME), and the cycle count per opcode comes
+ * from the same table the interpreter uses (oracle_cycle_cost, generated into CycleTable.cs).
  * When the budget runs out, rc_frame_hook runs one vertical blank - bump the frame, take the input,
  * run the game's own interrupt servers - and returns with the register file as they left it. */
 extern void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
-void rc_step(cpu_t *c, rt_machine *m);
+void rc_step(cpu_t *c, rt_machine *m, u32 cycles);
 /* Bisection seam: stop the run once m->insns reaches this count (0 = never). The stop is exact
  * per instruction, also in the middle of a translated function: rc_step leaves the stream with
  * c->pc on the instruction that has not run, which is where the interpreter stops too. */

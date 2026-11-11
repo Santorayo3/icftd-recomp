@@ -20,14 +20,14 @@ void fn_00020914(cpu_t *c, rt_machine *m)
 L_20914:
     /* 00020914   2  moveq #ffffffff,D0 */
     c->pc = RC_ADDR(0x00020914u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->d[0] = 0xffffffffu;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_20916:
     /* 00020916   2  rts */
     c->pc = RC_ADDR(0x00020916u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

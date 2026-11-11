@@ -39,7 +39,7 @@ void fn_00018832(cpu_t *c, rt_machine *m)
 L_18832:
     /* 00018832   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00018832u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -47,46 +47,46 @@ L_18832:
 L_18836:
     /* 00018836   4  tst.w (1cc0,A4) */
     c->pc = RC_ADDR(0x00018836u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] + 0x1cc0u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_1883A:
     /* 0001883a   2  bne 00018844 */
     c->pc = RC_ADDR(0x0001883au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 6)) goto L_18844;
 
 L_1883C:
     /* 0001883c   6  cmpi.w #2,(1cc2,A4) */
     c->pc = RC_ADDR(0x0001883cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd16(c, m, (c->a[4] + 0x1cc2u));
     rc_cmp(c, RC_W, t0, 0x00000002u);
 
 L_18842:
     /* 00018842   2  blt 00018862 */
     c->pc = RC_ADDR(0x00018842u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 13)) goto L_18862;
 
 L_18844:
     /* 00018844   4  tst.w (ffffc6bc,A4) */
     c->pc = RC_ADDR(0x00018844u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x3944u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_18848:
     /* 00018848   2  bne 0001884e */
     c->pc = RC_ADDR(0x00018848u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 6)) goto L_1884E;
 
 L_1884A:
     /* 0001884a   4  addq.w #1,(1cc4,A4) */
     c->pc = RC_ADDR(0x0001884au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[4] + 0x1cc4u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -96,27 +96,27 @@ L_1884A:
 L_1884E:
     /* 0001884e   6  cmpi.w #20,(1cc4,A4) */
     c->pc = RC_ADDR(0x0001884eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd16(c, m, (c->a[4] + 0x1cc4u));
     rc_cmp(c, RC_W, t0, 0x00000020u);
 
 L_18854:
     /* 00018854   2  ble 00018860 */
     c->pc = RC_ADDR(0x00018854u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 15)) goto L_18860;
 
 L_18856:
     /* 00018856   4  clr.w (fffffec8,A4) */
     c->pc = RC_ADDR(0x00018856u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_wr16(c, m, (c->a[4] - 0x138u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_1885A:
     /* 0001885a   6  move.w #64,(71a,A4) */
     c->pc = RC_ADDR(0x0001885au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = 0x00000064u;
     rc_wr16(c, m, (c->a[4] + 0x71au), t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -124,33 +124,33 @@ L_1885A:
 L_18860:
     /* 00018860   2  bra 00018866 */
     c->pc = RC_ADDR(0x00018860u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     goto L_18866;
 
 L_18862:
     /* 00018862   4  clr.w (1cc4,A4) */
     c->pc = RC_ADDR(0x00018862u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_wr16(c, m, (c->a[4] + 0x1cc4u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_18866:
     /* 00018866   6  cmpi.w #1b8,(47c,A4) */
     c->pc = RC_ADDR(0x00018866u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd16(c, m, (c->a[4] + 0x47cu));
     rc_cmp(c, RC_W, t0, 0x000001b8u);
 
 L_1886C:
     /* 0001886c   2  ble 00018878 */
     c->pc = RC_ADDR(0x0001886cu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 15)) goto L_18878;
 
 L_1886E:
     /* 0001886e   6  move.w #1,(fffffec8,A4) */
     c->pc = RC_ADDR(0x0001886eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = 0x00000001u;
     rc_wr16(c, m, (c->a[4] - 0x138u), t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -158,7 +158,7 @@ L_1886E:
 L_18874:
     /* 00018874   4  addq.w #1,(71a,A4) */
     c->pc = RC_ADDR(0x00018874u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[4] + 0x71au);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -168,7 +168,7 @@ L_18874:
 L_18878:
     /* 00018878   2  unlk A5 */
     c->pc = RC_ADDR(0x00018878u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -176,7 +176,7 @@ L_18878:
 L_1887A:
     /* 0001887a   2  rts */
     c->pc = RC_ADDR(0x0001887au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

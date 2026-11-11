@@ -26,7 +26,7 @@ void fn_00014dc0(cpu_t *c, rt_machine *m)
 L_14DC0:
     /* 00014dc0   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00014dc0u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -34,20 +34,20 @@ L_14DC0:
 L_14DC4:
     /* 00014dc4   4  tst.w (8,A5) */
     c->pc = RC_ADDR(0x00014dc4u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_set_nzvc(c, t0, RC_W);
 
 L_14DC8:
     /* 00014dc8   2  bge 00014dce */
     c->pc = RC_ADDR(0x00014dc8u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 12)) goto L_14DCE;
 
 L_14DCA:
     /* 00014dca   4  neg.w (8,A5) */
     c->pc = RC_ADDR(0x00014dcau);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd16(c, m, t3);
     t2 = 0u - t1;
@@ -57,7 +57,7 @@ L_14DCA:
 L_14DCE:
     /* 00014dce   4  move.w (8,A5),D0 */
     c->pc = RC_ADDR(0x00014dceu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[5] + 0x8u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -65,7 +65,7 @@ L_14DCE:
 L_14DD2:
     /* 00014dd2   2  unlk A5 */
     c->pc = RC_ADDR(0x00014dd2u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -73,7 +73,7 @@ L_14DD2:
 L_14DD4:
     /* 00014dd4   2  rts */
     c->pc = RC_ADDR(0x00014dd4u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

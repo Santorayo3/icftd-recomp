@@ -21,7 +21,7 @@ void fn_0001f1e0(cpu_t *c, rt_machine *m)
 L_1F1E0:
     /* 0001f1e0   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0001f1e0u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -29,7 +29,7 @@ L_1F1E0:
 L_1F1E4:
     /* 0001f1e4   2  unlk A5 */
     c->pc = RC_ADDR(0x0001f1e4u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -37,7 +37,7 @@ L_1F1E4:
 L_1F1E6:
     /* 0001f1e6   2  rts */
     c->pc = RC_ADDR(0x0001f1e6u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

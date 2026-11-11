@@ -43,7 +43,7 @@ void fn_00016a40(cpu_t *c, rt_machine *m)
 L_16A40:
     /* 00016a40   4  link.w A5,#ffffffc2 */
     c->pc = RC_ADDR(0x00016a40u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -52,7 +52,7 @@ L_16A40:
 L_16A44:
     /* 00016a44   2  clr.w -(A7) */
     c->pc = RC_ADDR(0x00016a44u);
-    rc_step(c, m);
+    rc_step(c, m, 14);
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], 0u);
     rc_set_nzvc(c, 0u, RC_W);
@@ -60,13 +60,13 @@ L_16A44:
 L_16A46:
     /* 00016a46   4  pea (ffffffc4,A5) */
     c->pc = RC_ADDR(0x00016a46u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, (c->a[5] - 0x3cu));
 
 L_16A4A:
     /* 00016a4a   4  move.l (8,A5),-(A7) */
     c->pc = RC_ADDR(0x00016a4au);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -75,25 +75,25 @@ L_16A4A:
 L_16A4E:
     /* 00016a4e   4  jsr (ffff824e,A4) */
     c->pc = RC_ADDR(0x00016a4eu);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 98 */
     rc_push32(c, m, RC_ADDR(0x00016a52u));
     rc_depth++;
     c->pc = RC_ADDR(0x00021ca4u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x0001ec42u);
     return;
 
 L_16A52:
     /* 00016a52   4  lea (a,A7),A7 */
     c->pc = RC_ADDR(0x00016a52u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     c->a[7] = (c->a[7] + 0xau);
 
 L_16A56:
     /* 00016a56   4  move.w D0,(ffffffc2,A5) */
     c->pc = RC_ADDR(0x00016a56u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_d_get(c, 0, RC_W);
     rc_wr16(c, m, (c->a[5] - 0x3eu), t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -101,33 +101,33 @@ L_16A56:
 L_16A5A:
     /* 00016a5a   2  beq 00016a8a */
     c->pc = RC_ADDR(0x00016a5au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 7)) goto L_16A8A;
 
 L_16A5C:
     /* 00016a5c   6  cmpi.w #3039,(ffffffc2,A5) */
     c->pc = RC_ADDR(0x00016a5cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd16(c, m, (c->a[5] - 0x3eu));
     rc_cmp(c, RC_W, t0, 0x00003039u);
 
 L_16A62:
     /* 00016a62   2  bne 00016a6a */
     c->pc = RC_ADDR(0x00016a62u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 6)) goto L_16A6A;
 
 L_16A64:
     /* 00016a64   2  moveq #0,D0 */
     c->pc = RC_ADDR(0x00016a64u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->d[0] = 0x00000000u;
     rc_set_nzvc(c, c->d[0], RC_L);
 
 L_16A66:
     /* 00016a66   2  unlk A5 */
     c->pc = RC_ADDR(0x00016a66u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -135,27 +135,27 @@ L_16A66:
 L_16A68:
     /* 00016a68   2  rts */
     c->pc = RC_ADDR(0x00016a68u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 
 L_16A6A:
     /* 00016a6a   4  tst.l (10,A5) */
     c->pc = RC_ADDR(0x00016a6au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x10u));
     rc_set_nzvc(c, t0, RC_L);
 
 L_16A6E:
     /* 00016a6e   2  beq 00016a7e */
     c->pc = RC_ADDR(0x00016a6eu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 7)) goto L_16A7E;
 
 L_16A70:
     /* 00016a70   4  move.l (10,A5),-(A7) */
     c->pc = RC_ADDR(0x00016a70u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] + 0x10u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -164,7 +164,7 @@ L_16A70:
 L_16A74:
     /* 00016a74   4  move.l (fffffffc,A5),-(A7) */
     c->pc = RC_ADDR(0x00016a74u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[5] - 0x4u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -173,7 +173,7 @@ L_16A74:
 L_16A78:
     /* 00016a78   4  jsr (00016b78) */
     c->pc = RC_ADDR(0x00016a78u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00016a7cu));
     rc_depth++;
     c->pc = RC_ADDR(0x00016b78u);
@@ -182,19 +182,19 @@ L_16A78:
 L_16A7C:
     /* 00016a7c   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x00016a7cu);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_16A7E:
     /* 00016a7e   4  pea (ffffffc4,A5) */
     c->pc = RC_ADDR(0x00016a7eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, (c->a[5] - 0x3cu));
 
 L_16A82:
     /* 00016a82   4  jsr (00016978) */
     c->pc = RC_ADDR(0x00016a82u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00016a86u));
     rc_depth++;
     c->pc = RC_ADDR(0x00016978u);
@@ -203,20 +203,20 @@ L_16A82:
 L_16A86:
     /* 00016a86   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x00016a86u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_16A88:
     /* 00016a88   2  bra 00016a66 */
     c->pc = RC_ADDR(0x00016a88u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_tick();
     goto L_16A66;
 
 L_16A8A:
     /* 00016a8a   2  bra 00016a66 */
     c->pc = RC_ADDR(0x00016a8au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_tick();
     goto L_16A66;
 

@@ -1367,10 +1367,18 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             result = 0;
             break;
         case -192:                               /* LoadRGB4(vp, table, count) */
+            if (m->progress)
+                printf("     LoadRGB4(vp %06lX, table %06lX, count %ld) from %06lX\n",
+                       (unsigned long)arg32(sp, 0), (unsigned long)arg32(sp, 1),
+                       (long)arg32(sp, 2), (unsigned long)ret);
             rt_gfx_load_rgb4(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2));
             result = 0;
             break;
         case -288:                               /* SetRGB4(vp, index, r, g, b) */
+            if (m->progress)
+                printf("     SetRGB4(vp %06lX, index %ld, %ld/%ld/%ld)\n",
+                       (unsigned long)arg32(sp, 0), (long)arg32(sp, 1), (long)arg32(sp, 2),
+                       (long)arg32(sp, 3), (long)arg32(sp, 4));
             rt_gfx_set_rgb4(m, arg32(sp, 0), arg32(sp, 1), arg32(sp, 2), arg32(sp, 3),
                              arg32(sp, 4));
             result = 0;
@@ -1598,7 +1606,10 @@ int rt_init(rt_machine *m)
     rt_library_new(m);
     while (m->libraries < EMU_LIB_SLOTS) rt_library_new(m);
     rt_heap_reset();
-    m->insnToTick = EMU_INSN_PER_FRAME;
+    m->cyclesToTick = EMU_CYCLES_PER_FRAME;
+    /* The blitter's channel pointers are word pointers (blitter.c row_advance) - not a preference,
+     * the pointers have no bit 0. --byteptr restores the byte arithmetic for bisection. */
+    m->blitBytePtr = 0;
     /* An unpressed joystick port reads all zero: FUN_00011bf0 takes bit1/bit9 as the vertical
      * axis and the XOR of the two bit pairs as the horizontal one, so 0xFFFF read as "down". */
     m->joy0 = 0x0000u;
@@ -1756,7 +1767,7 @@ void rt_ram_snapshot(rt_machine *m, const char *path)
 void rt_trace(rt_machine *m, u32 pc)
 {
     if (m->traceTo == 0 || m->insns < m->traceFrom || m->insns > m->traceTo) return;
-    printf("t %ld %ld %06lx\n", (long)m->insns, (long)m->insnToTick, (unsigned long)pc);
+    printf("t %ld %ld %06lx\n", (long)m->insns, (long)m->cyclesToTick, (unsigned long)pc);
 }
 
 /* --- the 68000 bus ---------------------------------------------------------------------------

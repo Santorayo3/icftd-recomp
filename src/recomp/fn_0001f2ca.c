@@ -22,7 +22,7 @@ void fn_0001f2ca(cpu_t *c, rt_machine *m)
 L_1F2CA:
     /* 0001f2ca   4  movem.l (SP)+,{ A2 A3 } */
     c->pc = RC_ADDR(0x0001f2cau);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -37,7 +37,7 @@ L_1F2CA:
 L_1F2CE:
     /* 0001f2ce   2  unlk A5 */
     c->pc = RC_ADDR(0x0001f2ceu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -45,7 +45,7 @@ L_1F2CE:
 L_1F2D0:
     /* 0001f2d0   2  rts */
     c->pc = RC_ADDR(0x0001f2d0u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

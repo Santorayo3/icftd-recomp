@@ -30,7 +30,7 @@ void fn_000070a2(cpu_t *c, rt_machine *m)
 L_70A2:
     /* 000070a2   4  link.w A5,#fffffffe */
     c->pc = RC_ADDR(0x000070a2u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -39,14 +39,14 @@ L_70A2:
 L_70A6:
     /* 000070a6   4  clr.w (fffffffe,A5) */
     c->pc = RC_ADDR(0x000070a6u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_wr16(c, m, (c->a[5] - 0x2u), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_70AA:
     /* 000070aa   4  move.w (fffffffe,A5),D0 */
     c->pc = RC_ADDR(0x000070aau);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_d_set(c, 0, RC_W, t0);
     rc_set_nzvc(c, t0, RC_W);
@@ -54,13 +54,13 @@ L_70AA:
 L_70AE:
     /* 000070ae   4  lea (ffffce44,A4),A0 */
     c->pc = RC_ADDR(0x000070aeu);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     c->a[0] = (c->a[4] - 0x31bcu);
 
 L_70B2:
     /* 000070b2   4  clr.b (0,A0,D0.w) */
     c->pc = RC_ADDR(0x000070b2u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     t4 = rc_ext(c->d[0], RC_W);
     rc_wr8(c, m, (c->a[0] + 0x0u + t4), 0u);
     rc_set_nzvc(c, 0u, RC_B);
@@ -68,7 +68,7 @@ L_70B2:
 L_70B6:
     /* 000070b6   4  addq.w #1,(fffffffe,A5) */
     c->pc = RC_ADDR(0x000070b6u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[5] - 0x2u);
     t1 = rc_rd16(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -78,27 +78,27 @@ L_70B6:
 L_70BA:
     /* 000070ba   6  cmpi.w #100,(fffffffe,A5) */
     c->pc = RC_ADDR(0x000070bau);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd16(c, m, (c->a[5] - 0x2u));
     rc_cmp(c, RC_W, t0, 0x00000100u);
 
 L_70C0:
     /* 000070c0   2  blt 000070aa */
     c->pc = RC_ADDR(0x000070c0u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 13)) { rc_tick(); goto L_70AA; }
 
 L_70C2:
     /* 000070c2   4  clr.w (ffffcf46,A4) */
     c->pc = RC_ADDR(0x000070c2u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_wr16(c, m, (c->a[4] - 0x30bau), 0u);
     rc_set_nzvc(c, 0u, RC_W);
 
 L_70C6:
     /* 000070c6   2  unlk A5 */
     c->pc = RC_ADDR(0x000070c6u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -106,7 +106,7 @@ L_70C6:
 L_70C8:
     /* 000070c8   2  rts */
     c->pc = RC_ADDR(0x000070c8u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

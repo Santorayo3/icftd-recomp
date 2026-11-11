@@ -22,7 +22,7 @@ void fn_00010002(cpu_t *c, rt_machine *m)
 L_10002:
     /* 00010002   4  ori.b #1,D0 */
     c->pc = RC_ADDR(0x00010002u);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t1 = rc_d_get(c, 0, RC_B);
     t2 = t1 | 0x00000001u;
     rc_d_set(c, 0, RC_B, t2);
@@ -31,7 +31,7 @@ L_10002:
 L_10006:
     /* 00010006   4  beq 000100ba */
     c->pc = RC_ADDR(0x00010006u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 7))
     {
         c->pc = RC_ADDR(0x000100bau);
@@ -41,7 +41,7 @@ L_10006:
 L_1000A:
     /* 0001000a   4  bra 00010084 */
     c->pc = RC_ADDR(0x0001000au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x00010084u);
     return;
 

@@ -139,6 +139,8 @@ int main(int argc, char **argv)
     int tickLog = 0;
     int ring = 0;
     const char *inputPath = 0;
+    const char *cycleTable = 0;
+    int blitBytePtr = 0;
     int stateEvery = 1;
     int textLog = 0;
     u32 callPc = 0, callFrame = 300u, callArg = 0u, callAtPc = 0u;
@@ -183,6 +185,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
+        if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
+        if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
+        if (strcmp(argv[i], "--cyclestable") == 0 && i + 1 < argc) { cycleTable = argv[++i]; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
@@ -278,6 +283,7 @@ int main(int argc, char **argv)
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;
+    m.blitBytePtr = blitBytePtr;
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
@@ -285,6 +291,14 @@ int main(int argc, char **argv)
            image, (unsigned long)base, (unsigned long)entry, (unsigned long)a4, insns);
 
     oracle_boot(entry, a4);
+    if (cycleTable != 0)
+    {
+        /* The 68000 opcode cycle table Musashi itself uses, so the translated build can charge the
+         * same costs (tools\gen-cycles.ps1 turns it into src\runtime\amiga\cycles.h). */
+        if (!oracle_dump_cycle_table(cycleTable)) return 1;
+        rt_shutdown(&m);
+        return 0;
+    }
     {
         u32 pc;
         s32 lvo = 0;

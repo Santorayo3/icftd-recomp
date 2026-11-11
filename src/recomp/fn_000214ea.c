@@ -19,7 +19,7 @@ void fn_000214ea(cpu_t *c, rt_machine *m)
 L_214EA:
     /* 000214ea   4  jmp (000214ee) */
     c->pc = RC_ADDR(0x000214eau);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x000214eeu);
     return;
 

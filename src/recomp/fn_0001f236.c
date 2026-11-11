@@ -45,7 +45,7 @@ void fn_0001f236(cpu_t *c, rt_machine *m)
 L_1F236:
     /* 0001f236   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0001f236u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -53,7 +53,7 @@ L_1F236:
 L_1F23A:
     /* 0001f23a   2  move.l A2,-(A7) */
     c->pc = RC_ADDR(0x0001f23au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_a_get(c, 2, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -62,14 +62,14 @@ L_1F23A:
 L_1F23C:
     /* 0001f23c   4  movea.l (8,A5),A2 */
     c->pc = RC_ADDR(0x0001f23cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[2] = t0;
 
 L_1F240:
     /* 0001f240   2  move.l A2,-(A7) */
     c->pc = RC_ADDR(0x0001f240u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_a_get(c, 2, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -78,13 +78,13 @@ L_1F240:
 L_1F242:
     /* 0001f242   4  pea (ffffcce6,A4) */
     c->pc = RC_ADDR(0x0001f242u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, (c->a[4] - 0x331au));
 
 L_1F246:
     /* 0001f246   4  jsr (0001e452) */
     c->pc = RC_ADDR(0x0001f246u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x0001f24au));
     rc_depth++;
     c->pc = RC_ADDR(0x0001e452u);
@@ -93,13 +93,13 @@ L_1F246:
 L_1F24A:
     /* 0001f24a   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x0001f24au);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1F24C:
     /* 0001f24c   2  move.l A2,-(A7) */
     c->pc = RC_ADDR(0x0001f24cu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_a_get(c, 2, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -108,7 +108,7 @@ L_1F24C:
 L_1F24E:
     /* 0001f24e   2  bsr 0001f1f0 */
     c->pc = RC_ADDR(0x0001f24eu);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x0001f250u));
     rc_depth++;
     c->pc = RC_ADDR(0x0001f1f0u);
@@ -117,13 +117,13 @@ L_1F24E:
 L_1F250:
     /* 0001f250   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x0001f250u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_1F252:
     /* 0001f252   4  move.l (4,A2),-(A7) */
     c->pc = RC_ADDR(0x0001f252u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[2] + 0x4u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -132,31 +132,31 @@ L_1F252:
 L_1F256:
     /* 0001f256   4  jsr (ffff82ae,A4) */
     c->pc = RC_ADDR(0x0001f256u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 114 */
     rc_push32(c, m, RC_ADDR(0x0001f25au));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d04u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x00020820u);
     return;
 
 L_1F25A:
     /* 0001f25a   2  addq.w #4,A7 */
     c->pc = RC_ADDR(0x0001f25au);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
 L_1F25C:
     /* 0001f25c   2  ext.l D0 */
     c->pc = RC_ADDR(0x0001f25cu);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     rc_ext_l(c, 0);
 
 L_1F25E:
     /* 0001f25e   2  addq.l #1,D0 */
     c->pc = RC_ADDR(0x0001f25eu);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     t1 = rc_d_get(c, 0, RC_L);
     t2 = t1 + 0x00000001u;
     rc_flags_add(c, RC_L, t1, 0x00000001u, t2, 0);
@@ -165,7 +165,7 @@ L_1F25E:
 L_1F260:
     /* 0001f260   2  move.l D0,-(A7) */
     c->pc = RC_ADDR(0x0001f260u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_d_get(c, 0, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -174,7 +174,7 @@ L_1F260:
 L_1F262:
     /* 0001f262   4  move.l (4,A2),-(A7) */
     c->pc = RC_ADDR(0x0001f262u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[2] + 0x4u));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -183,33 +183,33 @@ L_1F262:
 L_1F266:
     /* 0001f266   4  jsr (ffff8344,A4) */
     c->pc = RC_ADDR(0x0001f266u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 139 */
     rc_push32(c, m, RC_ADDR(0x0001f26au));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d9au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x000216ccu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x000216d0u);
     return;
 
 L_1F26A:
     /* 0001f26a   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x0001f26au);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1F26C:
     /* 0001f26c   4  pea (00000026).l */
     c->pc = RC_ADDR(0x0001f26cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, 0x00000026u);
 
 L_1F270:
     /* 0001f270   2  move.l A2,-(A7) */
     c->pc = RC_ADDR(0x0001f270u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_a_get(c, 2, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -218,27 +218,27 @@ L_1F270:
 L_1F272:
     /* 0001f272   4  jsr (ffff8344,A4) */
     c->pc = RC_ADDR(0x0001f272u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 139 */
     rc_push32(c, m, RC_ADDR(0x0001f276u));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d9au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x000216ccu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x000216d0u);
     return;
 
 L_1F276:
     /* 0001f276   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x0001f276u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1F278:
     /* 0001f278   2  movea.l (A7)+,A2 */
     c->pc = RC_ADDR(0x0001f278u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[7];
     c->a[7] += 4u;
     t0 = rc_rd32(c, m, t3);
@@ -247,7 +247,7 @@ L_1F278:
 L_1F27A:
     /* 0001f27a   2  unlk A5 */
     c->pc = RC_ADDR(0x0001f27au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -255,7 +255,7 @@ L_1F27A:
 L_1F27C:
     /* 0001f27c   2  rts */
     c->pc = RC_ADDR(0x0001f27cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

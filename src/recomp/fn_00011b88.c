@@ -22,7 +22,7 @@ void fn_00011b88(cpu_t *c, rt_machine *m)
 L_11B88:
     /* 00011b88   4  movem.l (SP)+,{ D0 D1 D2 D3 D4 D5 D6 D7 A5 A6 } */
     c->pc = RC_ADDR(0x00011b88u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t3 = c->a[7];
     c->a[7] += 4u;
     t3 = t3;
@@ -61,7 +61,7 @@ L_11B88:
 L_11B8C:
     /* 00011b8c   2  unlk A5 */
     c->pc = RC_ADDR(0x00011b8cu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -69,7 +69,7 @@ L_11B8C:
 L_11B8E:
     /* 00011b8e   2  rts */
     c->pc = RC_ADDR(0x00011b8eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

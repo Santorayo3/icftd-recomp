@@ -23,7 +23,7 @@ void fn_0000448e(cpu_t *c, rt_machine *m)
 L_448E:
     /* 0000448e   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0000448eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -31,7 +31,7 @@ L_448E:
 L_4492:
     /* 00004492   4  jsr (000043b8) */
     c->pc = RC_ADDR(0x00004492u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00004496u));
     rc_depth++;
     c->pc = RC_ADDR(0x000043b8u);
@@ -40,19 +40,19 @@ L_4492:
 L_4496:
     /* 00004496   4  jsr (ffff8260,A4) */
     c->pc = RC_ADDR(0x00004496u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 101 */
     rc_push32(c, m, RC_ADDR(0x0000449au));
     rc_depth++;
     c->pc = RC_ADDR(0x00021cb6u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x0001f27eu);
     return;
 
 L_449A:
     /* 0000449a   2  unlk A5 */
     c->pc = RC_ADDR(0x0000449au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -60,7 +60,7 @@ L_449A:
 L_449C:
     /* 0000449c   2  rts */
     c->pc = RC_ADDR(0x0000449cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

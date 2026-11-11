@@ -30,7 +30,7 @@ void fn_00021a2c(cpu_t *c, rt_machine *m)
 L_21A2C:
     /* 00021a2c   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00021a2cu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -38,19 +38,19 @@ L_21A2C:
 L_21A30:
     /* 00021a30   4  pea (00000004).l */
     c->pc = RC_ADDR(0x00021a30u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, 0x00000004u);
 
 L_21A34:
     /* 00021a34   4  pea (00021a52) */
     c->pc = RC_ADDR(0x00021a34u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, RC_ADDR(0x00021a52u));
 
 L_21A38:
     /* 00021a38   4  jsr (0002146a) */
     c->pc = RC_ADDR(0x00021a38u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00021a3cu));
     rc_depth++;
     c->pc = RC_ADDR(0x0002146au);
@@ -59,7 +59,7 @@ L_21A38:
 L_21A3C:
     /* 00021a3c   2  move.l D0,-(A7) */
     c->pc = RC_ADDR(0x00021a3cu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_d_get(c, 0, RC_L);
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -68,7 +68,7 @@ L_21A3C:
 L_21A3E:
     /* 00021a3e   4  jsr (000214aa) */
     c->pc = RC_ADDR(0x00021a3eu);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00021a42u));
     rc_depth++;
     c->pc = RC_ADDR(0x000214aau);
@@ -77,7 +77,7 @@ L_21A3E:
 L_21A42:
     /* 00021a42   4  move.w #1,-(A7) */
     c->pc = RC_ADDR(0x00021a42u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = 0x00000001u;
     c->a[7] -= 2u;
     rc_wr16(c, m, c->a[7], t0);
@@ -86,7 +86,7 @@ L_21A42:
 L_21A46:
     /* 00021a46   4  jsr (00021254) */
     c->pc = RC_ADDR(0x00021a46u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     rc_push32(c, m, RC_ADDR(0x00021a4au));
     rc_depth++;
     c->pc = RC_ADDR(0x00021254u);
@@ -95,13 +95,13 @@ L_21A46:
 L_21A4A:
     /* 00021a4a   4  lea (e,A7),A7 */
     c->pc = RC_ADDR(0x00021a4au);
-    rc_step(c, m);
+    rc_step(c, m, 8);
     c->a[7] = (c->a[7] + 0xeu);
 
 L_21A4E:
     /* 00021a4e   2  unlk A5 */
     c->pc = RC_ADDR(0x00021a4eu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -109,7 +109,7 @@ L_21A4E:
 L_21A50:
     /* 00021a50   2  rts */
     c->pc = RC_ADDR(0x00021a50u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

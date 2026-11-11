@@ -19,7 +19,7 @@ void fn_0000f042(cpu_t *c, rt_machine *m)
 L_F042:
     /* 0000f042   4  bra 0000f57e */
     c->pc = RC_ADDR(0x0000f042u);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x0000f57eu);
     return;
 

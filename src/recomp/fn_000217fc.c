@@ -23,14 +23,14 @@ void fn_000217fc(cpu_t *c, rt_machine *m)
 L_217FC:
     /* 000217fc   4  movea.l (4,A7),A1 */
     c->pc = RC_ADDR(0x000217fcu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[7] + 0x4u));
     c->a[1] = t0;
 
 L_21800:
     /* 00021800   6  movem.l (SP)+,{ D0 D1 } */
     c->pc = RC_ADDR(0x00021800u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t3 = (c->a[7] + 0x8u);
     t0 = rc_rd32(c, m, t3);
     c->d[0] = t0;
@@ -42,14 +42,14 @@ L_21800:
 L_21806:
     /* 00021806   4  movea.l (ffffcba0,A4),A6 */
     c->pc = RC_ADDR(0x00021806u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] - 0x3460u));
     c->a[6] = t0;
 
 L_2180A:
     /* 0002180a   4  jmp (ffffff0a,A6) */
     c->pc = RC_ADDR(0x0002180au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_os_call_a6(c, m, -246);
     return;
 

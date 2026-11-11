@@ -13,6 +13,7 @@
  * reads the bitmap, the hardware would have finished anyway).
  */
 #include "blitter.h"
+#include "display.h"
 #include "platform.h"
 
 #include <stdio.h>
@@ -49,6 +50,32 @@ static int alu(u16 minterm, int a, int b, int c)
     return (int)((minterm >> ((a << 2) | (b << 1) | c)) & 1u);
 }
 
+/* How far a channel pointer moves from one row to the next. The pointer advances as the words of
+ * the row are fetched and the modulo is added at the end of the row, so the displacement is
+ * 2*words + mod, *not* mod. The engine relies on this: the intro's flipped picture blits pass
+ * mod = -(bpr + 2*words) exactly so that 2*words + mod comes out as -bpr (walking *up* the bitmap
+ * one row at a time). Treating mod as the stride (which this file did) sent those blits 82 bytes
+ * per row through the heap, overran the plane, and erased the 40-byte BitMap header holding the
+ * other plane pointers.
+ *
+ * BLTxPTH/BLTxPTL are *word* pointers: bit 0 of the low register is not implemented, so a row
+ * displacement that comes out odd loses that bit. The engine counts on exactly that. FUN_00011208
+ * fetches w+2 bytes per row - one word more than the picture is wide, to fill the shift register,
+ * silenced by BLTALWM = 0 (00011318) - and sets BLTAMOD = BLTBMOD = -1 (000112be/000112c6), i.e.
+ * a displacement of w+1, while the picture and mask buffers are w bytes per row: FUN_0001e504
+ * allocates h*w bytes for the mask and steps its own one-word blits by AMOD = w-2, which is w for
+ * a 2-byte fetch. The flight's five sprite blits confirm w = 38 without any picture: their B
+ * pointers are 0x3A0 = 928 bytes apart, and 928 = 16 (MemHeader) + 24 rows * 38 bytes. Dropped to
+ * w, the narrow path also agrees with the function's other two paths (clipped: mod k-2 with a
+ * w-k+2 fetch; wide: mod w+m-bpr with a bpr-m fetch); reading the pointers as byte pointers
+ * sheared every picture row by 8 px, which is what the flight's player and plane showed. */
+static int row_advance(const rt_machine *m, s32 mod, int words, int descending)
+{
+    s32 step = descending ? mod - 2 * words : 2 * words + mod;
+    if (m->blitBytePtr) return (int)step;            /* --byteptr: the wrong model, bisection */
+    return (int)(step & ~(s32)1);
+}
+
 static void blit_row(rt_machine *m, int row, int words, int descending, u16 *holdA, u16 *holdB)
 {
     rt_blitter *b = &m->blit;
@@ -62,16 +89,11 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
     int bsh = (b->con1 >> 12) & 0xF;
     int useA = (b->con0 & 0x0800) != 0, useB = (b->con0 & 0x0400) != 0;
     int useC = (b->con0 & 0x0200) != 0, useD = (b->con0 & 0x0100) != 0;
-    /* Row-to-row displacement. The pointer advances as the words of the row are fetched and the
-     * modulo is added at the end of the row, so the displacement is 2*words + mod, *not* mod. The
-     * engine relies on this: the intro's flipped picture blits pass mod = -(bpr + 2*words) exactly
-     * so that 2*words + mod comes out as -bpr, walking up the bitmap one row at a time. Treating
-     * mod as the stride (which this file did) sent those blits 82 bytes per row through the heap,
-     * overrunning the plane and erasing the bitmap header that held the other plane pointers. */
-    int sA = descending ? (int)b->amod - 2 * words : 2 * words + (int)b->amod;
-    int sB = descending ? (int)b->bmod - 2 * words : 2 * words + (int)b->bmod;
-    int sC = descending ? (int)b->cmod - 2 * words : 2 * words + (int)b->cmod;
-    int sD = descending ? (int)b->dmod - 2 * words : 2 * words + (int)b->dmod;
+    /* Row-to-row displacement: see row_advance(). */
+    int sA = row_advance(m, b->amod, words, descending);
+    int sB = row_advance(m, b->bmod, words, descending);
+    int sC = row_advance(m, b->cmod, words, descending);
+    int sD = row_advance(m, b->dmod, words, descending);
     s32 aoff = (s32)b->apt + (s32)row * sA;
     s32 boff = (s32)b->bpt + (s32)row * sB;
     s32 coff = (s32)b->cpt + (s32)row * sC;
@@ -160,6 +182,23 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
     }
 }
 
+/* The blitter is not free. It owns the bus for one DMA slot per output word per enabled channel,
+ * two 68000 clocks each (lowres), and the engine waits for it - WaitBlit, or a DMACONR poll -
+ * before it touches the result. Charging those clocks to the frame budget is what makes a
+ * blit-heavy scene lose frames the way the original does: the picture is still produced here in
+ * one go (the bytes are identical), only the clock moves. Without it a scene that the A500 can only
+ * manage at ~10 Hz plays at the full 50 Hz (docs\drawing-model.md, "Measured timing"). */
+static long blit_dma_cycles(const rt_blitter *b, int words, int rows)
+{
+    int ch = 0;
+    if ((b->con0 & 0x0800u) != 0) ch++;          /* USEA */
+    if ((b->con0 & 0x0400u) != 0) ch++;          /* USEB */
+    if ((b->con0 & 0x0200u) != 0) ch++;          /* USEC */
+    if ((b->con0 & 0x0100u) != 0) ch++;          /* USED */
+    if (ch == 0) ch = 1;
+    return (long)words * (long)rows * (long)ch * 2L;
+}
+
 void rt_blit_run(rt_machine *m)
 {
     rt_blitter *b = &m->blit;
@@ -170,6 +209,81 @@ void rt_blit_run(rt_machine *m)
 
     if (rows == 0) return;
     m->blits++;
+    /* Spent before the blit does its work, so a frame boundary inside it sees the same state the
+     * interpreter sees. A single blit may cost several frames: the budget carries the debt (see
+     * oracle_tick), which is exactly "the CPU is stuck waiting for the blitter". */
+    {
+        long cost = blit_dma_cycles(b, words, rows);
+        long cap = 8L * EMU_CYCLES_PER_FRAME;
+        if (cost > cap)
+        {
+            if (m->progress && m->blitLogs < 20)
+            {
+                m->blitLogs++;
+                printf("emu: blit %dx%d costs %ld cycles, clamped to %ld (frame %lu)\n",
+                       words * 16, rows, cost, cap, (unsigned long)m->frame);
+            }
+            cost = cap;
+        }
+        m->cyclesToTick -= cost;
+        m->blitCycles += cost;
+    }
+    /* --blitlog: every blit's geometry plus where it lands in the bitmap on screen (D is a plane
+     * pointer, so the first row is (D - plane) / bytesPerRow). That is how the tile renderer
+     * (FUN_00011512) and the sprite path (FUN_0000e03c) are measured against the view. */
+    if (m->blitLog && m->frame >= m->blitLogFrame && m->blitLogN < 600)
+    {
+        u32 sbm = rt_gfx_screen_bitmap(m);
+        int bpr = sbm != 0 ? (int)rt_read16(&m->mem, sbm + 0) : 0;
+        int depth = sbm != 0 ? (int)rt_read8(&m->mem, sbm + 5) : 0;
+        int p, where = -1;
+        for (p = 0; bpr > 0 && p < depth && p < 8; p++)
+        {
+            u32 plane = rt_read32(&m->mem, sbm + 8 + 4 * p);
+            if (plane != 0 && b->dpt >= plane && (b->dpt - plane) < (u32)(bpr * rows))
+            {
+                where = (int)(b->dpt - plane) / bpr;
+                break;
+            }
+        }
+        m->blitLogN++;
+        printf("     blit f %lu pc %06lX con0 %04lX con1 %04lX A %06lX B %06lX C %06lX D %06lX "
+               "mods %ld/%ld/%ld/%ld afwm %04lX alwm %04lX %dwx%dr size %04lX -> %s%s\n",
+               (unsigned long)m->frame, (unsigned long)m->pc, (unsigned long)b->con0,
+               (unsigned long)b->con1,
+               (unsigned long)b->apt, (unsigned long)b->bpt, (unsigned long)b->cpt,
+               (unsigned long)b->dpt, (long)b->amod, (long)b->bmod, (long)b->cmod,
+               (long)b->dmod, (unsigned long)b->afwm, (unsigned long)b->alwm,
+               words * 16, rows, (unsigned long)b->size,
+               where >= 0 ? "screen" : "elsewhere",
+               (2 * words + (long)b->amod != row_advance(m, b->amod, words, 0) ||
+               2 * words + (long)b->bmod != row_advance(m, b->bmod, words, 0)) ? " [wordptr]" : "");
+        if (where >= 0)
+            printf("          screen plane row %d..%d (bpr %d)\n", where, where + rows - 1, bpr);
+    }
+    /* --progress: a blit that points at a plane of the bitmap on screen tells which rows it can
+     * reach - D is a plane pointer, so the first row is (D - plane) / bytesPerRow. That is how the
+     * tile renderer (FUN_00011512, raw $DFF050/$DFF054/$DFF058) is measured against the view. */
+    if (m->progress)
+    {
+        u32 sbm = rt_gfx_screen_bitmap(m);
+        if (sbm != 0)
+        {
+            int bpr = (int)rt_read16(&m->mem, sbm + 0);
+            int depth = (int)rt_read8(&m->mem, sbm + 5);
+            int p;
+            for (p = 0; bpr > 0 && p < depth && p < 8; p++)
+            {
+                u32 plane = rt_read32(&m->mem, sbm + 8 + 4 * p);
+                if (plane != 0 && b->dpt >= plane && (b->dpt - plane) < (u32)(bpr * rows))
+                {
+                    int row = (int)(b->dpt - plane) / bpr;
+                    rt_gfx_screen_touched(m, row, row + rows - 1);
+                    break;
+                }
+            }
+        }
+    }
     /* Log only blits into the screen raster (the two animation bitmaps live just above the
      * loaded pictures' scratch buffers), because only those can reach the screen. */
     if (m->dffLog && m->blitLogs < 12 && b->dpt < 0x5B000u)
@@ -187,14 +301,76 @@ void rt_blit_run(rt_machine *m)
         if (m->dffLog) printf("     blit: line mode ignored (con1 %04lX)\n", (unsigned long)b->con1);
         return;
     }
+    /* --spritelog: the engine's sprite blit (FUN_00011208, runtime 0x15208..0x153A0) is the one the
+     * flight's objects use. Record its geometry, the words it reads and the words it leaves, so the
+     * data can be checked against UAE's algorithm offline - no screenshot needed. */
     {
-        /* The shift registers' hold words start empty for each blit (not each line) and then carry
-         * the last fetched word along, including across a line boundary. A descending blit walks the
-         * rows downwards from the start pointer, which the negative stride above already does - the
-         * engine never sets DESC, so this ordering is unexercised but self-consistent. */
-        u16 holdA = 0, holdB = 0;
-        for (r = 0; r < rows; r++)
-            blit_row(m, r, words, descending ? 1 : 0, &holdA, &holdB);
+        FILE *sl = (FILE *)m->spriteLog;
+        int trace = sl != 0 && m->spriteLogN < 4000 && m->frame >= m->spriteLogFrom &&
+                    m->pc >= 0x15208u && m->pc < 0x153A0u;
+        u16 beforeA[8], beforeB[8], beforeD[8];
+        int k;
+        if (trace)
+        {
+            m->spriteLogN++;
+            for (k = 0; k < 8; k++)
+            {
+                beforeA[k] = rd16(m, b->apt + (u32)(2 * k));
+                beforeB[k] = rd16(m, b->bpt + (u32)(2 * k));
+                beforeD[k] = rd16(m, b->dpt + (u32)(2 * k));
+            }
+            fprintf(sl, "blit f %lu pc %06lX con0 %04lX con1 %04lX "
+                        "A %06lX B %06lX C %06lX D %06lX mods %ld/%ld/%ld/%ld "
+                        "afwm %04lX alwm %04lX %dwx%dr size %04lX inram %d%d%d\n",
+                    (unsigned long)m->frame, (unsigned long)m->pc, (unsigned long)b->con0,
+                    (unsigned long)b->con1, (unsigned long)b->apt, (unsigned long)b->bpt,
+                    (unsigned long)b->cpt, (unsigned long)b->dpt, (long)b->amod, (long)b->bmod,
+                    (long)b->cmod, (long)b->dmod, (unsigned long)b->afwm, (unsigned long)b->alwm,
+                    words * 16, rows, (unsigned long)b->size,
+                    b->apt + (u32)(rows * row_advance(m, b->amod, words, 0)) <= m->mem.size,
+                    b->bpt + (u32)(rows * row_advance(m, b->bmod, words, 0)) <= m->mem.size,
+                    b->dpt + (u32)(rows * row_advance(m, b->dmod, words, 0)) <= m->mem.size);
+        }
+        {
+            /* The shift registers' hold words start empty for each blit (not each line) and then
+             * carry the last fetched word along, including across a line boundary. A descending
+             * blit walks the rows downwards from the start pointer, which the negative stride
+             * above already does - the engine never sets DESC, so this ordering is unexercised but
+             * self-consistent. */
+            u16 holdA = 0, holdB = 0;
+            for (r = 0; r < rows; r++)
+                blit_row(m, r, words, descending ? 1 : 0, &holdA, &holdB);
+        }
+        if (trace)
+        {
+            fprintf(sl, "  mask  A:");
+            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeA[k]);
+            fprintf(sl, "\n  src   B:");
+            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeB[k]);
+            fprintf(sl, "\n  dst   C:");
+            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeD[k]);
+            fprintf(sl, "\n  result D:");
+            for (k = 0; k < 8; k++)
+                fprintf(sl, " %04lX", (unsigned long)rd16(m, b->dpt + (u32)(2 * k)));
+            fprintf(sl, "\n");
+            fflush(sl);
+        }
+    }
+    /* The hardware leaves the pointer registers *advanced* past the last word it wrote (2 bytes per
+     * word fetched, plus the modulo at the end of every line), and the engine chains blits on that:
+     * its tile renderer (FUN_00011512 / FUN_00011748 / FUN_000117f8 ...) writes BLTDPT once per
+     * column and then issues 20 blits of one tile each, letting D walk down the screen. Without the
+     * write-back every one of those 20 tiles landed on the same 10 rows, which is why the world
+     * carried content only down to row ~110 instead of 199. */
+    {
+        int sa = row_advance(m, b->amod, words, descending);
+        int sb = row_advance(m, b->bmod, words, descending);
+        int sc = row_advance(m, b->cmod, words, descending);
+        int sd = row_advance(m, b->dmod, words, descending);
+        if ((b->con0 & 0x0100u) != 0) b->dpt += (u32)(rows * sd);
+        if ((b->con0 & 0x0800u) != 0) b->apt += (u32)(rows * sa);
+        if ((b->con0 & 0x0400u) != 0) b->bpt += (u32)(rows * sb);
+        if ((b->con0 & 0x0200u) != 0) b->cpt += (u32)(rows * sc);
     }
 }
 
@@ -210,13 +386,13 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
     case 0x044: b->afwm = v; break;
     case 0x046: b->alwm = v; break;
     case 0x048: b->cpt = (b->cpt & 0x0000FFFFu) | ((u32)v << 16); break;
-    case 0x04A: b->cpt = (b->cpt & 0xFFFF0000u) | v; break;
+    case 0x04A: b->cpt = ((b->cpt & 0xFFFF0000u) | v) & ~1u; break;
     case 0x04C: b->bpt = (b->bpt & 0x0000FFFFu) | ((u32)v << 16); break;
-    case 0x04E: b->bpt = (b->bpt & 0xFFFF0000u) | v; break;
+    case 0x04E: b->bpt = ((b->bpt & 0xFFFF0000u) | v) & ~1u; break;
     case 0x050: b->apt = (b->apt & 0x0000FFFFu) | ((u32)v << 16); break;
-    case 0x052: b->apt = (b->apt & 0xFFFF0000u) | v; break;
+    case 0x052: b->apt = ((b->apt & 0xFFFF0000u) | v) & ~1u; break;
     case 0x054: b->dpt = (b->dpt & 0x0000FFFFu) | ((u32)v << 16); break;
-    case 0x056: b->dpt = (b->dpt & 0xFFFF0000u) | v; break;
+    case 0x056: b->dpt = ((b->dpt & 0xFFFF0000u) | v) & ~1u; break;   /* word pointer: no bit 0 */
     case 0x058: b->size = v; rt_blit_run(m); break;      /* writing BLTSIZE starts the blit */
     case 0x060: b->cmod = (s16)v; break;
     case 0x062: b->bmod = (s16)v; break;

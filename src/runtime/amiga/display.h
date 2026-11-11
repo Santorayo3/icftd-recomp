@@ -84,6 +84,12 @@ void rt_gfx_present(rt_machine *m, u32 view);
 /* MrgCop(view): builds the copper list the game walks to find its bitplane pointers. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view);
 
+/* --- screen-write diagnostics (--progress) ------------------------------------------------- */
+/* The bitmap the presenter copies out, 0 while no view is installed. */
+u32  rt_gfx_screen_bitmap(rt_machine *m);
+/* Notes that rows [first..last] of the shown bitmap were written, in 8-row bands. */
+void rt_gfx_screen_touched(rt_machine *m, int first, int last);
+
 /* --- on-screen display --------------------------------------------------------------------- */
 /* The port's own overlay, drawn into the chunky framebuffer after the game's frame has been
  * composed: a line of text in the top left corner (the game's disk font) and the save icon in the

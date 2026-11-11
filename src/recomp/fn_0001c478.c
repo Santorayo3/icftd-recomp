@@ -28,7 +28,7 @@ void fn_0001c478(cpu_t *c, rt_machine *m)
 L_1C478:
     /* 0001c478   4  link.w A5,#fffffffe */
     c->pc = RC_ADDR(0x0001c478u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -37,37 +37,37 @@ L_1C478:
 L_1C47C:
     /* 0001c47c   4  jsr (ffff81ee,A4) */
     c->pc = RC_ADDR(0x0001c47cu);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 82 */
     rc_push32(c, m, RC_ADDR(0x0001c480u));
     rc_depth++;
     c->pc = RC_ADDR(0x00021c44u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x0001d1dau);
     return;
 
 L_1C480:
     /* 0001c480   4  jsr (ffff81ee,A4) */
     c->pc = RC_ADDR(0x0001c480u);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 82 */
     rc_push32(c, m, RC_ADDR(0x0001c484u));
     rc_depth++;
     c->pc = RC_ADDR(0x00021c44u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x0001d1dau);
     return;
 
 L_1C484:
     /* 0001c484   4  pea (00001420).l */
     c->pc = RC_ADDR(0x0001c484u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_push32(c, m, 0x00001420u);
 
 L_1C488:
     /* 0001c488   4  move.l (262a,A4),-(A7) */
     c->pc = RC_ADDR(0x0001c488u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t0 = rc_rd32(c, m, (c->a[4] + 0x262au));
     c->a[7] -= 4u;
     rc_wr32(c, m, c->a[7], t0);
@@ -76,27 +76,27 @@ L_1C488:
 L_1C48C:
     /* 0001c48c   4  jsr (ffff8344,A4) */
     c->pc = RC_ADDR(0x0001c48cu);
-    rc_step(c, m);
+    rc_step(c, m, 18);
     /* vector 139 */
     rc_push32(c, m, RC_ADDR(0x0001c490u));
     rc_depth++;
     c->pc = RC_ADDR(0x00021d9au);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->pc = RC_ADDR(0x000216ccu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     c->pc = RC_ADDR(0x000216d0u);
     return;
 
 L_1C490:
     /* 0001c490   2  addq.w #8,A7 */
     c->pc = RC_ADDR(0x0001c490u);
-    rc_step(c, m);
+    rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000008u, RC_W);
 
 L_1C492:
     /* 0001c492   2  unlk A5 */
     c->pc = RC_ADDR(0x0001c492u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -104,7 +104,7 @@ L_1C492:
 L_1C494:
     /* 0001c494   2  rts */
     c->pc = RC_ADDR(0x0001c494u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

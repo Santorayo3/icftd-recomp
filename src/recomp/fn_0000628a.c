@@ -31,7 +31,7 @@ void fn_0000628a(cpu_t *c, rt_machine *m)
 L_628A:
     /* 0000628a   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x0000628au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -39,14 +39,14 @@ L_628A:
 L_628E:
     /* 0000628e   4  movea.l (8,A5),A0 */
     c->pc = RC_ADDR(0x0000628eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_6292:
     /* 00006292   4  addq.l #1,(8,A5) */
     c->pc = RC_ADDR(0x00006292u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
     t2 = t1 + 0x00000001u;
@@ -56,34 +56,34 @@ L_6292:
 L_6296:
     /* 00006296   4  cmpi.b #a,(A0) */
     c->pc = RC_ADDR(0x00006296u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = rc_rd8(c, m, c->a[0]);
     rc_cmp(c, RC_B, t0, 0x0000000au);
 
 L_629A:
     /* 0000629a   2  beq 0000629e */
     c->pc = RC_ADDR(0x0000629au);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     if (rc_cond(c, 7)) goto L_629E;
 
 L_629C:
     /* 0000629c   2  bra 0000628e */
     c->pc = RC_ADDR(0x0000629cu);
-    rc_step(c, m);
+    rc_step(c, m, 10);
     rc_tick();
     goto L_628E;
 
 L_629E:
     /* 0000629e   4  movea.l (8,A5),A0 */
     c->pc = RC_ADDR(0x0000629eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_62A2:
     /* 000062a2   4  subq.l #1,(8,A5) */
     c->pc = RC_ADDR(0x000062a2u);
-    rc_step(c, m);
+    rc_step(c, m, 24);
     t3 = (c->a[5] + 0x8u);
     t1 = rc_rd32(c, m, t3);
     t2 = t1 - 0x00000001u;
@@ -93,21 +93,21 @@ L_62A2:
 L_62A6:
     /* 000062a6   4  movea.l (8,A5),A0 */
     c->pc = RC_ADDR(0x000062a6u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[5] + 0x8u));
     c->a[0] = t0;
 
 L_62AA:
     /* 000062aa   2  clr.b (A0) */
     c->pc = RC_ADDR(0x000062aau);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     rc_wr8(c, m, c->a[0], 0u);
     rc_set_nzvc(c, 0u, RC_B);
 
 L_62AC:
     /* 000062ac   2  unlk A5 */
     c->pc = RC_ADDR(0x000062acu);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -115,7 +115,7 @@ L_62AC:
 L_62AE:
     /* 000062ae   2  rts */
     c->pc = RC_ADDR(0x000062aeu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 

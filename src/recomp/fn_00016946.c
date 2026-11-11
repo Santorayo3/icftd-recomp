@@ -25,7 +25,7 @@ void fn_00016946(cpu_t *c, rt_machine *m)
 L_16946:
     /* 00016946   4  link.w A5,#0 */
     c->pc = RC_ADDR(0x00016946u);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     c->a[7] -= 4;
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
@@ -33,21 +33,21 @@ L_16946:
 L_1694A:
     /* 0001694a   4  movea.l (e04,A4),A0 */
     c->pc = RC_ADDR(0x0001694au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = rc_rd32(c, m, (c->a[4] + 0xe04u));
     c->a[0] = t0;
 
 L_1694E:
     /* 0001694e   6  adda.l #d8,A0 */
     c->pc = RC_ADDR(0x0001694eu);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     t0 = 0x000000d8u;
     c->a[0] += t0;
 
 L_16954:
     /* 00016954   4  move.b #e0,(A0) */
     c->pc = RC_ADDR(0x00016954u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     t0 = 0x000000e0u;
     rc_wr8(c, m, c->a[0], t0);
     rc_set_nzvc(c, t0, RC_B);
@@ -55,7 +55,7 @@ L_16954:
 L_16958:
     /* 00016958   2  unlk A5 */
     c->pc = RC_ADDR(0x00016958u);
-    rc_step(c, m);
+    rc_step(c, m, 12);
     c->a[7] = c->a[5];
     c->a[5] = rc_rd32(c, m, c->a[7]);
     c->a[7] += 4;
@@ -63,7 +63,7 @@ L_16958:
 L_1695A:
     /* 0001695a   2  rts */
     c->pc = RC_ADDR(0x0001695au);
-    rc_step(c, m);
+    rc_step(c, m, 16);
     rc_ret(c, m);
     return;
 
