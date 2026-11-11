@@ -113,4 +113,10 @@ s32 plat_spawn(const char *exe, const char *args);
 /* Window/screen caption; may be a no-op. */
 void plat_set_title(const char *text);
 
+/* --- diagnostics ---------------------------------------------------------- */
+/* Rewrites <exe dir>\recomp-crash.txt with `text` (fixed size, NUL padded, flushed). Cheap
+ * enough to call every frame, and it survives the process dying: after a crash the file holds
+ * the machine state of the last frame that started. */
+void plat_crash_state(const char *text);
+
 #endif /* ICFTD_PLATFORM_H */

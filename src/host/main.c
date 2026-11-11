@@ -79,6 +79,33 @@ static u32 g_callPc;
 static u32 g_callFrame;
 static int g_called;
 
+/* The last few addresses the dispatcher entered, newest last: a crash inside translated code is
+ * located by m->pc (set per instruction), a crash in a shim by the entry that made the call. */
+#define HOST_PC_RING 8
+static u32 g_entryPc[HOST_PC_RING];
+static int g_entryPos;
+
+static void host_crash_note(rt_machine *m, cpu_t *c)
+{
+    char text[1024];
+    int i = 0, n;
+
+    i += sprintf(text + i, "frame %lu  insns %ld  pc %06lX\n", (unsigned long)m->frame,
+                 (long)m->insns, (unsigned long)m->pc);
+    i += sprintf(text + i, "entries");
+    for (n = 0; n < HOST_PC_RING; n++)
+        i += sprintf(text + i, " %06lX",
+                     (unsigned long)g_entryPc[(g_entryPos + n) & (HOST_PC_RING - 1)]);
+    i += sprintf(text + i, "\nD:");
+    for (n = 0; n < 8; n++) i += sprintf(text + i, " %08lX", (unsigned long)c->d[n]);
+    i += sprintf(text + i, "\nA:");
+    for (n = 0; n < 8; n++) i += sprintf(text + i, " %08lX", (unsigned long)c->a[n]);
+    i += sprintf(text + i, "\nSR %04lX  cpu pc %08lX  presents %lu  saves %lu\n",
+                 (unsigned long)c->sr, (unsigned long)c->pc, (unsigned long)m->gfx.frames,
+                 (unsigned long)m->saves);
+    plat_crash_state(text);
+}
+
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
  * the registers comes back. */
@@ -87,6 +114,7 @@ static void host_frame(cpu_t *c, rt_machine *m)
     scatter(c, m);
     oracle_tick(m);
     gather(c, m);
+    host_crash_note(m, c);
 }
 
 /* --- the window ----------------------------------------------------------------------------
@@ -441,6 +469,7 @@ int main(int argc, char **argv)
             /* Translated: it runs until it returns, or until it transfers somewhere the translator
              * refused, and c->pc then names where the core continues. */
             translated++;
+            g_entryPc[g_entryPos++ & (HOST_PC_RING - 1)] = pc;
             g_isActive = 0;
             gather(&c, &m);                            /* the core's state is the machine's */
             rc_call(&c, &m, pc);

@@ -520,3 +520,59 @@ void plat_set_title(const char *text)
 {
     if (g_hwnd && text) SetWindowText(g_hwnd, text);
 }
+
+/* --- crash journal -------------------------------------------------------------------------
+ * A native crash takes the process down with no output, so the last machine state is written to
+ * <exe dir>\recomp-crash.txt every frame and flushed. An unhandled exception appends its code and
+ * address to the same file, which makes "the window just closed" answerable after the fact. */
+#define CRASH_STATE_BYTES 2048
+static FILE *g_crashFile;
+
+static const char *crash_path(void)
+{
+    static char path[MAX_PATH];
+    sprintf(path, "%s\\recomp-crash.txt", plat_exe_dir());
+    return path;
+}
+
+static LONG CALLBACK crash_filter(EXCEPTION_POINTERS *ep)
+{
+    if (g_crashFile != 0)
+    {
+        char line[320];
+        u32 base = (u32)(ULONG_PTR)GetModuleHandle(0);
+        u32 at = (u32)(ULONG_PTR)ep->ExceptionRecord->ExceptionAddress;
+        u32 info = (ep->ExceptionRecord->NumberParameters > 0)
+                       ? (u32)ep->ExceptionRecord->ExceptionInformation[0] : 0u;
+        sprintf(line, "\n** crash: exception %08lX at %08lX (module+%08lX) info %08lX **\n",
+                (unsigned long)ep->ExceptionRecord->ExceptionCode,
+                (unsigned long)at, (unsigned long)(at - base), (unsigned long)info);
+        fseek(g_crashFile, 0, SEEK_END);
+        fwrite(line, 1, strlen(line), g_crashFile);
+        fflush(g_crashFile);
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void plat_crash_state(const char *text)
+{
+    static char block[CRASH_STATE_BYTES];
+    size_t n;
+
+    if (text == 0) return;
+    if (g_crashFile == 0)
+    {
+        g_crashFile = fopen(crash_path(), "wb+");
+        if (g_crashFile == 0) return;
+        SetUnhandledExceptionFilter(crash_filter);
+    }
+    /* Fixed-size block, so the file always has the same length and no stale tail survives. */
+    memset(block, ' ', sizeof block);
+    n = strlen(text);
+    if (n > sizeof block - 1) n = sizeof block - 1;
+    memcpy(block, text, n);
+    block[n] = 0;
+    fseek(g_crashFile, 0, SEEK_SET);
+    fwrite(block, 1, sizeof block, g_crashFile);
+    fflush(g_crashFile);
+}

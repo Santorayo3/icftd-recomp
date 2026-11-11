@@ -67,6 +67,9 @@ static void step_budget(cpu_t *c, rt_machine *m)
         m->insnToTick = 0;
     }
     if (rc_frame_hook != 0 && --m->insnToTick < 0) rc_frame_hook(c, m);
+    /* The instruction about to run, for diagnostics: a native crash leaves this in the machine
+     * (and the host writes it to the crash journal every vblank). */
+    m->pc = c->pc;
     m->insns++;
 }
 
