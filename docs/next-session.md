@@ -256,13 +256,30 @@ The game never writes AUDxDAT (measured: zero stores in the whole program). It p
 through the audio DMA and generates its music with its own driver, so two things had to be modelled:
 
 * **Paula** (`src/runtime/amiga/audio.c`): AUDxLC/AUDxLEN/AUDxPER/AUDxVOL per channel plus the
-  DMACON channel bits and DMAEN. Playback rate is `3546895 / AUDxPER`, the buffer loops from
-  AUDxLC, channels 0+3 mix left and 1+2 right, AUDxVOL 0..64 and periods below 124 silence the
-  channel. Mixing runs at 44.1 kHz into `waveOut` (`plat_audio_*`), 4 x 512-frame buffers.
+  DMACON channel bits and DMAEN. Playback rate is `3546895 / AUDxPER`, channels 0+3 mix left and
+  1+2 right, AUDxVOL 0..64 and periods below 124 silence the channel. Mixing runs at 44.1 kHz into
+  `waveOut` (`plat_audio_*`), 8 x 512-frame buffers (4 dropped ~16 % of the samples: the mixer
+  hands over a frame's worth at each vblank, so the queue must hold several frames).
+* **AUDxLC/AUDxLEN are START registers, not the DMA position** (2026-11-11, the difference that made
+  the music distorted and the narration silent): the DMA keeps its own pointer and length and
+  loads the two registers when the current buffer ends, or when the channel's DMACON bit goes
+  0 -> 1. AUDxPER and AUDxVOL only change rate and volume.
+  Evidence from the engine itself (`--audiodump` plus a temporary register-write log):
+  * `FUN_0000f286`'s player writes **AUDxPER and AUDxVOL on every row**; treating a register write
+    as a restart rewound every sample 50-60 times a second - the distortion.
+  * `FUN_00009b60` (slot 30) starts a sample by clearing the channel, writing LC/PER/LEN/VOL, then
+    setting the bit; `FUN_00009bca` (slot 32, "arm") writes the 2-word silence buffer *while the
+    channel still plays* - that only works if the writes are queued for the buffer end.
+  * Measured intro: frame 375 plays `voice1` on ch3 (LC 0x0005B180, PER 579, LEN 0x9A34 words =
+    78952 bytes, VOL 63), nothing touches ch3 for the next rows, and frame 381 arms the silence
+    loop - so the narration must run its full 12.9 s. Before the fix it restarted every 20 ms and
+    was inaudible.
+  Check: 20 ms self-correlation of the music region was 0.67 with the old model (sample restarted
+  every frame) and is 0.07 now (same as at other lags).
 * **CIA timers** (`audio.c`): TALO/TAHI/CRA at `$BFE401/$BFE501/$BFEE01` (and CIA-B equivalents),
   one counter step per E clock (10 CPU cycles), continuous reload from the latch, ICR mask.
-  `rt_time_run()` calls `m->on_cia` when an enabled timer underflows; the front end runs the
-  handler (`oracle_run_icr`) - it is game code.
+  `rt_time_run()` raises the interrupt (pending, serviced at the next instruction boundary by
+  `rt_cia_service`); the front end runs the handler (`oracle_run_icr`) - it is game code.
   Engine chain: `FUN_0000ed90` = `AddICRVector(ciaa.resource, 0, …)` + `AbleICR(0x81)` (bit 7 =
   enable, bit 0 = timer A), `FUN_0001013a` starts the timer at latch 0x2E9C = 59.4 Hz, and the
   handler `FUN_0000f264` → `FUN_0000f646` (tempo) + `FUN_0000f286` (player) + `FUN_0000f3f4`
@@ -278,9 +295,10 @@ through the audio DMA and generates its music with its own driver, so two things
 * `icftd.ini` is written with its defaults on the first start (`rt_config_ensure`), next to the
   executable, and is no longer in git. Video default is fullscreen.
 * Verification: `--audiodump <file>` on both front ends writes raw s16 stereo without a device;
-  identical runs produce byte-identical captures, `sound=0`+`music=0` gives an all-zero capture.
-  Oracle vs translation state parity is unchanged (1449 frame records, RAM byte-identical at
-  frames 100/300; only the known frame-30 D0 high word differs), `tools/gate.ps1` 4/4.
+  identical runs produce byte-identical captures (oracle and translated included), `sound=0`+`music=0`
+  gives an all-zero capture. Oracle vs translation state parity is unchanged (1449 frame records,
+  RAM byte-identical at frames 100/300; only the known frame-30 D0 high word differs),
+  `tools/gate.ps1` 4/4.
 
 
 ## Next steps, in order

@@ -89,14 +89,21 @@ static u32 aud_read8(rt_machine *m, u32 addr)
     return rt_read8(&m->mem, addr);
 }
 
+/* Loads the start registers into the DMA: a buffer end, or the channel being switched on. */
+static void aud_restart(rt_aud_channel *c)
+{
+    c->ptr = c->start;
+    c->pos = 0;
+    c->workLen = c->len;
+    c->phase = 0;
+}
+
 static void aud_fetch(rt_machine *m, rt_aud_channel *c)
 {
     c->sample = (int)(s8)(u8)aud_read8(m, c->ptr);
     c->ptr += 1;
-    if (++c->pos >= c->len) {           /* end of the buffer: the DMA loops from AUDxLC */
-        c->pos = 0;
-        c->ptr = c->base;
-    }
+    if (++c->pos >= c->workLen)         /* end of the buffer: reload AUDxLC/AUDxLEN */
+        aud_restart(c);
 }
 
 static void aud_flush(rt_machine *m)
@@ -120,7 +127,8 @@ static void aud_sample(rt_machine *m)
         rt_aud_channel *c = &a->ch[i];
         int gain;
 
-        if (!a->master || (a->dma & (1u << i)) == 0 || c->per < EMU_AUD_MIN_PER || c->len == 0) {
+        if (!a->master || (a->dma & (1u << i)) == 0 || c->per < EMU_AUD_MIN_PER ||
+            c->workLen == 0) {
             c->sample = 0;              /* DMA off or period too short: the channel is silent */
             continue;
         }
@@ -155,9 +163,17 @@ void rt_audio_dmacon(rt_machine *m, u16 v)
 {
     rt_audio *a = &m->audio;
     u16 bits = (u16)(v & 0x7FFFu);
+    u16 before = (u16)(a->dma & 0x0Fu);
+    u16 after;
+    int ch;
 
     if ((v & 0x8000u) != 0) { a->dma |= (bits & 0x000Fu); if (bits & 0x0200u) a->master = 1; }
     else                    { a->dma &= (u16)~(bits & 0x000Fu); if (bits & 0x0200u) a->master = 0; }
+    after = (u16)(a->dma & 0x0Fu);
+    /* Switching a channel on loads its AUDxLC/AUDxLEN: that is how a sample starts at once. */
+    for (ch = 0; ch < EMU_AUD_CHANNELS; ch++)
+        if ((after & (1u << ch)) != 0 && (before & (1u << ch)) == 0)
+            aud_restart(&a->ch[ch]);
 }
 
 void rt_audio_write16(rt_machine *m, u16 reg, u16 v)
@@ -171,18 +187,21 @@ void rt_audio_write16(rt_machine *m, u16 reg, u16 v)
     c = &m->audio.ch[ch];
     switch (off) {
     case 0x0:                                   /* AUDxLCH */
-        c->lcHi = v;
-        break;
     case 0x2:                                   /* AUDxLCL */
-        c->lcLo = v;
-        break;
+        if (off == 0x0) c->lcHi = v;
+        else            c->lcLo = v;
+        /* A start address only: the DMA picks it up when the buffer it is playing ends, or at
+         * the next 0 -> 1 of this channel's DMACON bit (rt_audio_dmacon). It must NOT move the
+         * position now - the engine queues the silence buffer behind a playing sample this way. */
+        c->start = (((u32)c->lcHi << 16) | (u32)c->lcLo) & 0xFFFFFFFEu;
+        c->music = m->audio.inHandler != 0;
+        return;
     case 0x4:                                   /* AUDxLEN, in words */
         c->len = (u32)v * 2u;
-        c->pos = 0;
-        break;
-    case 0x6:                                   /* AUDxPER */
+        return;
+    case 0x6:                                   /* AUDxPER: the playback rate, nothing else */
         c->per = v;
-        break;
+        return;
     case 0x8:                                   /* AUDxVOL */
         c->vol = v > 64u ? 64u : v;
         return;
@@ -194,14 +213,8 @@ void rt_audio_write16(rt_machine *m, u16 reg, u16 v)
     default:
         return;
     }
-    /* A new buffer starts at AUDxLC, and the channel is music when the audio interrupt set it
-     * up (the engine plays its sound effects from ordinary code, slot 30/0x9B60). */
-    c->base = (((u32)c->lcHi << 16) | (u32)c->lcLo) & 0xFFFFFFFEu;
-    c->ptr = c->base;
-    c->pos = 0;
-    c->phase = 0;
-    c->music = m->audio.inHandler != 0;
 }
+
 
 /* --- CIA timers ---------------------------------------------------------------------------- */
 

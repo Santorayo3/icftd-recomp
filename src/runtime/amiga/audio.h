@@ -21,14 +21,22 @@ struct rt_machine;
 #define EMU_AUD_CLOCK    3546895u   /* PAL Paula audio clock (7,093,790 / 2) */
 #define EMU_AUD_MIN_PER  124u       /* shorter periods are silenced by the hardware */
 
-/* One Paula channel.  Pointers are Amiga byte addresses, always word aligned. */
+/* One Paula channel.  Pointers are Amiga byte addresses, always word aligned.
+ *
+ * AUDxLC/AUDxLEN are the *start* registers: the DMA keeps its own position and length and loads
+ * them when the current buffer ends (that is how the engine queues the next sample while one
+ * plays - FUN_00009bca "arms" the 2-word silence loop right after starting the narration, so the
+ * voice plays to its end and the channel then goes quiet). To make a sample start immediately
+ * the engine clears the channel's DMACON bit first, which freezes the DMA, and the 0 -> 1
+ * transition loads the registers (FUN_00009b60 does exactly that). */
 typedef struct rt_aud_channel
 {
-    u16 lcHi, lcLo;     /* AUDxLC as written (the loop start) */
-    u32 base;           /* (lcHi << 16) | lcLo, bit 0 clear */
+    u16 lcHi, lcLo;     /* AUDxLC as written (the start pointer) */
+    u32 start;          /* (lcHi << 16) | lcLo, bit 0 clear */
     u32 ptr;            /* next byte to fetch */
-    u32 len;            /* bytes: AUDxLEN (words) * 2 */
-    u32 pos;            /* bytes fetched since base */
+    u32 len;            /* AUDxLEN in bytes: the start length */
+    u32 workLen;        /* length the current buffer is being played with */
+    u32 pos;            /* bytes fetched since the buffer started */
     u16 per;            /* AUDxPER: AUD clocks per byte */
     u16 vol;            /* AUDxVOL, 0..64 */
     int sample;         /* last byte fetched, signed */
