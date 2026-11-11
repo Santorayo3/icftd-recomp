@@ -186,7 +186,16 @@ static u32 rt_lock_new(rt_machine *m, const char *name)
 }
 
 static u32 rt_alloc(u32 bytes);
+void rt_free(u32 addr);
 static void rt_add_server(rt_machine *m, u32 code, u32 data);
+
+/* Live dos.library handles, for the open trace. */
+static int rt_files_open(rt_machine *m)
+{
+    int i, n = 0;
+    for (i = 0; i < EMU_MAX_FILES; i++) if (m->files[i].f != 0) n++;
+    return n;
+}
 static void rt_remove_server(rt_machine *m, u32 code);
 
 static u32 rt_file_open(rt_machine *m, const char *name, int mode)
@@ -196,11 +205,24 @@ static u32 rt_file_open(rt_machine *m, const char *name, int mode)
 
     for (slot = 0; slot < EMU_MAX_FILES; slot++)
         if (m->files[slot].f == 0) break;
-    if (slot >= EMU_MAX_FILES) return 0;
+    if (slot >= EMU_MAX_FILES)
+    {
+        printf("emu: Open(\"%s\",%ld) failed: all %d file handle(s) in use\n", name, (long)mode,
+               EMU_MAX_FILES);
+        return 0;
+    }
 
-    if (!rt_full_name(m, name, full, (int)sizeof(full))) return 0;
+    if (!rt_full_name(m, name, full, (int)sizeof(full)))
+    {
+        printf("emu: Open(\"%s\",%ld) failed: empty name\n", name, (long)mode);
+        return 0;
+    }
     rt_split_name(full, rel, (int)sizeof(rel), &vol);
-    if (rel[0] == 0) return 0;
+    if (rel[0] == 0)
+    {
+        printf("emu: Open(\"%s\",%ld) failed: \"%s\" names a volume\n", name, (long)mode, full);
+        return 0;
+    }
 
     m->files[slot].writable = 0;
     m->files[slot].inSaveDir = 0;
@@ -210,12 +232,22 @@ static u32 rt_file_open(rt_machine *m, const char *name, int mode)
          * (1005) reads. Nothing is searched across the disks here. */
         char dir[256];
         rt_save_ensure(m, dir, (int)sizeof(dir));
-        if (dir[0] == 0) return 0;
+        if (dir[0] == 0)
+        {
+            printf("emu: Open(\"%s\",%ld) failed: cannot create %s\\saves\\slot%d\n", name,
+                   (long)mode, plat_exe_dir(), m->saveSlot);
+            return 0;
+        }
         sprintf(path, "%s\\%s", dir, rel);
         m->files[slot].inSaveDir = 1;
         m->files[slot].writable = (mode == 1006 || mode == 1004);
         m->files[slot].f = m->files[slot].writable ? plat_create(path) : plat_open(path);
-        if (m->files[slot].f == 0) return 0;
+        if (m->files[slot].f == 0)
+        {
+            printf("emu: Open(\"%s\",%ld) failed: cannot %s %s\n", name, (long)mode,
+                   m->files[slot].writable ? "create" : "read", path);
+            return 0;
+        }
         goto opened;
     }
 
@@ -234,7 +266,12 @@ static u32 rt_file_open(rt_machine *m, const char *name, int mode)
             m->files[slot].f = plat_open(path);
         }
     }
-    if (m->files[slot].f == 0) return 0;
+    if (m->files[slot].f == 0)
+    {
+        printf("emu: Open(\"%s\",%ld) failed: no disk holds %s (data %s)\n", name, (long)mode,
+               rel, m->dataDir);
+        return 0;
+    }
 
 opened:
     m->files[slot].size = plat_size(m->files[slot].f);
@@ -244,6 +281,8 @@ opened:
     m->files[slot].addr = rt_alloc(44);
     if (m->files[slot].addr == 0)
     {
+        printf("emu: Open(\"%s\",%ld) failed: no heap for the FileHandle (44 bytes)\n", name,
+               (long)mode);
         plat_close((plat_file *)m->files[slot].f);
         m->files[slot].f = 0;
         return 0;
@@ -252,8 +291,10 @@ opened:
     rt_write32(&m->mem, m->files[slot].addr + 36, 0);   /* fh_Args */
     rt_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg1 */
     /* Few files are opened, and "which file did the game try to read" is the first question for
-     * every new scene, so this reports unconditionally. */
-    printf("emu: open \"%s\" -> %s (%lu bytes)\n", name, path, (unsigned long)m->files[slot].size);
+     * every new scene, so this reports unconditionally - with how many handles are live, because
+     * a climbing count is a leaked close. */
+    printf("emu: open \"%s\" -> %s (%lu bytes) [%d of %d]\n", name, path,
+           (unsigned long)m->files[slot].size, rt_files_open(m), EMU_MAX_FILES);
     return m->files[slot].addr >> 2;
 }
 
@@ -274,6 +315,11 @@ static void rt_file_close(rt_machine *m, u32 fh)
     if (f == 0) return;
     plat_close((plat_file *)f->f);
     f->f = 0;
+    /* The FileHandle block belongs to the handle: without this every open leaked 44 bytes of the
+     * engine's own heap, and a long session ends with rt_alloc failing - which the engine reports
+     * as "Unresolvable file read/write error!". */
+    if (f->addr != 0) rt_free(f->addr);
+    f->addr = 0;
     if (f->writable && f->inSaveDir && f->pos >= EMU_SAVE_BYTES)
     {
         /* A completed save: the icon in the top right corner is the only feedback the player

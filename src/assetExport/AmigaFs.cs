@@ -7,6 +7,7 @@ internal sealed class AmigaEntry
     public int Block;
     public int FirstData;
     public int Size;
+    public bool Orphan;                       /* unreferenced by the directory */
     public List<AmigaEntry> Children = new();
 }
 
@@ -22,11 +23,52 @@ internal sealed class AmigaFs(Adf adf)
 
     readonly Adf a = adf;
     public bool Ffs => a.Ffs;
+    readonly HashSet<int> visited = new();
 
     /// <summary>Volume label from the root block ("Desert1" ...).</summary>
     public string VolumeName => ReadName(a.Offset(RootBlock));
 
-    public AmigaEntry ReadRoot() => ReadDir(RootBlock, "");
+    public AmigaEntry ReadRoot()
+    {
+        var e = ReadDir(RootBlock, "");
+        /* Disk 3's directory does not link WANI, hurt2, jet and stab1, yet the game opens
+         * Desert3:WANI by name (the flight routine, FUN_000107A6) - their header blocks and data
+         * chains are complete on the disk, only the directory entry is gone. Recover every header
+         * block no directory reaches, so the data set is as complete as the disk actually is. */
+        foreach (var orphan in ReadOrphans())
+        {
+            orphan.Orphan = true;
+            e.Children.Add(orphan);
+        }
+        return e;
+    }
+
+    /// <summary>File headers no directory chain reaches, with a complete data chain.</summary>
+    List<AmigaEntry> ReadOrphans()
+    {
+        var found = new List<AmigaEntry>();
+        for (int b = 1; b < a.BlockCount; b++)
+        {
+            if (visited.Contains(b)) continue;
+            int o = a.Offset(b);
+            if (a.I32(o) != THeader) continue;
+            string name = ReadName(o);
+            if (name.Length == 0 || name.Length > 30 || name.Any(ch => ch < 32 || ch > 126)) continue;
+            int firstData = a.I32(o + 16);
+            if (firstData == 0)
+            {                                        /* a directory whose own entry was lost */
+                var dir = ReadDir(b, name);
+                if (dir.Children.Count > 0) { dir.Orphan = true; found.Add(dir); }
+                continue;
+            }
+            int size = a.I32(o + 324);
+            if (size <= 0) continue;
+            var e = new AmigaEntry { Name = name, Block = b, FirstData = firstData, Size = size };
+            if (ReadFile(e).Length != size) continue;       /* incomplete: not a usable file */
+            found.Add(e);
+        }
+        return found;
+    }
 
     AmigaEntry ReadDir(int block, string name)
     {
@@ -34,6 +76,7 @@ internal sealed class AmigaFs(Adf adf)
         int o = a.Offset(block);
         int htSize = a.I32(o + 12);
         if (a.I32(o) != THeader) return e;
+        visited.Add(block);
         /* AmigaDOS 1.x wrote ht_size as 0 and the reader was expected to know the table is the
          * standard 72 buckets. Every subdirectory of these disks is like that; the root is not. */
         if (htSize <= 0 || htSize > 200) htSize = 72;
@@ -46,6 +89,7 @@ internal sealed class AmigaFs(Adf adf)
             {
                 int bo = a.Offset(b);
                 if (a.I32(bo) != THeader) break;
+                visited.Add(b);
                 int firstData = a.I32(bo + 16);
                 string n = ReadName(bo);
                 if (firstData == 0)

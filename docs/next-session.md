@@ -296,6 +296,28 @@ That first real save (the user's "Take a Flight") found the last missing shim: *
 game retried the volume forever. The runtime now answers 0x52 for the save volume and 0x50 for the
 read-only disk folders.
 
+### The second "Take a Flight" failure was a missing data file, not the save
+
+After the `dos.Info` fix the same action reported **"Unresolvable file read/write error! The game
+is unplayable."** — `FUN_0000067c`'s panel for `Open(name, MODE_NEWFILE)` failing, which the engine
+reaches through `FUN_000002f4` from *both* the save wrapper and the bank opener `FUN_000202c4`.
+The flight routine `FUN_000107a6` (vector slot 53) calls that opener with `Desert3:WANI`, and
+`WANI` was not in `export\disk3`: its header block (914) and its 376-block data chain are intact on
+the disk, but **no directory chain reaches it** (nor `hurt2`, `jet`, `stab1`). `tools\extract.ps1`
+now recovers unreferenced header blocks (`AmigaFs.ReadOrphans`, printed as `(orphan)` by
+`list`). Measured after the fix: `--call 0x147A6:1000` logs `open "Desert3:WANI" -> export\disk3\WANI
+(183016 bytes)` and the flight keeps running instead of parking in the panel.
+
+Two runtime defects the diagnosis turned up, both fixed:
+
+* `rt_file_close` never freed the 44-byte `FileHandle` block, so every open leaked engine heap —
+  the same panel is what a failed `rt_alloc(44)` looks like.
+* A failed `dos.Open` printed nothing. It now names the reason (`all 16 file handle(s) in use`,
+  `no disk holds <name>`, `cannot create <path>`, `no heap for the FileHandle`) and the success
+  line carries the live handle count (`[1 of 16]`), so a climbing count is a leaked close.
+  `TBOX` and `background` are opened with mode 1005 and are *not* on the disks; the engine tolerates
+  both.
+
 ## The four fixes that made screens work
 
 | defect | cause | fix |

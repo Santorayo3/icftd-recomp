@@ -662,8 +662,9 @@ internal static class Program
     {
         foreach (var c in e.Children.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
         {
+            string tag = c.Orphan ? " (orphan)" : "";
             if (c.IsDir) { Console.WriteLine($"{indent}{c.Name}/  blk {c.Block}"); Print(c, indent + "  "); }
-            else Console.WriteLine($"{indent}{c.Name,-24} {c.Size,8}  blk {c.Block} first {c.FirstData}");
+            else Console.WriteLine($"{indent}{c.Name,-24} {c.Size,8}  blk {c.Block} first {c.FirstData}{tag}");
         }
     }
 

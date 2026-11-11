@@ -96,6 +96,17 @@ and the game retried the volume forever — the first real save (from "Take a Fl
 save panel up. `dos.Info` is now implemented: `0x52` for the save volume (the only writable one),
 `0x50` for the game's read-only disk folders.
 
+### The second report was not the save at all
+
+The next run answered the prompt and got **"Unresolvable file read/write error! The game is
+unplayable."** That is `FUN_0000067c`'s panel for `Open(name, MODE_NEWFILE)` returning 0, and it is
+reached from *two* callers: the save wrapper (`FUN_0000050e`) and the bank opener
+(`FUN_000202c4`, vector slot 108). Nothing appeared in `saves\` — the save volume's `Lock` would
+have created `saves\slot<N>` first — so it was a bank: the flight routine `FUN_000107a6` opens
+`Desert3:WANI`, and that file was missing from the extracted disk even though its header block and
+data chain are intact on the ADF (no directory chain reaches it; see `disks\README.md`). The
+extractor recovers such files now.
+
 Still open: nothing on the save path itself. The remaining Phase 2 items are conveniences (`.bak`,
 write-to-temp-then-rename, `meta.txt`).
 
