@@ -242,12 +242,45 @@ instructions (0.16%); behaviour is exact either way.
 
 ## Next steps, revised (2026-11-11)
 
-1. Audio: `AUD0/1/3 VOL+DAT+PER` are written directly (~1,300 writes/20M instructions). It is the
-   last unmodelled device - the game is silent.
+1. **Audio: done** (see "Audio" below). Paula's four DMA channels and the CIA-A/B timer A
+   interrupts are modelled; the engine's own music driver runs from the timer interrupt, as on the
+   hardware. Nothing flag-gated: a normal launch plays.
 2. Jump tables: emit the table as data and dispatch the computed jump over the table's own targets
    (`if (pos == RC_ADDR(t)) goto L_t;` for each entry), which turns the 18 refused functions *and*
    the 0.16% interpreted stretches into translated code.
 3. Keep the rule: machine state is evidence; frames and pictures are not.
+
+## Audio (2026-11-11)
+
+The game never writes AUDxDAT (measured: zero stores in the whole program). It plays samples
+through the audio DMA and generates its music with its own driver, so two things had to be modelled:
+
+* **Paula** (`src/runtime/amiga/audio.c`): AUDxLC/AUDxLEN/AUDxPER/AUDxVOL per channel plus the
+  DMACON channel bits and DMAEN. Playback rate is `3546895 / AUDxPER`, the buffer loops from
+  AUDxLC, channels 0+3 mix left and 1+2 right, AUDxVOL 0..64 and periods below 124 silence the
+  channel. Mixing runs at 44.1 kHz into `waveOut` (`plat_audio_*`), 4 x 512-frame buffers.
+* **CIA timers** (`audio.c`): TALO/TAHI/CRA at `$BFE401/$BFE501/$BFEE01` (and CIA-B equivalents),
+  one counter step per E clock (10 CPU cycles), continuous reload from the latch, ICR mask.
+  `rt_time_run()` calls `m->on_cia` when an enabled timer underflows; the front end runs the
+  handler (`oracle_run_icr`) - it is game code.
+  Engine chain: `FUN_0000ed90` = `AddICRVector(ciaa.resource, 0, …)` + `AbleICR(0x81)` (bit 7 =
+  enable, bit 0 = timer A), `FUN_0001013a` starts the timer at latch 0x2E9C = 59.4 Hz, and the
+  handler `FUN_0000f264` → `FUN_0000f646` (tempo) + `FUN_0000f286` (player) + `FUN_0000f3f4`
+  (per-channel DMA + volume, DMACON bit 15 = set/clear) reprograms it from the period table at
+  `0x0F6E2` on every tempo change (measured 53..60 Hz).
+* **Device time is the frame budget**: instruction cycles, blitter DMA cycles (`rt_blit_run`) and
+  the idle rest of a frame (`rt_time_idle`, a WaitTOF) all reach mixer and timers, so 803 frames
+  receive 114.0M cycles = 141,875 per frame. Charging only instructions left the audio 59 % short.
+* **Settings**: `[AUDIO] sound=0..10` / `music=0..10` (`rt_config_int`). A channel is music when the
+  interrupt handler started it (AUDxLC written with `audio.inHandler`), everything else - the
+  engine's sample player slot 30/`FUN_00009b60` - is a sound effect. Measured on the intro:
+  97 % of the non-silent bytes are music, 4.5 % sound.
+* `icftd.ini` is written with its defaults on the first start (`rt_config_ensure`), next to the
+  executable, and is no longer in git. Video default is fullscreen.
+* Verification: `--audiodump <file>` on both front ends writes raw s16 stereo without a device;
+  identical runs produce byte-identical captures, `sound=0`+`music=0` gives an all-zero capture.
+  Oracle vs translation state parity is unchanged (1449 frame records, RAM byte-identical at
+  frames 100/300; only the known frame-30 D0 high word differs), `tools/gate.ps1` 4/4.
 
 
 ## Next steps, in order

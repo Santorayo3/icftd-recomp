@@ -1532,21 +1532,22 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
     }
     else if (lib == EMU_LIB_CIAARES)             /* ciaa.resource */
     {
-        /* The audio driver (FUN_0000ed90) arms a 50 Hz interrupt source here. A resource base
-         * has no open/close/expunge: its vectors start at -6 with the resource's own functions,
-         * and the three calls this game makes line up with them by argument shape:
+        /* The audio driver (FUN_0000ed90) hangs its mixer on CIA-A timer A:
          *   -6  AddICRVector(res, icrBit, interrupt)   FUN_0000ed90, result must be 0
          *   -12 RemICRVector(res, icrBit, interrupt)   FUN_0000ed2a, mirrors -6
-         *   -18 AbleICR(res, flags)                    FUN_0000ed90, flags 0x81 = enable porta
-         * The tick itself comes from the interrupt model; here we only remember is_Code. */
+         *   -18 AbleICR(res, flags)                    FUN_0000ed90, flags 0x81 = bit 7 (enable)
+         *                                              + bit 0 (timer A)
+         * icrBit 0 is /INT2 = timer A, which is the source the driver programs through
+         * $BFE401/$BFE501/$BFEE01 (audio.c runs it when the latch underflows). */
         switch (lvo)
         {
         case -6:                                 /* AddICRVector */
             {
                 u32 intr = arg32(sp, 2);
                 if (intr != 0)
-                    rt_add_server(m, rt_read32(&m->mem, intr + 0x12),
-                                   rt_read32(&m->mem, intr + 0x0E));
+                    rt_cia_add_vector(m, arg32(sp, 1),
+                                      rt_read32(&m->mem, intr + 0x12),
+                                      rt_read32(&m->mem, intr + 0x0E));
                 if (m->trace)
                     printf("     AddICRVector bit %ld interrupt %06lX\n",
                            (long)arg32(sp, 1), (unsigned long)intr);
@@ -1556,14 +1557,12 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
         case -12:                                /* RemICRVector */
             {
                 u32 intr = arg32(sp, 2);
-                if (intr != 0) rt_remove_server(m, rt_read32(&m->mem, intr + 0x12));
+                if (intr != 0) rt_cia_remove_vector(m, rt_read32(&m->mem, intr + 0x12));
             }
             result = 0;
             break;
         case -18:                                /* AbleICR */
-            if (m->trace)
-                printf("     AbleICR %02lX\n", (unsigned long)(arg32(sp, 1) & 0xFF));
-            result = 0;
+            result = rt_cia_able(m, arg32(sp, 1));
             break;
         default:
             goto unhandled;
@@ -1644,11 +1643,13 @@ int rt_init(rt_machine *m)
      * like on the real machine. */
     rt_write32(&m->mem, 4, m->libraryBase[0]);
     rt_gfx_reset(m);
+    rt_audio_init(m);
     return 1;
 }
 
 void rt_shutdown(rt_machine *m)
 {
+    rt_audio_close(m);
     rt_mem_free(&m->mem);
     if (rt_current == m) rt_current = 0;
 }
@@ -1879,6 +1880,7 @@ static int cia_tod_index(u32 a, int *cia, int *which)
 u32 rt_bus_read8(rt_machine *m, u32 a)
 {
     int cia, which;
+    u32 value;
 
     a &= 0xFFFFFFu;
     if (is_custom(m, a))
@@ -1886,6 +1888,7 @@ u32 rt_bus_read8(rt_machine *m, u32 a)
         if (a == 0xDFF005u || a == 0xDFF007u) return beam_register(m, a - 1u) & 0xFFu;
         return m->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
     }
+    if (rt_bus_is_io(m, a) && rt_cia_read8(m, a, &value)) return value;
     if (a == 0xBFE001u && rt_bus_is_io(m, a))
     {
         /* CIA-A port A: bit 7 is /FIRE, active low, the rest float high. */
@@ -1929,6 +1932,7 @@ void rt_bus_write8(rt_machine *m, u32 a, u32 v)
         m->custom[(a - 0xDFF000u) >> 1] = (u16)v;
         return;
     }
+    if (rt_bus_is_io(m, a) && rt_cia_write8(m, a, v)) return;
     rt_write8(&m->mem, a, v);
 }
 

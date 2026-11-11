@@ -227,6 +227,8 @@ void rt_blit_run(rt_machine *m)
         }
         m->cyclesToTick -= cost;
         m->blitCycles += cost;
+        /* The blit is device time too: while it runs the music and the CIA timers keep going. */
+        rt_time_run(m, cost);
     }
     /* --blitlog: every blit's geometry plus where it lands in the bitmap on screen (D is a plane
      * pointer, so the first row is (D - plane) / bytesPerRow). That is how the tile renderer
@@ -379,6 +381,13 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
 {
     rt_blitter *b = &m->blit;
 
+    /* Paula's four channels: $DFF0A0..$DFF0DE (their state lives in audio.c). */
+    if (reg >= 0x0A0u && reg <= 0x0DEu)
+    {
+        m->custom[reg >> 1] = v;
+        rt_audio_write16(m, reg, v);
+        return;
+    }
     switch (reg)
     {
     case 0x040: b->con0 = v; break;
@@ -401,7 +410,7 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
     case 0x070: b->cdat = v; break;
     case 0x072: b->bdat = v; break;
     case 0x074: b->adat = v; break;
-    case 0x096: /* DMACON: the engine toggles the blitter DMA bit; nothing to do */ break;
+    case 0x096: rt_audio_dmacon(m, v); break;   /* DMACON: audio DMA bits, master DMAEN */
     default:    m->custom[reg >> 1] = v; break;
     }
 }

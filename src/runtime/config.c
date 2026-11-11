@@ -1,9 +1,25 @@
 /* INI reader for icftd.ini. See config.h. */
 #include "config.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "platform.h"
+
+/* What a fresh installation starts with: written when no file exists, then read back like any
+ * other file, so the defaults and the parser can never disagree. */
+static const char kDefaultIni[] =
+    "; ICFTD runtime settings. Written with these defaults on the first start.\r\n"
+    "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
+    "\r\n"
+    "[VIDEO]\r\n"
+    "; false = window at the original 320x200; true = fullscreen, picture scaled up to fit.\r\n"
+    "fullscreen=true\r\n"
+    "\r\n"
+    "[AUDIO]\r\n"
+    "; Volume 0..10, 0 = off, 10 = full.\r\n"
+    "sound=10\r\n"
+    "music=10\r\n";
 
 #define CFG_MAX_ITEMS 64
 #define CFG_MAX_BYTES 8192
@@ -114,27 +130,58 @@ static int load_file(const char *path)
     return 1;
 }
 
-u32 rt_config_load(void)
+/* The file the settings live in: next to the executable, which is where the game writes it. */
+static void exe_ini_path(char *path)
 {
-    const char *dir;
-    char path[CFG_PATH_MAX];
+    const char *dir = plat_exe_dir();
     u32 i = 0;
 
-    rt_config_free();
-
-    dir = plat_exe_dir();
     if (dir != 0) {
         while (dir[i] != 0 && i < CFG_PATH_MAX - 12) {
             path[i] = dir[i];
             i++;
         }
-        path[i] = 0;
-        path[i++] = '\\';
-        path[i] = 0;
-        strcat(path, "icftd.ini");
-        if (load_file(path)) return 1;
     }
+    path[i] = 0;
+    if (i != 0) path[i++] = '\\';
+    path[i] = 0;
+    strcat(path, "icftd.ini");
+}
+
+u32 rt_config_load(void)
+{
+    char path[CFG_PATH_MAX];
+
+    rt_config_free();
+    exe_ini_path(path);
+    if (load_file(path)) return 1;
     return (u32)load_file("icftd.ini");
+}
+
+/* Writes kDefaultIni. Returns 1 when the file is there afterwards. */
+static u32 write_defaults(const char *path)
+{
+    plat_file *f = plat_create(path);
+    u32 len = (u32)strlen(kDefaultIni);
+
+    if (f == 0) return 0;
+    if (plat_write(f, 0, kDefaultIni, len) != len) {
+        plat_close(f);
+        return 0;
+    }
+    plat_close(f);
+    printf("config: wrote the default settings to %s\n", path);
+    return 1;
+}
+
+u32 rt_config_ensure(void)
+{
+    char path[CFG_PATH_MAX];
+
+    if (rt_config_load()) return 1;
+    exe_ini_path(path);
+    if (!write_defaults(path)) return 0;
+    return rt_config_load();
 }
 
 const char *rt_config_path(void)
@@ -158,6 +205,28 @@ int rt_config_bool(const char *section, const char *key, int fallback)
     if (ci_equal(v, "1") || ci_equal(v, "true") || ci_equal(v, "yes") || ci_equal(v, "on")) return 1;
     if (ci_equal(v, "0") || ci_equal(v, "false") || ci_equal(v, "no") || ci_equal(v, "off")) return 0;
     return fallback;
+}
+
+int rt_config_int(const char *section, const char *key, int fallback, int lo, int hi)
+{
+    const char *v = rt_config_get(section, key);
+    int value = 0;
+    int digits = 0;
+
+    if (v == 0) return fallback;
+    while (*v == ' ' || *v == '\t') v++;
+    if (*v == '-' || *v == '+') return fallback;          /* no negatives in this config */
+    while (*v >= '0' && *v <= '9') {
+        value = value * 10 + (*v - '0');
+        digits++;
+        v++;
+        if (value > hi) return hi;
+    }
+    while (*v == ' ' || *v == '\t' || *v == ';' || *v == '#') v++;
+    if (digits == 0 || *v != 0) return fallback;          /* not a plain number */
+    if (value < lo) return lo;
+    if (value > hi) return hi;
+    return value;
 }
 
 void rt_config_free(void)

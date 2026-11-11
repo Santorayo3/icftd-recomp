@@ -140,6 +140,7 @@ int main(int argc, char **argv)
     int ring = 0;
     const char *inputPath = 0;
     const char *cycleTable = 0;
+    const char *audioDump = 0;
     int blitBytePtr = 0;
     int stateEvery = 1;
     int textLog = 0;
@@ -188,6 +189,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
         if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
         if (strcmp(argv[i], "--cyclestable") == 0 && i + 1 < argc) { cycleTable = argv[++i]; continue; }
+        if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
@@ -230,12 +232,14 @@ int main(int argc, char **argv)
                "                    [--window] [--run] [--dump <prefix> [frames]] [--press <frame>]\n"
                "                    [--state <prefix> [--every <n>] [--ram <frame[,frame...]>]]\n"
                "                    [--input <script>] [--base <addr>] [--entry <addr>] [--a4 <addr>]\n"
+               "                    [--audiodump <file>]\n"
                "  --run    open the window and play until it is closed (space = fire, esc = quit)\n"
                "  --state  canonical machine-state dump per frame (registers, custom regs, RAM hash)\n"
                "  --ram    also write the full RAM image at these frames (<prefix>.<frame>.ram)\n"
                "  --input  frame-indexed input script: \"<frame> <fire> <joy0> [<joy1>]\"\n"
                "  --base   where the image is loaded (default 0x4000); entry and A4 follow it unless\n"
-               "           --entry/--a4 say otherwise\n");
+               "           --entry/--a4 say otherwise\n"
+               "  --audiodump  mix the audio without a device and write it as raw s16 stereo\n");
         return 1;
     }
     if (inputPath != 0 && !input_load(inputPath)) return 1;
@@ -244,12 +248,13 @@ int main(int argc, char **argv)
         insns = 2000000000L;                 /* ended by the window, not by a budget */
         printf("emu: window mode - space = fire, esc or close = quit\n");
     }
+    /* The settings file, written with its defaults when this is the first start. */
+    rt_config_ensure();
 
     if (g_window)
     {
         int fs = 0;
-        rt_config_load();
-        fs = rt_config_bool("VIDEO", "fullscreen", 0);
+        fs = rt_config_bool("VIDEO", "fullscreen", 1);
         plat_set_fullscreen((u32)fs);
         printf("emu: video %s, fullscreen=%d\n",
                rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
@@ -261,6 +266,26 @@ int main(int argc, char **argv)
     }
 
     if (!rt_init(&m)) { printf("emu: out of memory\n"); return 1; }
+    if (audioDump != 0)
+    {
+        /* Mix without a device so a headless run can be checked (and heard) offline. */
+        rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
+                              rt_config_int("AUDIO", "music", 10, 0, 10));
+        rt_audio_render_only(&m, EMU_AUD_RATE);
+        if (!rt_audio_capture(&m, audioDump)) { printf("emu: cannot write %s\n", audioDump); return 1; }
+        printf("emu: audio -> %s (%lu Hz stereo, raw s16)\n", audioDump, (unsigned long)EMU_AUD_RATE);
+    }
+    else if (g_window)
+    {
+        rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
+                              rt_config_int("AUDIO", "music", 10, 0, 10));
+        if (plat_audio_open(EMU_AUD_RATE))
+        {
+            rt_audio_open(&m, EMU_AUD_RATE);
+            printf("emu: audio %lu Hz stereo, sound %d/10, music %d/10\n",
+                   (unsigned long)EMU_AUD_RATE, m.audio.soundGain / 10, m.audio.musicGain / 10);
+        }
+    }
     if (!rt_load_image(&m, base, image)) { printf("emu: cannot load %s\n", image); rt_shutdown(&m); return 1; }
 
     /* Entry and A4 are relative to the load address: the base-0 image (the one Ghidra models and

@@ -127,6 +127,19 @@ static void host_frame(cpu_t *c, rt_machine *m)
     host_crash_note(m, c);
 }
 
+/* A CIA timer expiry (the engine's music driver) can land inside translated code as well as
+ * between two interpreted instructions: the register file goes to the core, the handler runs
+ * there with the interrupted state saved around it, and only its memory stores survive. */
+static cpu_t *g_cpu;
+
+static void host_cia(rt_machine *m, u32 code)
+{
+    if (g_cpu == 0) return;
+    scatter(g_cpu, m);
+    oracle_run_icr(m, code, m->ciaData);
+    gather(g_cpu, m);
+}
+
 /* --- the window ----------------------------------------------------------------------------
  * Same contract as the oracle's: keyboard once per emulated frame (the menus spin on /FIRE without
  * drawing, so input cannot wait for a present) and a 50 Hz clock. */
@@ -339,6 +352,7 @@ int main(int argc, char **argv)
     u32 progressFrom = 0;
     const char *spriteLogPath = 0;
     u32 spriteLogFrom = 0;
+    const char *audioDump = 0;
     int blitBytePtr = 0;
     int slot = 1;
     int slotGiven = 0;
@@ -357,6 +371,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
+        if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
@@ -481,14 +496,15 @@ int main(int argc, char **argv)
     }
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
     if (callLog != 0) rt_calllog_open(&m, callLog);
+    /* The settings file, written with its defaults when this is the first start. */
+    rt_config_ensure();
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;
     if (g_window)
     {
         int fs = 0;
-        rt_config_load();
-        fs = rt_config_bool("VIDEO", "fullscreen", 0);
+        fs = rt_config_bool("VIDEO", "fullscreen", 1);
         plat_set_fullscreen((u32)fs);
         if (!plat_init("It Came from the Desert (recomp)"))
         {
@@ -498,12 +514,33 @@ int main(int argc, char **argv)
         }
         printf("recomp: video %s, fullscreen=%d\n",
                rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
+        rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
+                              rt_config_int("AUDIO", "music", 10, 0, 10));
+        if (plat_audio_open(EMU_AUD_RATE))
+        {
+            rt_audio_open(&m, EMU_AUD_RATE);
+            printf("recomp: audio %lu Hz stereo, sound %d/10, music %d/10\n",
+                   (unsigned long)EMU_AUD_RATE, m.audio.soundGain / 10, m.audio.musicGain / 10);
+        }
+        else
+        {
+            printf("recomp: no audio device - running silent\n");
+        }
         m.on_frame = host_input;
         /* 100% = 50 Hz, the Amiga's rate; lower is a debugging aid for comparing content. */
         plat_set_frame_hz((u32)(50 * speedPercent / 100));
         if (speedPercent != 100)
             printf("recomp: %ld%% speed (%lu Hz)\n", speedPercent,
                    (unsigned long)(50 * speedPercent / 100));
+    }
+    if (audioDump != 0)
+    {
+        /* Mix without a device: the run's audio is checked (and can be heard) offline. */
+        rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
+                              rt_config_int("AUDIO", "music", 10, 0, 10));
+        rt_audio_render_only(&m, EMU_AUD_RATE);
+        if (!rt_audio_capture(&m, audioDump)) { printf("recomp: cannot write %s\n", audioDump); rt_shutdown(&m); return 1; }
+        printf("recomp: audio -> %s (%lu Hz stereo, raw s16)\n", audioDump, (unsigned long)EMU_AUD_RATE);
     }
     if (g_window || shotPath != 0) m.on_present = host_present;
 
@@ -520,6 +557,8 @@ int main(int argc, char **argv)
     rc_frame_hook = host_frame;
     rc_stopOnUnknown = 1;
     rc_abort = 0;                                      /* the game's loops are supposed to spin */
+    g_cpu = &c;
+    m.on_cia = host_cia;
     gather(&c, &m);
 
     while (m.insns < insns && !m.stop)
@@ -574,10 +613,16 @@ int main(int argc, char **argv)
         }
         interpreted++;
         interp_note(pc, !g_isActive);
-        while (m.waitFrames > 0) { m.waitFrames--; m.cyclesToTick = 0; oracle_tick(&m); }
-        rt_trace(&m, pc);
-        m.cyclesToTick -= (long)oracle_cycle_cost(pc);
-        if (m.cyclesToTick < 0) oracle_tick(&m);
+        while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
+        {
+            u32 cost = oracle_cycle_cost(pc);
+
+            rt_trace(&m, pc);
+            m.cyclesToTick -= (long)cost;
+            rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
+            rt_cia_service(&m);
+            if (m.cyclesToTick < 0) oracle_tick(&m);
+        }
         if (!oracle_step(&m)) break;
         if (progress && (m.insns % 1000000L) == 0)
             printf("recomp: %ld steps, frame %lu, %lu raster(s), %lu translated entry(ies)\n",
@@ -619,6 +664,13 @@ int main(int argc, char **argv)
     }
     state_close();
     if (ramStop != 0) state_ram_snapshot(&m, ramStop);
+    /* A dropping device means the emulation fell behind its own 50 Hz clock: worth one line in
+     * every run that had audio. */
+    if (m.audio.device != 0)
+    {
+        u32 dropped = plat_audio_dropped();
+        if (dropped != 0) printf("recomp: audio dropped %lu frame(s)\n", (unsigned long)dropped);
+    }
     if (shotPath != 0)
     {
         const u8 *pal = rt_gfx_palette();

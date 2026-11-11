@@ -249,6 +249,25 @@ static int oracle_run_handler(rt_machine *m, u32 code, u32 data)
 }
 
 
+/* One ICR handler (the engine's CIA timer interrupt, e.g. the music driver at FUN_0000f264): it
+ * runs between two instructions of the main program and must leave the register file exactly as
+ * it found it. Used as rt_machine::on_cia by both front ends. */
+void oracle_run_icr(rt_machine *m, u32 code, u32 data)
+{
+    u32 save[18];
+
+    oracle_save_regs(save);
+    if (!oracle_run_handler(m, code, data))
+        printf("emu: ICR handler %06lx failed at frame %lu\n",
+               (unsigned long)code, (unsigned long)m->frame);
+    oracle_restore_regs(save);
+}
+
+static void oracle_cia_hook(rt_machine *m, u32 code)
+{
+    oracle_run_icr(m, code, m->ciaData);
+}
+
 /* One vertical blank: bump the frame, then run every registered interrupt server. */
 void oracle_tick(rt_machine *m)
 {
@@ -428,18 +447,25 @@ u32 oracle_run(rt_machine *m, long maxInsns)
             /* The program asked for the next vblank (WaitTOF/WaitBOVP) or to sleep (dos.Delay):
              * the rest of this frame is idle, so no cycle is spent for it. Zero budget is enough
              * to end the frame; a Delay of n ticks is n boundaries, run before the next
-             * instruction - the task is asleep while the vblanks keep firing. */
+             * instruction - the task is asleep while the vblanks keep firing. The devices still
+             * run through that idle time (rt_time_idle: the music driver keeps ticking). */
             m->waitFrames--;
-            m->cyclesToTick = 0;        /* the check below goes negative: this frame ends now */
+            rt_time_idle(m);
             oracle_tick(m);
             if (m->stop) break;
         }
         /* The budget is charged per instruction from the 68000 cycle table, so a frame is
          * EMU_CYCLES_PER_FRAME cycles - the same rule the translated code follows
          * (src\recomp\cpu.c, rc_step, and the host's interpreted path in src\host\main.c). */
-        rt_trace(m, m68k_get_reg(0, M68K_REG_PC));
-        m->cyclesToTick -= oracle_cycle_cost(m68k_get_reg(0, M68K_REG_PC));
-        if (m->cyclesToTick < 0) oracle_tick(m);
+        {
+            u32 cost = oracle_cycle_cost(m68k_get_reg(0, M68K_REG_PC));
+
+            rt_trace(m, m68k_get_reg(0, M68K_REG_PC));
+            m->cyclesToTick -= (long)cost;
+            rt_time_run(m, (long)cost);      /* Paula + CIA timers, same clock as the budget */
+            rt_cia_service(m);               /* a timer expiry is taken between instructions */
+            if (m->cyclesToTick < 0) oracle_tick(m);
+        }
         if (!oracle_step(m)) return m68k_get_reg(0, M68K_REG_PC);
         if (m->progress && (m->insns % 1000000L) == 0)
             printf("emu: %ld steps, pc %06lx, frame %lu, %lu raster(s), %lu blit(s), %lu drop(s), %lu fire poll(s), %lu handler(s)\n",
@@ -476,6 +502,8 @@ void oracle_boot(u32 entry, u32 a4)
     rt_build_process(rt_current);
     /* The first frame is a full frame, in both front ends (rt_init leaves the budget at zero). */
     rt_current->cyclesToTick = EMU_CYCLES_PER_FRAME;
+    /* Device interrupts are game code: the runtime raises them, this core runs them. */
+    rt_current->on_cia = oracle_cia_hook;
     /* The hunk loader would have called us, so leave a return address the program can rts to.
      * The DOS loader does the same: the entry code ends with `rts`. */
     rt_write32(&rt_current->mem, EMU_STACK_TOP - 4, EMU_EXIT_PC);

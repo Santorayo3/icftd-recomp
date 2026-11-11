@@ -45,6 +45,7 @@ $sources = @(
     (Join-Path $rt 'amiga\machine.c'),
     (Join-Path $rt 'amiga\blitter.c'),
     (Join-Path $rt 'amiga\display.c'),
+    (Join-Path $rt 'amiga\audio.c'),
     (Join-Path $rt 'config.c'),
     (Join-Path $rt 'plat\win32\plat_win32.c'),
     (Join-Path $mus 'm68kcpu.c'),

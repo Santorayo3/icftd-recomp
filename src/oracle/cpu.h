@@ -21,6 +21,9 @@ void oracle_boot(u32 entry, u32 a4);
  * transfer in both directions - d0-d7, a0-a7, sr, pc. */
 int  oracle_step(rt_machine *m);
 void oracle_tick(rt_machine *m);
+/* Runs one interrupt handler to its rts with the interrupted register file saved and restored,
+ * so it can be used as the machine's on_cia hook (a CIA timer expiry) from either front end. */
+void oracle_run_icr(rt_machine *m, u32 code, u32 data);
 /* The last executed PCs, oldest first. */
 void oracle_ring_print(rt_machine *m);
 void oracle_regs_get(u32 *r);

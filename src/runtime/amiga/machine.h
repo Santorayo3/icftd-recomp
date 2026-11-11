@@ -8,6 +8,7 @@
 
 #include "types.h"
 #include "memory.h"
+#include "audio.h"
 
 /* Memory map. The image is flattened at 0x4000, not 0: address 4 must hold AbsExecBase, and at
  * base 0 the code hunk (entry stub `jmp`) overlaps it - the cstart's `movea.l 4.w,a6` would read
@@ -108,6 +109,17 @@ typedef struct rt_machine
     u16     custom[0x100 / 2];            /* 0xDFF000..0xDFF0FF, raw */
     rt_blitter blit;                     /* BLTCON/pointers/modulos (blit.c) */
     rt_gfx_state gfx;                    /* framebuffer + drawing state (emu\gfx.c) */
+    rt_audio audio;                      /* Paula channels, mixer, gains (audio.c) */
+    rt_cia   cia[2];                     /* CIA-A/CIA-B timer A (audio.c) */
+    rt_icr_vector icr[EMU_MAX_ICR];      /* AddICRVector servers (audio.c) */
+    int      icrCount;
+    u32      eAcc;                       /* 68000 cycles toward the next E-clock tick */
+    u32      ciaCode;                    /* handler to run at the next instruction boundary */
+    u32      ciaData;                    /* its is_Data (A1) */
+    int      ciaPending;
+    /* The front end runs an ICR handler: the runtime models the devices, but only the CPU side
+     * can execute the game's code (and save/restore the interrupted register file). */
+    void   (*on_cia)(struct rt_machine *m, u32 code);
     u32     libraryBase[EMU_LIB_SLOTS];
     int     libraries;
     u32     imageTop;                     /* first byte past the loaded image */

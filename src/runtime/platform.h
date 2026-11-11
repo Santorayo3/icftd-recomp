@@ -53,6 +53,17 @@ void plat_present(void);
 /* rgb holds count*3 bytes, each 0..255, for palette entries first..first+count-1. */
 void plat_set_palette(u32 first, u32 count, const u8 *rgb);
 
+/* --- audio ---------------------------------------------------------------- */
+/* A stereo, signed 16-bit PCM output at rate Hz. Returns 1 when a device is playing; 0 is not an
+ * error - the machine keeps its own audio state and simply renders nothing. */
+u32  plat_audio_open(u32 rate);
+void plat_audio_close(void);
+
+/* Interleaved left/right frames, count pairs. Never blocks: when every device buffer is still
+ * being played the call drops the samples and counts them (plat_audio_dropped). */
+void plat_audio_write(const s16 *frames, u32 count);
+u32  plat_audio_dropped(void);
+
 /* Fills in the input state and drains OS messages.  Returns 0 when the user asked to quit. */
 u32  plat_pump(input_state *in);
 

@@ -76,13 +76,15 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
     while (m->waitFrames > 0 && rc_frame_hook != 0)
     {
         m->waitFrames--;
-        m->cyclesToTick = 0;
+        rt_time_idle(m);                 /* the devices keep running through the idle frame */
         rc_frame_hook(c, m);
         if (m->stop) break;
     }
     if (rc_frame_hook != 0)
     {
         m->cyclesToTick -= (long)cost;
+        rt_time_run(m, (long)cost);      /* Paula + CIA timers, the same clock as the budget */
+        rt_cia_service(m);
         if (m->cyclesToTick < 0) rc_frame_hook(c, m);
     }
     /* The instruction about to run, for diagnostics: a native crash leaves this in the machine

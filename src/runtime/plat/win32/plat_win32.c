@@ -4,11 +4,16 @@
  * Built with: wcl386 -bt=nt -5s -ox -i=..\core ..\core\main.c ..\core\gfx.c plat_win32.c
  */
 #include <windows.h>
+#include <mmsystem.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "types.h"
 #include "platform.h"
+
+/* waveOut lives in winmm; Watcom links a library through this pragma (the build scripts list no
+ * libraries). */
+#pragma library("winmm")
 
 static HWND          g_hwnd;
 static HDC           g_memdc;
@@ -212,6 +217,7 @@ u32 plat_fullscreen(void)
 
 void plat_shutdown(void)
 {
+    plat_audio_close();
     if (g_frame_dib) DeleteObject(g_frame_dib);
     if (g_frame_dc) DeleteDC(g_frame_dc);
     g_frame_dib = 0;
@@ -348,6 +354,106 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
     SelectPalette(dc, g_pal, FALSE);
     RealizePalette(dc);
     ReleaseDC(g_hwnd, dc);
+}
+
+/* --- audio ----------------------------------------------------------------------------------
+ * waveOut with a ring of small buffers. The runtime renders emulated time ahead of the device,
+ * so a write only has to hand one buffer over; when all of them are still queued the samples are
+ * dropped rather than blocking the emulation. */
+
+#define AUDIO_BUFFERS 8
+/* 512 frames is ~12 ms; eight of them queue 93 ms. The mixer hands over a whole frame's worth at
+ * each vblank and catches up back to back after a slow frame, so a 46 ms queue (4) dropped ~16 %
+ * of the samples where eight drop none (measured). */
+#define AUDIO_FRAMES  512
+
+static HWAVEOUT g_wave;
+static WAVEHDR  g_hdr[AUDIO_BUFFERS];
+static s16     *g_abuf[AUDIO_BUFFERS];
+static int      g_aopen;
+static int      g_anext;
+static u32      g_adropped;
+
+u32 plat_audio_open(u32 rate)
+{
+    WAVEFORMATEX wf;
+    int i;
+
+    if (g_aopen) return 1;
+    if (rate == 0) return 0;
+    memset(&wf, 0, sizeof(wf));
+    wf.wFormatTag = WAVE_FORMAT_PCM;
+    wf.nChannels = 2;
+    wf.nSamplesPerSec = rate;
+    wf.wBitsPerSample = 16;
+    wf.nBlockAlign = 4;
+    wf.nAvgBytesPerSec = rate * 4;
+    if (waveOutOpen(&g_wave, WAVE_MAPPER, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
+        g_wave = 0;
+        return 0;
+    }
+    for (i = 0; i < AUDIO_BUFFERS; i++) {
+        g_abuf[i] = (s16 *)malloc(AUDIO_FRAMES * 4);
+        if (g_abuf[i] == 0) { plat_audio_close(); return 0; }
+        memset(&g_hdr[i], 0, sizeof(g_hdr[i]));
+        g_hdr[i].lpData = (LPSTR)g_abuf[i];
+        g_hdr[i].dwBufferLength = AUDIO_FRAMES * 4;
+        waveOutPrepareHeader(g_wave, &g_hdr[i], sizeof(WAVEHDR));
+        g_hdr[i].dwFlags |= WHDR_DONE;      /* never queued yet: a free buffer */
+    }
+    g_anext = 0;
+    g_adropped = 0;
+    g_aopen = 1;
+    return 1;
+}
+
+void plat_audio_close(void)
+{
+    int i;
+
+    if (!g_aopen) return;
+    waveOutReset(g_wave);
+    for (i = 0; i < AUDIO_BUFFERS; i++) {
+        if (g_abuf[i] != 0) {
+            waveOutUnprepareHeader(g_wave, &g_hdr[i], sizeof(WAVEHDR));
+            free(g_abuf[i]);
+            g_abuf[i] = 0;
+        }
+    }
+    waveOutClose(g_wave);
+    g_wave = 0;
+    g_aopen = 0;
+}
+
+void plat_audio_write(const s16 *frames, u32 count)
+{
+    int tries, i;
+    WAVEHDR *h;
+
+    if (!g_aopen || frames == 0 || count == 0) return;
+    if (count > AUDIO_FRAMES) count = AUDIO_FRAMES;
+    for (tries = 0; tries < AUDIO_BUFFERS; tries++) {
+        i = g_anext;
+        g_anext = (g_anext + 1) % AUDIO_BUFFERS;
+        h = &g_hdr[i];
+        if ((h->dwFlags & WHDR_DONE) == 0) continue;     /* still playing */
+        memcpy(g_abuf[i], frames, count * 4);
+        h->dwBufferLength = count * 4;
+        h->dwFlags &= ~WHDR_DONE;
+        if (waveOutWrite(g_wave, h, sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+            h->dwFlags |= WHDR_DONE;
+            g_adropped += count;
+        }
+        return;
+    }
+    g_adropped += count;
+}
+
+u32 plat_audio_dropped(void)
+{
+    u32 n = g_adropped;
+    g_adropped = 0;
+    return n;
 }
 
 u32 plat_pump(input_state *in)
@@ -629,3 +735,4 @@ void plat_crash_state(const char *text)
     fwrite(block, 1, sizeof block, g_crashFile);
     fflush(g_crashFile);
 }
+
