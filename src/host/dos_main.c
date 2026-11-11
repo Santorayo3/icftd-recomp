@@ -55,6 +55,8 @@ static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
 /* --perf: where a frame's emulated time goes, in 8254 counts (1.193 MHz). */
 static int    g_perf;
 static u32    g_perfLast, g_perfTotal, g_perfVblank, g_perfPresent, g_perfFrames;
+static long   g_perfCiaInsns;           /* instructions run by the CIA handlers (the music driver) */
+static u32    g_perfCiaRuns;
 
 static void dump_ram(rt_machine *m)
 {
@@ -93,11 +95,17 @@ static void scatter(cpu_t *c, rt_machine *m)
     (void)m;
 }
 
-/* Last frame the game reached, for RCRASH.TXT: a DOS crash leaves nothing else behind. */
+/* Last frame the game reached, for RCRASH.TXT: a DOS crash leaves nothing else behind. A dev
+ * aid (--crashlog) and off in normal play: it formats a string every vblank and writes a FAT file
+ * five times a second, which is real work on the hardware this port targets, and it is not
+ * something a 1994 port would have done. */
+static int g_crashLog;
+
 static void note_state(rt_machine *m, cpu_t *c)
 {
     char text[256];
 
+    if (!g_crashLog) return;
     sprintf(text, "frame %lu  insns %ld  pc %06lX\nD0 %08lX  D1 %08lX  A0 %08lX  A6 %08lX  "
                   "A7 %08lX  SR %04lX  cpu pc %08lX  presents %lu\n",
             (unsigned long)m->frame, (long)m->insns, (unsigned long)m->pc,
@@ -111,7 +119,10 @@ static void note_state(rt_machine *m, cpu_t *c)
  * the game's own servers run there, and what they leave comes back. */
 static void dos_frame(cpu_t *c, rt_machine *m)
 {
-    u32 t0 = g_perf ? plat_pit_now() : 0;
+    /* Milliseconds, not PIT counts: plat_pit_now() extends a 16-bit counter snapshot, so it is
+     * only exact for intervals under 65,536 counts (55 ms) - and a frame at the 486-66 clock is
+     * three times that, which is what truncated the first version of this report. */
+    u32 t0 = g_perf ? plat_ticks_ms() : 0;
 
     if (g_perf)
     {
@@ -122,7 +133,7 @@ static void dos_frame(cpu_t *c, rt_machine *m)
     scatter(c, m);
     oracle_tick(m);
     gather(c, m);
-    if (g_perf) g_perfVblank += plat_pit_now() - t0;
+    if (g_perf) g_perfVblank += plat_ticks_ms() - t0;
     dump_ram(m);
     note_state(m, c);
     /* A frame limit is only exact here: the game spends long stretched inside one translated
@@ -143,12 +154,16 @@ static void dos_frame(cpu_t *c, rt_machine *m)
 /* A CIA timer expiry (the engine's music driver) can land inside translated code too. */
 static void dos_cia(rt_machine *m, u32 code)
 {
+    long before;
+
     if (g_cpu == 0) return;
     if (g_trace) printf("  cia in %06lX frame %lu pc %06lX\n", (unsigned long)code,
                        (unsigned long)m->frame, (unsigned long)g_cpu->pc);
+    before = g_perf ? m->insns : 0;
     scatter(g_cpu, m);
     oracle_run_icr(m, code, m->ciaData);
     gather(g_cpu, m);
+    if (g_perf) { g_perfCiaInsns += m->insns - before; g_perfCiaRuns++; }
     if (g_trace) printf("  cia out pc %06lX\n", (unsigned long)g_cpu->pc);
 }
 
@@ -210,7 +225,7 @@ static void dos_present(rt_machine *m)
     u8 *dst = plat_framebuffer();
     int w = rt_gfx_width(), h = rt_gfx_height();
     int x, y, cw;
-    u32 t0 = g_perf ? plat_pit_now() : 0;
+    u32 t0 = g_perf ? plat_ticks_ms() : 0;
 
     if (fb == 0 || pal == 0 || dst == 0) return;
     if (w > SCREEN_W) w = SCREEN_W;
@@ -226,7 +241,7 @@ static void dos_present(rt_machine *m)
     for (y = h; y < SCREEN_H; y++)
         memset(dst + (u32)y * SCREEN_W, 0, SCREEN_W);
     plat_present();
-    if (g_perf) g_perfPresent += plat_pit_now() - t0;
+    if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
     (void)m;
 }
 
@@ -264,6 +279,7 @@ int main(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--trace") == 0) { g_trace = 1; continue; }
+        if (strcmp(argv[i], "--crashlog") == 0) { g_crashLog = 1; continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
         if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
         {
@@ -430,12 +446,23 @@ int main(int argc, char **argv)
     }
     if (g_perf && g_perfFrames != 0)
     {
-        /* 1193182 counts = one second of emulated time, so a frame of 23863 counts is 20 ms. */
+        /* Milliseconds. Run this with -Cycles max: there the 8254 tracks real time and a frame is
+         * short enough for the 16-bit counter snapshots to stay exact (a fixed 30000 clock makes a
+         * frame ~180 ms, so the samples straddle more than one wrap and the split lies). The
+         * headline number - frames per second at the launcher's 30000 clock - comes from the wall
+         * clock outside the program, which needs no emulated timer at all. */
         double n = (double)g_perfFrames;
-        printf("perf: %.0f counts/frame (%.1f ms)  vblank %.0f (%.0f%%)  present %.0f (%.0f%%)\n",
-               (double)g_perfTotal / n, (double)g_perfTotal / n / 1193.182,
-               (double)g_perfVblank / n, 100.0 * (double)g_perfVblank / (double)g_perfTotal,
-               (double)g_perfPresent / n, 100.0 * (double)g_perfPresent / (double)g_perfTotal);
+        double total = (double)g_perfTotal / n;
+        double vb = (double)g_perfVblank / n;
+        double conv = (double)rt_gfx_perf_conv / 1193.182 / n;   /* PIT counts -> ms */
+        double pres = (double)g_perfPresent / n;
+        printf("perf: %.1f ms/frame = %.2f frame/s\n", total, 1000.0 / total);
+        printf("perf:   vblank %.1f ms, of it conversion %.1f; present copy %.1f; game %.1f ms\n",
+               vb, conv, pres, total - vb - pres);
+        printf("perf:   conversion runs %.2f time(s)/frame; %.0f instruction(s)/frame, "
+               "%.0f of them in the %.2f CIA run(s)/frame\n",
+               (double)rt_gfx_frames() / n, (double)m.insns / n, (double)g_perfCiaInsns / n,
+               (double)g_perfCiaRuns / n);
     }
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);

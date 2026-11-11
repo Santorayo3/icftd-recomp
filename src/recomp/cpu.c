@@ -45,7 +45,7 @@ static jmp_buf *rc_stopJump;
 static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
 {
     tick();
-    rt_trace(m, c->pc);
+    if (m->traceTo != 0) rt_trace(m, c->pc);
     /* The IFF chunk skipper (0x9AE0) reads its loop flag from the word at (A5-0xE) *before* anything
      * writes it. On the Amiga that frame slot holds leftover stack data, non-zero in practice, so the
      * skip loop always ran at least once; our zeroed RAM made it return without skipping, FUN_00009984
@@ -55,8 +55,10 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
      * stay in lockstep. Lives here, not in fn_00009ae0.c, because that file is regenerated. */
     if (c->pc == RC_ADDR(0x00009AE0u)) rc_wr16(c, m, c->a[7] - 0x12u, 1u);
     /* The emitted code has already named the instruction, so the ring means the same thing here
-     * as in the interpreter (src\oracle\cpu.c, oracle_step). */
+     * as in the interpreter (src\oracle\cpu.c, oracle_step). Compiled out of the release build. */
+#if EMU_TRACE_RING
     m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = c->pc;
+#endif
     if (rc_stopAt > 0 && m->insns >= rc_stopAt)
     {
         m->stop = 1;
@@ -83,8 +85,8 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
     if (rc_frame_hook != 0)
     {
         m->cyclesToTick -= (long)cost;
-        rt_time_run(m, (long)cost);      /* Paula + CIA timers, the same clock as the budget */
-        rt_cia_service(m);
+        rt_time_slice(m, (long)cost);    /* Paula + CIA timers, the same clock as the budget */
+        if (m->ciaPending) rt_cia_service(m);
         if (m->cyclesToTick < 0) rc_frame_hook(c, m);
     }
     /* The instruction about to run, for diagnostics: a native crash leaves this in the machine
@@ -105,66 +107,92 @@ static u32 mask_size(int size)
     return 0x000000FFu;
 }
 
-u32 rc_trunc(u32 v, int size)
-{
-    return v & mask_size(size);
-}
-
-u32 rc_ext(u32 v, int size)
-{
-    if (size == 1) return (u32)(s32)(s8)(v & 0xFFu);
-    if (size == 2) return (u32)(s32)(s16)(v & 0xFFFFu);
-    return v;
-}
-
-/* --- memory ------------------------------------------------------------------------------- */
-
-/* Chipset and CIA addresses are part of the machine, not of the RAM block: the bus decides. */
-static int in_ram(rt_machine *m, u32 addr, u32 width)
-{
-    u32 a = addr & 0xFFFFFFu;
-    return rt_bus_is_io(m, a) || a + width <= m->mem.size;
-}
+/* --- memory ---------------------------------------------------------------------------------
+ * Emulated memory is big-endian and is never cast to a host pointer, but the RAM block is one
+ * flat allocation, so the overwhelming majority of accesses can skip the bus entirely: one size
+ * check, then byte loads. Only an address outside the block reaches the bus (chipset, CIA,
+ * out-of-range reporting), which keeps the same semantics as rt_bus_read* and costs one extra
+ * test in the common case where it is needed at all. */
 
 u32 rc_rd8(cpu_t *c, rt_machine *m, u32 addr)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 1u)) note_bad(c, m, addr);
+    if (a < m->mem.size) return m->mem.base[a];
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     return rt_bus_read8(m, addr);
 }
 
 u32 rc_rd16(cpu_t *c, rt_machine *m, u32 addr)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 2u)) note_bad(c, m, addr);
+    if (a + 2u <= m->mem.size)
+    {
+        const u8 *p = m->mem.base + a;
+        return ((u32)p[0] << 8) | p[1];
+    }
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     return rt_bus_read16(m, addr);
 }
 
 u32 rc_rd32(cpu_t *c, rt_machine *m, u32 addr)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 4u)) note_bad(c, m, addr);
+    if (a + 4u <= m->mem.size)
+    {
+        const u8 *p = m->mem.base + a;
+        return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+    }
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     return rt_bus_read32(m, addr);
 }
 
 void rc_wr8(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 1u)) note_bad(c, m, addr);
+    if (a < m->mem.size) { m->mem.base[a] = (u8)v; return; }
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     rt_bus_write8(m, addr, v);
 }
 
 void rc_wr16(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 2u)) note_bad(c, m, addr);
+    if (a + 2u <= m->mem.size)
+    {
+        u8 *p = m->mem.base + a;
+        p[0] = (u8)(v >> 8);
+        p[1] = (u8)v;
+        return;
+    }
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     rt_bus_write16(m, addr, v);
 }
 
 void rc_wr32(cpu_t *c, rt_machine *m, u32 addr, u32 v)
 {
+    u32 a = addr & 0xFFFFFFu;
+
     tick();
-    if (!in_ram(m, addr, 4u)) note_bad(c, m, addr);
+    if (a + 4u <= m->mem.size)
+    {
+        u8 *p = m->mem.base + a;
+        p[0] = (u8)(v >> 24);
+        p[1] = (u8)(v >> 16);
+        p[2] = (u8)(v >> 8);
+        p[3] = (u8)v;
+        return;
+    }
+    if (!rt_bus_is_io(m, a)) note_bad(c, m, addr);
     rt_bus_write32(m, addr, v);
 }
 
@@ -196,29 +224,9 @@ u32 rc_pop16(cpu_t *c, rt_machine *m)
     return v;
 }
 
-/* --- registers as operands ------------------------------------------------------------------ */
-
-u32 rc_d_get(const cpu_t *c, int reg, int size)
-{
-    return rc_trunc(c->d[reg], size);
-}
-
-void rc_d_set(cpu_t *c, int reg, int size, u32 v)
-{
-    u32 m = mask_size(size);
-    c->d[reg] = (c->d[reg] & ~m) | (v & m);
-}
-
-u32 rc_a_get(const cpu_t *c, int reg, int size)
-{
-    /* A word read of An is allowed and takes the low half; the 68000 sign-extends on write. */
-    return rc_trunc(c->a[reg], size);
-}
-
-void rc_a_set(cpu_t *c, int reg, int size, u32 v)
-{
-    c->a[reg] = (size == 2) ? rc_ext(v, 2) : rc_trunc(v, size);
-}
+/* --- registers as operands ------------------------------------------------------------------
+ * rc_d_get/rc_d_set/rc_a_get/rc_a_set/rc_trunc/rc_ext are static in cpu.h: every emitted
+ * instruction uses them, so they must not be a call into another translation unit. */
 
 /* --- flags ---------------------------------------------------------------------------------- */
 

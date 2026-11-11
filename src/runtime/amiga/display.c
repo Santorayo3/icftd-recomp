@@ -14,6 +14,50 @@
 
 static rt_gfx_state *gfx;                /* the one machine's graphics state */
 
+u32 rt_gfx_perf_conv;                    /* see display.h */
+
+/* --- planar -> chunky ---------------------------------------------------------------------
+ * Eight pixels share one byte per plane, so a nibble of two plane bytes names four pixels: the
+ * tables below hold those four pixel bytes already OR-ed together (planes 0/1, planes 2/3) plus
+ * plane 4 on its own. Since the game's screen is five planes, one group of eight pixels costs six
+ * table reads instead of forty bit tests - this loop is what a real Amiga does in the hardware,
+ * and it is by far the largest single item of a frame. */
+static u32 g_nib01[256];                 /* planes 0 and 1 */
+static u32 g_nib23[256];                 /* planes 2 and 3 */
+static u32 g_nib4[16];                   /* plane 4 */
+static int g_nibReady;
+
+/* Bit 3 of a nibble is its leftmost pixel, matching the 0x80 mask the bitplane format uses. */
+static void nib_tables(void)
+{
+    int a, b, k;
+
+    if (g_nibReady) return;
+    for (a = 0; a < 16; a++)
+    {
+        u32 v = 0;
+        for (k = 0; k < 4; k++)
+            v |= ((((u32)a >> (3u - (u32)k)) & 1u) << 4) << (k * 8);
+        g_nib4[a] = v;
+        for (b = 0; b < 16; b++)
+        {
+            u32 v01 = 0, v23 = 0;
+            for (k = 0; k < 4; k++)
+            {
+                u32 bit = 3u - (u32)k;
+                u32 pa = ((u32)a >> bit) & 1u;
+                u32 pb = ((u32)b >> bit) & 1u;
+                v01 |= (pa | (pb << 1)) << (k * 8);
+                v23 |= ((pa << 2) | (pb << 3)) << (k * 8);
+            }
+            g_nib01[a * 16 + b] = v01;
+            g_nib23[a * 16 + b] = v23;
+        }
+    }
+    g_nibReady = 1;
+}
+
+
 /* A plot target that means "the chunky framebuffer" instead of a planar BitMap in emulated RAM:
  * the on-screen display draws through the same primitives the game's own text does. */
 #define EMU_BM_FRAMEBUFFER 0xFFFFFFF0u
@@ -779,13 +823,15 @@ void rt_gfx_present(rt_machine *m, u32 view)
         }
     }
 
-    /* Planar -> chunky. This is the one loop that runs over the whole screen every frame, so it
-     * indexes the plane bytes directly instead of calling plane_get() per pixel: the plane
-     * pointers are read once, a row that does not lie wholly inside the RAM block keeps the
-     * general accessor (which answers 0 outside), and everything else is a byte load per plane. */
+    /* Planar -> chunky. This is the one loop that runs over the whole screen every frame - and it
+     * used to be 68% of a frame. The plane pointers are read once per row; a row that does not lie
+     * wholly inside the RAM block keeps the general accessor (which answers 0 outside); up to five
+     * planes go through the nibble tables above, wider bitmaps keep the per-pixel rule. */
     {
+        u32 pt0 = plat_pit_now();
         int np = depth < 8 ? depth : 8;
         u32 planes[8];
+        nib_tables();
         for (p = 0; p < 8; p++) planes[p] = 0;
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
         for (y = 0; y < h; y++)
@@ -803,7 +849,42 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 if (off + (u32)bpr > m->mem.size) { fast = 0; break; }
                 src[p] = m->mem.base + off;
             }
-            if (fast)
+            if (fast && np <= 5)
+            {
+                int groups = w >> 3;
+                int g;
+                const u8 *s0 = src[0], *s1 = src[1], *s2 = src[2], *s3 = src[3], *s4 = src[4];
+
+                for (g = 0; g < groups; g++)
+                {
+                    u8 b0 = s0 != 0 ? s0[g] : 0;
+                    u8 b1 = s1 != 0 ? s1[g] : 0;
+                    u8 b2 = s2 != 0 ? s2[g] : 0;
+                    u8 b3 = s3 != 0 ? s3[g] : 0;
+                    u8 b4 = s4 != 0 ? s4[g] : 0;
+                    u32 lo = g_nib01[(u32)(b0 & 0xF0u) | (u32)(b1 >> 4)] |
+                             g_nib23[(u32)(b2 & 0xF0u) | (u32)(b3 >> 4)] |
+                             g_nib4[b4 >> 4];
+                    u32 hi = g_nib01[(u32)((b0 & 0x0Fu) << 4) | (u32)(b1 & 0x0Fu)] |
+                             g_nib23[(u32)((b2 & 0x0Fu) << 4) | (u32)(b3 & 0x0Fu)] |
+                             g_nib4[b4 & 0x0Fu];
+                    u8 *out = row + (g << 3);
+                    out[0] = (u8)lo;         out[1] = (u8)(lo >> 8);
+                    out[2] = (u8)(lo >> 16); out[3] = (u8)(lo >> 24);
+                    out[4] = (u8)hi;         out[5] = (u8)(hi >> 8);
+                    out[6] = (u8)(hi >> 16); out[7] = (u8)(hi >> 24);
+                }
+                for (x = groups << 3; x < w; x++)
+                {
+                    u8 mask = (u8)(0x80u >> (x & 7));
+                    int byte = x >> 3;
+                    int idx = 0;
+                    for (p = 0; p < np; p++)
+                        if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
+                    row[x] = (u8)idx;
+                }
+            }
+            else if (fast)
             {
                 for (x = 0; x < w; x++)
                 {
@@ -826,6 +907,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 }
             }
         }
+        if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }
     if (m->progress)
     {

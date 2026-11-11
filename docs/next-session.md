@@ -23,34 +23,54 @@ it (without it `OpenDiskFont` returns 0 and the engine takes the no-font path). 
 Windows RAM are byte-identical at the same vblank, the tick logs match, and the call census shows
 41 kinds / 2014 calls / **0 answered with 0**.
 
-### Performance — the number that decides "486-66 at 50 fps"
+### Performance — as a percentage of the original
 
-DOSBox settings (`core=dynamic`, `cycles=max`) only make the *emulator* fast; on real hardware the
-binary runs natively. The hardware-independent cost is measured by fixing the emulated clock
-(`cycles=3000`, so wall time ∝ executed cycles) and differencing an 11-frame and a 1-frame run:
+The reference is the original's own frame. Measured with the oracle, the engine consumes its whole
+141,875-cycle vblank budget every frame (3,449 of 3,926 frames run out of budget, average overspend
+322 cycles = 0.2 %), so one engine frame is 20 ms on a 7.09 MHz A500 and 100 % means "our build
+finishes a frame in the time the original did, on the same class of machine".
 
-| | cycles/frame | 486DX2-66 (~30M cycles/s) |
-|---|---|---|
-| now | **3,532,868** | ~8.5 fps |
-| target 50 fps | <= ~600,000 | 50 fps |
+Measured end to end from outside the program (wall clock, differencing a 60-frame and a 160-frame
+run so the ~35M-cycle startup drops out) in the launcher's own configuration, `cycles=30000` = a
+486DX2-66 (a Ryzen 7 5800X3D sustains it, confirmed by ear as well: at `cycles=max` the game is
+fluid, at 30000 it runs at 4-5 fps):
 
-`--perf` splits a frame (in 8254 counts): vblank ~29 % at that point in the intro - the interrupt
-server runs on the **Musashi interpreter**, which is the first item - and `present` 0-28 % depending
-on the scene. Landed already: the presenter hoists the plane pointers and reads plane *bytes*
-(it used to call `bm_plane()`/`plane_get()` per pixel per plane), and the blitter's minterm evaluates
-on whole words (`alu_word`) instead of 16 per-bit iterations.
+| | |
+|---|---|
+| now | 179 ms/frame = **5.6 frame/s** = **28 %** of the original |
+| 100 % | 50 ms/frame (20 fps) |
 
-Order for the next session (biggest first):
-1. **Run the vblank/CIA handlers through the translated dispatcher** instead of `oracle_run_handler`
-   (they are among the 750 translated functions). Needs a machine hook like `on_cia`
-   (`run_handler`) so `src/oracle/cpu.c` keeps its interpreted path as the dev default; verify with
-   `--ticklog` + `--ram` equality against the Windows build.
-2. **Translate the remaining jump-table functions** so the MovE opcode dispatch stops being
-   interpreted (that is where `--interpstat` points).
-3. Present straight into VGA memory through a byte-pair lookup (no second 64 KB copy), and a blitter
+**The old "cycles/frame" figure is dead - do not use it.** `plat_pit_now()` extends a 16-bit 8254
+snapshot with `& 0xFFFF`, so any interval longer than 65,536 counts (55 ms) is silently truncated,
+and a frame at the 486 clock is 180 ms. Worse, the low-clock derivation an earlier session used
+(fix `cycles=3000`, difference an 11-frame and a 1-frame run) reported **the same 3,570,000
+cycles/frame for the per-pixel and the nibble-table conversion**, two builds that differ by 4.7x in
+real work and are visibly different speeds. It was measuring DOSBox's pacing, not our code. The
+same run also reported identical numbers for `core=normal` and `core=dynamic`, which settles it.
+
+Landing already: the planar->chunky conversion used to be the single biggest hot spot - a per-pixel,
+per-plane inner loop (five bit tests per pixel, 320x200, run 1.49 times per frame). It now goes
+through nibble tables (two plane bytes name four pixels), verified byte-identical on five screens,
+and is 4.7x cheaper in that loop (host time per frame 36.6 -> 24.0 ms at `cycles=max`).
+
+What the profile says now (measured at `cycles=max`, where the 8254 tracks real time and the samples
+stay inside one wrap): 6,062 68k instructions per frame, 274 of them in the CIA handler (the music
+driver, 0.93 runs/frame); the conversion runs 1.49 times per frame; the copy into VGA is 64 KB.
+
+Order for the next session (biggest first, in the percentage metric):
+1. **The per-instruction seams.** Every translated 68k instruction makes 4-6 out-of-line calls
+   (`rc_step`, `rt_trace`, `rt_time_run`, `rt_cia_service`, plus one or two memory helpers). That is
+   what a frame's 6,062 instructions turn into 179 ms. Inline the no-op cases, call `rt_time_run` /
+   `rt_cia_service` only when a timer is actually armed, and give the memory helpers a RAM fast path.
+2. **Run the vblank/CIA handlers through the translated dispatcher** instead of `oracle_run_handler`
+   - 595 instructions per frame currently go through the interpreter, which costs an order of
+   magnitude more per instruction. Needs a machine hook like `on_cia` so `src\oracle\cpu.c` keeps its
+   interpreted dev path; verify with `--ticklog` + `--ram` equality against the Windows build.
+3. **Convert once per frame.** 1.49 conversion passes per frame: `LoadView` converts, then
+   `rt_frame_present` converts the same view again at the vblank. Proving when the second pass can be
+   skipped is worth ~1/3 of the conversion cost.
+4. Present straight into VGA memory through a byte-pair lookup (no second 64 KB copy), and a blitter
    fast path for the common minterm 0xCA with direct byte-swapped word access.
-4. Startup is ~35M cycles at 3000 cycles (2.5 MB executable + 2 MB RAM clear); trim if it still
-   matters on a real machine.
 
 
 ## Where the last session left off (2026-11-11)

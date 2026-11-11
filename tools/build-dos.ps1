@@ -69,8 +69,10 @@ foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
 # -4s: i486 code, stack calling convention (consistent across every object).  DOS has no
 # 8.3-length limit on object names, but the object dir depth matters: the -i paths are relative
-# to bin\dos\obj\<group>.
+# to bin\dos\obj\<group>.  EMU_TRACE_RING=0 drops the per-instruction PC ring: a development aid
+# whose store cost every emulated instruction, and nothing emulated depends on it.
 $common = @('-bt=dos', '-q', '-4s', '-ox', '-zp8', '-zq', '-za99', '-c', '-dRC_BASE=0x4000',
+            '-dEMU_TRACE_RING=0',
             '-i=..\..\..\..\src\runtime', '-i=..\..\..\..\src\runtime\amiga',
             '-i=..\..\..\..\src\recomp', '-i=..\..\..\..\src\oracle',
             '-i=..\..\..\..\third_party\musashi')

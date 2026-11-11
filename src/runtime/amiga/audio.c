@@ -10,7 +10,7 @@
 /* PAL clocks. The 68000 runs at 7,093,790 Hz, the CIA E clock at a tenth of that, and the Paula
  * audio clock (the one AUDxPER counts) is half the CPU clock. */
 #define CPU_CLOCK 7093790u
-#define CPU_PER_E 10u
+#define CPU_PER_E EMU_CYCLES_PER_E     /* machine.h: the same number the translated clock uses */
 
 /* Sample emission is counted in thousandths of those clocks (the codebase has no 64-bit type, and
  * a frame's worth of cycles times the rate would not fit a u32): one host frame per

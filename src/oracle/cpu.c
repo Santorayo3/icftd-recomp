@@ -329,7 +329,9 @@ int oracle_step(rt_machine *m)
             printf(" %06lx", (unsigned long)m->ring[(m->ringPos + k) & (EMU_RING_SIZE - 1)]);
         printf("\n");
     }
+#if EMU_TRACE_RING
     m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = pc;
+#endif
     m->insns++;
     /* FUN_00009ae0 (the IFF chunk skipper) reads its loop flag out of the word at (A5-0xE) before
      * anything writes it. On the Amiga that frame slot holds leftover stack data, which is

@@ -63,13 +63,50 @@ u32  rc_pop32(cpu_t *c, rt_machine *m);
 u32  rc_pop16(cpu_t *c, rt_machine *m);
 
 /* --- registers as operands ----------------------------------------------------------------
- * Writes merge into the low bits exactly as the 68000 does; a word write to An sign-extends. */
-u32  rc_d_get(const cpu_t *c, int reg, int size);
-void rc_d_set(cpu_t *c, int reg, int size, u32 v);
-u32  rc_a_get(const cpu_t *c, int reg, int size);
-void rc_a_set(cpu_t *c, int reg, int size, u32 v);
-u32  rc_ext(u32 v, int size);          /* sign-extend a size-byte value */
-u32  rc_trunc(u32 v, int size);
+ * Writes merge into the low bits exactly as the 68000 does; a word write to An sign-extends.
+ * These are the most-used helpers of all (every emitted instruction touches two or three), so
+ * they live in the header: the generated functions then call same-TU code the optimiser can
+ * expand, instead of an external function per operand. */
+static u32 rc_mask_size(int size)
+{
+    if (size == 4) return 0xFFFFFFFFu;
+    if (size == 2) return 0x0000FFFFu;
+    return 0x000000FFu;
+}
+
+static u32 rc_trunc(u32 v, int size)
+{
+    return v & rc_mask_size(size);
+}
+
+static u32 rc_ext(u32 v, int size)                  /* sign-extend a size-byte value */
+{
+    if (size == 1) return (u32)(s32)(s8)(v & 0xFFu);
+    if (size == 2) return (u32)(s32)(s16)(v & 0xFFFFu);
+    return v;
+}
+
+static u32 rc_d_get(const cpu_t *c, int reg, int size)
+{
+    return rc_trunc(c->d[reg], size);
+}
+
+static void rc_d_set(cpu_t *c, int reg, int size, u32 v)
+{
+    u32 mask = rc_mask_size(size);
+    c->d[reg] = (c->d[reg] & ~mask) | (v & mask);
+}
+
+static u32 rc_a_get(const cpu_t *c, int reg, int size)
+{
+    /* A word read of An is allowed and takes the low half; the 68000 sign-extends on write. */
+    return rc_trunc(c->a[reg], size);
+}
+
+static void rc_a_set(cpu_t *c, int reg, int size, u32 v)
+{
+    c->a[reg] = (size == 2) ? rc_ext(v, 2) : rc_trunc(v, size);
+}
 
 /* --- flags ---------------------------------------------------------------------------------
  * Names follow the interpreter (src\assetExport\Cpu68k\Cpu68k.cs) so the two cannot drift. */

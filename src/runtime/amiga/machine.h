@@ -187,6 +187,31 @@ typedef struct rt_machine
     void  (*on_present)(struct rt_machine *m);  /* tool hook: dump a frame / show the window */
 } rt_machine;
 
+/* 68000 cycles between two E-clock pulses: the CIA timers count those (audio.c, cia_tick). */
+#define EMU_CYCLES_PER_E 10u
+
+/* The recent-PC ring costs a store on every instruction and is a development aid only (-w is
+ * needed to read it): the DOS release is built with -dEMU_TRACE_RING=0. Nothing emulated depends
+ * on it, so switching it off cannot change the machine state. */
+#ifndef EMU_TRACE_RING
+#define EMU_TRACE_RING 1
+#endif
+
+/* The clock slice every translated instruction contributes. The common case - no audio device and
+ * no E-clock tick due - is one add and one compare, inline; anything that actually ticks (an
+ * E-clock expiry, or an open device, which needs its samples on every slice) goes out to
+ * rt_time_run(), which also advances Paula. Semantics are identical to calling rt_time_run for
+ * every instruction: the accumulator only grows here while the next tick is further away than
+ * this instruction's cost. */
+static void rt_time_slice(rt_machine *m, long cost)
+{
+    if (m->audio.on == 0 && (u32)cost < EMU_CYCLES_PER_E - m->eAcc) {
+        m->eAcc += (u32)cost;
+        return;
+    }
+    rt_time_run(m, cost);
+}
+
 int  rt_init(rt_machine *m);
 void rt_shutdown(rt_machine *m);
 /* The AllocMem heap, shared with the graphics shim (MrgCop allocates a copper list). */
