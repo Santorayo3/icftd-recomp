@@ -14,7 +14,9 @@ param(
     [int]$TimeoutSec = 240,
     [int]$MemSize = 16,
     [string]$Cycles = 'max',
-    [string]$Core = 'dynamic'
+    [string]$Core = 'dynamic',
+    [string]$SbType = 'sb16',
+    [int]$Hdma = 5
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -37,6 +39,17 @@ $lines = @(
     '[cpu]',
     "core=$Core",
     "cycles=$Cycles",
+    # The card DOSBox emulates is the one BLASTER is derived from; sbtype=none leaves the variable
+    # unset, which is how the "no sound" path is tested.
+    '[sblaster]',
+    "sbtype=$SbType",
+    'sbbase=220',
+    'irq=5',
+    'dma=1',
+    "hdma=$Hdma",
+    '[mixer]',
+    'rate=44100',
+    'blocksize=1024',
     '[autoexec]',
     "mount c `"$Mount`"",
     "mount y `"$root`"",

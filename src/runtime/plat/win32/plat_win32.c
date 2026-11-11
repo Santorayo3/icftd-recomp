@@ -502,6 +502,11 @@ u32 plat_audio_dropped(void)
     return n;
 }
 
+u32 plat_audio_played(void)
+{
+    return 0;                          /* waveOut keeps its own clock; nothing to report */
+}
+
 u32 plat_pump(input_state *in)
 {
     MSG msg;

@@ -48,6 +48,7 @@
 static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
 static const char *g_dumpPath;  /* --dump <frame> <file>: the RAM image at that vblank */
+static int    g_noAudio;        /* --noaudio: leave the Sound Blaster alone */
 u32    g_dumpFrame;
 static int    g_dumped;
 static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
@@ -259,6 +260,7 @@ int main(int argc, char **argv)
     long traceFrom = 0, traceTo = 0;
     u32 lastTraced = 0xFFFFFFFFu, prevTraced = 0xFFFFFFFFu;
     u32 translated = 0, interpreted = 0;
+    u32 audioPlayed = 0, audioDropped = 0;
 
     plat_set_program(argc > 0 ? argv[0] : 0);
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -331,8 +333,6 @@ int main(int argc, char **argv)
     m.tickLog = tickLog;
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
-    /* Audio is modelled but not played in this build; the gains are read so the next step only
-     * has to open a device. */
     rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
                           rt_config_int("AUDIO", "music", 10, 0, 10));
 
@@ -341,6 +341,15 @@ int main(int argc, char **argv)
         printf("icftd: cannot set a video mode\n");
         rt_shutdown(&m);
         return 1;
+    }
+    /* Paula is mixed here and played through the Sound Blaster the BLASTER variable names. Without
+     * one the mixer is not started at all (rt_time_slice keeps its cheap path) and the player is
+     * told on screen instead of wondering why the game is silent. */
+    if (!g_noAudio)
+    {
+        rt_audio_open(&m, EMU_AUD_RATE);
+        if (!m.audio.device)
+            rt_osd_text(&m, "BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)", EMU_OSD_FRAMES * 8);
     }
     m.on_frame = dos_input;
     m.on_present = dos_present;
@@ -430,6 +439,9 @@ int main(int argc, char **argv)
     }
 
     rt_lvo_report();
+    /* rt_shutdown closes the device and clears the flag, so the counters are read first. */
+    audioPlayed = m.audio.device ? plat_audio_played() : 0;
+    audioDropped = m.audio.device ? plat_audio_dropped() : 0;
     rt_shutdown(&m);
     plat_shutdown();
 
@@ -466,6 +478,9 @@ int main(int argc, char **argv)
     }
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);
+    if (audioPlayed != 0 || audioDropped != 0)
+        printf("icftd: audio %lu byte(s) played by the card, %lu frame(s) dropped\n",
+               (unsigned long)audioPlayed, (unsigned long)audioDropped);
     printf("icftd: settings %s, saves %lu\n",
            rt_config_path()[0] != 0 ? rt_config_path() : "(none)", (unsigned long)m.saves);
     (void)rc;

@@ -72,6 +72,9 @@ void plat_audio_close(void);
 void plat_audio_write(const s16 *frames, u32 count);
 u32  plat_audio_dropped(void);
 
+/* Bytes the device has consumed since it opened (0 when it cannot report it). */
+u32  plat_audio_played(void);
+
 /* Fills in the input state and drains OS messages.  Returns 0 when the user asked to quit. */
 u32  plat_pump(input_state *in);
 
