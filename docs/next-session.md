@@ -125,6 +125,18 @@ Gates for every step: `tools\gate.ps1` 4/4; the 400-frame fingerprint must still
 changes just need a rebuild. On a 486 with 8 KB L1 the 2.7 MB of emitted code is part of the cost:
 a change that shrinks instructions but grows code is not automatically a win.
 
+### Display: the DAC shadow must start "unknown" after a mode set (`plat_dos.c`)
+
+A mode set does not leave the DAC black: mode 13h loads the BIOS 256-colour palette, where entry 7
+is `A8A8A8` grey and 1..6 are blue/green/red/magenta/brown/cyan. `plat_init()` used to declare the
+shadow black, so `plat_set_palette()` skipped every entry the game asked for as **black** and the
+picture kept the BIOS colour - the logo animation's background box stayed grey while the Windows
+build (no DAC, correct palette) was right. Measured by reading the DAC back through 0x3C7/0x3C9 on
+the third present: before the fix `asked 000000 dac A8A8A8` (entry 7), after it `000000/000000` for
+0..9. The shadow now starts `0xFF`, and "does the DAC already hold this colour?" is answered by the
+shadow alone (the second, redundant `g_pal` copy is gone, and with it the reason a stale entry could
+never be corrected).
+
 
 ## Where the last session left off (2026-11-11)
 

@@ -34,7 +34,6 @@
 #define KBC_DATA    0x60
 
 static u8   g_fb[SCREEN_PIXELS];            /* what plat_framebuffer() returns */
-static u8   g_pal[PAL_ENTRIES * 3];
 static u8   g_dac[PAL_ENTRIES * 3];         /* what the DAC currently holds */
 static int  g_videoMode = 3;                /* mode to restore on shutdown */
 
@@ -182,7 +181,11 @@ u32 plat_init(const char *title)
 
     kbd_take();
     set_video_mode(0x0013);
-    memset(g_dac, 0, sizeof g_dac);
+    /* A mode set does not leave the DAC black: mode 13h loads the BIOS 256-colour palette, where
+     * 7 is grey (42,42,42). The shadow therefore starts as "unknown" and the first palette write
+     * fills in all 256 entries - otherwise every entry that asks for black is skipped and the
+     * picture keeps the BIOS colour (the logo's background box stayed grey). */
+    memset(g_dac, 0xFF, sizeof g_dac);
     g_lastPit = pit_counter();
     g_pitAcc = 0;
     g_ms = 0;
@@ -254,7 +257,8 @@ void plat_present(void)
 }
 
 /* Only entries the DAC does not already hold are written: the presenter hands over all 256 every
- * frame, and the palette changes a few times per second at most. */
+ * frame, and the palette changes a few times per second at most. g_dac is the truth about the DAC
+ * (it starts "unknown" after a mode set), so this is safe for black as well. */
 void plat_set_palette(u32 first, u32 count, const u8 *rgb)
 {
     u32 i;
@@ -264,11 +268,10 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
     for (i = 0; i < count; i++) {
         u32 idx = first + i;
         const u8 *src = rgb + i * 3;
-        u8 *dst = g_pal + idx * 3;
+        u8 *dst = g_dac + idx * 3;
 
-        if (memcmp(dst, src, 3) == 0 && memcmp(g_dac + idx * 3, src, 3) == 0) continue;
+        if (memcmp(dst, src, 3) == 0) continue;
         memcpy(dst, src, 3);
-        memcpy(g_dac + idx * 3, src, 3);
         outp(0x3C8, idx);
         outp(0x3C9, (unsigned)(src[0] >> 2));   /* the DAC is 6 bits per gun */
         outp(0x3C9, (unsigned)(src[1] >> 2));
