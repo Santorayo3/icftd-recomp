@@ -77,6 +77,7 @@ static void scatter(cpu_t *c, rt_machine *m)
 /* --call: enter one of the engine's own routines once, at a chosen frame. */
 static u32 g_callPc;
 static u32 g_callFrame;
+static u32 g_callArg;
 static int g_called;
 
 /* The last few addresses the dispatcher entered, newest last: a crash inside translated code is
@@ -348,7 +349,8 @@ int main(int argc, char **argv)
         {
             char *p = argv[++i];
             g_callPc = (u32)strtoul(p, &p, 0);
-            g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 300u;
+            g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
+            if (*p == ':') g_callArg = (u32)strtoul(p + 1, 0, 0);
             continue;
         }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
@@ -456,11 +458,13 @@ int main(int argc, char **argv)
             g_called = 1;
             oracle_regs_get(r);
             r[REGS_A + 7] -= 4;
+            rt_write32(&m.mem, r[REGS_A + 7], g_callArg);   /* the routine's first argument */
+            r[REGS_A + 7] -= 4;
             rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
             r[REGS_PC] = g_callPc;
             oracle_regs_set(r);
-            printf("recomp: calling %06lX at frame %lu\n", (unsigned long)g_callPc,
-                   (unsigned long)m.frame);
+            printf("recomp: calling %06lX(%08lX) at frame %lu\n", (unsigned long)g_callPc,
+                   (unsigned long)g_callArg, (unsigned long)m.frame);
         }
         pc = m68k_get_reg(0, M68K_REG_PC);
 

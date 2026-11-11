@@ -357,6 +357,30 @@ int rc_cond(const cpu_t *c, int cc)
  * Same semantics as the interpreter; rc_div* report a divide by zero the way the interpreter
  * refuses it (there is no exception vector model here) and stop the run. */
 
+/* A divide by zero is a symptom, not the bug: the original raises a Zero Divide trap here, so the
+ * interesting part is who asked for the division. The 68000 stack holds the call chain's return
+ * addresses - print the ones that land inside the image, and the operands. */
+static void rc_div_zero(cpu_t *c, rt_machine *m, int reg, const char *what)
+{
+    int i, n = 0;
+    u32 a7 = c->a[7];
+
+    printf("recomp: DIVIDE BY ZERO (%s) at pc %06lX: D%d %08lX / 0\n", what,
+           (unsigned long)c->pc, reg, (unsigned long)c->d[reg]);
+    printf("recomp:   return addresses on the 68000 stack (A7 %06lX):", (unsigned long)a7);
+    for (i = 0; i < 32 && n < 10; i++)
+    {
+        u32 v = rt_read32(&m->mem, a7 + (u32)i * 4u);
+        if (v < m->imageBase || v >= m->imageTop) continue;
+        printf(" %06lX", (unsigned long)v);
+        n++;
+    }
+    printf("\nrecomp:   registers: D0-D3 %08lX %08lX %08lX %08lX  A0-A3 %08lX %08lX %08lX %08lX\n",
+           (unsigned long)c->d[0], (unsigned long)c->d[1], (unsigned long)c->d[2],
+           (unsigned long)c->d[3], (unsigned long)c->a[0], (unsigned long)c->a[1],
+           (unsigned long)c->a[2], (unsigned long)c->a[3]);
+}
+
 void rc_ext_w(cpu_t *c, int reg)
 {
     u32 v = (u32)(s32)(s8)(c->d[reg] & 0xFFu);
@@ -391,7 +415,7 @@ void rc_divu(cpu_t *c, rt_machine *m, int reg, u32 src)
     src &= 0xFFFFu;
     if (src == 0)
     {
-        printf("recomp: divu by zero at pc %06lX\n", (unsigned long)c->pc);
+        rc_div_zero(c, m, reg, "divu");
         m->stop = 1;
         return;
     }
@@ -415,7 +439,7 @@ void rc_divs(cpu_t *c, rt_machine *m, int reg, u32 src)
 
     if (dv == 0)
     {
-        printf("recomp: divs by zero at pc %06lX\n", (unsigned long)c->pc);
+        rc_div_zero(c, m, reg, "divs");
         m->stop = 1;
         return;
     }

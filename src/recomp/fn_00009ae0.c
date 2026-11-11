@@ -61,6 +61,12 @@ L_9AE0:
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
     c->a[7] -= 0xeu;
+    /* The loop below tests this frame word before anything writes it: on the Amiga it holds
+     * leftover stack data, which is non-zero in practice, so the loop always runs at least once.
+     * Our deep stack holds zeros there (measured at the flight's sample load), which made the
+     * skipper return without skipping: FUN_00009984 then parsed the 8SVX VHDR four bytes early
+     * and divided 3579545 by a samplesPerSec of 0. Start the flag at 1 = "keep reading". */
+    rc_wr16(c, m, (c->a[5] - 0xeu), 0x0001u);
 
 L_9AE4:
     /* 00009ae4   4  tst.w (fffffff2,A5) */
