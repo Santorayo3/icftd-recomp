@@ -26,4 +26,9 @@ void oracle_ring_print(rt_machine *m);
 void oracle_regs_get(u32 *r);
 void oracle_regs_set(const u32 *r);
 
+/* Enters one of the engine's own routines once, at a frame boundary, exactly like the host's
+ * `--call`: the frame gets the argument followed by EMU_EXIT_PC, so the run stops when the
+ * routine returns. Used to reach a scene in both front ends without playing to it. */
+void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc);
+
 #endif

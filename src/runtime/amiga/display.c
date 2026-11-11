@@ -739,6 +739,34 @@ void rt_gfx_present(rt_machine *m, u32 view)
             row[x] = (u8)idx;
         }
     }
+    if (m->progress)
+    {
+        /* --progress diagnostic: what the composed picture really is - geometry, palette size and
+         * the row range that carries visible (non-black) colour. This is how a scene whose screen
+         * looks empty is told apart from one where the presenter dropped rows. */
+        static int dbg;
+        if (m->frame > 1060 && (dbg++ % 8) == 0 && dbg < 400)
+        {
+            int y2, first = -1, last = -1, nz = 0;
+            for (y2 = 0; y2 < h; y2++)
+            {
+                int hit = 0;
+                for (x = 0; x < w; x++)
+                {
+                    int idx = gfx->fb[(u32)y2 * EMU_FB_MAX_W + (u32)x];
+                    if (gfx->pal[idx * 3] || gfx->pal[idx * 3 + 1] || gfx->pal[idx * 3 + 2]) { hit = 1; nz++; }
+                }
+                if (hit) { if (first < 0) first = y2; last = y2; }
+            }
+            printf("emu: present %lu frame %lu: vp %06lX bm %06lX %dx%d bpr %d rows %d depth %d "
+                   "vpDx %d vpDy %d riRx %d riRy %d pal %d; painted rows %d..%d, %d lit px\n",
+                   (unsigned long)gfx->frames, (unsigned long)m->frame, (unsigned long)vp,
+                   (unsigned long)bm, w, h, bpr, rows, depth,
+                   (int)(s16)rt_read16(&m->mem, vp + 0x1C), (int)(s16)rt_read16(&m->mem, vp + 0x1E),
+                   (int)(s16)rt_read16(&m->mem, ri + 4), (int)(s16)rt_read16(&m->mem, ri + 6),
+                   gfx->palCount, first, last, nz);
+        }
+    }
     /* FUN_000007F4 (panel open, flag 0x21F5A) loads five colours from 0x21F50 into the live table
      * and FUN_000008D6 restores the saved five when it closes - the engine expects them to stay up
      * while the panel waits for input. Its intro fade, however, rewrites the whole table every

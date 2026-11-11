@@ -141,6 +141,8 @@ int main(int argc, char **argv)
     const char *inputPath = 0;
     int stateEvery = 1;
     int textLog = 0;
+    u32 callPc = 0, callFrame = 300u, callArg = 0u, callAtPc = 0u;
+    long callInsns = 0;
 
     /* Unbuffered: a run that is killed (see tools\emu-run.ps1) must still leave its log behind up to
      * the point where it stopped, otherwise a hang is indistinguishable from a crash. */
@@ -191,6 +193,26 @@ int main(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
+        {
+            /* --call <pc>[:<frame>[:<arg>]] - enter an engine routine once, like the host does. */
+            char *p = argv[++i];
+            callPc = (u32)strtoul(p, &p, 0);
+            callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
+            callArg = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 0u;
+            continue;
+        }
+        if (strcmp(argv[i], "--callat") == 0 && i + 1 < argc)
+        {
+            /* --callat <pc>:<insns>:<arg>[:<atpc>] - inject at an exact instruction count, and with
+             * <atpc> only at that PC, so it can match the host's dispatch-loop boundary. */
+            char *p = argv[++i];
+            callPc = (u32)strtoul(p, &p, 0);
+            callInsns = (*p == ':') ? (long)strtoul(p + 1, &p, 0) : 0;
+            callArg = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
+            callAtPc = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 0u;
+            continue;
+        }
         /* --every is shared: "--dump <prefix> n --every k" already means "every k-th raster". */
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (image == 0) { image = argv[i]; continue; }
@@ -268,6 +290,7 @@ int main(int argc, char **argv)
         s32 lvo = 0;
         int lib;
 
+        if (callPc != 0) oracle_call_at(callPc, callFrame, callArg, callInsns, callAtPc);
         if (statePrefix != 0)
         {
             if (!state_open(statePrefix, stateEvery, ramFrames)) { rt_shutdown(&m); return 1; }

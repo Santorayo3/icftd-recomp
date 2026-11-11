@@ -455,6 +455,7 @@ int main(int argc, char **argv)
              * cleanly when it returns. This is how a scene is reached without playing to it. The
              * core's PC has to be set here - translated code rewrites c->pc per instruction. */
             u32 r[18];
+            u32 beforePc = m68k_get_reg(0, M68K_REG_PC);
             g_called = 1;
             oracle_regs_get(r);
             r[REGS_A + 7] -= 4;
@@ -463,8 +464,9 @@ int main(int argc, char **argv)
             rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
             r[REGS_PC] = g_callPc;
             oracle_regs_set(r);
-            printf("recomp: calling %06lX(%08lX) at frame %lu\n", (unsigned long)g_callPc,
-                   (unsigned long)g_callArg, (unsigned long)m.frame);
+            printf("recomp: calling %06lX(%08lX) at frame %lu (%ld insns, was at pc %06lX)\n",
+                   (unsigned long)g_callPc, (unsigned long)g_callArg, (unsigned long)m.frame,
+                   (long)m.insns, (unsigned long)beforePc);
         }
         pc = m68k_get_reg(0, M68K_REG_PC);
 

@@ -271,6 +271,16 @@ int oracle_step(rt_machine *m)
     }
     m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = pc;
     m->insns++;
+    /* FUN_00009ae0 (the IFF chunk skipper) reads its loop flag out of the word at (A5-0xE) before
+     * anything writes it. On the Amiga that frame slot holds leftover stack data, which is
+     * non-zero in practice, so the skip loop always ran at least once; our RAM holds zeros there,
+     * so the skipper returned without skipping, FUN_00009984 parsed the 8SVX VHDR four bytes early
+     * and 3579545 was divided by a samplesPerSec of 0 (the flight's "ants" sample, divu at image
+     * 0x211FE). Seed the slot as the routine is entered - no emulated instruction, so the two
+     * front ends stay in lockstep; the translation does the same store in fn_00009ae0.c. From the
+     * second iteration on the loop's own value governs, including its early exit. */
+    if (pc == m->imageBase + 0x00009AE0u)
+        rt_write16(&m->mem, m68k_get_reg(0, M68K_REG_A7) - 0x12u, 0x0001u);
     if (pc == EMU_EXIT_PC)
     {
         printf("emu: the program returned, D0=%08lx (frame %lu, %ld instructions)\n",
@@ -337,11 +347,41 @@ int oracle_step(rt_machine *m)
     return 1;
 }
 
+/* The one-shot scene entry set by oracle_call_at (see its comment in cpu.h). */
+static u32 callPc, callFrame, callArg, callAtPc;
+static long callInsns;
+static int callDone;
+
+void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc)
+{
+    callPc = pc;
+    callFrame = frame;
+    callArg = arg;
+    callInsns = insns;
+    callAtPc = atPc;
+    callDone = 0;
+}
+
 u32 oracle_run(rt_machine *m, long maxInsns)
 {
     while (m->insns < maxInsns)
     {
         if (m->stop) break;            /* the tool asked to finish (window closed) */
+        if (callPc != 0 && !callDone &&
+            (callInsns > 0 ? m->insns >= (long)callInsns : m->frame >= callFrame) &&
+            (callAtPc == 0 || m68k_get_reg(0, M68K_REG_PC) == callAtPc))
+        {
+            u32 sp = m68k_get_reg(0, M68K_REG_A7);
+            callDone = 1;
+            sp -= 4;
+            rt_write32(&m->mem, sp, callArg);      /* the routine's first argument */
+            sp -= 4;
+            rt_write32(&m->mem, sp, EMU_EXIT_PC);  /* return into the program-end sentinel */
+            m68k_set_reg(M68K_REG_A7, sp);
+            m68k_set_reg(M68K_REG_PC, callPc);
+            printf("emu: calling %06lX(%08lX) at frame %lu\n", (unsigned long)callPc,
+                   (unsigned long)callArg, (unsigned long)m->frame);
+        }
         if (m->waitVblank)
         {
             /* The program asked for the next vblank: the rest of this frame is idle, so no

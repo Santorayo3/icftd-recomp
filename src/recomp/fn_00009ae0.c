@@ -61,11 +61,10 @@ L_9AE0:
     rc_wr32(c, m, c->a[7], c->a[5]);
     c->a[5] = c->a[7];
     c->a[7] -= 0xeu;
-    /* The loop below tests this frame word before anything writes it: on the Amiga it holds
-     * leftover stack data, which is non-zero in practice, so the loop always runs at least once.
-     * Our deep stack holds zeros there (measured at the flight's sample load), which made the
-     * skipper return without skipping: FUN_00009984 then parsed the 8SVX VHDR four bytes early
-     * and divided 3579545 by a samplesPerSec of 0. Start the flag at 1 = "keep reading". */
+    /* Mirrors the oracle's entry seed (see oracle_step in src\oracle\cpu.c): the loop at 0x9AE4
+     * tests this frame word before anything writes it, and the engine relies on a real machine's
+     * leftover stack data being non-zero. Start it at 1 so the loop runs once, exactly like the
+     * routine does on hardware; from the second read on its own value governs the loop. */
     rc_wr16(c, m, (c->a[5] - 0xeu), 0x0001u);
 
 L_9AE4:
