@@ -579,10 +579,35 @@ static u32 sb_played(void)
 /* Hands converted bytes to the ring, dropping what does not fit (and counting it). */
 static void sb_service(void);
 
+/* The card consumes in real time, the mixer produces in emulated time; waiting here is what keeps
+ * the two in step, and it is how the Windows build behaves too (the wave device blocks there). A
+ * card that stops consuming must not hang the game, so the wait is bounded - after that the
+ * samples are dropped and counted, exactly as before. */
+static void sb_wait_for_room(u32 bytes)
+{
+    u32 start = g_ms;
+
+    while ((s32)(g_sb.written - sb_played()) + (s32)bytes > (s32)SB_BUF_BYTES)
+    {
+        pit_update();
+        if (g_ms - start >= 30u) return;
+    }
+}
+
 static void sb_put(const u8 *src, u32 bytes)
 {
-    u32 used = g_sb.written - sb_played();
-    u32 free = used >= SB_BUF_BYTES ? 0u : SB_BUF_BYTES - used;
+    u32 played = sb_played();
+    s32 used = (s32)(g_sb.written - played);
+    u32 free;
+
+    if (used < 0)
+    {
+        /* The card drained the ring and is replaying what is left: the write pointer snaps to the
+         * read pointer instead of running backwards (which would make "used" enormous). */
+        g_sb.written = played;
+        used = 0;
+    }
+    free = (u32)used >= SB_BUF_BYTES ? 0u : SB_BUF_BYTES - (u32)used;
 
     if (bytes > free)
     {
@@ -748,16 +773,17 @@ void plat_audio_write(const s16 *frames, u32 count)
 
     if (!g_sb.open || frames == 0 || count == 0) return;
 
-
     if (g_sb.decim == 1)
     {
         /* 16-bit stereo at the mixer's rate: the bytes are already what the card wants. */
+        sb_wait_for_room(count * 4u);
         sb_put((const u8 *)frames, count * 4u);
         return;
     }
 
     out = count / g_sb.decim;
     if (out > SB_MAX_FRAMES) out = SB_MAX_FRAMES;
+    sb_wait_for_room(out * g_sb.bytesFrame);
     for (i = 0; i < out; i++)
     {
         const s16 *f0 = frames + (i * g_sb.decim) * 2;
