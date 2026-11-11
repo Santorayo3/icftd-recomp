@@ -80,6 +80,40 @@ Flags worth knowing: `--progress` (counters every million steps), `--lvo` (libra
 (canonical machine-state dump per frame boundary) and `--input <script>` (frame-indexed input:
 `<frame> <fire> <joy0> [<joy1>]`). `tools\state-diff.ps1 -A -B` compares two dumps.
 
+## The MS-DOS build
+
+The same translated image, on MS-DOS: VGA mode 13h (320x200, one byte per pixel), the 8042 keyboard
+polled for held keys, a 50 Hz clock from the 8254 timer, and the machine's own `icftd.ini` (without a
+`[VIDEO] fullscreen` entry - a DOS program owns the display). 32-bit DOS needs an extender; the build
+binds **DOS/32A**, which Open Watcom already ships, so nothing extra has to be downloaded.
+
+**Double-click `play_dos.cmd`.** It stages the release on first use (build + package) and starts
+DOSBox with the settings the game needs. Its clock defaults to `cycles=30000`, a 486DX2-66-class
+machine - the hardware this port is aimed at - so what you see is the real target performance;
+`set ICFTD_CYCLES=max` runs it at whatever the host can do. The individual steps, if you want them:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1     # -> bin\dos\ICFTD.EXE
+powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1      # -> bin\dos\game (runnable release)
+powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1       # DOSBox, cycles=max, core=dynamic
+```
+
+`bin\dos\game` holds exactly what a release needs: `ICFTD.EXE`, `DSHELL.IMG`, `DISK1..DISK3` and
+`NAMES.TXT`. The last one exists because the engine asks for AmigaDOS names that FAT cannot hold
+(`fonts\newnem.font`); the packer renames those files to 8.3 and the platform layer retries a failed
+open through that map. `ICFTD.CONF` is a DOSBox config for it - start it with
+`dosbox -conf ICFTD.CONF`. Save slots are directories next to the executable (`SAVES\SLOT1..4`),
+holding the engine's `ICFTD` file, exactly as on Windows.
+
+**DOSBox settings matter:** `core=dynamic` (the JIT) is roughly ten times faster than `core=normal`,
+and the cycle count is the emulated CPU: `30000` is about a 486DX2-66, `3000` a 386 (the stock
+setting, on which the game crawls) and `max` whatever the host can do. Those are DOSBox's own
+settings - they say nothing about real hardware, where the binary simply runs natively. What the
+hardware sees is the work per frame: **~3.5 million x86 cycles currently**, i.e. about 8 fps on a
+486DX2-66 against the 50 fps target, so the DOS target still needs roughly a 6x reduction (the
+vblank handler running on the 68000 interpreter is the first item). Measured cost, method and plan:
+`docs/next-session.md`.
+
 ## Layout
 
 ```
@@ -109,6 +143,9 @@ docs/                  architecture, plan, program model
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
 | `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
+| `tools\build-dos.ps1` | build `bin\dos\ICFTD.EXE`: the game for MS-DOS (DOS/32A extender) |
+| `tools\dos-pack.ps1` | stage a runnable DOS release in `bin\dos\game` (8.3 names + `NAMES.TXT`) |
+| `tools\dos-run.ps1` | run the DOS build under DOSBox with a generated config |
 | `tools\recomp-fixtures.ps1` | translated vs interpreted, one fixture at a time (`-Rand n` for random fields) |
 | `tools\musashi-gen.ps1` | generate Musashi's `m68kops.c` (git-ignored) |
 | `tools\extract.ps1` | disk images → `export\` |

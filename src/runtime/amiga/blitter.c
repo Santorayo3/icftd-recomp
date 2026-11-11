@@ -44,10 +44,25 @@ static void wr16(rt_machine *m, u32 a, u16 v)
     rt_write16(&m->mem, a, v);
 }
 
-/* One bit of the minterm: the index is 4*A + 2*B + C (A/B/C = the three data inputs). */
-static int alu(u16 minterm, int a, int b, int c)
+/* The minterm bit for the three data inputs A, B and C has the index 4*A + 2*B + C. It is a
+ * bitwise boolean function, so it evaluates on whole words: the result is the OR of the product
+ * terms the minterm selects, each (a ? A : ~A) & (b ? B : ~B) & (c ? C : ~C). Sixteen per-bit
+ * iterations become a handful of word operations, which matters: the intro runs tens of thousands
+ * of blits per second. */
+static u16 alu_word(u16 minterm, u16 aw, u16 bw, u16 cw)
 {
-    return (int)((minterm >> ((a << 2) | (b << 1) | c)) & 1u);
+    u16 na = (u16)~aw, nb = (u16)~bw, nc = (u16)~cw;
+    u16 out = 0;
+
+    if (minterm & 0x01u) out |= (u16)(na & nb & nc);
+    if (minterm & 0x02u) out |= (u16)(na & nb & cw);
+    if (minterm & 0x04u) out |= (u16)(na & bw & nc);
+    if (minterm & 0x08u) out |= (u16)(na & bw & cw);
+    if (minterm & 0x10u) out |= (u16)(aw & nb & nc);
+    if (minterm & 0x20u) out |= (u16)(aw & nb & cw);
+    if (minterm & 0x40u) out |= (u16)(aw & bw & nc);
+    if (minterm & 0x80u) out |= (u16)(aw & bw & cw);
+    return out;
 }
 
 /* How far a channel pointer moves from one row to the next. The pointer advances as the words of
@@ -107,8 +122,6 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
         int i = descending ? (words - 1 - w) : w;
         s32 off = (s32)i * (s32)step;
         u16 aw, bw, cw, dw = 0;
-        int bit;
-        u16 mask = 0xFFFF;
 
         if (fill)
         {
@@ -167,18 +180,8 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
         else bw = b->bdat;
 
         cw = useC ? rd16(m, (u32)(coff + off)) : b->cdat;
-        if (useD) dw = rd16(m, (u32)(doff + off));
 
-        {
-            u16 out = 0;
-            for (bit = 15; bit >= 0; bit--)
-            {
-                int a = (aw >> bit) & 1, bb = (bw >> bit) & 1, c = (cw >> bit) & 1;
-                out = (u16)((out << 1) | (u16)alu(minterm, a, bb, c));
-            }
-            if (useD) wr16(m, (u32)(doff + off), out);
-        }
-        (void)mask;
+        if (useD) wr16(m, (u32)(doff + off), alu_word(minterm, aw, bw, cw));
     }
 }
 

@@ -779,18 +779,52 @@ void rt_gfx_present(rt_machine *m, u32 view)
         }
     }
 
-    for (y = 0; y < h; y++)
+    /* Planar -> chunky. This is the one loop that runs over the whole screen every frame, so it
+     * indexes the plane bytes directly instead of calling plane_get() per pixel: the plane
+     * pointers are read once, a row that does not lie wholly inside the RAM block keeps the
+     * general accessor (which answers 0 outside), and everything else is a byte load per plane. */
     {
-        u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
-        for (x = 0; x < w; x++)
+        int np = depth < 8 ? depth : 8;
+        u32 planes[8];
+        for (p = 0; p < 8; p++) planes[p] = 0;
+        for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
+        for (y = 0; y < h; y++)
         {
-            int idx = 0;
-            for (p = 0; p < depth && p < 8; p++)
+            u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
+            const u8 *src[8];
+            int fast = 1;
+
+            for (p = 0; p < 8; p++) src[p] = 0;
+            for (p = 0; p < np; p++)
             {
-                u32 plane = bm_plane(m, bm, p);
-                if (plane != 0) idx |= plane_get(m, plane, bpr, x, y) << p;
+                u32 off;
+                if (planes[p] == 0) continue;
+                off = planes[p] + (u32)y * (u32)bpr;
+                if (off + (u32)bpr > m->mem.size) { fast = 0; break; }
+                src[p] = m->mem.base + off;
             }
-            row[x] = (u8)idx;
+            if (fast)
+            {
+                for (x = 0; x < w; x++)
+                {
+                    u8 mask = (u8)(0x80u >> (x & 7));
+                    int byte = x >> 3;
+                    int idx = 0;
+                    for (p = 0; p < np; p++)
+                        if (src[p] != 0 && (src[p][byte] & mask) != 0) idx |= 1 << p;
+                    row[x] = (u8)idx;
+                }
+            }
+            else
+            {
+                for (x = 0; x < w; x++)
+                {
+                    int idx = 0;
+                    for (p = 0; p < np; p++)
+                        if (planes[p] != 0) idx |= plane_get(m, planes[p], bpr, x, y) << p;
+                    row[x] = (u8)idx;
+                }
+            }
         }
     }
     if (m->progress)

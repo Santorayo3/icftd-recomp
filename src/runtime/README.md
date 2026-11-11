@@ -8,6 +8,7 @@ types.h          fixed-width types, no OS headers
 platform.h       the platform contract: window, input, audio, files, heap, 50 Hz clock
 config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
 plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files)
+plat/dos/        the other: VGA mode 13h, the VGA DAC, polled 8042 scancodes, the 8254 frame clock
 amiga/memory.c   24-bit big-endian address space
 amiga/machine.c  the library shims (exec, dos, graphics, intuition, ciaa, input, ...), the heap,
                  the exec structures (Process/CLI, lists, message ports) and the call census
@@ -16,6 +17,24 @@ amiga/display.c  graphics.library's planar model over a chunky framebuffer + the
 amiga/audio.c    Paula (4 DMA channels, AUDxLC/LEN/PER/VOL, DMACON) mixed to the host device,
                  and the CIA-A/B timer A interrupts that run the engine's own music driver
 ```
+
+## MS-DOS
+
+`plat/dos/plat_dos.c` is a full implementation of the same contract, and it is what the DOS release
+uses (`src\host\dos_main.c`, `tools\build-dos.ps1`):
+
+* **Display**: the runtime framebuffer is 8-bit chunky, which is exactly VGA mode 13h (320x200, one
+  byte per pixel) - the platform copies it to `A0000` and uploads the palette to the DAC (6 bits per
+  gun, only the entries that changed).
+* **Keyboard**: INT 16h only reports presses, but the engine needs held directions and the moment
+  fire is *released*, so IRQ1 is masked and the 8042's make/break scancodes are polled (in
+  `plat_pump` and while waiting for the next frame). The mask is restored on shutdown.
+* **Clock**: the 8254's channel-0 counter is read through the latch command - the BIOS tick is
+  18.2 Hz and the frame is 20 ms, and this leaves the BIOS clock alone.
+* **Files**: the C library, plus `NAMES.TXT`: the engine asks for a few names FAT cannot hold
+  (`fonts\newnem.font`), so a path that fails to open is retried with the 8.3 name the record maps
+  it to. `tools\dos-pack.ps1` writes that file while staging the release.
+* **Settings**: `plat_default_ini()` is per platform - the DOS build writes no `[VIDEO] fullscreen`.
 
 ## Settings (`icftd.ini`)
 

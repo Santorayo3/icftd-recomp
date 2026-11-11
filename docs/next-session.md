@@ -4,6 +4,55 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+## The MS-DOS target (2026-11-11, later session) — it runs; performance is the open work
+
+Step 1 as agreed: **no audio**, VGA, `icftd.ini` without a fullscreen entry, save slots as
+directories with the engine's `ICFTD` file.
+
+What exists: `tools\build-dos.ps1` (`bin\dos\ICFTD.EXE`, Watcom + the DOS/32A extender that Open
+Watcom already ships), `tools\dos-pack.ps1` (a runnable release in `bin\dos\game`), `tools\dos-run.ps1`
+(DOSBox), `src\runtime\plat\dos\plat_dos.c`, `src\host\dos_main.c`. Details and the DOSBox facts:
+repo memory `icftd-dos.md`.
+
+**Two divergences were found by machine state, both closed** (see the memory file for the full text):
+`oracle_boot()` installs the dev tool's own `on_cia` hook, so a front end must set its hook *after*
+it - otherwise a CIA timer expiry inside translated code runs the music driver on a stale register
+file and the machine leaves the image; and the engine's font is `fonts\newnem.font`, which FAT cannot
+hold, so the release ships 8.3 names plus `NAMES.TXT` and the platform retries a failed open through
+it (without it `OpenDiskFont` returns 0 and the engine takes the no-font path). After both: DOS and
+Windows RAM are byte-identical at the same vblank, the tick logs match, and the call census shows
+41 kinds / 2014 calls / **0 answered with 0**.
+
+### Performance — the number that decides "486-66 at 50 fps"
+
+DOSBox settings (`core=dynamic`, `cycles=max`) only make the *emulator* fast; on real hardware the
+binary runs natively. The hardware-independent cost is measured by fixing the emulated clock
+(`cycles=3000`, so wall time ∝ executed cycles) and differencing an 11-frame and a 1-frame run:
+
+| | cycles/frame | 486DX2-66 (~30M cycles/s) |
+|---|---|---|
+| now | **3,532,868** | ~8.5 fps |
+| target 50 fps | <= ~600,000 | 50 fps |
+
+`--perf` splits a frame (in 8254 counts): vblank ~29 % at that point in the intro - the interrupt
+server runs on the **Musashi interpreter**, which is the first item - and `present` 0-28 % depending
+on the scene. Landed already: the presenter hoists the plane pointers and reads plane *bytes*
+(it used to call `bm_plane()`/`plane_get()` per pixel per plane), and the blitter's minterm evaluates
+on whole words (`alu_word`) instead of 16 per-bit iterations.
+
+Order for the next session (biggest first):
+1. **Run the vblank/CIA handlers through the translated dispatcher** instead of `oracle_run_handler`
+   (they are among the 750 translated functions). Needs a machine hook like `on_cia`
+   (`run_handler`) so `src/oracle/cpu.c` keeps its interpreted path as the dev default; verify with
+   `--ticklog` + `--ram` equality against the Windows build.
+2. **Translate the remaining jump-table functions** so the MovE opcode dispatch stops being
+   interpreted (that is where `--interpstat` points).
+3. Present straight into VGA memory through a byte-pair lookup (no second 64 KB copy), and a blitter
+   fast path for the common minterm 0xCA with direct byte-swapped word access.
+4. Startup is ~35M cycles at 3000 cycles (2.5 MB executable + 2 MB RAM clear); trim if it still
+   matters on a real machine.
+
+
 ## Where the last session left off (2026-11-11)
 
 Done and verified in this session, in order:

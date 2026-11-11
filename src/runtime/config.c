@@ -7,19 +7,8 @@
 #include "platform.h"
 
 /* What a fresh installation starts with: written when no file exists, then read back like any
- * other file, so the defaults and the parser can never disagree. */
-static const char kDefaultIni[] =
-    "; ICFTD runtime settings. Written with these defaults on the first start.\r\n"
-    "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
-    "\r\n"
-    "[VIDEO]\r\n"
-    "; false = window at the original 320x200; true = fullscreen, picture scaled up to fit.\r\n"
-    "fullscreen=true\r\n"
-    "\r\n"
-    "[AUDIO]\r\n"
-    "; Volume 0..10, 0 = off, 10 = full.\r\n"
-    "sound=10\r\n"
-    "music=10\r\n";
+ * other file, so the defaults and the parser can never disagree. The text belongs to the
+ * platform - a DOS build has no window mode to configure (plat_default_ini). */
 
 #define CFG_MAX_ITEMS 64
 #define CFG_MAX_BYTES 8192
@@ -158,14 +147,18 @@ u32 rt_config_load(void)
     return (u32)load_file("icftd.ini");
 }
 
-/* Writes kDefaultIni. Returns 1 when the file is there afterwards. */
+/* Writes the platform's default text. Returns 1 when the file is there afterwards. */
 static u32 write_defaults(const char *path)
 {
-    plat_file *f = plat_create(path);
-    u32 len = (u32)strlen(kDefaultIni);
+    const char *text = plat_default_ini();
+    plat_file *f;
+    u32 len;
 
+    if (text == 0 || *text == 0) return 0;
+    len = (u32)strlen(text);
+    f = plat_create(path);
     if (f == 0) return 0;
-    if (plat_write(f, 0, kDefaultIni, len) != len) {
+    if (plat_write(f, 0, text, len) != len) {
         plat_close(f);
         return 0;
     }

@@ -210,6 +210,34 @@ void plat_set_fullscreen(u32 on)
     g_fullscreen = on ? 1u : 0u;
 }
 
+/* GetModuleFileName knows the executable's path, so the argument is not needed here. */
+void plat_set_program(const char *argv0)
+{
+    (void)argv0;
+}
+
+/* The DOS clock the front end measures frames with; nothing on Win32 uses it. */
+u32 plat_pit_now(void)
+{
+    return 0;
+}
+
+/* The windowed build has a video mode to choose, so its ini carries it. */
+const char *plat_default_ini(void)
+{
+    return "; ICFTD runtime settings. Written with these defaults on the first start.\r\n"
+           "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
+           "\r\n"
+           "[VIDEO]\r\n"
+           "; false = window at the original 320x200; true = fullscreen, picture scaled up to fit.\r\n"
+           "fullscreen=true\r\n"
+           "\r\n"
+           "[AUDIO]\r\n"
+           "; Volume 0..10, 0 = off, 10 = full.\r\n"
+           "sound=10\r\n"
+           "music=10\r\n";
+}
+
 u32 plat_fullscreen(void)
 {
     return g_fullscreen;

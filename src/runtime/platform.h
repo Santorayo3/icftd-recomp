@@ -38,6 +38,14 @@ typedef struct {
 /* Returns non-zero on success.  The core draws into plat_framebuffer(). */
 u32  plat_init(const char *title);
 
+/* The program's own path, as the runtime got it (argv[0]); call it first thing in main on
+ * platforms whose API cannot tell (DOS).  Windows ignores it - GetModuleFileName knows. */
+void plat_set_program(const char *argv0);
+
+/* The icftd.ini a fresh installation starts with.  The settings that only make sense on one
+ * platform (fullscreen) are only in that platform's default text. */
+const char *plat_default_ini(void);
+
 /* Window mode, from icftd.ini [VIDEO] fullscreen; call before plat_init.  Off keeps the window
  * at exactly the framebuffer size and blits it 1:1; on takes the whole screen and scales the
  * picture up.  May be a no-op. */
@@ -133,5 +141,9 @@ void plat_set_title(const char *text);
  * enough to call every frame, and it survives the process dying: after a crash the file holds
  * the machine state of the last frame that started. */
 void plat_crash_state(const char *text);
+
+/* A free-running counter for measuring where a frame's emulated time goes (the 8254 clock on
+ * DOS, 0 elsewhere). Monotonic, wraps at 2^32. */
+u32  plat_pit_now(void);
 
 #endif /* ICFTD_PLATFORM_H */
