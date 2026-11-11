@@ -26,6 +26,9 @@ static u32 g_nib01[256];                 /* planes 0 and 1 */
 static u32 g_nib23[256];                 /* planes 2 and 3 */
 static u32 g_nib4[16];                   /* plane 4 */
 static int g_nibReady;
+/* Stands in for a plane the screen does not have (and for one whose row is not in RAM), so the
+ * group loop below can read all five planes unconditionally. Must cover a 640-pixel row. */
+static const u8 g_zeroRow[128];
 
 /* Bit 3 of a nibble is its leftmost pixel, matching the 0x80 mask the bitplane format uses. */
 static void nib_tables(void)
@@ -718,6 +721,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
     w = (int)rt_read16(&m->mem, vp + EMU_VP_WIDTH);
     h = (int)rt_read16(&m->mem, vp + EMU_VP_HEIGHT);
     if (w <= 0 || w > bpr * 8) w = bpr * 8;
+    if (w > EMU_FB_MAX_W) w = EMU_FB_MAX_W;
     if (h <= 0 || h > rows) h = rows;
     if (h > EMU_FB_MAX_H) h = EMU_FB_MAX_H;
     gfx->fbW = w;
@@ -853,26 +857,29 @@ void rt_gfx_present(rt_machine *m, u32 view)
             {
                 int groups = w >> 3;
                 int g;
-                const u8 *s0 = src[0], *s1 = src[1], *s2 = src[2], *s3 = src[3], *s4 = src[4];
+                /* A plane a shallow screen does not have is read from a zero row, so the group loop
+                 * needs no per-plane test: five loads, six table reads and two dword stores for
+                 * eight pixels. This loop is 40 % of a frame (measured with it switched off), so the
+                 * branch per plane and the eight byte stores per group are worth this much care -
+                 * the values are the same either way. */
+                const u8 *s0 = src[0] != 0 ? src[0] : g_zeroRow;
+                const u8 *s1 = src[1] != 0 ? src[1] : g_zeroRow;
+                const u8 *s2 = src[2] != 0 ? src[2] : g_zeroRow;
+                const u8 *s3 = src[3] != 0 ? src[3] : g_zeroRow;
+                const u8 *s4 = src[4] != 0 ? src[4] : g_zeroRow;
 
                 for (g = 0; g < groups; g++)
                 {
-                    u8 b0 = s0 != 0 ? s0[g] : 0;
-                    u8 b1 = s1 != 0 ? s1[g] : 0;
-                    u8 b2 = s2 != 0 ? s2[g] : 0;
-                    u8 b3 = s3 != 0 ? s3[g] : 0;
-                    u8 b4 = s4 != 0 ? s4[g] : 0;
-                    u32 lo = g_nib01[(u32)(b0 & 0xF0u) | (u32)(b1 >> 4)] |
-                             g_nib23[(u32)(b2 & 0xF0u) | (u32)(b3 >> 4)] |
+                    u32 b0 = s0[g], b1 = s1[g], b2 = s2[g], b3 = s3[g], b4 = s4[g];
+                    u32 lo = g_nib01[(b0 & 0xF0u) | (b1 >> 4)] |
+                             g_nib23[(b2 & 0xF0u) | (b3 >> 4)] |
                              g_nib4[b4 >> 4];
-                    u32 hi = g_nib01[(u32)((b0 & 0x0Fu) << 4) | (u32)(b1 & 0x0Fu)] |
-                             g_nib23[(u32)((b2 & 0x0Fu) << 4) | (u32)(b3 & 0x0Fu)] |
+                    u32 hi = g_nib01[((b0 & 0x0Fu) << 4) | (b1 & 0x0Fu)] |
+                             g_nib23[((b2 & 0x0Fu) << 4) | (b3 & 0x0Fu)] |
                              g_nib4[b4 & 0x0Fu];
-                    u8 *out = row + (g << 3);
-                    out[0] = (u8)lo;         out[1] = (u8)(lo >> 8);
-                    out[2] = (u8)(lo >> 16); out[3] = (u8)(lo >> 24);
-                    out[4] = (u8)hi;         out[5] = (u8)(hi >> 8);
-                    out[6] = (u8)(hi >> 16); out[7] = (u8)(hi >> 24);
+                    u32 *out = (u32 *)(void *)(row + (g << 3));   /* 8 pixels, 4-aligned row */
+                    out[0] = lo;
+                    out[1] = hi;
                 }
                 for (x = groups << 3; x < w; x++)
                 {

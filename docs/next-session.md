@@ -72,15 +72,52 @@ frame also still run on Musashi.
 
 Order for the next session - the **emitter** step, measured after each slice at `cycles=66000`
 (intro, frames 60 vs 260), acting only on a number that moved:
-1. **Cycle accounting per basic block.** The emitter knows every instruction's cost already, so a
-   block carries a constant total: one subtract and one compare per block instead of `rc_step()` per
-   instruction. Keep tick cadence exact by bisecting only the block that straddles a vblank.
+
+**Measured first (2026-11-11, same session, one build per row):**
+
+| build | ms/frame |
+|---|---|
+| reference | **79.5** |
+| 1. block cycle accounting, as specified | 82.5 |
+| ... the same build with the per-instruction model forced | 80.5 |
+| reference with the planar->chunky loop switched off (measurement only) | **48.0** |
+
+- **Step 1 was implemented, measured and reverted.** A block charge cannot cover the device clock:
+  batching Paula/CIA to the block boundary takes the interrupt at a different instruction, which
+  moves the machine (400 frames: 591 rasters / 2,535,644 instructions instead of 596 / 2,418,803).
+  Servicing the pending interrupt before or after the charge makes no difference, both are wrong.
+  What is provably identical (no E-clock tick inside the block, `m->eAcc += cost`) is worth
+  nothing: the guard and the per-block call make the build 2 ms **slower** than the same code with
+  the per-instruction path forced and 3 ms slower than the reference, while the generated tree grows
+  2.62 -> 2.95 MB. Do not re-walk it.
+- **The frame is not spent in translated code.** It costs ~773 host instructions per emulated
+  instruction in total (5.25 M / 6794), of which the per-instruction bookkeeping is ~45. That makes
+  step 2 (register file in locals) a small lever, not the 1.6x.
+- **The frame is spent converting the screen: 31.5 ms of 79.5 (40 %)**, at 1.55 passes/frame
+  (`LoadView` presents *and* the vblank presents). The A/B with the loop switched off is the number
+  to trust - `--perf`'s PIT figure said 29 % - and the experiment is clean: that build's 260-frame
+  run printed the same 397 rasters / 1,871,324 instructions as the reference.
+
+Revised order, highest measured item first:
+1. **The conversion.** First done (commit after `20f9098`): the five per-plane tests inside the
+   8-pixel group loop were unnecessary (a missing plane reads a zero row) and two dword stores
+   replace eight byte stores - **79.5 -> 66.0 ms (17 %), 63 % -> 76 % of the original**, fingerprint
+   and gate unchanged. Left: one pass per frame instead of 1.55 (worth ~11 ms, but a mid-frame
+   LoadView flip must then be presented at the vblank, which is a display-model decision).
+2. Then the "game" 64 %: the software blitter (`blit_row` calls the bounds-checked `rd16`/`wr16`
+   per word per channel - hoist the range check out of the row loop) and the ~2000 library calls
+   per frame. Measure each the same way: switch the loop off, keep the cycle charge, and check the
+   400-frame fingerprint does not move.
+3. Then the emitter slices as originally planned: the 68k register file in locals (step 2 below),
+   vblank/CIA handlers through the translated dispatcher (needs a `run_handler` hook like `on_cia`,
+   595 instructions/frame on Musashi today), present straight into VGA memory.
+
+Original plan, kept for the record:
+1. Cycle accounting per basic block (measured above: no).
 2. **The 68k register file in locals for the block** (`D0..D7/A0..A7/SR` as C locals, written back at
-   block end, at library calls and anywhere the frame hook can observe). That is what attacks the
-   ~900 instruction-equivalents per emulated instruction.
-3. Then, if still needed: vblank/CIA handlers through the translated dispatcher (needs a
-   `run_handler` hook like `on_cia`, 595 instructions/frame on Musashi today), one conversion pass
-   per frame, present straight into VGA memory.
+   block end, at library calls and anywhere the frame hook can observe).
+3. vblank/CIA handlers through the translated dispatcher, one conversion pass per frame, present
+   straight into VGA memory.
 
 Gates for every step: `tools\gate.ps1` 4/4; the 400-frame fingerprint must still read
 `596 raster(s), 2418803 instruction(s)`; emitter changes require regenerating `src\recomp\fn_*.c`
