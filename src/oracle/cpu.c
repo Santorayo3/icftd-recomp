@@ -423,12 +423,16 @@ u32 oracle_run(rt_machine *m, long maxInsns)
             printf("emu: calling %06lX(%08lX) at frame %lu\n", (unsigned long)callPc,
                    (unsigned long)callArg, (unsigned long)m->frame);
         }
-        if (m->waitVblank)
+        while (m->waitFrames > 0)
         {
-            /* The program asked for the next vblank: the rest of this frame is idle, so no
-             * cycle is spent for it. Zero budget is enough to end the frame. */
-            m->waitVblank = 0;
+            /* The program asked for the next vblank (WaitTOF/WaitBOVP) or to sleep (dos.Delay):
+             * the rest of this frame is idle, so no cycle is spent for it. Zero budget is enough
+             * to end the frame; a Delay of n ticks is n boundaries, run before the next
+             * instruction - the task is asleep while the vblanks keep firing. */
+            m->waitFrames--;
             m->cyclesToTick = 0;        /* the check below goes negative: this frame ends now */
+            oracle_tick(m);
+            if (m->stop) break;
         }
         /* The budget is charged per instruction from the 68000 cycle table, so a frame is
          * EMU_CYCLES_PER_FRAME cycles - the same rule the translated code follows

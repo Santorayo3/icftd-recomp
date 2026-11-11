@@ -561,7 +561,7 @@ int main(int argc, char **argv)
         }
         interpreted++;
         interp_note(pc, !g_isActive);
-        if (m.waitVblank) { m.waitVblank = 0; m.cyclesToTick = 0; }
+        while (m.waitFrames > 0) { m.waitFrames--; m.cyclesToTick = 0; oracle_tick(&m); }
         rt_trace(&m, pc);
         m.cyclesToTick -= (long)oracle_cycle_cost(pc);
         if (m.cyclesToTick < 0) oracle_tick(&m);

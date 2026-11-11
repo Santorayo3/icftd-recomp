@@ -119,7 +119,9 @@ typedef struct rt_machine
     long    cyclesToTick;                 /* 68000 cycles left before the next vblank */
     long    blitCycles;                   /* cycles the blitter took, for the timing report */
     int     inTick;                       /* the tick handler is running */
-    int     waitVblank;                   /* WaitTOF/WaitBOVP is pending: end this frame early */
+    int     waitFrames;                   /* frame boundaries the program asked to wait for */
+    u32     todLatch[2];                  /* CIA-A/B TOD read latch, in frames */
+    int     todLatched[2];                /* 1 = TODLO was read: the latch stays frozen */
     u32     view;                         /* last View passed to LoadView */
     u32     watch;                        /* PC to report on: dumps the recent PC ring */
     u32     ring[EMU_RING_SIZE];          /* last executed PCs, for --watch and call dumps */
@@ -196,6 +198,8 @@ void rt_trace(rt_machine *m, u32 pc);
 void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
 /* A shim asked for the next vertical blank: end this frame without executing anything. */
 void rt_request_vblank(rt_machine *m);
+/* dos.Delay(n): the calling task is asleep for n of the 50 Hz ticks, i.e. n frame boundaries. */
+void rt_delay_ticks(rt_machine *m, u32 ticks);
 /* Frame boundary: shows the loaded view, so drawing done since the last flip becomes visible. */
 void rt_frame_present(rt_machine *m);
 /* Where the runtime put the CLI argument tail (the front end passes it to the program in A0). */

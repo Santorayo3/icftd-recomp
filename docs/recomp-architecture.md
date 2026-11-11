@@ -174,7 +174,27 @@ Three pieces make the clock:
    the blitter). The blit itself still completes in one go; the bytes are identical, only the clock
    moves.
 3. **Blaming the right party.** The host sleeps to 50 Hz (`plat_frame_sync`), never the emulator, and
-   `--speed` is an inspection aid only.
+   `--speed` is an inspection aid only. The host's period is counted on `QueryPerformanceCounter`:
+   `GetTickCount`'s 15.6 ms granularity cannot express the Amiga's 20.000 ms frame, so the old loop
+   alternated 15/31 ms. Measured over a 4 s windowed run: 198 frames presented, i.e. 49.5-50 Hz.
+
+**Waiting is measured in frames, like everything else.** A wait is a count of frame boundaries in
+`m->waitFrames`, consumed by the front end *before* the next instruction runs: the task is asleep
+while the vblanks keep firing and the game resumes on the boundary it asked for. `WaitTOF` /
+`WaitBOVP` post one boundary (as before - one boundary is bit-identical to the old single-shot
+form), and `dos.Delay(n)` posts `n` - AmigaDOS suspends the task for n ticks of the same 50 Hz
+E clock, so answering 0 without spending the time made every Delay a no-op. Measured through the
+engine's own thunk `FUN_00021428` (image 0x21428): `Delay(7)` moves the frame counter from 108 to
+115, `Delay(0)` leaves it at 108.
+
+**The registers that come from the clock are the clock.** `$DFF004` (VPOSR) and `$DFF006` (VHPOSR)
+are derived from the frame budget - a PAL line is 227 colour clocks = 454 68000 cycles and a frame
+is exactly 312.5 of them - and the CIA-A/B time-of-day counters (BCD at 10 Hz, latch on a TODLO
+read, released by TODHI) from the frame counter. The engine uses them as entropy: `FUN_00016e56`
+folds `$DFF006` and both CIA TOD pairs into its accumulator, so a constant zero there was a
+difference from the original. Both front ends read the same registers through `rt_bus_*`, so this
+does not affect oracle-vs-translated parity (verified: calling `FUN_00016e56` at two different
+times yields different accumulators, and the frame-100 RAM dump stays byte-identical).
 
 Measured against the A500 capture in `docs\drawing-model.md`, per MovE step ("light" = the stretch
 where the original keeps up, "heavy" = the desert/cloud phase):

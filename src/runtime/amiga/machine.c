@@ -965,7 +965,7 @@ static u32 rt_d_to_ffp(double d)
  * takes the stack pointer, A0/A1 and D0/D1 as plain values and returns the result, plus two flags
  * the caller must act on:
  *
- *   m->waitVblank   a WaitTOF/WaitBOVP ran: the frame is over (see rt_request_vblank)
+ *   m->waitFrames   WaitTOF/WaitBOVP/dos.Delay asked for frame boundaries (see rt_request_vblank)
  *   m->stop         the program halted (Alert)
  *
  * The registers matter because that is how graphics.library takes its arguments (A1 = RastPort,
@@ -1294,6 +1294,18 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
                 }
                 result = ds;
             }
+            break;
+        case -198:                               /* Delay(ticks) */
+            {
+                /* AmigaDOS blocks the caller for `ticks` of the 50 Hz system clock. Answering 0
+                 * without spending the time made every Delay a no-op, so anything that paced
+                 * itself with it ran as fast as the emulator could go. rt_delay_ticks hands the
+                 * wait to the frame budget, which is the same clock (see the header). */
+                u32 ticks = arg32(sp, 0);
+                if (m->trace || m->dosLog) printf("     dos.Delay(%lu)\n", (unsigned long)ticks);
+                rt_delay_ticks(m, ticks);
+            }
+            result = 0;
             break;
         default:
             goto unhandled;
@@ -1726,7 +1738,19 @@ static void rt_remove_server(rt_machine *m, u32 code)
 void rt_request_vblank(rt_machine *m)
 {
     if (m->inTick) return;             /* a vblank server cannot wait for the next vblank */
-    m->waitVblank = 1;
+    m->waitFrames += 1;
+}
+
+/* dos.Delay(ticks): AmigaDOS suspends the calling task for that many system ticks, and the 50 Hz
+ * E clock that counts them is the vertical blank the frame budget already counts, so n ticks are
+ * n frame boundaries. The front end consumes them before it executes the next instruction - the
+ * task is asleep while the vblanks keep firing, and the game resumes on the boundary it asked for
+ * (src\recomp\cpu.c step_budget, src\oracle\cpu.c oracle_run). */
+void rt_delay_ticks(rt_machine *m, u32 ticks)
+{
+    if (m->inTick) return;             /* a vblank server cannot sleep */
+    if (ticks > 0x10000u) ticks = 0x10000u;
+    m->waitFrames += (int)ticks;
 }
 
 /* The display keeps showing m->view until the program loads another one, so whatever was drawn
@@ -1789,16 +1813,75 @@ static int is_custom(rt_machine *m, u32 a)
     return rt_bus_is_io(m, a) && a >= 0xDFF000u && a < 0xDFF100u;
 }
 
+/* --- the registers that come from the clock, not from a store ------------------------------- *
+ * PAL geometry: a line is 227 colour clocks = 454 68000 cycles and a frame is 312.5 of them, so
+ * EMU_CYCLES_PER_FRAME = 141,875 is exactly 312.5 lines and the beam position follows from the
+ * frame budget itself. The engine reads $DFF006 as entropy (FUN_00016e56 and FUN_00016e8e fold it
+ * into DAT_0002665c), so a constant zero there is a difference from the original, not a
+ * simplification. */
+#define EMU_CYCLES_PER_LINE 454
+
+static long cycles_into_frame(const rt_machine *m)
+{
+    long c = EMU_CYCLES_PER_FRAME - m->cyclesToTick;
+    if (c < 0) return 0;
+    if (c >= EMU_CYCLES_PER_FRAME) return EMU_CYCLES_PER_FRAME - 1;
+    return c;
+}
+
+static u32 beam_register(const rt_machine *m, u32 a)
+{
+    long c = cycles_into_frame(m);
+    int line = (int)(c / EMU_CYCLES_PER_LINE);
+    int hpos = (int)((c % EMU_CYCLES_PER_LINE) / 2);   /* colour clocks, 0..226 */
+
+    if (a == 0xDFF004u)                                /* VPOSR: vpos in 15..1, long frame in 0 */
+        return (u32)(((line & 0x7FF) << 1) | (int)(m->frame & 1u));
+    return (u32)(((line & 0xFF) << 8) | (hpos & 0xFF)); /* VHPOSR: vpos high byte, hpos low */
+}
+
+/* CIA time-of-day: 24-bit BCD (hundredths, seconds, minutes) counting 10 Hz E-clock pulses, so it
+ * runs on the same 50 Hz frame clock - one hundredth every five frames. Reading TODLO freezes the
+ * three read registers and only TODHI releases them (HRM), and the engine reads just LO and MID of
+ * both CIAs, so what it sees is the value its first read latched. */
+static u32 cia_tod_byte(rt_machine *m, int cia, int which)
+{
+    u32 t, v;
+
+    if (!m->todLatched[cia]) m->todLatch[cia] = m->frame;
+    t = m->todLatch[cia] / 5u;                     /* hundredths since the program started */
+    v = which == 0 ? (t % 100u) : (which == 1 ? ((t / 100u) % 60u) : ((t / 6000u) % 60u));
+    if (which == 0) m->todLatched[cia] = 1;
+    if (which == 2) m->todLatched[cia] = 0;
+    return ((v / 10u) << 4) | (v % 10u);           /* packed BCD, as the counter holds it */
+}
+
+/* CIA-A $BFE000 / CIA-B $BFD000, byte accesses only (the engine reads the TOD bytes one by one). */
+static int cia_tod_index(u32 a, int *cia, int *which)
+{
+    if (a == 0xBFE801u || a == 0xBFD800u) { *cia = a == 0xBFD800u; *which = 0; return 1; }
+    if (a == 0xBFE901u || a == 0xBFD900u) { *cia = a == 0xBFD900u; *which = 1; return 1; }
+    if (a == 0xBFEA01u || a == 0xBFDA01u) { *cia = a == 0xBFDA01u; *which = 2; return 1; }
+    return 0;
+}
+
 u32 rt_bus_read8(rt_machine *m, u32 a)
 {
+    int cia, which;
+
     a &= 0xFFFFFFu;
-    if (is_custom(m, a)) return m->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
+    if (is_custom(m, a))
+    {
+        if (a == 0xDFF005u || a == 0xDFF007u) return beam_register(m, a - 1u) & 0xFFu;
+        return m->custom[(a - 0xDFF000u) >> 1] & 0xFFu;
+    }
     if (a == 0xBFE001u && rt_bus_is_io(m, a))
     {
         /* CIA-A port A: bit 7 is /FIRE, active low, the rest float high. */
         m->firePolls++;
         return 0x7Fu | (m->fireDown != 0 ? 0u : 0x80u);
     }
+    if (rt_bus_is_io(m, a) && cia_tod_index(a, &cia, &which)) return cia_tod_byte(m, cia, which);
     return rt_read8(&m->mem, a);
 }
 
@@ -1810,6 +1893,7 @@ u32 rt_bus_read16(rt_machine *m, u32 a)
         if (a == 0xDFF00Cu) return m->joy0;                  /* JOY0DAT */
         if (a == 0xDFF00Eu) return m->joy1;                  /* JOY1DAT */
         if (a == 0xDFF016u) return 0xFFFFu;                  /* POTINP: nothing plugged in */
+        if (a == 0xDFF004u || a == 0xDFF006u) return beam_register(m, a);
         return m->custom[(a - 0xDFF000u) >> 1];
     }
     return rt_read16(&m->mem, a);
@@ -1818,6 +1902,8 @@ u32 rt_bus_read16(rt_machine *m, u32 a)
 u32 rt_bus_read32(rt_machine *m, u32 a)
 {
     a &= 0xFFFFFFu;
+    if (is_custom(m, a) && a == 0xDFF004u)                   /* VPOSR:VHPOSR in one long */
+        return (beam_register(m, 0xDFF004u) << 16) | beam_register(m, 0xDFF006u);
     if (is_custom(m, a) && a < 0xDFF0FCu)
         return ((u32)m->custom[(a - 0xDFF000u) >> 1] << 16) |
                (u32)m->custom[(a + 2 - 0xDFF000u) >> 1];

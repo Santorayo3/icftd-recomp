@@ -31,19 +31,25 @@ Done and verified in this session, in order:
    nothing flag-gated: `--byteptr` exists only to reproduce the old wrong model.
 6. **RULE 0** written down (`.github/copilot-instructions.md`, README, `docs/recomp-architecture.md`,
    repo memory) after it became clear that a flag-gated "correction" plus a lost hand edit had
-   let a fixed bug come back.
-
+   let a fixed bug come back.7. **Phase 4 - the rest of the clock** (2026-11-11): `dos.Delay(n)` is a real `n`-frame wait
+   (`m->waitFrames`, consumed before the next instruction; measured 108 -> 115 for `Delay(7)` and
+   unchanged for `Delay(0)`), `$DFF004`/`$DFF006` and the CIA-A/B TOD counters are derived from the
+   frame budget instead of reading as constant zero, and `plat_frame_sync` counts the 20.000 ms
+   period on `QueryPerformanceCounter` (198 frames in a 4 s windowed run) instead of the 15.6 ms
+   `GetTickCount`. Details in `docs\recomp-architecture.md`, "Time - cycles, not instructions".
 State after this session: `tools\gate.ps1` **4/4**, `out\tilecheck.ps1` 2 mismatched cells
 (baseline), oracle vs translated `--state`/`--ram` identical at frame 100, 50.0 frame/s.
 
 Known open items:
 
-- `tools\state-diff.ps1` reports **frame 30 with D0 only** (0x1 vs 0xFFFFFFFF); RAM is byte-identical
-  at frames 100-500. Non-blocking, unexplained.
-- **Phase 4 (not started, wait for the user's go-ahead):** `dos.Delay` still falls through
-  `unhandled` and must advance the emulated clock; beam-position / CIA / TOD reads must derive from
-  the same cycle clock; `plat_frame_sync` should use `QueryPerformanceCounter` instead of
-  `GetTickCount`.
+- `tools\state-diff.ps1` reports **frame 30 with D0 only**; RAM is byte-identical at frames 100-500.
+  Since the beam/TOD registers became clock-derived the low words agree (both 0x7FFE) and only the
+  high word differs (oracle 0xFFFF7FFE, translation 0x00007FFE), i.e. a stale upper half in one of
+  the two register files at that boundary - narrowing, still unexplained, still non-blocking.
+- **Phase 4 is done** - what remains of it: `dos.Delay` is not called by any scripted run yet (0
+  calls in 30M instructions to frame 12,198), so its shim is verified only by the deliberate call;
+  the CIA-A/B *timers* (`$BFE401`..`$BFEE01`, armed by the audio driver) are still not modelled;
+  and `plat_ticks_ms` still reads `GetTickCount`, which nothing time-critical uses.
 - The DOS build stays a first-class target: no runtime cycle table, costs are baked into the
   generated C.
 

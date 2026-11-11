@@ -10,8 +10,6 @@
 #include "types.h"
 #include "platform.h"
 
-#define TIMER_RES_MS 1
-
 static HWND          g_hwnd;
 static HDC           g_memdc;
 static HBITMAP       g_dib;
@@ -23,11 +21,32 @@ static HPALETTE      g_pal;
 static int           g_quit;
 static u32           g_fullscreen;
 static u32           g_start_ms;
-static u32           g_next_frame_ms;
+static u32           g_frame_ms = 20;    /* 50 Hz, the Amiga frame rate */
 static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
 static s16           g_mouse_x, g_mouse_y;
 static u8            g_mouse_buttons;
+
+/* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
+ * granularity cannot express the Amiga's 20 ms frame. */
+static __int64       g_qpcFreq;          /* QueryPerformanceFrequency, 0 = not available */
+static __int64       g_nextFrame;        /* QPC tick of the next frame boundary */
+static __int64       g_frame_ticks;      /* QPC ticks per frame */
+
+static __int64 qpc_now(void)
+{
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t.QuadPart;
+}
+
+static void frame_ticks_recalc(void)
+{
+    if (g_qpcFreq <= 0) { g_frame_ticks = 0; return; }
+    /* 50 Hz gives g_frame_ms = 20, so the period is exactly freq/50 - the same product a --speed
+     * fraction lands on, without rounding the frequency away. */
+    g_frame_ticks = g_qpcFreq * (__int64)g_frame_ms / 1000;
+}
 
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -172,8 +191,12 @@ u32 plat_init(const char *title)
     g_start_ms = 0;
     if (!make_window(title)) return 0;
     if (!make_dib()) return 0;
+    /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
+     * granularity cannot express the Amiga's 20 ms frame. */
+    if (!QueryPerformanceFrequency((LARGE_INTEGER *)&g_qpcFreq)) g_qpcFreq = 0;
+    frame_ticks_recalc();
+    g_nextFrame = qpc_now();
     g_start_ms = GetTickCount();
-    g_next_frame_ms = g_start_ms;
     return 1;
 }
 
@@ -351,27 +374,36 @@ u32 plat_pump(input_state *in)
     return (u32)(!g_quit);
 }
 
-static u32 g_frame_ms = 20;                /* 50 Hz, the Amiga frame rate */
-
 void plat_set_frame_hz(u32 hz)
 {
     if (hz == 0) hz = 50;
     g_frame_ms = (1000u + hz / 2u) / hz;
     if (g_frame_ms == 0) g_frame_ms = 1;
+    frame_ticks_recalc();
 }
 
 void plat_frame_sync(void)
 {
-    u32 now;
-    g_next_frame_ms += g_frame_ms;
+    __int64 now;
+
+    /* The emulated frame is 141,875 of 7,093,790 clocks, i.e. exactly 20 ms, and the period is
+     * counted on the performance counter rather than on GetTickCount - the 15.6 ms tick cannot
+     * express 20 ms, so the old loop alternated 15/31 ms and the picture paced unevenly. */
+    if (g_frame_ticks == 0) { Sleep(g_frame_ms); return; }
+    g_nextFrame += g_frame_ticks;
     for (;;) {
-        now = GetTickCount();
-        if ((s32)(now - g_next_frame_ms) >= 0) break;
-        Sleep(TIMER_RES_MS);
+        __int64 remain;
+        now = qpc_now();
+        remain = g_nextFrame - now;
+        if (remain <= 0) break;
+        /* Sleep while there is more than a millisecond to go, then spin with Sleep(0) (yield to
+         * whoever else wants the CPU): spinning the last millisecond keeps the cadence exact. */
+        if (remain > g_qpcFreq / 1000) Sleep(1);
+        else Sleep(0);
     }
-    /* Catch up if we fell far behind (cooperative multitasking). */
-    now = GetTickCount();
-    if ((s32)(now - g_next_frame_ms) > 100) g_next_frame_ms = now;
+    /* Catch up if we fell far behind (cooperative multitasking, a debugger break). */
+    now = qpc_now();
+    if (now - g_nextFrame > g_qpcFreq / 10) g_nextFrame = now;
 }
 
 u32 plat_ticks_ms(void)
