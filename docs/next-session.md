@@ -1176,3 +1176,29 @@ in both reference states, which proves nothing either way.
 
 Next: compare actual pixels at the same content position - the reference's bitplanes, from the
 BPLxPT writes in its copper list, against ours from the View structures at frame 1650.
+
+### Pixel-anchored content positions, and the reference's own clock (2026-11-12)
+
+The screen is a 5-plane bitmap, `BytesPerRow 42`, `Rows 216`, two buffers in chip RAM, and the same
+structure exists on both sides - so a state can be anchored to one of our frames *exactly*:
+
+| reference state | our frame | difference | that means |
+|---|---|---|---|
+| desert scene, 18.5 s after the logo (user clock) | **900** | **0 of 45,360 bytes** | identical picture, identical content |
+| Load Screen | **1650** | 68 of 45,360 bytes (0.15 %), rows 138..154, planes 0..2 | same screen bar one small element |
+
+Two independent anchors, both pixel-exact, and both say the port plays the *same* content: 14.7 s
+against 18.5 s after the logo, and 29.7 s against ~39 s at the Load Screen. So the earlier "the port
+is missing content" reading is dead - the content is identical and the difference is a uniform ~28 %
+of machine time per content position, i.e. a rate, not a missing scene.
+
+The reference's own clock comes out of the `CYCS` chunk too: `get_cycles()` (u64, savestate.cpp
+save_cycles) divided by `CYCLE_UNIT` 512 is colour clocks. The Load Screen state reads
+156,559,541,248 -> 305,780,354 colour clocks -> 86.1 s of emulated time since reset, which matches
+boot + load (~47 s) + the ~39 s intro.
+
+The 68-byte difference is a live lead, not noise: a small element at rows 138..154 in planes 0..2.
+
+Next: one more state (any desert position) so that two states carry both `CYCS` and a pixel anchor.
+The delta between them is the reference's exact machine time for a known stretch of content, and the
+divergence ratio then needs no stopwatch at all.

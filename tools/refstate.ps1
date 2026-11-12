@@ -38,23 +38,36 @@ function U32any([int]$at) { if ($be) { return U32 $at } else { return U32le $at 
 
 $chunks = @()
 $pos = 0
-while ($pos + 12 -le $bytes.Length)
+function Test-Name([int]$at)
 {
-    $name = ''
+    if ($at + 12 -gt $bytes.Length) { return $false }
     for ($i = 0; $i -lt 4; $i++)
     {
-        $c = $bytes[$pos + $i]
-        if ($c -lt 0x20 -or $c -gt 0x7E) { $name = $null; break }
-        $name += [char]$c
+        $c = [int]$bytes[$at + $i]
+        if ($c -lt 0x20 -or $c -gt 0x7E) { return $false }
     }
-    if ($name -eq $null) { break }
+    return $true
+}
+while ($pos + 12 -le $bytes.Length)
+{
+    # The padding after a chunk is not always what save_chunk() implies (the writer's alignment is
+    # relative to something else), so resynchronise: if the nominal position does not hold a chunk
+    # name, look a few bytes ahead for one.
+    $start = $pos
+    while ($start -lt $bytes.Length -and -not (Test-Name $start)) { $start++ }
+    if ($start + 12 -gt $bytes.Length) { break }
+    $pos = $start
+
+    $name = ''
+    for ($i = 0; $i -lt 4; $i++) { $name += [char]$bytes[$pos + $i] }
     $size = U32any ($pos + 4)
     $flags = U32any ($pos + 8)
+    if ($size -lt 12 -or $size -gt $bytes.Length) { $pos += 4; continue }
     $compressed = ($flags -band 1) -ne 0
     $payloadLen = $size - $(if ($compressed) { 16 } else { 12 })
-    if ($payloadLen -lt 0 -or $pos + 12 + $payloadLen -gt $bytes.Length) { break }
+    if ($payloadLen -lt 0 -or $pos + 12 + $payloadLen -gt $bytes.Length) { $pos += 4; continue }
     $chunks += [pscustomobject]@{
-        Name = $name; Size = $size; Flags = $flags; Compressed = $compressed
+        Name = $name; Offset = $pos; Size = $size; Flags = $flags; Compressed = $compressed
         Data = $pos + 12; Length = $payloadLen
     }
     $pad = 4 - ($payloadLen -band 3)
