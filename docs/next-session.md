@@ -1256,3 +1256,25 @@ independent samples would not all land there. Our library shims consume exactly 
 so that is where the missing ~50 % of the desert stretch most plausibly lives - the ROM cost of the
 calls the engine makes every step (WaitBOVP, WaitBlit, the MovE draw path), not the instruction
 stream and not the bus arbitration.
+
+### LoadView now waits, and what the numbers say afterwards (2026-11-12)
+
+The engine's per-step library traffic, counted over frames 750..1650 (194 steps, 11.4 calls/step):
+OwnBlitter 194, DisownBlitter 195, LoadView 194, WaitBOVP 194, AllocMem 445, FreeMem 915, and a
+handful of Text/Move/SetAPen. **The -456 entry is OwnBlitter, not exec.DoIO** - our LVO name table is
+ambiguous there and -462 is DisownBlitter - so there is no per-step device wait to model.
+
+LoadView now waits for the vertical blank when the view actually changes (the library cannot swap the
+copper list mid-display). Measured: the intro's Load Screen moved from frame 1650 to 2116, the desert
+stretch from 4.64 to 5.00 frames per step (reference 7.02). Gate 4/4.
+
+Decomposing the desert step: two vblank waits (LoadView + WaitBOVP, which the real machine also
+makes) plus about 3 frames of work; the reference is 7.02, i.e. about 5 frames of work. So the
+remaining 40 % is in *work per step*, not in waiting - which is why the two pacing numbers that used
+to agree now disagree (42.3 s for the whole intro against the reference's ~39 s, while the desert
+stretch is still short). Both pixel anchors (frames 900 and 1650) were measurements of content
+position, not invariants: they move whenever the pacing changes and have to be re-derived before the
+next comparison.
+
+Next: re-test the CPU-steal rule with the LoadView wait in place (it was rejected when the flip cost
+nothing, and the balance between waiting and stealing is different now).
