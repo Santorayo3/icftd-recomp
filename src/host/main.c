@@ -353,6 +353,7 @@ int main(int argc, char **argv)
     const char *spriteLogPath = 0;
     u32 spriteLogFrom = 0;
     const char *audioDump = 0;
+    int audioRegs = 0;
     int blitBytePtr = 0;
     int slot = 1;
     int slotGiven = 0;
@@ -369,6 +370,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
+        if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
@@ -501,6 +503,7 @@ int main(int argc, char **argv)
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;
+    m.audioLog = audioRegs;
     if (g_window)
     {
         int fs = 0;

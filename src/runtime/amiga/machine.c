@@ -303,9 +303,11 @@ opened:
     rt_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg1 */
     /* Few files are opened, and "which file did the game try to read" is the first question for
      * every new scene, so this reports unconditionally - with how many handles are live, because
-     * a climbing count is a leaked close. */
-    printf("emu: open \"%s\" -> %s (%lu bytes) [%d of %d]\n", name, path,
-           (unsigned long)m->files[slot].size, rt_files_open(m), EMU_MAX_FILES);
+     * a climbing count is a leaked close, and with the frame and the call site, because a request
+     * that never comes has to be told apart from one that comes from the wrong place. */
+    printf("emu: open \"%s\" -> %s (%lu bytes) [%d of %d] frame %lu from %06lX\n", name, path,
+           (unsigned long)m->files[slot].size, rt_files_open(m), EMU_MAX_FILES,
+           (unsigned long)m->frame, (unsigned long)m->pc);
     return m->files[slot].addr >> 2;
 }
 

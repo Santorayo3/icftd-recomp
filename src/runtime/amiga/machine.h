@@ -162,6 +162,7 @@ typedef struct rt_machine
     u32     progressFrom;                 /* ... and the row/palette report from this frame on */
     int     dffLog;                       /* log the first chipset register writes */
     int     dffSeen;
+    int     audioLog;                     /* --audioregs: every AUDx/DMACON write with frame and pc */
     int     blitLog;                      /* log the geometry of every hardware blit */
     int     blitLogN;
     u32     blitLogFrame;                 /* ... from this emulated frame on (--blitlog <frame>) */

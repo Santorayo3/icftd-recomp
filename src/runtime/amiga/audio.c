@@ -170,6 +170,9 @@ void rt_audio_dmacon(rt_machine *m, u16 v)
     if ((v & 0x8000u) != 0) { a->dma |= (bits & 0x000Fu); if (bits & 0x0200u) a->master = 1; }
     else                    { a->dma &= (u16)~(bits & 0x000Fu); if (bits & 0x0200u) a->master = 0; }
     after = (u16)(a->dma & 0x0Fu);
+    if (m->audioLog)
+        printf("areg f %lu pc %06lX DMACON %04lX -> dma %lX master %d\n", (unsigned long)m->frame,
+               (unsigned long)m->pc, (unsigned long)v, (unsigned long)a->dma, (int)a->master);
     /* Switching a channel on loads its AUDxLC/AUDxLEN: that is how a sample starts at once. */
     for (ch = 0; ch < EMU_AUD_CHANNELS; ch++)
         if ((after & (1u << ch)) != 0 && (before & (1u << ch)) == 0)
@@ -185,6 +188,9 @@ void rt_audio_write16(rt_machine *m, u16 reg, u16 v)
     ch = (int)((reg - 0x0A0u) >> 4);
     off = (int)((reg - 0x0A0u) & 0x0Fu);
     c = &m->audio.ch[ch];
+    if (m->audioLog)
+        printf("areg f %lu pc %06lX AUD%d+%X = %04lX\n", (unsigned long)m->frame,
+               (unsigned long)m->pc, ch, off, (unsigned long)v);
     switch (off) {
     case 0x0:                                   /* AUDxLCH */
     case 0x2:                                   /* AUDxLCL */
