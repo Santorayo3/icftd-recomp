@@ -1157,3 +1157,22 @@ A raw RAM diff against the reference is *not* a usable content matcher: our layo
 roots (program at 0x4000 vs 0xC52660, ROM libraries replaced by stubs at 0x1C4000, heap elsewhere),
 so ~4000 words differ at every frame (library and ROM pointers) and no frame stands out. Anchoring
 has to use address-independent values: palette, audio registers, bitplane pointers.
+
+### Second state, at the Load Screen: the content positions line up
+
+Quit the instant the Load Screen appeared. Its palette, read from the copper list in chip RAM, is
+`0222 088C 0226 0559 0E00` - **identical to our frame 1650**, so the two machines are at the same
+content position, and our port gets there in 1650 frames (33 s) where the reference took ~39 s from
+the logo.
+
+Also checked, and worth keeping: our image against the reference's *running* copy over the whole
+code region (0..0x21A58) differs in **8 words** out of 34,600 after normalising pointers by the base
+delta - the code is identical, and the 0xC52660 base mapping is exact.
+
+The step counter stays unexplained and is not to be used: our `--framelog` "step" word (address
+0x3010C) is written *indirectly* - our image contains no reference to 0x0003010C at all - so its
+counterpart in the reference's RAM cannot be located without following the pointer chain. It reads 0
+in both reference states, which proves nothing either way.
+
+Next: compare actual pixels at the same content position - the reference's bitplanes, from the
+BPLxPT writes in its copper list, against ours from the View structures at frame 1650.
