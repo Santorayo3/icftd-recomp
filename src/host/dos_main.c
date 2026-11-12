@@ -262,7 +262,6 @@ int main(int argc, char **argv)
     u32 lastTraced = 0xFFFFFFFFu, prevTraced = 0xFFFFFFFFu;
     u32 translated = 0, interpreted = 0;
     u32 audioPlayed = 0, audioDropped = 0;
-
     plat_set_program(argc > 0 ? argv[0] : 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     memset(&c, 0, sizeof c);

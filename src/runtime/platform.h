@@ -89,8 +89,9 @@ void plat_frame_sync(void);
  * animation content, shown for longer. */
 void plat_set_frame_hz(u32 hz);
 
-/* Milliseconds since plat_init (monotonic). */
-u32  plat_ticks_ms(void);u32 plat_rtc_elapsed_ms(void);
+/* Milliseconds since plat_init (monotonic), and the same interval measured on the CMOS clock. */
+u32  plat_ticks_ms(void);
+u32  plat_rtc_elapsed_ms(void);
 /* --- files ---------------------------------------------------------------- */
 /* Only what a pack reader needs: open, size, positional read, close.  No stdio in
  * the core, because the DOS build may later serve reads from XMS or a RAM cache. */
