@@ -457,8 +457,14 @@ int oracle_bus_dump(const char *path)
 /* ICFTD_TRACE_LOAD=1 traces the sample loader's decisions: which name it compares against
  * "o.rff", which the bank mount gets, what the index scan answers, the size it allocates, and the
  * handler thunk each voice call goes through (0 = the voice object was never given one). It is how
- * the "ICR handler failed" bursts were tied to an instrument whose bank entry missed. */
+ * the "ICR handler failed" bursts were tied to an instrument whose bank entry missed.
+ *
+ * ICFTD_TRACE_LOAD=2 additionally gives the `Desert1:sfx/o.rff` record back the 0x20 the loader
+ * sets at 0xe8ea, which the missed index scan takes away. Measured: 142 aborted ticks become 0, so
+ * that one size word is the whole difference between a stuttering and a clean intro. It is an
+ * experiment, not a fix - it writes engine state, which no shipped path may do. */
 static int loadTrace = -1;
+static int loadWant;
 static const char *loadStr(rt_machine *m, u32 a)
 {
     static char buf[64];
@@ -480,7 +486,12 @@ int oracle_step(rt_machine *m)
     u32 pc = m68k_get_reg(0, M68K_REG_PC);
     s32 lvo = 0;
 
-    if (loadTrace < 0) loadTrace = getenv("ICFTD_TRACE_LOAD") ? 1 : 0;
+    if (loadTrace < 0)
+    {
+        const char *e = getenv("ICFTD_TRACE_LOAD");
+        loadTrace = e != 0 ? atoi(e) : 0;                 /* 1 = trace, 2 = trace + experiment */
+        if (loadTrace == 0 && e != 0) loadTrace = 1;
+    }
     if (loadTrace)
     {
         u32 rel = pc - m->imageBase;
@@ -493,10 +504,21 @@ int oracle_step(rt_machine *m)
             printf("emu: load f%lu mount `%s`\n", (unsigned long)m->frame,
                    loadStr(m, rt_read32(&m->mem, sp)));
         else if (rel == 0x0000E8FAu)
-            printf("emu: load f%lu open `%s` (dir=%04x size=%08lx)\n", (unsigned long)m->frame,
-                   loadStr(m, rt_read32(&m->mem, sp)),
+        {
+            const char *nm = loadStr(m, rt_read32(&m->mem, sp));
+            printf("emu: load f%lu open `%s` (dir=%04x size=%08lx)\n", (unsigned long)m->frame, nm,
                    (unsigned)rt_read16(&m->mem, a4 + 0x2AD8u),
                    (unsigned long)rt_read32(&m->mem, a4 + 0x0AC2u));
+            /* loadTrace == 2 is the experiment: give this record back the 0x20 the loader set at
+             * 0xe8ea, which the missed index scan took away. */
+            loadWant = (loadTrace == 2 && strcmp(nm, "Desert1:sfx/o.rff") == 0) ? 1 : 0;
+        }
+        else if (rel == 0x0000E900u && loadWant)
+        {
+            loadWant = 0;
+            rt_write32(&m->mem, a4 + 0x0AC2u, 0x20u);
+            printf("emu: load f%lu restored size=0x20 after the o.rff open\n", (unsigned long)m->frame);
+        }
         else if (rel == 0x0000E91Au)
             printf("emu: load f%lu alloc size=%ld\n", (unsigned long)m->frame,
                    (long)rt_read32(&m->mem, a4 + 0x0AC2u));
