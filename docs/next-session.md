@@ -111,11 +111,25 @@ Two candidates were checked against UAE's own source:
   instruction *fetch* words at their own slots - but the translated build never fetches them (the
   code is compiled), so the per-opcode table has to stand in for them.
 
-So the remaining gap is work per step, and finding it needs one trustworthy number from the
-reference. The one that needs no instrument: the interval from "the logo appears" to "the Load
-Screen appears", timed with a phone. Ours is 29.7 s (first colours at frame 165, the intro over by
-~1650). If cycle-exact WinUAE is ~39 s the gap is ~30 % and it is work; if it is ~30 s the model is
-already right and the difference is somewhere else entirely.
+So the remaining gap is work per step. **Measured, cleanly, with no instrument in the emulator:**
+the reference takes **39 s** from the logo appearing to the Load Screen appearing; our build takes
+**30.2 s** (first colours at frame 165, the Load Screen's palette at frame 1674, 50 Hz). That is
+**1.29x**, and it is a 31 % deficit spread over the whole intro, not a single stuck scene.
+
+Our side of that interval, per step (`--ticklog`, steady state):
+
+| frames | steps | frames/step | blitter cycles/step | CPU cycles/step |
+|---|---|---|---|---|
+| 200..400 | 133 | 1.5 | 105,406 | 107,939 |
+| 400..700 | 75 | 4.0 | 378,852 | 188,648 |
+| 700..1000 | 71 | 4.2 | 383,129 | 216,343 |
+| 1000..1402 | 92 | 4.4 | 427,851 | 192,081 |
+
+The engine's own step counter reaches 454 when the picture fades to black (frame 1548) and 477 at
+the Load Screen (frame 1674). Two thirds of a step's time is the blitter, so the 1.29x is either the
+blitter being charged ~30 % cheap (per word, or in the slots it is granted) or the engine issuing
+more blits per step than we do. Deciding between those needs the blit sequence of one step, from
+our `--blitlog` and from the original's code - not another timing change.
 
 **Next, in this order**
 
