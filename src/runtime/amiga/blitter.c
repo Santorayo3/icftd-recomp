@@ -258,17 +258,15 @@ static int blit_words_cost(const rt_blitter *b)
 
 u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
 
-/* The data path. Unchanged from when BLTSIZE ran it directly: the same bytes come out, so a
- * picture cannot change because the blit now takes real time. */
-static void rt_blit_exec(rt_machine *m)
+/* Everything that happens when a blit starts: the geometry logs, the sprite probe's "before"
+ * picture, and the line-mode note. Returns 0 when there is nothing to run. */
+static int rt_blit_begin(rt_machine *m)
 {
     rt_blitter *b = &m->blit;
     int words = b->runWords;
     int rows = b->runRows;
-    int descending = b->runDesc;
-    int r;
 
-    if (rows == 0) return;
+    if (rows == 0) return 0;
     /* --blitlog: every blit's geometry plus where it lands in the bitmap on screen (D is a plane
      * pointer, so the first row is (D - plane) / bytesPerRow). That is how the tile renderer
      * (FUN_00011512) and the sprite path (FUN_0000e03c) are measured against the view. */
@@ -340,7 +338,7 @@ static void rt_blit_exec(rt_machine *m)
     {
         /* Line mode is only used for AreaFill on the Amiga; the engine never needs it. */
         if (m->dffLog) printf("     blit: line mode ignored (con1 %04lX)\n", (unsigned long)b->con1);
-        return;
+        return 0;
     }
     /* --spritelog: the engine's sprite blit (FUN_00011208, runtime 0x15208..0x153A0) is the one the
      * flight's objects use. Record its geometry, the words it reads and the words it leaves, so the
@@ -374,25 +372,37 @@ static void rt_blit_exec(rt_machine *m)
         }
         {
             /* The shift registers' hold words start empty for each blit (not each line) and then
-             * carry the last fetched word along, including across a line boundary. A descending
-             * blit walks the rows downwards from the start pointer, which the negative stride
-             * above already does - the engine never sets DESC, so this ordering is unexercised but
-             * self-consistent. */
-            u16 holdA = 0, holdB = 0;
-            u32 pt0 = plat_pit_now();
-            for (r = 0; r < rows; r++)
-                blit_row(m, r, words, descending ? 1 : 0, &holdA, &holdB);
-            if (pt0 != 0) rt_blit_perf += plat_pit_now() - pt0;
+             * carry the last fetched word along, including across a line boundary - they live in
+             * the blitter's own state now, because a row is written when its slots have gone by.
+             * A descending blit walks the rows downwards from the start pointer, which the negative
+             * stride above already does - the engine never sets DESC, so this ordering is
+             * unexercised but self-consistent. */
+            b->holdA = 0;
+            b->holdB = 0;
+            b->row = 0;
+            b->rowLeft = (long)words * (long)blit_words_cost(b);
+            if (b->rowLeft < 1) b->rowLeft = 1;
         }
-        if (trace)
+    }
+    return 1;
+}
+
+/* Everything that happens when the last row has been written: the pointer write-back the engine
+ * chains blits on, and the sprite probe's "after" picture. */
+static void rt_blit_finish(rt_machine *m)
+{
+    rt_blitter *b = &m->blit;
+    int words = b->runWords;
+    int rows = b->runRows;
+    int descending = b->runDesc;
+    /* --spritelog, the half that needs the result: the words the blit left in D. */
+    {
+        FILE *sl = (FILE *)m->spriteLog;
+        if (sl != 0 && m->spriteLogN > 0 && m->spriteLogN <= 4000 &&
+            m->frame >= m->spriteLogFrom && m->pc >= 0x15208u && m->pc < 0x153A0u)
         {
-            fprintf(sl, "  mask  A:");
-            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeA[k]);
-            fprintf(sl, "\n  src   B:");
-            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeB[k]);
-            fprintf(sl, "\n  dst   C:");
-            for (k = 0; k < 8; k++) fprintf(sl, " %04lX", (unsigned long)beforeD[k]);
-            fprintf(sl, "\n  result D:");
+            int k;
+            fprintf(sl, "  result D:");
             for (k = 0; k < 8; k++)
                 fprintf(sl, " %04lX", (unsigned long)rd16(m, b->dpt + (u32)(2 * k)));
             fprintf(sl, "\n");
@@ -440,10 +450,11 @@ void rt_blit_start(rt_machine *m)
     b->runRows = (b->size >> 6) & 0x3FF;
     b->runDesc = (b->con1 & 0x0002) != 0;
     if (b->runRows == 0) return;
+    if (!rt_blit_begin(m)) return;              /* line mode: nothing to run */
 
     clocks = (long)b->runWords * (long)b->runRows * (long)blit_words_cost(b);
     if (clocks < 1) clocks = 1;
-    b->runLeft = clocks;
+    b->runLeft = clocks;                        /* for the report; the row cursor drives progress */
     b->run = 1;
     m->blits++;
 }
@@ -454,13 +465,27 @@ int rt_blit_take_clock(rt_machine *m)
 
     if (!b->run) return 0;
     m->blitCycles += 2;                        /* one colour clock of device time */
-    if (--b->runLeft <= 0)
+    if (--b->runLeft <= 0) b->runLeft = 0;
+    if (--b->rowLeft <= 0)
     {
-        b->run = 0;
-        rt_blit_exec(m);
+        /* This row's slots have gone by: compute and write it. The shift registers carry on to the
+         * next row, which is why they live in the device state. */
+        blit_row(m, b->row, b->runWords, b->runDesc ? 1 : 0, &b->holdA, &b->holdB);
+        b->row++;
+        if (b->row >= b->runRows)
+        {
+            b->run = 0;
+            rt_blit_finish(m);
+        }
+        else
+        {
+            b->rowLeft = (long)b->runWords * (long)blit_words_cost(b);
+            if (b->rowLeft < 1) b->rowLeft = 1;
+        }
     }
     return 1;
 }
+
 
 /* Register write from the emulated 68000. `reg` is the offset from $DFF000. */
 void rt_custom_write16(rt_machine *m, u16 reg, u16 v)

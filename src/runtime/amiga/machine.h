@@ -110,6 +110,12 @@ typedef struct rt_blitter
     int  run;
     long runLeft;
     int  runWords, runRows, runDesc;
+    /* ... and the row it is on: the words of a row are computed when that row's slots have gone
+     * by, so a blit writes its destination progressively instead of in one go at the end. The A
+     * and B shift registers carry between rows, exactly as when the whole blit ran at once. */
+    int  row;
+    long rowLeft;
+    u16  holdA, holdB;
 } rt_blitter;
 
 typedef struct rt_machine
