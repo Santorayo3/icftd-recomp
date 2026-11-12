@@ -1,77 +1,62 @@
 -- ICFTD reference timeline: one line per frame from cycle-exact WinUAE.
 --
--- The columns are exactly rt_framelog()'s in src\runtime\amiga\machine.c, so our build's
--- "--framelog out\our-trace.txt" can be diffed against this file line by line:
+-- key=value pairs, the same keys our own "--framelog" writes (rt_framelog in
+-- src\runtime\amiga\machine.c). Each side logs only what it can see: WinUAE's Lua bridge can read
+-- RAM, but the colour registers are write-only, so the picture cannot be read here - the engine's
+-- own MovE step counter (a RAM longword) is what this timeline is for. That counter is the cadence
+-- measure: "how many frames does the original need to go from step A to step B" is content
+-- anchored, so it does not depend on how long the floppy took to load.
 --
---   frame c0..c15 dmacon bplcon0 ddfstrt ddfstop v0..v3 lc0..lc3 step
+-- Reads per frame: 3 (+ 4 once). Under no circumstances add memory scans or byte-wise dumps here:
+-- an earlier version did a million uae_read_u8 calls per frame, which froze the emulator (black
+-- picture, starved audio, half an intro). See docs\next-session.md.
 --
--- Only values that are the same number on both machines are logged; addresses (the copper list
--- pointer, the program base) are not comparable, because the original is loaded into slow RAM by
--- AmigaDOS and our runtime loads the same image at $4000.
---
--- This script must never stall the emulator. It reads 34 registers per vsync and nothing else: no
--- memory scans, no byte-by-byte dumps. (An earlier version dumped RAM through the Lua bridge one
--- byte at a time - a million calls - which froze the machine for seconds per frame; the picture
--- stopped updating and the audio starved. Do not bring that back.)
---
--- WinUAE registers uae_read_u16/uae_read_u32 only *after* this chunk has loaded, so they may not
--- be called at the top level.
+-- WinUAE registers uae_read_u16 and friends only *after* this chunk has run, so they must not be
+-- called at the top level.
 
 local OUT = "E:\\Meine Programme\\Unity\\Projects\\icftd-recomp\\out\\winuae-trace.txt"
 
 -- Where AmigaDOS loaded dshell on this configuration (A500, 512K slow RAM): the 16-byte code
--- signature at image offset 0x14000 was found there in an earlier run, and the engine's MovE step
--- counter sits 0x2C10C into the image. SIGFRAME reports whether the base still holds, so a run
--- that moved (different config, different disks) says so instead of logging garbage.
+-- signature at image offset 0x14000 was found there in an earlier run. SIGFRAME reports it, so a
+-- run whose layout moved says so instead of logging a counter that means nothing.
 local BASE = 0xC530E0
 local STEP_OFF = 0x2C10C
 local SIG_OFF = 0x14000
-local SIGFRAME = 1200
-local MAX_FRAMES = 9000          -- 3 minutes at 50 Hz; the log is flushed per line, so it can be
-                                -- stopped earlier at any time without losing what was written
+local SIGFRAME = 600
+local MAX_FRAMES = 12000         -- 4 minutes at 50 Hz; the log is flushed per line, so it can be
+                                 -- stopped earlier at any time without losing what was written
 
 local out = io.open(OUT, "w")
 if out == nil then return end
-out:write("# icftd reference timeline\n")
+out:write("# icftd reference timeline: frame=.. step=.. from cycle-exact WinUAE\n")
 out:flush()
 
 local frame = 0
 
-local function u32(a)
-    local hi = uae_read_u16(a)
-    local lo = uae_read_u16(a + 2)
-    if hi == nil or lo == nil then return -1 end
-    return hi * 65536 + lo
+local function u16(a)
+    local v = uae_read_u16(a)
+    if v == nil or v < 0 then return nil end
+    return v
 end
 
-local function line()
-    local t = { string.format("%d", frame) }
-    local i
-    for i = 0, 15 do
-        t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF180 + i * 2))
-    end
-    t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF096))          -- DMACON
-    t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF100))          -- BPLCON0
-    t[#t + 1] = string.format("%03X", uae_read_u16(0xDFF08C) % 512)    -- DDFSTRT
-    t[#t + 1] = string.format("%03X", uae_read_u16(0xDFF090) % 512)    -- DDFSTOP
-    for i = 0, 3 do
-        t[#t + 1] = string.format("%02X", uae_read_u16(0xDFF0A8 + i * 16))         -- AUDxVOL
-    end
-    for i = 0, 3 do
-        t[#t + 1] = string.format("%06X", u32(0xDFF0A0 + i * 16) % 0x1000000)     -- AUDxLC
-    end
-    t[#t + 1] = string.format("%d", u32(BASE + STEP_OFF))
-    out:write(table.concat(t, " "), "\n")
-    out:flush()
+local function u32(a)
+    local hi = u16(a)
+    local lo = u16(a + 2)
+    if hi == nil or lo == nil then return nil end
+    return hi * 65536 + lo
 end
 
 function on_uae_vsync()
     if out == nil then return end
     frame = frame + 1
     if frame == SIGFRAME then
-        out:write(string.format("# signature at %06X: %04X %04X %04X %04X\n", BASE + SIG_OFF,
-                                uae_read_u16(BASE + SIG_OFF), uae_read_u16(BASE + SIG_OFF + 2),
-                                uae_read_u16(BASE + SIG_OFF + 4), uae_read_u16(BASE + SIG_OFF + 6)))
+        local w = {}
+        local i
+        for i = 0, 3 do
+            w[#w + 1] = string.format("%04X", u16(BASE + SIG_OFF + i * 2) or 0)
+        end
+        out:write(string.format("# signature at %06X = %s (image offset 0x14000 is 000D 487A 0022 4EAC)\n",
+                                BASE + SIG_OFF, table.concat(w, " ")))
         out:flush()
     end
     if frame > MAX_FRAMES then
@@ -81,5 +66,15 @@ function on_uae_vsync()
         out = nil
         return
     end
-    line()
+    local t = { string.format("frame=%d", frame) }
+    -- DMACONR and BPLCON0 are readable registers (COLORxx is not), so they are worth a try; a
+    -- bridge that cannot answer them simply leaves the keys out.
+    local dm = u16(0xDFF002)
+    if dm then t[#t + 1] = string.format("dmacon=%04X", dm) end
+    local c0 = u16(0xDFF100)
+    if c0 then t[#t + 1] = string.format("con0=%04X", c0) end
+    local step = u32(BASE + STEP_OFF)
+    if step then t[#t + 1] = string.format("step=%d", step) end
+    out:write(table.concat(t, " "), "\n")
+    out:flush()
 end

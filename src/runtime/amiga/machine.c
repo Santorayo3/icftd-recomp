@@ -1794,15 +1794,14 @@ int rt_calllog_open(rt_machine *m, const char *path)
 }
 
 /* --- the frame timeline ---------------------------------------------------------------------
- * One line per emulated frame, in the same columns as the reference tracer that runs inside
- * cycle-exact WinUAE (tools\winuae-steplog.lua):
+ * One line per emulated frame, as key=value pairs, so a timeline taken from another machine can
+ * contribute only what that machine can actually see. Ours reads the colours out of the copper
+ * list MrgCop built (the engine fades by patching that list, so it is what the picture shows) and
+ * the engine's own MovE step counter; the reference in cycle-exact WinUAE (tools\winuae-steplog.lua)
+ * can only read RAM - the colour registers are write-only - so it logs fewer keys.
  *
- *   frame c0..c15 dmacon bplcon0 ddfstrt ddfstop v0..v3 lc0..lc3 step
- *
- * The point is to diff two timelines line by line: which frame a picture appears on, when the
- * palette changes, when a channel is armed, how far the engine's own MovE step counter has got.
- * Absolute addresses are deliberately not logged - the original runs from slow RAM and we run from
- * $4000, so only values that are the same number on both machines are comparable. */
+ * Addresses are deliberately absent: the original is loaded into slow RAM by AmigaDOS and we load
+ * the same image at $4000, so only values that are the same number on both machines are logged. */
 
 int rt_framelog_open(rt_machine *m, const char *path)
 {
@@ -1835,17 +1834,18 @@ void rt_framelog(rt_machine *m)
             col[(reg - 0x180u) >> 1] = (u16)val;
     }
     if (m->mem.size > EMU_STEP_COUNTER + 4) step = rt_read32(&m->mem, EMU_STEP_COUNTER);
-    fprintf(f, "%lu", (unsigned long)m->frame);
-    for (i = 0; i < 16; i++) fprintf(f, " %04X", col[i]);
-    fprintf(f, " %04X %04X %03X %03X",
+    fprintf(f, "frame=%lu", (unsigned long)m->frame);
+    for (i = 0; i < 16; i++) fprintf(f, " c%d=%04X", i, col[i]);
+    fprintf(f, " dmacon=%04X con0=%04X strt=%03X stop=%03X",
             m->custom[0x096 / 2],                       /* DMACON: what the program asked for */
             con0,                                       /* BPLCON0: planes, hires, colour */
             m->custom[0x08C / 2] & 0x1FEu,              /* DDFSTRT: display window */
             m->custom[0x090 / 2] & 0x1FEu);             /* DDFSTOP */
-    for (i = 0; i < 4; i++) fprintf(f, " %02X", m->audio.ch[i].vol);
+    for (i = 0; i < 4; i++) fprintf(f, " v%d=%02X", i, m->audio.ch[i].vol);
     for (i = 0; i < 4; i++)
-        fprintf(f, " %06X", (unsigned)(((u32)m->audio.ch[i].lcHi << 16) | m->audio.ch[i].lcLo) & 0xFFFFFFu);
-    fprintf(f, " %lu\n", (unsigned long)step);
+        fprintf(f, " lc%d=%06X", i,
+                (unsigned)(((u32)m->audio.ch[i].lcHi << 16) | m->audio.ch[i].lcLo) & 0xFFFFFFu);
+    fprintf(f, " step=%lu\n", (unsigned long)step);
     fflush(f);
 }
 
