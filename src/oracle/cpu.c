@@ -454,12 +454,58 @@ int oracle_bus_dump(const char *path)
     return 1;
 }
 
+/* ICFTD_TRACE_LOAD=1 traces the sample loader's decisions: which name it compares against
+ * "o.rff", which the bank mount gets, what the index scan answers, the size it allocates, and the
+ * handler thunk each voice call goes through (0 = the voice object was never given one). It is how
+ * the "ICR handler failed" bursts were tied to an instrument whose bank entry missed. */
+static int loadTrace = -1;
+static const char *loadStr(rt_machine *m, u32 a)
+{
+    static char buf[64];
+    int i;
+    for (i = 0; i < 63; i++)
+    {
+        int c = rt_read8(&m->mem, a + (u32)i);
+        buf[i] = c;
+        if (c == 0) break;
+    }
+    buf[i] = 0;
+    return buf;
+}
+
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */
 int oracle_step(rt_machine *m)
 {
     char text[128];
     u32 pc = m68k_get_reg(0, M68K_REG_PC);
     s32 lvo = 0;
+
+    if (loadTrace < 0) loadTrace = getenv("ICFTD_TRACE_LOAD") ? 1 : 0;
+    if (loadTrace)
+    {
+        u32 rel = pc - m->imageBase;
+        u32 a4 = m68k_get_reg(0, M68K_REG_A4);
+        u32 sp = m68k_get_reg(0, M68K_REG_A7);
+        if (rel == 0x0000E8BAu)
+            printf("emu: load f%lu cmp `%s` vs `o.rff`\n", (unsigned long)m->frame,
+                   loadStr(m, rt_read32(&m->mem, sp)));
+        else if (rel == 0x0000E8C8u)
+            printf("emu: load f%lu mount `%s`\n", (unsigned long)m->frame,
+                   loadStr(m, rt_read32(&m->mem, sp)));
+        else if (rel == 0x0000E8FAu)
+            printf("emu: load f%lu open `%s` (dir=%04x size=%08lx)\n", (unsigned long)m->frame,
+                   loadStr(m, rt_read32(&m->mem, sp)),
+                   (unsigned)rt_read16(&m->mem, a4 + 0x2AD8u),
+                   (unsigned long)rt_read32(&m->mem, a4 + 0x0AC2u));
+        else if (rel == 0x0000E91Au)
+            printf("emu: load f%lu alloc size=%ld\n", (unsigned long)m->frame,
+                   (long)rt_read32(&m->mem, a4 + 0x0AC2u));
+        else if (rel == 0x0002046Eu)
+            printf("emu: load f%lu scan exhausted\n", (unsigned long)m->frame);
+        else if (rel == 0x0000F41Eu)
+            printf("emu: load f%lu voice obj %06lx type %08lx\n", (unsigned long)m->frame,
+                   (unsigned long)a4, (unsigned long)rt_read32(&m->mem, a4));
+    }
 
     if (m->watch != 0 && pc == m->watch)
     {

@@ -1278,3 +1278,56 @@ next comparison.
 
 Next: re-test the CPU-steal rule with the LoadView wait in place (it was rejected when the flip cost
 nothing, and the balance between waiting and stealing is different now).
+
+## The fanfare stutter is a music tick that aborts, not host audio
+
+The stutter the Windows build shows as the logo arrives is the score player's tick aborting; the
+console says so (`emu: ICR handler 013026 failed`, 9 bursts at frames 1955-2032, and 40 more from
+frame 1631 on). Host audio is not involved: the mixer receives exactly 100 % of frame cycles
+(321,388,862 against 2265 x 141,875), so nothing is starved or dropped on our side.
+
+The tick's own code is what fails. `FUN_0000f3f4` walks the player block's channels:
+
+    0xf40e  move.l (0x4,A1),D0     ; channel -> voice object
+    0xf412  beq.b  0xf440         ; a null *object* is skipped, deliberately
+    0xf416  movea.l (0x0,A4),A4   ; object -> handler thunk
+    0xf41e  jsr    (0x0,A4)       ; 0 here jumps to address 0
+
+So the object pointer is not the problem - the thunk inside it is 0. A healthy object carries
+`0x0fccE` (image, i.e. `base+0xFCCE`), the type-2 handler. The reference's slow RAM confirms the
+same value at seven places (`0xC6232E` = `0xC52660+0xFCCE`), three of them in the Load Screen state.
+
+Everything upstream of that thunk was traced with the oracle on the *original* image
+(`ICFTD_TRACE_LOAD=1 bin\win32\icftd-oracle.exe export\code\dshell4k\dshell.img 0x4000 14000000`):
+
+    f30 cmp `o.rff` vs `o.rff`                 -> equal, so the loader substitutes the desert pair
+    f30 open `Desert1:sfx/o.rff` (dir=0001 size=00000020)
+    f30 scan exhausted                          -> FUN_000203de ran out of entries
+    f30 alloc size=0                            -> the 0x20 set at 0xe8ea is gone
+
+Every other instrument scans *successfully* (`tympany.rff` -> `alloc size=32`), because the
+`DES4:INSTS` index holds bare names while this one record's key is a full path. `FUN_000203de`
+clears `(A4+0xac2)` when it exhausts the index (`clr.l` at 0x2046e), and 0xac2 is what the loader
+hands `AllocMem` at 0xe930 - so the object is an empty block whose first long stays 0, and the
+player jumps through it once the channel comes alive.
+
+Why this is *not* a translation bug: the oracle shows the identical sequence, from the original
+code, on our machine. `FUN_00020476` only scans when `(A4+0x2ad8)` says an index is mounted, and the
+mount (`FUN_000202c4`, called for every non-`o.rff` record) is what sets it - so at the `o.rff`
+record the index is active and the missed lookup wipes the size. The reference must be reaching that
+open with the size intact (its channel has the thunk, which needs the 32-byte header object), and
+the two ways that can happen are named here so the next session does not start from scratch:
+
+  * the scan does not run - `(A4+0x2ad8)` clear at that record, i.e. the mount for the preceding
+    record failed; or
+  * the scan hits - which needs an index entry literally named `Desert1:sfx/o.rff`. It cannot come
+    from `export\disk1\INSTS` (no such string) nor from the reference's RAM (the string occurs once,
+    as the image constant at image 0xec63), so this branch is all but excluded.
+
+Checked and found faithful, so nobody re-derives them: `SCORES` is byte-identical to the reference's
+copy for its first 0x1e9 bytes and differs only where the engine patches pointers in place
+(9547 bytes, from 0x1e9 on); `INSTS` holds `o.rff` twice and no full paths; the 32-byte `o.rff` data
+appears 4 times in the reference's slow RAM and 0 times in ours, i.e. we never load it at all.
+
+AUDIO_QUEUE stays at 8: the 16 % drop that 4 showed is a measured property of the queue, but it is
+not what the stutter was, and the comment no longer claims it is.
