@@ -49,6 +49,7 @@ $sources = @(
     (Join-Path $rt 'amiga\display.c'),
     (Join-Path $rt 'amiga\audio.c'),
     (Join-Path $rt 'amiga\slots.c'),
+    (Join-Path $rt 'amiga\copper.c'),
     (Join-Path $rt 'amiga\bus_cycles.c'),
     (Join-Path $rt 'config.c'),
     (Join-Path $rt 'plat\dos\plat_dos.c'),

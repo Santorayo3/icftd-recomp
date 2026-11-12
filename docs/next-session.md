@@ -5,7 +5,6 @@ the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-arch
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
 ## The bus arbiter: stages 0 and 4 (2026-11-12, later session)
-
 `cpuStretch` is gone. The machine now has a real slot map and every consumer walks it.
 
 **What exists**
@@ -37,6 +36,8 @@ is a difference from the original, never a symptom, and that holds for every kin
   one bus, which is the part the old frame-wide `dmaSteal`/`cpuStretch` aggregate could not express.
 * Proof: `tools\gate.ps1` **4/4**, and oracle vs translated RAM at frame 400 is **byte-identical**
   (0 differing bytes of 2 MB) - the arbiter is applied identically by both front ends.
+* The copper is a real program now: `tools\icftd-steplog.uae` + `tools\winuae-steplog.lua` log the
+  engine's step counter per frame from cycle-exact WinUAE, for a frame-indexed reference.
 
 **What it changed, and what it did not**
 
@@ -55,18 +56,27 @@ remaining ~1.45x has another cause - see below.
 
 **Next, in this order**
 
-1. **The fanfare is the real marker, and it is a code-path difference.** The intro music fades to
-   volume 2 at frame 1617 and nothing starts another score, while cycle-exact WinUAE plays a fanfare
-   with the logo. Trace the score-start routine - the player is `FUN_0000f264` (four 0x16-byte channel
-   entries at A6+0x3E with `jsr (A4)` / `jsr (4,A4)` callbacks, DMACON written at 0xf454/0xf49c),
-   started through `FUN_0000f4c0`/`FUN_0000f286`, with `FUN_0000e804` loading `DES4:SCORES`/`INSTS`.
-   Find who decides "song finished, start the next one" and compare its condition with the original.
-2. **Measure the reference instead of guessing it.** The 29 s figure is a phone stopwatch reading.
-   WinUAE can be driven with our own `tools\icftd.uae` (already `cpu_cycle_exact=true`); a
-   frame-indexed reading needs either continuous screenshots or a Lua script (`uae_write_config`,
-   `uae_read_u16`) - anything that yields a frame number rather than a wall clock.
-3. Then re-baseline the four markers with RAM dumps at equal content positions (the 400-frame
-   fingerprint stays retired), and decide level 1 vs level 2 from the *fanfare*, not from the logo.
+1. **Get the reference frame-indexed, not stopwatch-indexed.** `tools\icftd-steplog.uae` is our own
+   cycle-exact config plus `lua=tools\winuae-steplog.lua`, which logs the engine's own MovE step
+   counter (image 0x2C10C, runtime 0x3010C) every vsync to `out\winuae-steps.txt` as
+   `<frame> <step>`. Our build prints the same counter per frame in `--ticklog`'s `step` column, so
+   "at step 300 we are at frame X in the original and frame Y in ours" is a machine-state comparison.
+   That number decides everything downstream: if the original needs 1.45x more frames per step, the
+   per-step work is undercharged; if it needs the same, the difference is structural (a scene list, a
+   script branch) and no amount of clock modelling will close it.
+2. **The copper now executes.** `rt_gfx_mrg_cop` emits the hardware's program (BPLCON0, DIWSTRT/STOP,
+   DDFSTRT/STOP, both modulos, one BPLxPT per plane, one COLORxx per colour, then WAIT forever) into
+   the block the engine patches, and `copper.c` runs it - every MOVE goes through
+   `rt_custom_write16`, so the display registers the slot map reads are the ones the copper wrote,
+   and each instruction costs a bus slot walked through the same arbiter. Limit, documented in
+   `copper.h`: the program is run once per frame from its start, because the renderer converts one
+   palette per frame; a mid-screen split would need per-line conversion.
+3. **The fanfare follows from 1.** Nothing schedules a new score after the intro music's last write
+   (period 2 on all channels at frame 1617, i.e. the player silencing itself); the engine's fade and
+   the picture end at the same boundary. Only once the reference's frames-per-step is known can this
+   be called a divergence instead of a consequence.
+4. Then re-baseline the four markers with RAM dumps at equal content positions (the 400-frame
+   fingerprint stays retired) and decide level 1 vs level 2 from the evidence.
 
 ## The MS-DOS target (2026-11-11, later session) — it runs; performance is the open work
 

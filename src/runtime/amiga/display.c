@@ -6,6 +6,7 @@
  */
 #include "display.h"
 #include "platform.h"
+#include "copper.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -658,6 +659,31 @@ s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
 }
 
 /* --- palette ------------------------------------------------------------------------------- */
+/* The two helpers MrgCop uses to emit a copper program into the block the engine patches. */
+#define DDF_STRT 0x0038u
+
+static int hires_of(rt_machine *m, u32 vp)
+{
+    u16 modes = (u16)rt_read16(&m->mem, vp + 0x20);        /* ViewPort.Modes */
+    return (modes & 0x8000u) != 0;                          /* HIRES */
+}
+
+static void put_cop(rt_machine *m, u32 list, int *index, u32 reg, u32 value)
+{
+    u32 at = list + (u32)(*index) * 4u;
+    rt_write16(&m->mem, at, reg & 0x1FEu);                  /* MOVE: bit 0 clear */
+    rt_write16(&m->mem, at + 2u, value & 0xFFFFu);
+    (*index)++;
+}
+
+static void put_cop_wait(rt_machine *m, u32 list, int *index, u32 vpos, u32 hpos)
+{
+    u32 at = list + (u32)(*index) * 4u;
+    rt_write16(&m->mem, at, ((vpos & 0xFFu) << 8) | ((hpos & 0xFFu) | 1u));
+    rt_write16(&m->mem, at + 2u, 0xFFFFu);
+    (*index)++;
+}
+
 static u32 colormap_of(rt_machine *m, u32 vp)
 {
     return vp != 0 ? rt_read32(&m->mem, vp + EMU_VP_COLORMAP) : 0;
@@ -694,51 +720,86 @@ void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b)
  * FUN_0001FD7A searches a cprlist { Next, start, MaxCount } - start is an array of 2-word
  * (register, value) entries - for register 0x180 + 2*k, k from (view+0x12)-1 down to 0. 0x180 is
  * COLOR00, and view+0x12 holds the colour count (1 << depth, 32 here), so the list is one CMove per
- * colour. We never execute it - the renderer is chunky - but it is also where the palette lives,
- * so rt_gfx_present() reads the colours back out of it instead of keeping a copy in sync. */
+ * colour.
+ *
+ * graphics.library builds the *hardware's* program: BPLCON0, DIWSTRT/STOP, DDFSTRT/STOP, the two
+ * modulos, one BPLxPT per plane, one COLORxx per colour, then a WAIT that runs to the bottom of the
+ * frame. That is what is emitted here, in the copper's own instruction format, and copper.c executes
+ * it - so the display registers the whole machine reads are the ones the copper wrote, and the list
+ * the engine patches is the list that programs the display, exactly as on hardware. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view)
 {
-    u32 vp, cm, table, list, start;
-    int depth = 5, colours, i;
+    u32 vp, cm, table, list, container;
+    int depth = 5, colours, i, entries, words, entries_out;
+    int vstart = 0x2C, vstop = 0x2C + 256, hires = 0;
+    u16 bplcon0;
 
     if (view == 0) return;
     vp = rt_read32(&m->mem, view);
     if (vp != 0)
     {
+        int w, h, d;
         u32 ri = rt_read32(&m->mem, vp + EMU_VP_RASINFO);
         u32 bm = ri != 0 ? rt_read32(&m->mem, ri + EMU_RI_BITMAP) : 0;
         if (bm != 0)
         {
-            int d = bm_depth(m, bm);
+            d = bm_depth(m, bm);
             if (d > 0 && d <= 8) depth = d;
         }
+        w = (int)rt_read16(&m->mem, vp + EMU_VP_WIDTH);
+        h = (int)rt_read16(&m->mem, vp + EMU_VP_HEIGHT);
+        if (w > 0) m->slots.words = (w + 15) / 16;
+        if (h > 0) vstop = vstart + h;
+        if (hires_of(m, vp)) hires = 1;
     }
     colours = (int)rt_read16(&m->mem, view + 0x12);
     if (colours <= 0 || colours > 256) colours = 1 << depth;
+    words = m->slots.words > 0 ? m->slots.words : 20;
 
+    /* 4 bytes per instruction: 7 setup MOVEs + one per plane + one per colour + the final WAIT. */
+    entries = 7 + depth + colours + 1;
+    container = rt_alloc_bytes(10u);                     /* struct cprlist */
+    list = rt_alloc_bytes((u32)entries * 4u);
+    if (container == 0 || list == 0) return;
+
+    bplcon0 = (u16)((depth << 12) | 0x0200u | (hires ? 0x8000u : 0u));
+    entries_out = 0;
+    put_cop(m, list, &entries_out, 0x100u, bplcon0);                          /* BPLCON0      */
+    put_cop(m, list, &entries_out, 0x08Eu, (u32)(((u32)vstart << 8) | 0x81u));          /* DIWSTRT */
+    put_cop(m, list, &entries_out, 0x090u, (u32)((((u32)vstop & 0xFFu) << 8) | 0xC1u)); /* DIWSTOP */
+    put_cop(m, list, &entries_out, 0x092u, (u32)DDF_STRT);                    /* DDFSTRT      */
+    put_cop(m, list, &entries_out, 0x094u, (u32)(DDF_STRT + 8u * (u32)(words - 1)));    /* DDFSTOP */
+    put_cop(m, list, &entries_out, 0x108u, 0);                                /* BPL1MOD      */
+    put_cop(m, list, &entries_out, 0x10Au, 0);                                /* BPL2MOD      */
+    {
+        u32 ri = rt_read32(&m->mem, vp);
+        u32 ras = ri != 0 ? rt_read32(&m->mem, vp + EMU_VP_RASINFO) : 0;
+        u32 bm = ras != 0 ? rt_read32(&m->mem, ras + EMU_RI_BITMAP) : 0;
+        int p;
+        for (p = 0; p < depth; p++)
+            put_cop(m, list, &entries_out, (u32)(0x0E0 + 4 * p),
+                    bm != 0 ? rt_read32(&m->mem, bm + EMU_BM_PLANES + 4 * (u32)p) : 0);
+    }
     cm = vp != 0 ? rt_read32(&m->mem, vp + EMU_VP_COLORMAP) : 0;
     table = cm != 0 ? rt_read32(&m->mem, cm + EMU_CM_TABLE) : 0;
-
-    list = rt_alloc_bytes(10);                        /* struct cprlist */
-    start = rt_alloc_bytes((u32)colours * 4u);
-    if (list == 0 || start == 0) return;
     for (i = 0; i < colours; i++)
-    {
-        u32 colour = table != 0 ? rt_read16(&m->mem, table + (u32)i * 2u) : 0;
-        rt_write16(&m->mem, start + (u32)i * 4u, (u32)(0x180 + 2 * i));   /* COLORxx */
-        rt_write16(&m->mem, start + (u32)i * 4u + 2u, colour);
-    }
-    rt_write32(&m->mem, list + 0, 0);                    /* Next */
-    rt_write32(&m->mem, list + 4, start);
-    rt_write16(&m->mem, list + 8, (u32)colours);         /* MaxCount, in entries (FUN_0001FD7A) */
-    rt_write32(&m->mem, view + 4, list);                 /* v_LOFCprList */
-    rt_write32(&m->mem, view + 8, list);                 /* v_SHFCprList */
-    gfx->cprList = list;
-    gfx->cprList = list;
+        put_cop(m, list, &entries_out, (u32)(0x180 + 2 * i),
+                table != 0 ? rt_read16(&m->mem, table + (u32)i * 2u) : 0);
+    put_cop_wait(m, list, &entries_out, 0xFF, 0xFE);                          /* end of frame */
+
+    rt_write32(&m->mem, container + 0, 0);                    /* Next */
+    rt_write32(&m->mem, container + 4, list);                 /* start */
+    rt_write16(&m->mem, container + 8, (u32)entries_out);     /* MaxCount, in entries */
+    rt_write32(&m->mem, view + 4, container);                 /* v_LOFCprList */
+    rt_write32(&m->mem, view + 8, container);                 /* v_SHFCprList */
+    gfx->cprList = container;
+    gfx->copList = list;
+    rt_cop_run(m, list, 0);                                   /* the display this frame */
     if (m->trace || gfx->frames == 0)
-        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d cprlist %06lX start %06lX\n",
+        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d list %06lX (%d instr, "
+               "%d move(s) run)\n",
                (unsigned long)view, (unsigned long)vp, depth, colours, (unsigned long)list,
-               (unsigned long)start);
+               entries_out, m->copper.moves);
 }
 
 /* One planar -> chunky pass over the whole visible area. The plane pointers are read once per row;

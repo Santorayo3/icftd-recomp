@@ -58,8 +58,6 @@ typedef struct rt_slots
     int dmaDisplay, dmaBlank;             /* DMA colour clocks per line                */
     u32 cpuShare;                         /* per-mille of the frame the CPU can use    */
     u32 frameDma;                         /* DMA colour clocks per frame               */
-    u32 copperList;                       /* the list the snapshot came from           */
-    int copperEntries, copperMoves;       /* entries scanned / MOVEs applied           */
 } rt_slots;
 
 struct rt_machine;
@@ -72,6 +70,10 @@ void rt_slots_reset(struct rt_machine *m);
 
 /* 1 when the colour clock at `pos` (68000 cycles into the frame) belongs to DMA. */
 int  rt_slot_taken(struct rt_machine *m, long pos);
+
+/* Charges `slots` bus colour clocks to the frame budget, walking the map the way the CPU and the
+ * blitter do (a slot the display took is a wait). Returns the cycles the walk cost. */
+long rt_bus_walk(struct rt_machine *m, int slots);
 
 /* The time an instruction really takes: `cost` from the 68000 cycle table, split into internal
  * cycles (full speed) and `rt_bus_cycles[opcode]` bus words walked through the slot map. `pc` is

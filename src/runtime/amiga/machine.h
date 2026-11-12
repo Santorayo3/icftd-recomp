@@ -10,6 +10,7 @@
 #include "memory.h"
 #include "audio.h"
 #include "slots.h"
+#include "copper.h"
 
 /* Memory map. The image is flattened at 0x4000, not 0: address 4 must hold AbsExecBase, and at
  * base 0 the code hunk (entry stub `jmp`) overlaps it - the cstart's `movea.l 4.w,a6` would read
@@ -54,6 +55,7 @@ typedef struct rt_gfx_state{
     char osdText[40];             /* overlay line in the top left corner, "" when idle */
     u32  osdTextUntil;            /* m->frame the line disappears on */
     u32  osdIconUntil;            /* m->frame the save icon disappears on */
+    u32  copList;                 /* the copper program MrgCop built (copper.c) */
 } rt_gfx_state;
 /* The exec structures we hand the game: the Process that FindTask returns and its CLI record.
  * Reserved above the AllocMem heap and below the stack - the image's BSS reaches 0x31598, so
@@ -187,6 +189,7 @@ typedef struct rt_machine
     u32     presents;
     u32     dmaSteal;                     /* chip-RAM bus colour clocks per frame the DMA takes (report) */
     rt_slots slots;                       /* the per-line bus map and its register snapshot (slots.c) */
+    rt_copper copper;                     /* the copper's program counter and last run (copper.c) */
     u32     slotsAt;                      /* --slotsat <frame>: dump the map at that boundary (0 = never) */
     int     busTable;                     /* --bustable: measure bus words per opcode */
     long    busWords;                     /* ... the counter the CPU's memory callbacks bump */
