@@ -54,29 +54,38 @@ access instead of one global factor) but it does **not** move the content timeli
 blitter contention is offset because the old 1.92 flat stretch overcharged internal cycles. The
 remaining ~1.45x has another cause - see below.
 
+**Measured on the reference machine (cycle-exact WinUAE, via `tools\icftd-steplog.uae`)**
+
+* **The original spends ~28 s loading before the intro exists.** The program's code first appears in
+  RAM at frame ~1440 (`dshell` is loaded into slow RAM; two independent 16-byte code signatures,
+  taken from image offsets 0x14000 and 0x20000, appear together at a verified base of
+  `0xC530E0`). Our build loads from the host in milliseconds. So a wall-clock number that starts at
+  "switch on" compares two different timelines: the reference's 29 s is largely disk loading.
+* **The extracted image's layout is right.** `dshell.hunks.txt` shows code 0x4000..0x25A58 then data
+  0x25A58..0x31594 contiguous, i.e. exactly how the loader packs them, and the running program's
+  code bytes match ours at the image's own offsets. There is no extraction or layout error - what
+  differs is only *where* the program is put.
+* **`DAT_0002C10C` reads 0 for the whole reference run**, while our build increments it during the
+  intro (452 by frame 1500). Either that address is not the intro's counter on the real machine, or
+  the intro does not use it there. Unresolved; do not draw conclusions from our build's `step`
+  column until it is.
+* Do not repeat the byte-by-byte RAM dump through WinUAE's Lua bridge: a million `uae_read_u8` calls
+  freeze the emulator for seconds per frame (black picture, starved audio). The script in `tools`
+  now does six reads per frame and nothing else.
+
 **Next, in this order**
 
-1. **Get the reference frame-indexed, not stopwatch-indexed.** `tools\icftd-steplog.uae` is our own
-   cycle-exact config plus `lua=tools\winuae-steplog.lua`, which logs the engine's own MovE step
-   counter (image 0x2C10C, runtime 0x3010C) every vsync to `out\winuae-steps.txt` as
-   `<frame> <step>`. Our build prints the same counter per frame in `--ticklog`'s `step` column, so
-   "at step 300 we are at frame X in the original and frame Y in ours" is a machine-state comparison.
-   That number decides everything downstream: if the original needs 1.45x more frames per step, the
-   per-step work is undercharged; if it needs the same, the difference is structural (a scene list, a
-   script branch) and no amount of clock modelling will close it.
-2. **The copper now executes.** `rt_gfx_mrg_cop` emits the hardware's program (BPLCON0, DIWSTRT/STOP,
-   DDFSTRT/STOP, both modulos, one BPLxPT per plane, one COLORxx per colour, then WAIT forever) into
-   the block the engine patches, and `copper.c` runs it - every MOVE goes through
-   `rt_custom_write16`, so the display registers the slot map reads are the ones the copper wrote,
-   and each instruction costs a bus slot walked through the same arbiter. Limit, documented in
-   `copper.h`: the program is run once per frame from its start, because the renderer converts one
-   palette per frame; a mid-screen split would need per-line conversion.
-3. **The fanfare follows from 1.** Nothing schedules a new score after the intro music's last write
-   (period 2 on all channels at frame 1617, i.e. the player silencing itself); the engine's fade and
-   the picture end at the same boundary. Only once the reference's frames-per-step is known can this
-   be called a divergence instead of a consequence.
-4. Then re-baseline the four markers with RAM dumps at equal content positions (the 400-frame
-   fingerprint stays retired) and decide level 1 vs level 2 from the evidence.
+1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
+   content pacing did not move, so the remaining 1.45x is likely *work*: the original does more per
+   step than our build does (a behavioural difference, i.e. exactly what RULE 0 is for). Start from
+   the intro's picture path - `DrawNode`/`LoadPicture`, the mask builder `FUN_0001E504`, the
+   compositor `FUN_0001E8C8` - and check whether any of our shims short-circuit work the engine
+   performs through the blitter with waits.
+2. **Then** re-measure with a frame-indexed reference (the counter question above has to be settled
+   first, or a different marker - the copper list pointer and the palette, both absolute, are
+   already logged by the light script).
+3. Re-baseline the four markers with RAM dumps at equal content positions (the 400-frame fingerprint
+   stays retired) and decide level 1 vs level 2 from the evidence.
 
 ## The MS-DOS target (2026-11-11, later session) — it runs; performance is the open work
 
