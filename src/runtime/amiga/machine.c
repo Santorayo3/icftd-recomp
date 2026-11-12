@@ -1013,6 +1013,8 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
     if (m->callLog != 0)
         fprintf((FILE *)m->callLog, "%ld %d %ld\n", (long)m->insns, lib, (long)lvo);
 
+    /* TEMP diagnostic removed: -456 on graphics.library is OwnBlitter, not exec.DoIO. */
+
     i = (int)(-lvo / 6) % 64;
     {
         lvo_stat *st = lvo_stat_get(lib, lvo);
@@ -1151,6 +1153,21 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             result = 0;
             break;
         case -456:                               /* DoIO(iob) - no device timing yet */
+            if (m->frame >= 750u && m->frame <= 760u)
+            {
+                u32 iob = arg32(sp, 0);
+                printf("diag: DoIO(%06lX) dev %06lX unit %06lX cmd %04lX f %lu | "
+                       "+20 %08lX %08lX %08lX %08lX\n",
+                       (unsigned long)iob,
+                       (unsigned long)rt_read32(&m->mem, iob + 0x14),
+                       (unsigned long)rt_read32(&m->mem, iob + 0x18),
+                       (unsigned long)rt_read16(&m->mem, iob + 0x1C),
+                       (unsigned long)m->frame,
+                       (unsigned long)rt_read32(&m->mem, iob + 0x20),
+                       (unsigned long)rt_read32(&m->mem, iob + 0x24),
+                       (unsigned long)rt_read32(&m->mem, iob + 0x28),
+                       (unsigned long)rt_read32(&m->mem, iob + 0x2C));
+            }
             result = 0;
             break;
         case -108:                               /* Alert(code) - never returns */
@@ -1504,13 +1521,19 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
         case -222:                               /* LoadView(view) - present it */
             {
                 u32 v = arg32(sp, 0);
+                int changed = (v != m->view);
                 m->view = v;
                 rt_gfx_present(m, v);
+                /* The real LoadView cannot swap the copper list while the beam is displaying: it
+                 * waits for the vertical blank first (that is why the flip costs a frame on the
+                 * original and nothing here). Only a change of view waits, and a view that is
+                 * already installed returns at once, as the library does. */
+                if (changed && !waitFrame) waitFrame = 1;
                 if (m->trace)
                 {
                     u32 vp = v != 0 ? rt_read32(&m->mem, v) : 0;
-                    printf("emu: LoadView view=%06lX vp=%06lX\n",
-                           (unsigned long)v, (unsigned long)vp);
+                    printf("emu: LoadView view=%06lX vp=%06lX%s\n",
+                           (unsigned long)v, (unsigned long)vp, changed ? " (changed)" : "");
                 }
                 result = 0;
             }
