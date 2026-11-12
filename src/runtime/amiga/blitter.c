@@ -478,7 +478,21 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
         cur = (u16)(((v & 0x8000u) != 0) ? (cur | (v & 0x7FFFu)) : (cur & ~(v & 0x7FFFu)));
         m->custom[0x096 >> 1] = cur;
     }
-    m->slots.dirty = 1;
+    /* Only registers the bus map is derived from make the map stale. The copper writes COLORxx at
+     * every frame (32 entries per display), and rebuilding the map for each of those would cost
+     * more than it can ever change. */
+    switch (reg)
+    {
+    case 0x08Eu: case 0x090u:                 /* DIWSTRT/DIWSTOP */
+    case 0x092u: case 0x094u:                 /* DDFSTRT/DDFSTOP */
+    case 0x096u:                              /* DMACON */
+    case 0x100u:                              /* BPLCON0 */
+        m->slots.dirty = 1;
+        break;
+    default:
+        if (reg >= 0x140u && reg <= 0x17Eu) m->slots.dirty = 1;   /* SPRxPOS/SPRxCTL */
+        break;
+    }
 
     /* Paula's four channels: $DFF0A0..$DFF0DE (their state lives in audio.c). */
     if (reg >= 0x0A0u && reg <= 0x0DEu)

@@ -720,7 +720,7 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
     table = cm != 0 ? rt_read32(&m->mem, cm + EMU_CM_TABLE) : 0;
 
     list = rt_alloc_bytes(10);                        /* struct cprlist */
-    start = rt_alloc_bytes((u32)colours * 4u);
+    start = rt_alloc_bytes((u32)(colours + 1) * 4u);  /* one entry per colour, then the terminator */
     if (list == 0 || start == 0) return;
     for (i = 0; i < colours; i++)
     {
@@ -728,9 +728,16 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
         rt_write16(&m->mem, start + (u32)i * 4u, (u32)(0x180 + 2 * i));   /* COLORxx */
         rt_write16(&m->mem, start + (u32)i * 4u + 2u, colour);
     }
+    /* The copper executes this list, so it needs an end: wait for ever, one entry past the last
+     * colour. The colour entries stay first and in order, which is what the engine's own readers
+     * depend on - FUN_0001FDE8 collects each palette word's address and FUN_0001FD7A searches for
+     * 0x180+2k, and both walk MaxCount entries, so one extra MOVE-less entry is invisible to
+     * them. */
+    rt_write16(&m->mem, start + (u32)colours * 4u, 0xFFFFu);               /* WAIT $FFFF,$FFFE */
+    rt_write16(&m->mem, start + (u32)colours * 4u + 2u, 0xFFFEu);
     rt_write32(&m->mem, list + 0, 0);                    /* Next */
     rt_write32(&m->mem, list + 4, start);
-    rt_write16(&m->mem, list + 8, (u32)colours);         /* MaxCount, in entries (FUN_0001FD7A) */
+    rt_write16(&m->mem, list + 8, (u32)(colours + 1));   /* MaxCount, in entries (FUN_0001FD7A) */
     rt_write32(&m->mem, view + 4, list);                 /* v_LOFCprList */
     rt_write32(&m->mem, view + 8, list);                 /* v_SHFCprList */
     gfx->cprList = list;

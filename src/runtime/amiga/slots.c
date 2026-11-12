@@ -22,6 +22,7 @@
 #include "types.h"
 #include "machine.h"
 #include "slots.h"
+#include "copper.h"
 #include "blitter.h"
 
 /* UAE custom.cpp: the plane fetch order for a fetch group. */
@@ -305,7 +306,8 @@ static long walk_slots(rt_machine *m, long pos, int clocks)
     while (i < clocks)
     {
         int taken = rt_slot_taken(m, pos);
-        if (!taken && rt_blit_take_clock(m)) { pos += 2; continue; }   /* the blitter took it */
+        if (!taken && rt_cop_take_clock(m, pos))      { pos += 2; continue; }  /* the copper */
+        if (!taken && rt_blit_take_clock(m))          { pos += 2; continue; }  /* the blitter */
         pos += 2;
         if (!taken) i++;
     }
@@ -313,14 +315,20 @@ static long walk_slots(rt_machine *m, long pos, int clocks)
 }
 
 /* Time passing without the CPU using the bus (an instruction's internal cycles, or an idle
- * frame): the clock still moves and the blitter still takes the clocks nobody else owns. */
+ * frame): the clock still moves and the copper and the blitter still take the clocks nobody else
+ * owns. At the top of the frame the copper restarts at its list. */
 static long frame_cursor(const rt_machine *m);
 
 static long beam_pass(rt_machine *m, long pos, int clocks)
 {
     while (clocks-- > 0)
     {
-        if (!rt_slot_taken(m, pos)) rt_blit_take_clock(m);
+        long at = pos % (long)EMU_CYCLES_PER_FRAME;
+        if (at == 0) rt_cop_vblank(m);
+        if (!rt_slot_taken(m, pos))
+        {
+            if (!rt_cop_take_clock(m, pos)) rt_blit_take_clock(m);
+        }
         pos += 2;
     }
     return pos;
@@ -473,8 +481,7 @@ void rt_slots_print(rt_machine *m)
            (unsigned long)s->ddfstrt, (unsigned long)s->ddfstop, s->words, s->fetchStart,
            s->groupFree, (unsigned long)s->diwstrt, (unsigned long)s->diwstop,
            s->vstart, s->vstop);
-    printf("slots: copper list %06lX, %d entr(ies), %d MOVE(s) applied\n",
-           (unsigned long)s->copperList, s->copperEntries, s->copperMoves);
+    rt_cop_report(m);
     printf("slots: refresh 3/5/7/9; disk 13; audio 17/19/21/23; sprites 25..; "
            "bitplane window at DDFSTRT\n");
     printf("slots: %d DMA clock(s) on a display line, %d on a blank line; "
