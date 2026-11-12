@@ -1363,3 +1363,28 @@ a stale but valid type word there. Both need a datum from the reference side tha
 not contain (the index is cleared once a load finishes, and the score base was null in both states
 we have). The next measurement is a WinUAE debugger break at `0xc52660+0xe8fa` / `+0xe91a` reading
 `A4+0x2ad8` and `A4+0xac2`, or at `+0xf41e` reading `(A4)`.
+
+## A call to an address that has no code returns to its caller
+
+`jsr (0,A4)` (image 0xf41e in the score player, 0x135f0 in the "start voice" routine) is what an
+empty voice object turns into: the handler word is still 0, so the call target is absolute
+`0x000000`, which is the 68000 exception vector table, not a function. The translated front end
+already answered this the way a machine would after a null call - `rc_stream` returns when
+`c->pc == 0` - but the interpreter front end treated any PC below the image as fatal and, when it
+happened inside an interrupt, threw away the rest of the handler.
+
+That is what the stutter was. The score player re-arms its DMA once a tick, so a lost tick is an
+audible gap. `oracle_step` now does what `rc_stream` does: if a PC below the image has a return
+address on the stack, pop it, report once, and carry on; a wild jump without one still fails fast
+with the ring dump. One rule, both front ends, no flag.
+
+Measured, `bin\win32\icftd-recomp.exe 12000000` (translated) and the oracle over 14 M instructions:
+
+    before   oracle 142 aborted ticks, product 9 (frames 1955-2032)
+    after    oracle 0, product 0; one line: "call to 000000 has no code - returning (frame 1631)"
+    reach    oracle 3282 rasters / 14 M insns, product 3097 / 12 M - unchanged pacing, gate 4/4
+
+The engine bug behind it is unchanged and still open: the intro's `DES4:INSTS` index has no
+`o.rff` entry, so the loader's substituted `Desert1:sfx/o.rff` record loses the 0x20 it set at
+0xe8ea, the object is allocated empty and gets no handler. What makes the reference reach that open
+with the size intact is still unknown, and the candidates are listed above.

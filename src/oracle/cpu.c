@@ -310,6 +310,10 @@ void oracle_regs_set(const u32 *r) { oracle_restore_regs(r); }
 /* The interrupt returns through this address (pushed as the return address of the handler). */
 #define EMU_INT_RET 0x00000204u
 
+/* One line for the first call to an address that has no code; it can repeat thousands of times and
+ * each one is a program bug the machine is surviving, not something to print per frame. */
+static int noCodeLogged;
+
 int oracle_step(rt_machine *m);
 
 /* Runs one handler to its rts. Returns 0 when the handler never returned. */
@@ -572,6 +576,22 @@ int oracle_step(rt_machine *m)
     }
     if (pc < m->imageBase && !allowLow)
     {
+        /* A `jsr` whose target is not code - a voice object whose handler word is still 0 becomes
+         * `jsr (0,A4)` at image 0xf41e and 0x135f0, and address 0 is the exception vector table -
+         * returns to its caller. rc_stream (src\recomp\cpu.c) has always answered pc == 0 this way,
+         * so the two front ends agree; the original machine would execute the table, which is how a
+         * program calling a null handler traps. Aborting instead loses the rest of the routine, and
+         * in an interrupt that is audible (the score player re-arms its DMA once a tick). */
+        u32 ret = rt_read32(&m->mem, m68k_get_reg(0, M68K_REG_A7));
+        if (ret == EMU_INT_RET || (ret >= m->imageBase && (m->imageTop == 0 || ret < m->imageTop)))
+        {
+            if (!noCodeLogged++)
+                printf("emu: call to %06lx has no code - returning to %06lx (frame %lu)\n",
+                       (unsigned long)pc, (unsigned long)ret, (unsigned long)m->frame);
+            m68k_set_reg(M68K_REG_A7, m68k_get_reg(0, M68K_REG_A7) + 4);
+            m68k_set_reg(M68K_REG_PC, ret);
+            return 1;
+        }
         printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
         oracle_dump_ring(m);
         return 0;
