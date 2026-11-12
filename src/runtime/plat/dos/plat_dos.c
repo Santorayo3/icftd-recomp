@@ -382,12 +382,12 @@ static const u8 g_page16[4] = { 0x8F, 0x8B, 0x89, 0x8A };
 #define DMA16_MODE     0xD6u
 #define DMA16_CLEAR_FF 0xD8u
 
-/* 16 KB of audio = 93 ms at 44,100 Hz stereo. It has to absorb two things: the writer produces a
- * frame's worth (3528 B) in one burst every 20 ms, and DOSBox's Sound Blaster pulls in mixer blocks
- * of 1024 samples (23 ms), so an 8 KB ring left barely two blocks of slack and every block boundary
- * could dip into starvation - audible as light crackle. Costs 32 KB of base memory (the allocator
- * takes twice the ring to step over a DMA page boundary); 551 KB stay free. */
-#define SB_BUF_BYTES  16384u           /* ring in conventional memory: a power of two */
+/* 32 KB of audio = 186 ms at 44,100 Hz stereo. It has to absorb the writer's per-frame burst
+ * (3528 B every 20 ms) and DOSBox's mixer blocks (1024 samples = 23 ms), and a frame can be a few
+ * milliseconds late without the card noticing. The allocator takes twice the ring so it can step
+ * over a DMA page boundary, so this costs 64 KB of the 583 KB of base memory left; the 64 KB window
+ * an 8-bit channel needs is exactly this size, which is why it is the largest that is safe there. */
+#define SB_BUF_BYTES  32768u           /* ring in conventional memory: a power of two */
 #define SB_MAX_FRAMES (SB_BUF_BYTES / 2u)
 
 static struct
@@ -414,6 +414,7 @@ static struct
     u32 lastServed;                    /* played when the card was last serviced */
     u32 stalls;                        /* frames the card made no progress */
     u32 resumes;                       /* times a halted transfer was nudged */
+    u32 starved;                       /* frames that began with an empty ring */
     int posValid;
 } g_sb;
 
@@ -626,6 +627,17 @@ static void sb_dma_start(void)
     }
 }
 
+/* Acknowledge the block interrupt. The DSP raises one per block and DOSBox's Sound Blaster stops
+ * the transfer when the previous one is still unacknowledged, so the ack has to arrive within a
+ * block - 1024 samples = 23 ms at the default mixer setting. Acknowledging once per frame (20 ms)
+ * rides that edge and every late ack costs a halt plus a restart, audible as a click. The read is
+ * harmless, so it also happens in the idle frame wait, about once a millisecond. */
+static void sb_ack(void)
+{
+    (void)inp(DSP_STATUS(g_sb.base));
+    if (g_sb.bits == 16) (void)inp(DSP_ACK16(g_sb.base));
+}
+
 /* Where the card is reading, in bytes from the start of the ring. The 8237 reports a 16-bit
  * address (words for a 16-bit channel); the ring is aligned so that those 16 bits cover it. */
 static u32 sb_dma_pos(void)
@@ -657,8 +669,7 @@ static u32 sb_played(void)
 {
     u32 pos;
 
-    (void)inp(DSP_STATUS(g_sb.base));
-    if (g_sb.bits == 16) (void)inp(DSP_ACK16(g_sb.base));
+    sb_ack();
     pos = sb_dma_pos();
     if (!g_sb.posValid) { g_sb.lastPos = pos; g_sb.posValid = 1; return g_sb.played; }
     g_sb.played += (pos - g_sb.lastPos) & (SB_BUF_BYTES - 1u);
@@ -765,6 +776,7 @@ static int sb_start_stream(void)
 static void sb_service(void)
 {
     if (!g_sb.open) return;
+    if ((s32)(g_sb.written - sb_consumed()) <= 0) g_sb.starved++;
     (void)sb_played();
     if (g_sb.written - g_sb.played < SB_BUF_BYTES) { g_sb.stalls = 0; return; }
     if (g_sb.played != g_sb.lastServed) { g_sb.lastServed = g_sb.played; g_sb.stalls = 0; return; }
@@ -1160,6 +1172,11 @@ u32 plat_audio_dropped(void)
     return g_sb.dropped;
 }
 
+u32 plat_audio_starved(void)
+{
+    return g_sb.starved;
+}
+
 u32 plat_audio_played(void)
 {
     return g_sb.open ? g_sb.written : 0;
@@ -1197,9 +1214,16 @@ void plat_set_frame_hz(u32 hz)
  * controller's one-byte buffer while it waits. */
 void plat_frame_sync(void)
 {
+    u32 lastAck = g_pitCounts;
+
     for (;;) {
         pit_update();
-        if (g_pitAcc < g_period) { kbd_poll(); continue; }
+        if (g_pitAcc < g_period) {
+            kbd_poll();
+            /* This is idle time: keep the card's block interrupt acknowledged while waiting. */
+            if (g_pitCounts - lastAck >= 1193u) { lastAck = g_pitCounts; sb_ack(); }
+            continue;
+        }
         g_pitAcc -= g_period;
         /* A frame that took far longer than a period (a load, a debugger) does not try to catch
          * up in a burst - that would spin the game through several frames at once. */

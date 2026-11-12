@@ -267,7 +267,7 @@ int main(int argc, char **argv)
     long traceFrom = 0, traceTo = 0;
     u32 lastTraced = 0xFFFFFFFFu, prevTraced = 0xFFFFFFFFu;
     u32 translated = 0, interpreted = 0;
-    u32 audioPlayed = 0, audioDropped = 0;
+    u32 audioPlayed = 0, audioDropped = 0, audioStarved = 0;
     plat_set_program(argc > 0 ? argv[0] : 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     memset(&c, 0, sizeof c);
@@ -460,6 +460,7 @@ int main(int argc, char **argv)
     /* rt_shutdown closes the device and clears the flag, so the counters are read first. */
     audioPlayed = m.audio.device ? plat_audio_played() : 0;
     audioDropped = m.audio.device ? plat_audio_dropped() : 0;
+    audioStarved = m.audio.device ? plat_audio_starved() : 0;
     rt_shutdown(&m);
     plat_shutdown();
 
@@ -511,8 +512,10 @@ int main(int argc, char **argv)
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);
     if (audioPlayed != 0 || audioDropped != 0)
-        printf("icftd: audio %lu byte(s) sent to the card, %lu frame(s) dropped\n",
-               (unsigned long)audioPlayed, (unsigned long)audioDropped);
+        printf("icftd: audio %lu byte(s) sent to the card, %lu frame(s) dropped, "
+               "%lu frame(s) starved\n",
+               (unsigned long)audioPlayed, (unsigned long)audioDropped,
+               (unsigned long)audioStarved);
     printf("icftd: settings %s, saves %lu\n",
            rt_config_path()[0] != 0 ? rt_config_path() : "(none)", (unsigned long)m.saves);
     (void)rc;

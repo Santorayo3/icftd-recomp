@@ -507,6 +507,8 @@ u32 plat_audio_played(void)
     return 0;                          /* waveOut keeps its own clock; nothing to report */
 }
 
+u32 plat_audio_starved(void) { return 0; }
+
 u32 plat_rtc_elapsed_ms(void)
 {
     return 0;                          /* the host clock is already real time */

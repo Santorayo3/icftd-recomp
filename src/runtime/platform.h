@@ -73,8 +73,8 @@ void plat_audio_write(const s16 *frames, u32 count);
 u32  plat_audio_dropped(void);
 
 /* Bytes the device has consumed since it opened (0 when it cannot report it). */
-u32  plat_audio_played(void);
-
+u32  plat_audio_played(void);/* Frames that began with the ring empty: the card had nothing to play and repeated its buffer. */
+u32 plat_audio_starved(void);
 /* Diagnoses the audio device: sets up each format it supports, measures what the card actually
  * consumes and prints one line per case. DOS only; a no-op elsewhere. */
 void plat_audio_probe(void);
