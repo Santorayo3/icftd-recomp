@@ -1,29 +1,38 @@
--- ICFTD: logs a few machine values once per frame from cycle-exact WinUAE. Light by design.
+-- ICFTD reference timeline: one line per frame from cycle-exact WinUAE.
 --
--- This is a *read-only, six-accesses-per-frame* script: it must never stall the emulator, so there
--- are no memory scans and no byte-by-byte dumps here. (A previous version dumped RAM through the
--- Lua bridge one byte at a time - a million calls - which froze the machine for seconds per frame
--- and made the picture stop updating. Do not bring that back.)
+-- The columns are exactly rt_framelog()'s in src\runtime\amiga\machine.c, so our build's
+-- "--framelog out\our-trace.txt" can be diffed against this file line by line:
 --
--- What it logs, per vsync, to out\winuae-trace.txt:
---   frame, the copper list pointer ($DFF080), four colour registers, and - if BASE is not 0 - the
---   32-bit value at BASE + 0x2C10C (the engine's MovE step counter, image offset 0x2C10C).
+--   frame c0..c15 dmacon bplcon0 ddfstrt ddfstop v0..v3 lc0..lc3 step
 --
--- BASE is the program's load address. It is a fact about how AmigaDOS loaded dshell on the target
--- machine; our own runtime uses 0x4000, which is a choice, not the original's layout. Set it from a
--- measurement (it prints 0 when unknown, and only the palette/copper columns are then meaningful).
+-- Only values that are the same number on both machines are logged; addresses (the copper list
+-- pointer, the program base) are not comparable, because the original is loaded into slow RAM by
+-- AmigaDOS and our runtime loads the same image at $4000.
 --
--- NOTE: WinUAE registers uae_read_u16 only *after* this chunk has finished loading, so it must not
+-- This script must never stall the emulator. It reads 34 registers per vsync and nothing else: no
+-- memory scans, no byte-by-byte dumps. (An earlier version dumped RAM through the Lua bridge one
+-- byte at a time - a million calls - which froze the machine for seconds per frame; the picture
+-- stopped updating and the audio starved. Do not bring that back.)
+--
+-- WinUAE registers uae_read_u16/uae_read_u32 only *after* this chunk has loaded, so they may not
 -- be called at the top level.
 
 local OUT = "E:\\Meine Programme\\Unity\\Projects\\icftd-recomp\\out\\winuae-trace.txt"
-local BASE = 0                  -- the program's load address in WinUAE, 0 = do not read the counter
-local STEP_OFF = 0x2C10C        -- DAT_0002c10c: the engine's MovE step counter
-local MAX_FRAMES = 6000
+
+-- Where AmigaDOS loaded dshell on this configuration (A500, 512K slow RAM): the 16-byte code
+-- signature at image offset 0x14000 was found there in an earlier run, and the engine's MovE step
+-- counter sits 0x2C10C into the image. SIGFRAME reports whether the base still holds, so a run
+-- that moved (different config, different disks) says so instead of logging garbage.
+local BASE = 0xC530E0
+local STEP_OFF = 0x2C10C
+local SIG_OFF = 0x14000
+local SIGFRAME = 1200
+local MAX_FRAMES = 9000          -- 3 minutes at 50 Hz; the log is flushed per line, so it can be
+                                -- stopped earlier at any time without losing what was written
 
 local out = io.open(OUT, "w")
 if out == nil then return end
-out:write("loaded\n")
+out:write("# icftd reference timeline\n")
 out:flush()
 
 local frame = 0
@@ -35,23 +44,42 @@ local function u32(a)
     return hi * 65536 + lo
 end
 
+local function line()
+    local t = { string.format("%d", frame) }
+    local i
+    for i = 0, 15 do
+        t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF180 + i * 2))
+    end
+    t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF096))          -- DMACON
+    t[#t + 1] = string.format("%04X", uae_read_u16(0xDFF100))          -- BPLCON0
+    t[#t + 1] = string.format("%03X", uae_read_u16(0xDFF08C) % 512)    -- DDFSTRT
+    t[#t + 1] = string.format("%03X", uae_read_u16(0xDFF090) % 512)    -- DDFSTOP
+    for i = 0, 3 do
+        t[#t + 1] = string.format("%02X", uae_read_u16(0xDFF0A8 + i * 16))         -- AUDxVOL
+    end
+    for i = 0, 3 do
+        t[#t + 1] = string.format("%06X", u32(0xDFF0A0 + i * 16) % 0x1000000)     -- AUDxLC
+    end
+    t[#t + 1] = string.format("%d", u32(BASE + STEP_OFF))
+    out:write(table.concat(t, " "), "\n")
+    out:flush()
+end
+
 function on_uae_vsync()
     if out == nil then return end
     frame = frame + 1
+    if frame == SIGFRAME then
+        out:write(string.format("# signature at %06X: %04X %04X %04X %04X\n", BASE + SIG_OFF,
+                                uae_read_u16(BASE + SIG_OFF), uae_read_u16(BASE + SIG_OFF + 2),
+                                uae_read_u16(BASE + SIG_OFF + 4), uae_read_u16(BASE + SIG_OFF + 6)))
+        out:flush()
+    end
     if frame > MAX_FRAMES then
+        out:write(string.format("# end of log at frame %d\n", MAX_FRAMES))
+        out:flush()
         out:close()
         out = nil
         return
     end
-    local line = { string.format("%d", frame),
-                   string.format("cop=%06X", u32(0xDFF080)) }
-    local i
-    for i = 1, 4 do
-        line[#line + 1] = string.format("c%d=%04X", i, uae_read_u16(0xDFF180 + (i - 1) * 2))
-    end
-    if BASE ~= 0 then
-        line[#line + 1] = string.format("step=%d", u32(BASE + STEP_OFF))
-    end
-    out:write(table.concat(line, " "), "\n")
-    out:flush()
+    line()
 end

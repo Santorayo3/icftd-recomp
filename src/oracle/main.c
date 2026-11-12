@@ -135,6 +135,7 @@ int main(int argc, char **argv)
     const char *ramFrames = 0;
     const char *ramStop = 0;
     const char *callLog = 0;
+    const char *frameLog = 0;
     long traceFrom = 0, traceTo = 0;
     int tickLog = 0;
     int ring = 0;
@@ -188,6 +189,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) { ramFrames = argv[++i]; continue; }
         if (strcmp(argv[i], "--ramstop") == 0 && i + 1 < argc) { ramStop = argv[++i]; continue; }
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
+        if (strcmp(argv[i], "--framelog") == 0 && i + 1 < argc) { frameLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
         if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
         if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
@@ -311,6 +313,7 @@ int main(int argc, char **argv)
     m.releaseAt = releaseAt;
     m.dataDir = dataDir;
     if (callLog != 0) rt_calllog_open(&m, callLog);
+    if (frameLog != 0) rt_framelog_open(&m, frameLog);
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;

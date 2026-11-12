@@ -1774,6 +1774,7 @@ void rt_delay_ticks(rt_machine *m, u32 ticks)
  * bitmap and never appeared. */
 void rt_frame_present(rt_machine *m)
 {
+    if (m->frameLog != 0) rt_framelog(m);
     if (m->view != 0 && !m->inTick) rt_gfx_present(m, m->view);
 }
 
@@ -1790,6 +1791,62 @@ int rt_calllog_open(rt_machine *m, const char *path)
     if (f == 0) return 0;
     m->callLog = (void *)f;
     return 1;
+}
+
+/* --- the frame timeline ---------------------------------------------------------------------
+ * One line per emulated frame, in the same columns as the reference tracer that runs inside
+ * cycle-exact WinUAE (tools\winuae-steplog.lua):
+ *
+ *   frame c0..c15 dmacon bplcon0 ddfstrt ddfstop v0..v3 lc0..lc3 step
+ *
+ * The point is to diff two timelines line by line: which frame a picture appears on, when the
+ * palette changes, when a channel is armed, how far the engine's own MovE step counter has got.
+ * Absolute addresses are deliberately not logged - the original runs from slow RAM and we run from
+ * $4000, so only values that are the same number on both machines are comparable. */
+
+int rt_framelog_open(rt_machine *m, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == 0) return 0;
+    m->frameLog = (void *)f;
+    return 1;
+}
+
+void rt_framelog(rt_machine *m)
+{
+    FILE *f = (FILE *)m->frameLog;
+    u32 list = m->gfx.cprList;
+    u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
+    int entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
+    u16 col[16], con0 = m->custom[0x100 / 2];
+    u32 step = 0;
+    int i, e;
+
+    if (f == 0) return;
+    /* The colours are not in custom[] here: MrgCop builds a list of (COLORxx, value) entries and
+     * the engine fades by patching that list in place, so the list is what the picture shows. */
+    for (i = 0; i < 16; i++) col[i] = m->custom[0x180 / 2 + i];
+    for (e = 0; start != 0 && e < entries && e < 256; e++)
+    {
+        u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
+        u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
+        if (reg == 0x100u) con0 = (u16)val;
+        if (reg >= 0x180u && reg < 0x180u + 32u && (reg & 1u) == 0)
+            col[(reg - 0x180u) >> 1] = (u16)val;
+    }
+    if (m->mem.size > EMU_STEP_COUNTER + 4) step = rt_read32(&m->mem, EMU_STEP_COUNTER);
+    fprintf(f, "%lu", (unsigned long)m->frame);
+    for (i = 0; i < 16; i++) fprintf(f, " %04X", col[i]);
+    fprintf(f, " %04X %04X %03X %03X",
+            m->custom[0x096 / 2],                       /* DMACON: what the program asked for */
+            con0,                                       /* BPLCON0: planes, hires, colour */
+            m->custom[0x08C / 2] & 0x1FEu,              /* DDFSTRT: display window */
+            m->custom[0x090 / 2] & 0x1FEu);             /* DDFSTOP */
+    for (i = 0; i < 4; i++) fprintf(f, " %02X", m->audio.ch[i].vol);
+    for (i = 0; i < 4; i++)
+        fprintf(f, " %06X", (unsigned)(((u32)m->audio.ch[i].lcHi << 16) | m->audio.ch[i].lcLo) & 0xFFFFFFu);
+    fprintf(f, " %lu\n", (unsigned long)step);
+    fflush(f);
 }
 
 /* Raw RAM at the stop point: what the bisection needs when a frame boundary is too coarse. */

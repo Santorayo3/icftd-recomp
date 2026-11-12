@@ -179,6 +179,8 @@ typedef struct rt_machine
     u32     textDraws;                    /* graphics.Text calls so far, for --progress */
     u32     firePolls;                    /* reads of CIA-A PRA: the game is watching /FIRE */
     void *callLog;                        /* --calllog: one line per library call, for bisection */
+    void *frameLog;                       /* --framelog: one line per frame, same columns as the
+                                           * WinUAE reference tracer (rt_framelog) */
     long    traceFrom, traceTo;           /* --trace: print insns/budget/pc in this window */
     int     tickLog;                      /* --ticklog: one line per vblank, entry and exit */
     int     textLog;                      /* --textlog: dump the RastPort/BitMap a Text call gets */
@@ -234,6 +236,8 @@ u32  rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, 
 /* Opens the call log: "<insns> <lib> <lvo>" per library call, so two runs can be compared where
  * their instruction counts start to differ. */
 int  rt_calllog_open(rt_machine *m, const char *path);
+int  rt_framelog_open(rt_machine *m, const char *path);
+void rt_framelog(rt_machine *m);
 /* Raw RAM at the stop point, for bisecting between frame boundaries. */
 void rt_ram_snapshot(rt_machine *m, const char *path);
 /* "<insns> <budget> <pc>" when the run is inside the --trace window. */
