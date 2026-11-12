@@ -391,17 +391,21 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
      * average there would be wrong by up to 24 words. */
     if ((opcode & 0xFB80u) == 0x4880u)
         accesses += count_bits(rt_read16(&m->mem, pc + 2u));
-    /* Clamp: an instruction cannot have more bus words than its cycle count allows (4 clocks
-     * each), so a table entry can never make an instruction slower than its own bus time. */
     if (accesses < 0) accesses = 0;
-    if ((long)accesses * 4L > cost) accesses = (int)(cost / 4L);
+    /* Clamp: a memory cycle is 4 clock cycles, so an instruction cannot have more bus words than
+     * half its cycle count. */
+    if ((long)accesses * 2L > cost) accesses = (int)(cost / 2L);
 
     start = frame_cursor(m);
-    /* Internal cycles (register work) run at the 68000's own rate, but the clock still passes and
-     * the blitter still takes the clocks nobody owns; then each memory word takes its two clocks
-     * only when Agnus leaves them free for the CPU. */
-    pos = beam_pass(m, start, (int)((cost - 4L * (long)accesses) / 2L));
-    pos = walk_slots(m, pos, accesses * 2);
+    /* One bus word occupies the chip bus for ONE colour clock (UAE newcpu.cpp mem_access_delay_*:
+     * a chip-bank word is wait_cpu_cycle_read, which charges a single CYCLE_UNIT and then one
+     * do_cck() per clock Agnus took). The other two of the memory cycle's four clocks are the
+     * 68000's own address phase, so they are internal time and pass at full rate - which is why
+     * the internal part of `cost` is now `cost - 2*accesses` rather than `cost - 4*accesses`.
+     * Charging two clocks per word (as this did) made every access demand two free slots instead
+     * of one and under-charged the waits. */
+    pos = beam_pass(m, start, (int)((cost - 2L * (long)accesses) / 2L));
+    pos = walk_slots(m, pos, accesses);
     return pos - start;
 }
 
