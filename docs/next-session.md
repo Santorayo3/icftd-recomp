@@ -79,6 +79,44 @@ Consequences, i.e. what to un-believe:
   "off". That is the target, and it is a *differential* - no wall clock, no floppy-loading confound.
 * `tools\icftd-reference.uae` is the same machine with **no** script, for a clean run of the game.
 
+**Where the frame time goes, and the one divergence it named (2026-11-12)**
+
+`--ticklog` gives the accounting per vblank (`blitcyc` is cumulative, `budget` is what was left):
+
+| frame | instructions | blitter cycles | budget at tick |
+|---|---|---|---|
+| 400 | 2,948 | 107,048 | ~0 (debt) |
+| 800 | 4,024 | 86,402 | ~0 |
+| 1200 | 2,563 | 121,100 | ~0 |
+
+Blitter plus CPU fills the 141,875-cycle frame exactly, so the intro is **work-bound**: it runs the
+machine flat out and the step rate is whatever that work affords (0.5 frames/step early in the logo
+animation, 3.7 later). A machine that is flat out gets *faster* only by doing less work or by having
+its work under-charged - which is why "make it slower" cannot be done with a knob, and why nothing
+in the CPU model can be the remaining 30 %.
+
+Two candidates were checked against UAE's own source:
+
+* **The blitter's clock per word - real, fixed.** UAE `blitter.cpp:1165` charges
+  `blit_cyclecount = 4 - (shifter_skip_b + shifter_skip_y)` colour clocks per output word: four,
+  minus the channels that need no fetch (B off, or not both C and D on - with the fill-mode
+  exception at 1157). We charged the number of *enabled channels*, so a blit without B or without
+  C+D was charged too little (an A-only blit is two clocks in the original, one here). Effect: the
+  intro's blitter charge at frame 400 went 91,536 -> 107,048 cycles, and step 430 moved from frame
+  1377 to 1402 (+1.8 %). Commit `939a260`.
+* **Per-access CPU stalls - a no-op, not shipped.** `rt_bus_charge` already walks exactly the slot
+  sequence the accesses would walk: 4 cycles per bus word plus every DMA-owned colour clock in
+  front of it. Splitting that walk per access moves wait states *inside* one instruction and charges
+  the identical total, so it cannot move a timeline. What would be a real change is charging the
+  instruction *fetch* words at their own slots - but the translated build never fetches them (the
+  code is compiled), so the per-opcode table has to stand in for them.
+
+So the remaining gap is work per step, and finding it needs one trustworthy number from the
+reference. The one that needs no instrument: the interval from "the logo appears" to "the Load
+Screen appears", timed with a phone. Ours is 29.7 s (first colours at frame 165, the intro over by
+~1650). If cycle-exact WinUAE is ~39 s the gap is ~30 % and it is work; if it is ~30 s the model is
+already right and the difference is somewhere else entirely.
+
 **Next, in this order**
 
 1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
