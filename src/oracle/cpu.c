@@ -302,6 +302,20 @@ void oracle_tick(rt_machine *m)
                (unsigned long)rt_read32(&m->mem, EMU_STEP_COUNTER), (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     m->frame++;
     if (m->slotsAt != 0 && m->frame == m->slotsAt) rt_slots_print(m);
+    /* The blitter keeps working through the vertical blank: whatever the idle part of the frame did
+     * not spend of the slots it still owes is real bus time, so it is charged before the next frame
+     * starts. Without this a blit that spans an idle period (the engine waiting for the vblank)
+     * would cost nothing at all, and the frame would come out short. */
+    if (m->blitSlots > 0)
+    {
+        long owed = m->blitSlots * 2L;
+
+        m->blitSlots = 0;
+        m->blitBusy = 0;
+        m->cyclesToTick -= owed;
+        m->blitCycles += owed;
+        rt_time_run(m, owed);              /* the devices' clock keeps running through it */
+    }
     /* The budget carries whatever the last frame overspent: a blit can cost several frames, and the
      * CPU is stuck waiting for it (blitter.c). Only a WaitTOF/WaitBOVP resets it, because that is
      * the program declaring the rest of the frame idle. A debt bigger than one frame therefore
