@@ -20,9 +20,14 @@ cpu_24bit_addressing=true
 cpu_speed=real
 cpu_cycle_exact=true
 cpu_memory_cycle_exact=true
-cycle_exact=cpu
+; cycle_exact=true is the option the GUI writes for "Cycle-exact (Full)" (cfgfile.cpp:5949, values
+; false|memory|true; "true" also implies cpu_cycle_exact and cpu_memory_cycle_exact). The value
+; "cpu" that used to stand here was rejected - "Unknown value ('cpu') for option 'cycle_exact'" -
+; and there is no copper_cycle_exact option at all, because the copper is cycle-exact whenever the
+; CPU is. Both rejected entries were harmless: the CONF chunk of a savestate recorded
+; cycle_exact=true, cpu_cycle_exact=true, cpu_memory_cycle_exact=true, blitter_cycle_exact=true.
+cycle_exact=true
 blitter_cycle_exact=true
-copper_cycle_exact=true
 immediate_blits=false
 waiting_blits=automatic
 chipset=ocs
