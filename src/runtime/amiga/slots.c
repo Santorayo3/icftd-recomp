@@ -303,22 +303,17 @@ static long walk_slots(rt_machine *m, long pos, int slots)
     {
         for (;;)
         {
-            /* Priority, as Agnus has it: the display's fetch is allocated first, then the other
-             * DMA channels (copper, blitter), and the CPU gets a clock only when none of them
-             * wanted it. Getting this order wrong makes the blitter (and so everything waiting on
-             * it) faster than the hardware by exactly the display's share. */
-            if (rt_slot_taken(m, pos))
-            {
-                pos += 2;
-                continue;
-            }
             if (rt_slot_device_tick(m, pos))
             {
                 pos += 2;
                 continue;
             }
+            if (!rt_slot_taken(m, pos))
+            {
+                pos += 2;
+                break;
+            }
             pos += 2;
-            break;
         }
     }
     return pos;
