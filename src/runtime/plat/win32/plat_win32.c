@@ -391,11 +391,13 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
  * what absorbs a frame the emulation produced in a catch-up burst. */
 
 #define AUDIO_BUFFERS 8
-/* 512 frames is ~12 ms; eight of them queue 93 ms. The mixer hands over a whole frame's worth at
- * each vblank and catches up back to back after a slow frame, so a 46 ms queue (4) dropped ~16 %
- * of the samples where eight drop none (measured). */
+/* 512 frames is ~12 ms. The mixer hands over a frame's worth at each vblank, so the queue is the
+ * only slack there is when a frame takes longer than a frame time: at 4 chunks (46 ms) a slow
+ * stretch drops samples - measured ~16 % - and at 8 (93 ms) it drops none. The intro's transition
+ * to the Load Screen is exactly such a stretch, so the queue is 8. Latency is 93 ms of audio,
+ * which nothing in this game notices. */
 #define AUDIO_FRAMES  512
-#define AUDIO_QUEUE   4           /* chunks waiting for a free device buffer, ~46 ms */
+#define AUDIO_QUEUE   8           /* chunks waiting for a free device buffer, ~93 ms */
 
 static HWAVEOUT g_wave;
 static WAVEHDR  g_hdr[AUDIO_BUFFERS];
