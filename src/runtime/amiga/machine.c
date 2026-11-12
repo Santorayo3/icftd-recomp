@@ -299,8 +299,17 @@ opened:
         return 0;
     }
     rt_write32(&m->mem, m->files[slot].addr + 0, 0);
-    rt_write32(&m->mem, m->files[slot].addr + 36, 0);   /* fh_Args */
-    rt_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg1 */
+    /* fh_Pos and fh_End are fields of the FileHandle itself, and AmigaDOS keeps them current on
+     * every operation: the engine asks the handle for a file's length instead of seeking, so a
+     * zero here is read as "this file is empty" (a 0-byte allocation followed by a 0 voice object
+     * that the score player then calls - the intro stops starting scores). */
+    rt_write32(&m->mem, m->files[slot].addr + 16, 0);                   /* fh_Pos */
+    rt_write32(&m->mem, m->files[slot].addr + 20, m->files[slot].size); /* fh_End */
+    rt_write32(&m->mem, m->files[slot].addr + 24, 0);   /* fh_Funcs */
+    rt_write32(&m->mem, m->files[slot].addr + 28, 0);   /* fh_Func2 */
+    rt_write32(&m->mem, m->files[slot].addr + 32, 0);   /* fh_Func3 */
+    rt_write32(&m->mem, m->files[slot].addr + 36, 0);   /* fh_Arg1 */
+    rt_write32(&m->mem, m->files[slot].addr + 40, 0);   /* fh_Arg2 */
     /* Few files are opened, and "which file did the game try to read" is the first question for
      * every new scene, so this reports unconditionally - with how many handles are live, because
      * a climbing count is a leaked close, and with the frame and the call site, because a request
@@ -360,6 +369,7 @@ static u32 rt_file_read(rt_machine *m, u32 fh, u32 buf, u32 len)
 
     got = plat_read((plat_file *)f->f, f->pos, m->mem.base + buf, len);
     f->pos += got;
+    rt_write32(&m->mem, f->addr + 16, f->pos);        /* fh_Pos */
     return got;
 }
 
@@ -372,6 +382,9 @@ static u32 rt_file_write(rt_machine *m, u32 fh, u32 buf, u32 len)
     if (f == 0 || !f->writable || buf == 0 || len == 0) return 0;
     put = plat_write((plat_file *)f->f, f->pos, m->mem.base + buf, len);
     f->pos += put;
+    rt_write32(&m->mem, f->addr + 16, f->pos);        /* fh_Pos */
+    if (f->pos > f->size) f->size = f->pos;
+    rt_write32(&m->mem, f->addr + 20, f->size);       /* fh_End */
     return put;
 }
 
@@ -1250,6 +1263,7 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
                     u32 old = f->pos;
                     if (np < 0) np = 0;
                     f->pos = (u32)np;
+                    rt_write32(&m->mem, f->addr + 16, f->pos);    /* fh_Pos */
                     /* AmigaDOS returns the PREVIOUS position, not the new one: the engine reads
                      * a file's size as Seek(f,0,END) then Seek(f,0,START). */
                     result = old;
