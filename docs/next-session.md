@@ -1119,3 +1119,41 @@ position (engine data base A4 = 0x29A56, size word at A4+0xAC2, and the four 22-
 at player block +0x3E) and read whether the original holds 0x20 there and whether its channel 3
 object has a handler. Without that, the engine's own code gives nothing further to diff.
 
+
+## The reference savestate instrument works; first state decoded (2026-11-12)
+
+`statefile_quit` in tools\icftd-reference.uae makes WinUAE write a full state on quit, and
+tools\refstate.ps1 pulls memory out of it (chunk list, then one chunk as raw bytes). No Lua, no
+keypress timed to a frame - the earlier objection (a Lua handler runs inside vsync_handler_post and
+perturbed the machine) does not apply.
+
+What a state contains and what it proved:
+
+* `CONF` - the machine's *effective* configuration. One run recorded `cycle_exact=true`,
+  `cpu_cycle_exact=true`, `cpu_memory_cycle_exact=true`, `blitter_cycle_exact=true`,
+  `immediate_blits=false`, `waiting_blits=disabled`. So the two entries our .uae had that this
+  WinUAE rejects (`cycle_exact=cpu`, `copper_cycle_exact`) were harmless duplicates; the config is
+  fixed and says `cycle_exact=true` now.
+* `BRAM` - 512 KB slow RAM, `CRAM` - 512 KB chip RAM (zlib chunks; the walker has to resynchronise,
+  the padding after a chunk is not always what save_chunk() implies).
+* `CPU ` - model 68000, then D0-D7, A0-A6, PC, irc/ir, USP, ISP, SR. Both captured states had
+  **PC inside Kickstart ROM** (`0xFE5A6E`, `0xFE5862`) with A7 at the top of slow RAM, i.e. the main
+  task was blocked in a library routine at the moment of quitting.
+* The program is loaded at **0xC52660** in slow RAM (image offset 0x52660): the first instruction,
+  `jmp <abs>`, holds base+0x20918 there. That retires the 0xC530E0 figure, which came from the void
+  Lua tracer.
+* The palette read twice - from the copper list in chip RAM (COLOR00..15 as (0x180+2i,value) pairs)
+  and from the `CHIP` register dump - is `0000 0504 0000 0302 0411 0720 0934 0A55 0000 0710 0F94
+  0B43 0933 0511 0D64 0E84`, which is the palette our own timeline holds at frames 364..1135
+  (the desert scene). `DDFSTRT=$38`, `DDFSTOP=$D0`, `DMACONR=$43DF` (DMAEN+BPLEN+COPEN+BLTEN+all
+  four audio channels) - the intro's own screen.
+
+But the MovE step counter (image 0x2C10C, address 0x3010C in our build, 0xC7E76C in the reference)
+reads **0** in both states, while our build has 195 there at frame 400. So either the reference was
+showing that palette in a phase where the `!OPN` script is not advancing, or that word is not the
+witness it looks like. Not settled - do not build on it.
+
+A raw RAM diff against the reference is *not* a usable content matcher: our layout differs at the
+roots (program at 0x4000 vs 0xC52660, ROM libraries replaced by stubs at 0x1C4000, heap elsewhere),
+so ~4000 words differ at every frame (library and ROM pointers) and no frame stands out. Anchoring
+has to use address-independent values: palette, audio registers, bitplane pointers.
