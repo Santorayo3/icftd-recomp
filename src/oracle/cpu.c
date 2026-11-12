@@ -465,6 +465,10 @@ int oracle_bus_dump(const char *path)
  * experiment, not a fix - it writes engine state, which no shipped path may do. */
 static int loadTrace = -1;
 static int loadWant;
+/* ICFTD_ALLOW_LOW=1 lets the interpreter run addresses below the image (chip RAM, where a jump
+ * through a null handler lands) instead of treating them as fatal. An experiment: it is what the
+ * original machine does, and it says whether our fail-fast or the engine is the real difference. */
+static int allowLow = -1;
 static const char *loadStr(rt_machine *m, u32 a)
 {
     static char buf[64];
@@ -492,6 +496,7 @@ int oracle_step(rt_machine *m)
         loadTrace = e != 0 ? atoi(e) : 0;                 /* 1 = trace, 2 = trace + experiment */
         if (loadTrace == 0 && e != 0) loadTrace = 1;
     }
+    if (allowLow < 0) allowLow = getenv("ICFTD_ALLOW_LOW") ? 1 : 0;
     if (loadTrace)
     {
         u32 rel = pc - m->imageBase;
@@ -565,7 +570,7 @@ int oracle_step(rt_machine *m)
         oracle_dump_ring(m);
         return 0;
     }
-    if (pc < m->imageBase)
+    if (pc < m->imageBase && !allowLow)
     {
         printf("emu: PC ran below the image at %06lx:\n", (unsigned long)pc);
         oracle_dump_ring(m);

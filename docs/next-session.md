@@ -1331,3 +1331,35 @@ appears 4 times in the reference's slow RAM and 0 times in ours, i.e. we never l
 
 AUDIO_QUEUE stays at 8: the 16 % drop that 4 showed is a measured property of the queue, but it is
 not what the stutter was, and the comment no longer claims it is.
+
+## The stutter's one word, proven - and why it is not yet a fix
+
+`ICFTD_TRACE_LOAD=2` (see `src/oracle/cpu.c`) gives the `Desert1:sfx/o.rff` record back the 0x20
+the loader sets at 0xe8ea, which the failed index scan takes away: **142 aborted ticks become 0** and
+the intro runs clean. So the chain is closed end to end - size word -> object size -> type word ->
+handler thunk -> `jsr (0,A4)` at 0xf41e -> the tick that gets lost.
+
+That experiment writes engine state, so it is a diagnostic, not a fix. What is still missing is why
+the reference reaches that open with the size intact, and these are now excluded with evidence:
+
+  * **translation**: our image and the reference's running copy differ in 8 words, none of them code
+    - two are the relocated header longs, the rest are data the engine patches at run time
+    (image 0x9942..0x994a and 0x101da). The reference runs our exact code.
+  * **the disk**: the reference mounts the same ADFs we exported from; disk 1's volume is `Desert1`,
+    it holds an `sfx` directory and an `o.rff` file header, so the open succeeds there too. Our
+    exported `INSTS` is literally present in that ADF (first 64 bytes at 0x6ec18).
+  * **the index**: `INSTS` carries 35 entries, all bare names, and no `o.rff` - so the scan misses on
+    the substituted path in both builds. A hit is impossible from that data.
+  * **jsr 0 tolerance**: `ICFTD_ALLOW_LOW=1` lets the interpreter execute below the image, which is
+    what the original machine would do. The handler still fails (142 again, now by running garbage),
+    so the reference cannot be surviving by executing chip RAM - address 0 there is SysBase.
+  * **the object table**: at our frame 900 the loader's table has ch6 pointing at the empty object
+    (type 0); every other channel carries the type-2 thunk. That single bad slot is what the player
+    walks into.
+
+So the reference's ch6 must be null (skipped by `0xf412 beq`) or valid, and the two candidate
+mechanisms are (a) the mount state `(A4+0x2ad8)` differing at that record, (b) `AllocMem(0)` leaving
+a stale but valid type word there. Both need a datum from the reference side that our savestates do
+not contain (the index is cleared once a load finishes, and the score base was null in both states
+we have). The next measurement is a WinUAE debugger break at `0xc52660+0xe8fa` / `+0xe91a` reading
+`A4+0x2ad8` and `A4+0xac2`, or at `+0xf41e` reading `(A4)`.
