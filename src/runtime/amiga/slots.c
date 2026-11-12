@@ -242,6 +242,9 @@ void rt_slots_update(rt_machine *m)
         s->diwstrt = diwstrt != 0 ? diwstrt : (u16)(((u32)vstart << 8) | 0x81u);
         s->diwstop = diwstop != 0 ? diwstop : (u16)((((u32)vstop & 0xFFu) << 8) | 0xC1u);
     }
+    s->copperList = m->gfx.cprList;
+    s->copperEntries = 0;
+    s->copperMoves = 0;
     s->vstart = vstart;
     s->vstop = vstop;
 
@@ -360,7 +363,8 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
 long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels)
 {
     rt_slots *s = &m->slots;
-    long slots, cost;
+    long start, pos;
+    long slots;
 
     if (!s->valid) return (long)words * (long)rows * (long)channels * 2L;
     if (s->dirty) rt_slots_update(m);
@@ -372,20 +376,8 @@ long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels)
     if (channels < 1) channels = 1;
     slots = (long)words * (long)rows * (long)channels;
     if (slots > 8L * EMU_CYCLES_PER_FRAME) slots = 8L * EMU_CYCLES_PER_FRAME;
-    cost = rt_bus_walk(m, (int)(slots & 0x7FFFFFFFL));
-    return cost;
-}
-
-long rt_bus_walk(rt_machine *m, int slots)
-{
-    rt_slots *s = &m->slots;
-    long start, pos;
-
-    if (!s->valid) return (long)slots * 2L;
-    if (s->dirty) rt_slots_update(m);
-    if (slots <= 0) return 0;
     start = frame_cursor(m);
-    pos = walk_slots(m, start, slots);
+    pos = walk_slots(m, start, (int)(slots & 0x7FFFFFFFL));
     return pos - start;
 }
 
@@ -427,9 +419,8 @@ void rt_slots_print(rt_machine *m)
            (unsigned long)s->ddfstrt, (unsigned long)s->ddfstop, s->words, s->fetchStart,
            s->groupFree, (unsigned long)s->diwstrt, (unsigned long)s->diwstop,
            s->vstart, s->vstop);
-    printf("slots: copper: %d instruction(s) run this frame (%d MOVE, %d WAIT); "
-           "display registers come from it\n", m->copper.moves + m->copper.waits,
-           m->copper.moves, m->copper.waits);
+    printf("slots: copper list %06lX, %d entr(ies), %d MOVE(s) applied\n",
+           (unsigned long)s->copperList, s->copperEntries, s->copperMoves);
     printf("slots: refresh 3/5/7/9; disk 13; audio 17/19/21/23; sprites 25..; "
            "bitplane window at DDFSTRT\n");
     printf("slots: %d DMA clock(s) on a display line, %d on a blank line; "

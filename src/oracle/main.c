@@ -230,9 +230,6 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (image == 0) { image = argv[i]; continue; }
         if (!haveEntry) { entry = (u32)strtoul(argv[i], 0, 0); haveEntry = 1; continue; }
-        /* An unknown option must not fall through to the instruction count: "--foo" would parse as
-         * 0 and the run would end before the first instruction, which looks like a model bug. */
-        if (argv[i][0] == '-') { printf("emu: unknown option %s\n", argv[i]); return 2; }
         insns = strtol(argv[i], 0, 0);
     }
     if (image == 0)

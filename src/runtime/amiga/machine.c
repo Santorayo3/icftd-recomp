@@ -1620,7 +1620,6 @@ int rt_init(rt_machine *m)
     memset(m, 0, sizeof(*m));
     if (!rt_mem_init(&m->mem, EMU_RAM_SIZE)) return 0;
     rt_slots_reset(m);                   /* every clock is the CPU's until a display is programmed */
-    rt_cop_reset(m);
     rt_current = m;
     /* exec, graphics and dos bases up front, so the run stops at the first LVO instead of
      * following a null library pointer into nothing. */
