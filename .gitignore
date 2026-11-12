@@ -11,6 +11,7 @@
 /assets/*
 !/assets/README.md
 !/assets/autosave.png
+!/assets/titlescreen.png
 /export/
 
 # WinUAE reference captures of the original game.
