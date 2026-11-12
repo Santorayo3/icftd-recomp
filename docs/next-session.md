@@ -131,6 +131,38 @@ blitter being charged ~30 % cheap (per word, or in the slots it is granted) or t
 more blits per step than we do. Deciding between those needs the blit sequence of one step, from
 our `--blitlog` and from the original's code - not another timing change.
 
+**The bus clock is now the model, and it made us faster - that is the finding (2026-11-12)**
+
+Two pieces of the cycle-exact architecture are in, both derived from UAE's own source:
+
+* **The blitter is a device** (`a76e042`): `BLTSIZE` starts it, it takes one colour clock per channel
+  per output word out of the same slots the display and the CPU use, the data path runs when its
+  last slot has gone by, `DMACONR` reports BBUSY, `graphics.WaitBlit` advances the clock to the end
+  of the blit instead of returning instantly, a `BLTSIZE` written while one is pending waits it out,
+  and an idle frame advances the clock so a blit finishes inside the idle time.
+* **A memory word is one colour clock of bus** (`f5f4d29`): UAE charges a chip-bank word one
+  `CYCLE_UNIT` and then one `do_cck()` per clock Agnus stole (`newcpu.cpp`
+  `mem_access_delay_word_read` -> `wait_cpu_cycle_read`); the other two clocks of the memory cycle
+  are the 68000's own address phase. We charged two clocks per word, so every access demanded two
+  free slots instead of one.
+
+What the measurements say, and they are the useful part:
+
+| build | step 430 at frame |
+|---|---|
+| two clocks per word, blitter block-charged | 1402 |
+| blitter as a device | 1402 (bit-identical - so the blitter charge is *not* the pace) |
+| one clock per word (UAE's rule) | **1368** |
+
+So the *faithful* rule made the intro **2.4 % shorter**, not longer. We are already charging at
+least as much per unit of work as the original does, and are still 29 % fast. That eliminates the
+whole space of timing-rule explanations: no per-access accounting can be the remaining difference.
+Either the original does ~30 % more *work* for the same picture (library code our shims answer with
+instant C - `exec.AllocMem` 453 times over the intro, `MakeVPort`/`MrgCop`, `DisownBlitter` 38
+times), or its display is not the 5-plane lores / DDF $38..$D0 we assume and it takes more bus than
+we model. The second is decidable from one WinUAE savestate (custom registers), the first from the
+disassembly of the library routines concerned.
+
 **Next, in this order**
 
 1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
