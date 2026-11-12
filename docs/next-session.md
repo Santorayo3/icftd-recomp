@@ -187,25 +187,23 @@ What is deliberately *not* cycle-exact, and why:
   a sprite pointer or a shift register from them, and audio's fetch is driven by the device clock
   (`rt_time_slice`) rather than by bus slots.
 
-**The interrupt mask is the next real divergence (measured, not guessed)**
+**Interrupt masking: attempted, and it cannot be done in a shimmed model (2026-11-12)**
 
 The 68000 takes an interrupt only when its level is above the mask in SR bits 8-10. This machine
-delivers handlers unconditionally. Counting what the rule would change, with the interpreter's live
-SR (`--instlen`-era oracle, `emu: N CIA and M vblank interrupt(s) arrived while the 68000's mask
-would have deferred them`):
+delivers handlers when they arrive. Counting what the rule would change (interpreter, live SR):
+**CIA (level 6) is masked 1305 times** and **the vblank (level 3) at every frame boundary**.
 
-* **CIA (level 6): 0 deferrals** in 5,400,000 instructions - the music driver's timer is always
-  taken when it arrives, so delivering it as we do is equivalent.
-* **vblank (level 3): 1397 deferrals, i.e. every single frame.** The engine sits at mask >= 3 at the
-  frame boundary, so on the machine the vblank server does *not* run at the boundary: it runs at the
-  first instruction after the CPU lowers its mask (inside a WaitTOF and the like). We run it at the
-  boundary instead.
+So masking was implemented - pending levels, a pump at each instruction boundary that compares the
+mask. It broke the machine outright, in *both* front ends, identically: 0 handler runs, 0 rasters
+presented, a black screen and a spin at 0x24930. The reason is the engine's design: its own code runs
+at SR 0x2700 (mask 7) and it never lowers the mask itself, because on the machine its vblank server
+is taken *inside the exec library* - WaitTOF, DoIO, the task switcher - which is exactly the code this
+runtime replaces with shims. With no real library code there is nothing to unmask, so every level
+stays pending for ever.
 
-So interrupt masking has to become real - pending levels held until the mask drops - and it is the
-one place where the engine's own design depends on a rule this machine does not implement. Note the
-translated build cannot answer the question: its `cpu_t::sr` is only as fresh as the last
-instruction that changed it, and a handler leaves 0x2700 in the core, so the interpreter's live SR
-is the measurement.
+Delivery therefore stays on arrival (at the next instruction boundary, which is where a 68000 would
+take it), which is the correct stand-in while the library calls are shims. Masking becomes possible
+the day those routines are executed rather than shimmed - not before.
 
 **Next, in this order**
 
