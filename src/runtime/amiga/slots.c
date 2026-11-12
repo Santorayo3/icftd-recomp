@@ -360,21 +360,21 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
     return pos - start;
 }
 
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels)
+long rt_blit_charge(struct rt_machine *m, int words, int rows, int clocksPerWord)
 {
     rt_slots *s = &m->slots;
     long start, pos;
     long slots;
 
-    if (!s->valid) return (long)words * (long)rows * (long)channels * 2L;
+    if (!s->valid) return (long)words * (long)rows * (long)clocksPerWord * 2L;
     if (s->dirty) rt_slots_update(m);
 
-    /* One bus clock per channel per output word (UAE blitter.cpp: blit_cyclecount is the number of
-     * channels, in colour clocks); each of those clocks has to be free of display DMA, so a
+    /* UAE blitter.cpp: blit_cyclecount colour clocks per output word (four, minus the channels
+     * that need no fetch of their own); each of those clocks has to be free of display DMA, so a
      * five-plane screen slows the blitter down exactly as UAE's blitter_slowdown does - and the
      * CPU's and the blitter's slots are the same bus, walked from the same cursor. */
-    if (channels < 1) channels = 1;
-    slots = (long)words * (long)rows * (long)channels;
+    if (clocksPerWord < 1) clocksPerWord = 1;
+    slots = (long)words * (long)rows * (long)clocksPerWord;
     if (slots > 8L * EMU_CYCLES_PER_FRAME) slots = 8L * EMU_CYCLES_PER_FRAME;
     start = frame_cursor(m);
     pos = walk_slots(m, start, (int)(slots & 0x7FFFFFFFL));

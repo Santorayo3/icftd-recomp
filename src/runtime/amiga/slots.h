@@ -79,9 +79,10 @@ int  rt_slot_taken(struct rt_machine *m, long pos);
  * Returns the time to charge to the frame budget. */
 long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc);
 
-/* The same walk for the blitter: one clock per enabled channel per output word. Returns the time
- * the blit occupies the bus, which the frame budget is charged for. */
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels);
+/* The same walk for the blitter: `clocksPerWord` colour clocks per output word (UAE's
+ * blit_cyclecount: 4 minus the channels that need no fetch). Returns the time the blit occupies
+ * the bus, which the frame budget is charged for. */
+long rt_blit_charge(struct rt_machine *m, int words, int rows, int clocksPerWord);
 
 /* --slots: register snapshot, ownership of one line, the bitplane diagram, and the frame share. */
 void rt_slots_print(struct rt_machine *m);

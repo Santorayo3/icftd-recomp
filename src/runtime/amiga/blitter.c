@@ -225,23 +225,35 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
     }
 }
 
-/* The blitter is not free. It owns the bus for one DMA slot per output word per enabled channel
- * (UAE blitter.cpp: blit_cyclecount counts the channels used), and the engine waits for it -
+/* The blitter is not free. It owns the bus for its DMA cycles, and the engine waits for it -
  * WaitBlit, or a DMACONR poll - before it touches the result. Charging those slots to the frame
  * budget is what makes a blit-heavy scene lose frames the way the original does: the picture is
  * still produced here in one go (the bytes are identical), only the clock moves. The slots are
  * walked through the same map the CPU uses (slots.c, rt_blit_charge), because it is the same
  * chip bus - with five bitplanes the display takes five of every eight clocks, and the blitter
  * only gets the rest. */
-static int blit_channels(const rt_blitter *b)
+
+/* Cycles the blitter spends per output word, in colour clocks: UAE blitter.cpp:1165,
+ *
+ *     blit_cyclecount = 4 - (shifter_skip_b + shifter_skip_y);
+ *     shifter_skip_b  = B channel off                    (blitter.cpp:1131)
+ *     shifter_skip_y  = not (C and D both on)            (blitter.cpp:1156)
+ *
+ * i.e. a four-channel blit takes four clocks per word and each channel that does not need its own
+ * fetch is skipped - it is *not* one clock per enabled channel, which is what this used to charge
+ * (an A-only blit is two clocks in the original, not one). Line mode never fetches D, and in fill
+ * mode with D on and C off the D cycle is needed after all (blitter.cpp:1157-1160). */
+static int blit_words_cost(const rt_blitter *b)
 {
-    int ch = 0;
-    if ((b->con0 & 0x0800u) != 0) ch++;          /* USEA */
-    if ((b->con0 & 0x0400u) != 0) ch++;          /* USEB */
-    if ((b->con0 & 0x0200u) != 0) ch++;          /* USEC */
-    if ((b->con0 & 0x0100u) != 0) ch++;          /* USED */
-    if (ch == 0) ch = 1;
-    return ch;
+    int line = (b->con1 & 0x0001u) != 0;                 /* BLTLINE */
+    int fill = !line && (b->con1 & 0x0008u) != 0;        /* BLTFILL */
+    int skipB = (b->con0 & 0x0400u) == 0;
+    int skipY;
+
+    if (line) skipY = 1;
+    else skipY = (b->con0 & 0x0300u) != 0x0300u;         /* not both C and D */
+    if (fill && (b->con0 & 0x0300u) == 0x0100u) skipY = 0;   /* D on, C off: needed */
+    return 4 - skipB - skipY;
 }
 
 u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
@@ -260,7 +272,7 @@ void rt_blit_run(rt_machine *m)
      * interpreter sees. A single blit may cost several frames: the budget carries the debt (see
      * oracle_tick), which is exactly "the CPU is stuck waiting for the blitter". */
     {
-        long cost = rt_blit_charge(m, words, rows, blit_channels(b));
+        long cost = rt_blit_charge(m, words, rows, blit_words_cost(b));
         long cap = 16L * EMU_CYCLES_PER_FRAME;
         if (cost > cap)
         {
