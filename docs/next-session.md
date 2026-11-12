@@ -36,8 +36,11 @@ is a difference from the original, never a symptom, and that holds for every kin
   one bus, which is the part the old frame-wide `dmaSteal`/`cpuStretch` aggregate could not express.
 * Proof: `tools\gate.ps1` **4/4**, and oracle vs translated RAM at frame 400 is **byte-identical**
   (0 differing bytes of 2 MB) - the arbiter is applied identically by both front ends.
-* The copper is a real program now: `tools\icftd-steplog.uae` + `tools\winuae-steplog.lua` log the
-  engine's step counter per frame from cycle-exact WinUAE, for a frame-indexed reference.
+* `--framelog <file>` writes one `key=value` line per frame from *both* front ends: the colours out
+  of the copper list MrgCop built, DMACON, BPLCON0, DDF, the four audio channels and the engine's
+  own MovE step counter. Host and interpreter agree on **1404 of 1404 lines**, so it doubles as a
+  cadence check that RAM-at-one-frame cannot give: the first line they disagree on is where a
+  timing difference starts.
 
 **What it changed, and what it did not**
 
@@ -45,45 +48,45 @@ is a difference from the original, never a symptom, and that holds for every kin
 |---|---|---|
 | blitter charge, frame 1000 (cumulative) | 43.5M cycles | 64.9M (1.49x: the display now steals from the blitter too) |
 | instructions/frame | 4,015 | 4,104 |
-| engine MovE steps/frame (`--ticklog`'s `step`, DAT 0x3010C) | - | **0.26** (one step per 3.8 frames) |
+| engine MovE steps/frame (`--framelog`'s `step`, DAT 0x3010C) | - | 0.67/frame in the logo phase (59 at frame 201, 192 at frame 401) |
 | "IT CAME FROM THE DESERT" fully drawn | frame 1400 = 28.0 s | frame 1400 = **28.0 s** |
 | screen black / Load Screen | 1600 / ~1650 | **1600 / ~1650** |
 
 So the arbiter is *more faithful* (it reproduces UAE's blitter_slowdown and the CPU's wait states per
 access instead of one global factor) but it does **not** move the content timeline: the extra
-blitter contention is offset because the old 1.92 flat stretch overcharged internal cycles. The
-remaining ~1.45x has another cause - see below.
+blitter contention is offset because the old 1.92 flat stretch overcharged internal cycles.
 
-**Measured on the reference machine (cycle-exact WinUAE, via `tools\icftd-steplog.uae`)**
+**The WinUAE reference instrument is dead: do not put a Lua script in the emulator again**
 
-* **The original spends ~28 s loading before the intro exists.** The program's code first appears in
-  RAM at frame ~1440 (`dshell` is loaded into slow RAM; two independent 16-byte code signatures,
-  taken from image offsets 0x14000 and 0x20000, appear together at a verified base of
-  `0xC530E0`). Our build loads from the host in milliseconds. So a wall-clock number that starts at
-  "switch on" compares two different timelines: the reference's 29 s is largely disk loading.
-* **The extracted image's layout is right.** `dshell.hunks.txt` shows code 0x4000..0x25A58 then data
-  0x25A58..0x31594 contiguous, i.e. exactly how the loader packs them, and the running program's
-  code bytes match ours at the image's own offsets. There is no extraction or layout error - what
-  differs is only *where* the program is put.
-* **`DAT_0002C10C` reads 0 for the whole reference run**, while our build increments it during the
-  intro (452 by frame 1500). Either that address is not the intro's counter on the real machine, or
-  the intro does not use it there. Unresolved; do not draw conclusions from our build's `step`
-  column until it is.
-* Do not repeat the byte-by-byte RAM dump through WinUAE's Lua bridge: a million `uae_read_u8` calls
-  freeze the emulator for seconds per frame (black picture, starved audio). The script in `tools`
-  now does six reads per frame and nothing else.
+Every reference run that loaded `tools\winuae-steplog.lua` came back with a *glitched picture* -
+random colours at boot, half an intro, a black screen - and that includes the light version that
+only read six registers per frame. The cause is where WinUAE runs the handler: `custom.cpp` calls
+`uae_lua_run_handler("on_uae_vsync")` from inside `vsync_handler_post()`, between `DISK_vsync()` and
+the frame-pacing/display code, i.e. *in the middle of the machine's own frame logic*. Anything that
+takes time there (a `uae_read_u16`, an `io.flush()`) pushes the following frame out of its slot; the
+Lua memory path also goes through `get_mem_bank()`, the same bank table the CPU/copper fetchers use.
+
+Consequences, i.e. what to un-believe:
+
+* "The original spends ~28 s loading" and "`DAT_0002C10C` reads 0" were measured in those runs. Both
+  are void. Nothing about the original's timeline from a Lua-instrumented run is evidence.
+* The step counter column of the reference is not available at all: WinUAE's Lua bridge reaches
+  memory through `debug_read_memory_16`, and the colour registers are write-only, so `$DFF180` reads
+  back `FFFF`. That is why the old trace was full of `FFFF`.
+* What *is* trustworthy is the A/B the user ran by hand on the same configuration: with Chipset ->
+  Cycle-exact (Full) **on**, the intro is several seconds longer and the fanfare plays; with it
+  **off**, the logo is several seconds early and the fanfare is cut off. Our build behaves like
+  "off". That is the target, and it is a *differential* - no wall clock, no floppy-loading confound.
+* `tools\icftd-reference.uae` is the same machine with **no** script, for a clean run of the game.
 
 **Next, in this order**
 
 1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
-   content pacing did not move, so the remaining 1.45x is likely *work*: the original does more per
-   step than our build does (a behavioural difference, i.e. exactly what RULE 0 is for). Start from
-   the intro's picture path - `DrawNode`/`LoadPicture`, the mask builder `FUN_0001E504`, the
-   compositor `FUN_0001E8C8` - and check whether any of our shims short-circuit work the engine
-   performs through the blitter with waits.
-2. **Then** re-measure with a frame-indexed reference (the counter question above has to be settled
-   first, or a different marker - the copper list pointer and the palette, both absolute, are
-   already logged by the light script).
+   content pacing did not move, so the remaining gap is *work* as much as clock: check what the
+   original does per step - `DrawNode`/`LoadPicture`, the mask builder `FUN_0001E504`, the
+   compositor `FUN_0001E8C8` - against what we do, and check whether a shim short-circuits work the
+   engine performs through the blitter with waits.
+2. Re-measure with `--framelog` (host vs interpreter, and our own before/after), not with WinUAE.
 3. Re-baseline the four markers with RAM dumps at equal content positions (the 400-frame fingerprint
    stays retired) and decide level 1 vs level 2 from the evidence.
 

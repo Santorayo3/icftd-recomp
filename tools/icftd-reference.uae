@@ -1,5 +1,10 @@
-; ICFTD reference (A500, OCS, 1MB chip) + the engine step logger (tools\winuae-steplog.lua).
-config_description=ICFTD reference + step log (cycle-exact)
+; ICFTD reference: A500, OCS, 1MB chip, Cycle-exact (Full). Nothing is loaded into the emulator:
+; WinUAE calls a Lua handler from inside vsync_handler_post() (custom.cpp), in the middle of the
+; machine's own frame logic, and every run that had a script in it came back with a glitched
+; picture. The instrument lives outside the emulator now (our own --framelog, and see
+; docs\next-session.md for what the reference numbers derived from Lua were worth: nothing).
+;   winuae64.exe "tools\icftd-reference.uae"
+config_description=ICFTD reference (A500, OCS, 1MB) - cycle-exact, no Lua
 use_gui=no
 kickstart_rom_file=C:\Users\Public\Documents\Amiga Files\WinUAE\KICK13.ROM
 cpu_type=68000
@@ -47,4 +52,3 @@ floppy1=E:\Meine Programme\Unity\Projects\icftd-recomp\disks\It Came from the De
 floppy2type=0
 floppy2=E:\Meine Programme\Unity\Projects\icftd-recomp\disks\It Came from the Desert (1989)(Cinemaware)(Disk 3 of 3)[!].adf
 floppy3type=-1
-lua=E:\Meine Programme\Unity\Projects\icftd-recomp\tools\winuae-steplog.lua
