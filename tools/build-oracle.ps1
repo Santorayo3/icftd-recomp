@@ -28,6 +28,12 @@ $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')
 
 $args = @(
     '-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99',
+    # Musashi must tell instruction fetches apart from data reads: the fetches are charged at the
+    # instruction boundary (rt_inst_len), the data reads at the access (rt_bus_access).
+    '-dM68K_SEPARATE_READS=M68K_OPT_ON',
+    # No MMU on an A500. With SEPARATE_READS on, this Musashi's PMMU block references a variable
+    # that only exists inside the translator functions and does not compile.
+    '-dM68K_EMULATE_PMMU=M68K_OPT_OFF',
     ('-i="' + $rt + '"'),
     ('-i="' + (Join-Path $rt 'amiga') + '"'),
     ('-i="' + $mus + '"'),
@@ -45,6 +51,7 @@ $args = @(
     ('"' + (Join-Path $rt 'amiga\audio.c') + '"'),
     ('"' + (Join-Path $rt 'amiga\slots.c') + '"'),
     ('"' + (Join-Path $rt 'amiga\bus_cycles.c') + '"'),
+    ('"' + (Join-Path $rt 'amiga\inst_len.c') + '"'),
     ('"' + (Join-Path $rt 'config.c') + '"'),
     ('"' + (Join-Path $rt 'plat\win32\plat_win32.c') + '"'),
     # the vendored core (development dependency only)

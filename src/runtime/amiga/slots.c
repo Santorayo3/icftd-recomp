@@ -342,6 +342,27 @@ long rt_blit_wait(rt_machine *m)
     return start - m->cyclesToTick;
 }
 
+/* A CPU memory access at the moment it happens: one colour clock of chip bus per word, plus one
+ * per clock the display or a running blit owns in front of it (UAE custom.cpp dma_cycle loops
+ * do_cck() while the bus is allocated).
+ *
+ * NOT USED for the front ends' charging. Charging at the access makes the two front ends disagree:
+ * each charges the accesses *it* performs, and the interpreter and the translated code do not
+ * perform identical numbers of them (measured: 1456 frames against 1407 for the same instruction
+ * count), which destroys the only mechanical check the project has. The instruction boundary
+ * charges the same clocks from the measured word count instead, and the placement of a wait inside
+ * one instruction is second-order. Kept here for the device side, where the sequence is exact. */
+static long bus_access_cost(rt_machine *m, int words)
+{
+    long start, pos;
+
+    if (!m->slots.valid) return 2L * (long)words;
+    if (m->slots.dirty) rt_slots_update(m);
+    start = frame_cursor(m);
+    pos = walk_slots(m, start, words);
+    return pos - start;
+}
+
 /* Where in the frame the machine currently is, in 68000 clock cycles. */
 static long frame_cursor(const rt_machine *m)
 {
@@ -397,15 +418,20 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
     if ((long)accesses * 2L > cost) accesses = (int)(cost / 2L);
 
     start = frame_cursor(m);
-    /* One bus word occupies the chip bus for ONE colour clock (UAE newcpu.cpp mem_access_delay_*:
-     * a chip-bank word is wait_cpu_cycle_read, which charges a single CYCLE_UNIT and then one
-     * do_cck() per clock Agnus took). The other two of the memory cycle's four clocks are the
-     * 68000's own address phase, so they are internal time and pass at full rate - which is why
-     * the internal part of `cost` is now `cost - 2*accesses` rather than `cost - 4*accesses`.
-     * Charging two clocks per word (as this did) made every access demand two free slots instead
-     * of one and under-charged the waits. */
-    pos = beam_pass(m, start, (int)((cost - 2L * (long)accesses) / 2L));
-    pos = walk_slots(m, pos, accesses);
+    /* Two parts, in the order the 68000 spends them: the instruction's internal cycles (which pass
+     * through the clock at full rate, letting a running blit take the slots it wants), then its
+     * memory words at one colour clock each. The words are split with rt_inst_len - the exact
+     * number of words the instruction occupies - so the fetch part can never exceed the total and a
+     * bad table entry cannot silently charge a fetch twice. UAE charges accesses one clock each
+     * (mem_access_delay_* -> wait_cpu_cycle_read); the other two clocks of the memory cycle are the
+     * 68000's address phase and are inside `cost`. */
+    {
+        int fetch = (int)rt_inst_len[opcode];
+        if (fetch > accesses) fetch = accesses;
+        pos = beam_pass(m, start, (int)((cost - 2L * (long)accesses) / 2L));
+        pos = walk_slots(m, pos, fetch);
+        pos = walk_slots(m, pos, accesses - fetch);
+    }
     return pos - start;
 }
 

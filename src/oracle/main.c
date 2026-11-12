@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     int ring = 0;
     const char *inputPath = 0;
     const char *cycleTable = 0;
+    const char *instLenTable = 0;
     const char *busTable = 0;
     int slotsDump = 0;
     u32 slotsAt = 0;
@@ -194,6 +195,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
         if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
         if (strcmp(argv[i], "--cyclestable") == 0 && i + 1 < argc) { cycleTable = argv[++i]; continue; }
+        if (strcmp(argv[i], "--instlen") == 0 && i + 1 < argc) { instLenTable = argv[++i]; continue; }
         if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTable = argv[++i]; continue; }
         if (strcmp(argv[i], "--slots") == 0) { slotsDump = 1; continue; }
         if (strcmp(argv[i], "--slotsat") == 0 && i + 1 < argc) { slotsAt = (u32)strtoul(argv[++i], 0, 0); continue; }
@@ -332,6 +334,15 @@ int main(int argc, char **argv)
         /* The 68000 opcode cycle table Musashi itself uses, so the translated build can charge the
          * same costs (tools\gen-cycles.ps1 turns it into src\runtime\amiga\cycles.h). */
         if (!oracle_dump_cycle_table(cycleTable)) return 1;
+        rt_shutdown(&m);
+        return 0;
+    }
+    if (instLenTable != 0)
+    {
+        /* Instruction lengths in words, one per opcode word, taken from the disassembler: the
+         * translated build never fetches its own instruction words (they are compiled), so this is
+         * the only way it can charge the bus what the CPU spends fetching them. */
+        if (!oracle_dump_inst_len(instLenTable)) return 1;
         rt_shutdown(&m);
         return 0;
     }

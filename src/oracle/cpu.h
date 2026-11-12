@@ -37,6 +37,7 @@ void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc);
 /* Writes Musashi's 68000 per-opcode cycle table (64 KB, indexed by the opcode word) so the
  * translated build charges the same costs. Call after oracle_boot. 1 = written. */
 int oracle_dump_cycle_table(const char *path);
+int oracle_dump_inst_len(const char *path);
 
 /* Cycles the instruction at `pc` takes: the project's single definition of time. The translated
  * build bakes the same number in at translation time (tools\gen-cycles.ps1 -> CycleTable.cs). */

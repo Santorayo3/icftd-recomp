@@ -96,4 +96,9 @@ int  rt_slots_selftest(void);
  * (tools\gen-buscycles.ps1 writes src\runtime\amiga\bus_cycles.c). */
 extern const u8 rt_bus_cycles[0x10000];
 
+/* Instruction lengths in words, one byte per opcode (tools\gen-instlen.ps1 writes
+ * src\runtime\amiga\inst_len.c from the disassembler's own answer). The translated build's
+ * instruction words were compiled away, so this is what the bus is charged for fetching them. */
+extern const u8 rt_inst_len[0x10000];
+
 #endif /* EMU_SLOTS_H */

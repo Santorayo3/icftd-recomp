@@ -16,6 +16,7 @@
 #include "state.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The first few out-of-range CPU accesses, with the PC that made them: a garbage pointer shows up
@@ -86,7 +87,73 @@ int oracle_dump_cycle_table(const char *path)
     return 1;
 }
 
+/* Instruction lengths, one byte per opcode word: how many 16-bit words the instruction occupies
+ * including the opcode itself. Taken from Musashi's disassembler, which is the same table the
+ * original was decoded with, so it cannot disagree with the recompiled functions about what a
+ * given opcode is. Length is a function of the opcode word alone on the 68000: the extension words
+ * an EA needs are fixed by its mode and register fields, and MOVEM's mask and an index word are one
+ * word each whatever they contain. */
+int oracle_dump_inst_len(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    u8 *buf;
+    u32 i;
+
+    if (f == 0) { printf("emu: cannot write %s\n", path); return 0; }
+    buf = (u8 *)malloc(0x10000u);
+    if (buf == 0) { fclose(f); return 0; }
+    for (i = 0; i < 0x10000u; i++)
+    {
+        /* The opcode, then room for its extension words (zeros: the length must not depend on
+         * their contents on a 68000). 0x100000 is inside the RAM block and far from the image. */
+        u32 at = 0x100000u;
+        char text[160];
+        unsigned int len;
+        int k;
+        rt_write16(&rt_current->mem, at, (u16)i);
+        for (k = 1; k < 6; k++) rt_write16(&rt_current->mem, at + (u32)k * 2u, 0x0000u);
+        len = m68k_disassemble(text, at, M68K_CPU_TYPE_68000);
+        buf[i] = (u8)(len / 2u);
+        if (buf[i] == 0) buf[i] = 1u;
+    }
+    if (fwrite(buf, 1, 0x10000u, f) != 0x10000u)
+    {
+        free(buf);
+        fclose(f);
+        printf("emu: short write on %s\n", path);
+        return 0;
+    }
+    free(buf);
+    fclose(f);
+    printf("emu: instruction length table (65536 opcodes) written to %s\n", path);
+    return 1;
+}
+
 /* --- Musashi memory interface ------------------------------------------------------------- */
+
+/* Instruction fetch words are NOT charged here. The translated build cannot fetch them (they are
+ * compiled away), so both front ends charge them at the instruction boundary from rt_inst_len -
+ * that is the only way the two stay identical. What goes through this callback is data: operand
+ * reads, which are bus accesses and are charged as such. */
+unsigned int m68k_read_immediate_16(unsigned int a)
+{
+    a &= 0xFFFFFFu;
+    if (rt_current->busTable) rt_current->busWords++;
+    return rt_bus_read16(rt_current, a);
+}
+
+unsigned int m68k_read_immediate_32(unsigned int a)
+{
+    a &= 0xFFFFFFu;
+    if (rt_current->busTable) rt_current->busWords += 2;
+    return rt_bus_read32(rt_current, a);
+}
+
+/* PC-relative operands are data reads (the displacement is an instruction word, the operand is
+ * not), so they pay for the bus like any other access. */
+unsigned int m68k_read_pcrelative_16(unsigned int a) { return m68k_read_memory_16(a); }
+unsigned int m68k_read_pcrelative_32(unsigned int a) { return m68k_read_memory_32(a); }
+unsigned int m68k_read_pcrelative_8(unsigned int a) { return m68k_read_memory_8(a); }
 
 unsigned int m68k_read_memory_8(unsigned int a)
 {
@@ -583,3 +650,4 @@ void oracle_boot(u32 entry, u32 a4)
      * The DOS loader does the same: the entry code ends with `rts`. */
     rt_write32(&rt_current->mem, EMU_STACK_TOP - 4, EMU_EXIT_PC);
 }
+
