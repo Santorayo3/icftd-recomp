@@ -56,7 +56,7 @@ static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
 
 /* --perf: where a frame's emulated time goes, in 8254 counts (1.193 MHz). */
 static int    g_perf;
-static u32    g_perfLast, g_perfTotal, g_perfVblank, g_perfPresent, g_perfFrames;
+static u32    g_perfLast, g_perfTotal, g_perfVblank, g_perfPresent, g_perfFrames, g_perfWait;
 static long   g_perfCiaInsns;           /* instructions run by the CIA handlers (the music driver) */
 static u32    g_perfCiaRuns;
 
@@ -217,9 +217,15 @@ static void dos_input(rt_machine *m)
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     m->joy0 = joy;
-    plat_frame_sync();
+    {
+        /* Time spent waiting for the next frame slot. It is the difference between the pacing
+         * interval --perf reports and the work the frame actually costs, so without it the split
+         * looks as if the machine used the whole slot even when the host is ten times fast enough. */
+        u32 w0 = g_perf ? plat_ticks_ms() : 0;
+        plat_frame_sync();
+        if (g_perf) g_perfWait += plat_ticks_ms() - w0;
+    }
 }
-
 static void dos_present(rt_machine *m)
 {
     const u8 *fb = rt_gfx_framebuffer();
@@ -467,6 +473,12 @@ int main(int argc, char **argv)
          * real time and every speed figure - frames and audio both - is scaled by the ratio. */
         printf("icftd: %lu ms by the 8254, %lu ms by the RTC\n",
                (unsigned long)ms, (unsigned long)plat_rtc_elapsed_ms());
+        /* Emulated time: at a fixed DOSBox cycle setting (cycles per emulated millisecond) this
+         * times the setting is the host instruction count of the run, so dividing by the frame
+         * count says what a frame really costs. */
+        printf("icftd: %lu ms of machine time, %lu ms/frame\n",
+               (unsigned long)plat_emulated_ms(),
+               (unsigned long)(m.frame != 0 ? plat_emulated_ms() / m.frame : 0));
     }
     if (g_perf && g_perfFrames != 0)
     {
@@ -479,10 +491,14 @@ int main(int argc, char **argv)
         double total = (double)g_perfTotal / n;
         double vb = (double)g_perfVblank / n;
         double conv = (double)rt_gfx_perf_conv / 1193.182 / n;   /* PIT counts -> ms */
+        double blit = (double)rt_blit_perf / 1193.182 / n;
+        double wait = (double)g_perfWait / n;
         double pres = (double)g_perfPresent / n;
         printf("perf: %.1f ms/frame = %.2f frame/s\n", total, 1000.0 / total);
-        printf("perf:   vblank %.1f ms, of it conversion %.1f; present copy %.1f; game %.1f ms\n",
-               vb, conv, pres, total - vb - pres);
+        printf("perf:   vblank %.1f ms, of it conversion %.1f; present copy %.1f; blitter %.1f\n",
+               vb, conv, pres, blit);
+        printf("perf:   machine code %.1f ms, idle waiting for the slot %.1f ms, work %.1f ms\n",
+               total - vb - pres - wait, wait, total - wait);
         printf("perf:   conversion runs %.2f time(s)/frame; %.0f instruction(s)/frame, "
                "%.0f of them in the %.2f CIA run(s)/frame\n",
                (double)rt_gfx_frames() / n, (double)m.insns / n, (double)g_perfCiaInsns / n,

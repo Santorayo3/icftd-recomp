@@ -76,6 +76,7 @@ static u32 pit_counter(void)
  * the reference: one second of it is measured once at startup and both the frame wait and the
  * mixer's millisecond clock follow real time from then on - which is what they do on hardware. */
 static u32 g_ticksPerSec = PIT_HZ;
+static u32 g_pitCounts;                 /* raw counts, i.e. emulated time */
 
 /* Counts since the previous call (the counter counts down and wraps at 65536). */
 static void pit_update(void)
@@ -86,6 +87,7 @@ static void pit_update(void)
 
     g_lastPit = now;
     g_pitAcc += d;
+    g_pitCounts += d;
     /* Whole milliseconds, with the remainder carried. */
     ms = g_msFrac + d * 1000u;
     g_ms += ms / g_ticksPerSec;
@@ -128,6 +130,13 @@ static void clock_calibrate(void)
 u32 plat_rtc_elapsed_ms(void)
 {
     return (rtc_secs() - g_rtc0) * 1000u;
+}
+
+/* Machine time as the 8254 counted it: 1,193,182 counts per emulated second, whatever the host
+ * does. Multiply by the DOSBox cycle setting to get the host instructions a run consumed. */
+u32 plat_emulated_ms(void)
+{
+    return g_pitCounts / 1193u;
 }
 
 /* --- keyboard ------------------------------------------------------------------------------ */

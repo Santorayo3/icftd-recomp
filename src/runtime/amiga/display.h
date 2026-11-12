@@ -84,6 +84,8 @@ void rt_gfx_present(rt_machine *m, u32 view);
 /* 8254 counts spent in the planar->chunky loop, for a front end's --perf split (0 on a platform
  * without a PIT readout). */
 extern u32 rt_gfx_perf_conv;
+/* The same for the software blitter's pixel loop (defined in blitter.c). */
+extern u32 rt_blit_perf;
 /* MrgCop(view): builds the copper list the game walks to find its bitplane pointers. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view);
 

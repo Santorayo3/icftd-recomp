@@ -241,6 +241,8 @@ static long blit_dma_cycles(const rt_blitter *b, int words, int rows)
     return (long)words * (long)rows * (long)ch * 2L;
 }
 
+u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
+
 void rt_blit_run(rt_machine *m)
 {
     rt_blitter *b = &m->blit;
@@ -382,8 +384,10 @@ void rt_blit_run(rt_machine *m)
              * above already does - the engine never sets DESC, so this ordering is unexercised but
              * self-consistent. */
             u16 holdA = 0, holdB = 0;
+            u32 pt0 = plat_pit_now();
             for (r = 0; r < rows; r++)
                 blit_row(m, r, words, descending ? 1 : 0, &holdA, &holdB);
+            if (pt0 != 0) rt_blit_perf += plat_pit_now() - pt0;
         }
         if (trace)
         {
