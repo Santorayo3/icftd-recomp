@@ -21,6 +21,7 @@
 
 #include "types.h"
 #include "machine.h"
+#include "blitter.h"
 #include "slots.h"
 
 /* UAE custom.cpp: the plane fetch order for a fetch group. */
@@ -287,19 +288,33 @@ void rt_slots_update(rt_machine *m)
 }
 
 /* --- the bus walker ------------------------------------------------------------------------ *
- * Every consumer walks the map: a slot it may use is a colour clock no DMA source holds, and
- * every DMA-owned clock in front of it is a wait. The CPU's memory word needs 2 clocks (address
- * and data, HRM), the blitter one per channel per word (UAE blitter.cpp, blit_cyclecount). The
- * walk starts at the time already spent in this frame, so CPU and blitter share one bus - which
- * is what makes the total conserved instead of each consumer being charged twice. */
+ * Every consumer walks the map, and the map is not enough on its own: the blitter and the copper
+ * take slots as they run, one colour clock at a time, so they interleave with the CPU exactly as
+ * on hardware. A clock is given to the copper (if it has an instruction ready at that beam
+ * position), else to the blitter (if it still owes a channel slot), else to the display if the
+ * map says Agnus owns it, else to the CPU. The CPU's memory word needs 2 clocks (address and
+ * data, HRM); the walk starts at the time already spent in this frame, so CPU, blitter, copper
+ * and display share one bus. */
 static long walk_slots(rt_machine *m, long pos, int slots)
 {
     int i;
 
     for (i = 0; i < slots; i++)
     {
-        while (rt_slot_taken(m, pos)) pos += 2;
-        pos += 2;
+        for (;;)
+        {
+            if (rt_slot_device_tick(m, pos))
+            {
+                pos += 2;
+                continue;
+            }
+            if (!rt_slot_taken(m, pos))
+            {
+                pos += 2;
+                break;
+            }
+            pos += 2;
+        }
     }
     return pos;
 }
@@ -314,6 +329,57 @@ static long frame_cursor(const rt_machine *m)
     return pos;
 }
 
+/* One colour clock of the devices that own slots while the CPU runs. Returns 1 when the clock was
+ * consumed by the copper or the blitter (so the CPU has to wait for the next one).
+ *
+ * The copper executes its program at its WAIT positions, one instruction per slot - not "the whole
+ * list at the start of the frame" - so a list that changes a register mid-screen would take effect
+ * there, and its MOVEs cost the bus what they cost on hardware.
+ *
+ * The blitter is handed one channel slot per clock while it owes any (UAE blitter.cpp,
+ * blit_cyclecount counts the channels used). Its bytes are produced when BLTSIZE is written - the
+ * result is identical either way - but it keeps the bus for as long as the hardware would, and
+ * DMACONR reports BBUSY meanwhile, which is what WaitBlit and the engine's own polls read. */
+int rt_slot_device_tick(rt_machine *m, long pos)
+{
+    if (m->copPc != 0)
+    {
+        u16 opcode = (u16)rt_read16(&m->mem, m->copPc);
+
+        if ((opcode & 1u) != 0)                          /* WAIT / SKIP */
+        {
+            if (!m->copWaiting)
+            {
+                u32 vpos = (opcode >> 8) & 0xFFu;
+                u32 hpos = (opcode & 0xFFu);
+                if ((opcode & 0xFFFEu) == 0xFFFEu)       /* wait here for ever: end of program */
+                    m->copPc = 0;
+                else
+                {
+                    m->copWaiting = 1;
+                    m->copWaitAt = (long)vpos * EMU_LINE_CYCLES + (long)hpos * 2L;
+                }
+            }
+            if (m->copPc != 0 && m->copWaiting && pos >= m->copWaitAt)
+            {
+                m->copWaiting = 0;
+                m->copPc += 4u;
+            }
+            return 0;
+        }
+        rt_custom_write16(m, (u16)(opcode & 0x1FEu), (u16)rt_read16(&m->mem, m->copPc + 2u));
+        m->copPc += 4u;
+        return 1;
+    }
+    if (m->blitSlots > 0)
+    {
+        m->blitSlots--;
+        if (m->blitSlots == 0) m->blitBusy = 0;
+        return 1;
+    }
+    return 0;
+}
+
 int rt_slot_taken(rt_machine *m, long pos)
 {
     rt_slots *s = &m->slots;
@@ -321,6 +387,7 @@ int rt_slot_taken(rt_machine *m, long pos)
     const u8 *map;
 
     if (!s->valid) return 0;
+    if (s->dirty) rt_slots_update(m);
     pos %= (long)EMU_CYCLES_PER_FRAME;
     if (pos < 0) pos += EMU_CYCLES_PER_FRAME;
     line = pos / EMU_LINE_CYCLES;
@@ -357,25 +424,6 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
     return pos - start;
 }
 
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels)
-{
-    rt_slots *s = &m->slots;
-    long slots, cost;
-
-    if (!s->valid) return (long)words * (long)rows * (long)channels * 2L;
-    if (s->dirty) rt_slots_update(m);
-
-    /* One bus clock per channel per output word (UAE blitter.cpp: blit_cyclecount is the number of
-     * channels, in colour clocks); each of those clocks has to be free of display DMA, so a
-     * five-plane screen slows the blitter down exactly as UAE's blitter_slowdown does - and the
-     * CPU's and the blitter's slots are the same bus, walked from the same cursor. */
-    if (channels < 1) channels = 1;
-    slots = (long)words * (long)rows * (long)channels;
-    if (slots > 8L * EMU_CYCLES_PER_FRAME) slots = 8L * EMU_CYCLES_PER_FRAME;
-    cost = rt_bus_walk(m, (int)(slots & 0x7FFFFFFFL));
-    return cost;
-}
-
 long rt_bus_walk(rt_machine *m, int slots)
 {
     rt_slots *s = &m->slots;
@@ -387,6 +435,15 @@ long rt_bus_walk(rt_machine *m, int slots)
     start = frame_cursor(m);
     pos = walk_slots(m, start, slots);
     return pos - start;
+}
+
+void rt_blit_start(rt_machine *m, long slots)
+{
+    if (slots <= 0) return;
+    /* Successive blits queue behind each other, as BLTSIZE does on hardware when the blitter is
+     * still busy: the slots add up and BBUSY stays up until the last one is used. */
+    m->blitSlots += slots;
+    m->blitBusy = 1;
 }
 
 /* --- the --slots report -------------------------------------------------------------------- */

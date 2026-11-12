@@ -190,6 +190,14 @@ typedef struct rt_machine
     u32     dmaSteal;                     /* chip-RAM bus colour clocks per frame the DMA takes (report) */
     rt_slots slots;                       /* the per-line bus map and its register snapshot (slots.c) */
     rt_copper copper;                     /* the copper's program counter and last run (copper.c) */
+    /* The bus, as the hardware schedules it: the blitter owes one slot per channel per output word
+     * and owns them one at a time; the copper runs one instruction per slot at its beam position;
+     * the CPU gets a slot only when neither of them nor the display asked for it. */
+    long    blitSlots;                    /* channel-slots the running blit still owes        */
+    int     blitBusy;                     /* DMACONR bit 14 while it owes slots               */
+    u32     copPc;                        /* next copper instruction (0 = stopped)            */
+    int     copWaiting;                   /* 1 = parked on a WAIT until its beam position     */
+    long    copWaitAt;                    /* that position, in 68000 cycles into the frame    */
     u32     slotsAt;                      /* --slotsat <frame>: dump the map at that boundary (0 = never) */
     int     busTable;                     /* --bustable: measure bus words per opcode */
     long    busWords;                     /* ... the counter the CPU's memory callbacks bump */

@@ -1910,6 +1910,8 @@ u32 rt_bus_read16(rt_machine *m, u32 a)
     {
         if (a == 0xDFF00Cu) return m->joy0;                  /* JOY0DAT */
         if (a == 0xDFF00Eu) return m->joy1;                  /* JOY1DAT */
+        if (a == 0xDFF002u)                                  /* DMACONR: BBUSY while the blitter works */
+            return (u32)((m->custom[0x002] & 0x7FFFu) | (m->blitBusy ? 0x4000u : 0u));
         if (a == 0xDFF016u) return 0xFFFFu;                  /* POTINP: nothing plugged in */
         if (a == 0xDFF004u || a == 0xDFF006u) return beam_register(m, a);
         return m->custom[(a - 0xDFF000u) >> 1];

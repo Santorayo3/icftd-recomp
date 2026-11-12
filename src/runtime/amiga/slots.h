@@ -70,6 +70,8 @@ void rt_slots_reset(struct rt_machine *m);
 
 /* 1 when the colour clock at `pos` (68000 cycles into the frame) belongs to DMA. */
 int  rt_slot_taken(struct rt_machine *m, long pos);
+/* Runs the copper/blitter for one colour clock; 1 when one of them took the clock. */
+int  rt_slot_device_tick(struct rt_machine *m, long pos);
 
 /* Charges `slots` bus colour clocks to the frame budget, walking the map the way the CPU and the
  * blitter do (a slot the display took is a wait). Returns the cycles the walk cost. */
@@ -81,9 +83,9 @@ long rt_bus_walk(struct rt_machine *m, int slots);
  * Returns the time to charge to the frame budget. */
 long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc);
 
-/* The same walk for the blitter: one clock per enabled channel per output word. Returns the time
- * the blit occupies the bus, which the frame budget is charged for. */
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int channels);
+/* The blitter takes the bus for `slots` channel slots (one per channel per output word) while the
+ * CPU keeps running; it reports BBUSY on DMACONR until they are used. */
+void rt_blit_start(struct rt_machine *m, long slots);
 
 /* --slots: register snapshot, ownership of one line, the bitplane diagram, and the frame share. */
 void rt_slots_print(struct rt_machine *m);

@@ -794,12 +794,14 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
     rt_write32(&m->mem, view + 8, container);                 /* v_SHFCprList */
     gfx->cprList = container;
     gfx->copList = list;
-    rt_cop_run(m, list, 0);                                   /* the display this frame */
+    /* The program is not run here: the copper starts at the top of the frame and executes one
+     * instruction per bus slot as the beam reaches its WAIT positions (slots.c). */
+    m->copPc = list;
+    m->copWaiting = 0;
     if (m->trace || gfx->frames == 0)
-        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d list %06lX (%d instr, "
-               "%d move(s) run)\n",
+        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d list %06lX (%d instr)\n",
                (unsigned long)view, (unsigned long)vp, depth, colours, (unsigned long)list,
-               entries_out, m->copper.moves);
+               entries_out);
 }
 
 /* One planar -> chunky pass over the whole visible area. The plane pointers are read once per row;
