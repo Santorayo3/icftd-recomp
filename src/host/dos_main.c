@@ -324,6 +324,10 @@ int main(int argc, char **argv)
     if (dataDir == 0) dataDir = plat_exe_dir();
 
     printf("It Came from the Desert - %s (base %ld)\n", image, (long)RC_BASE);
+    /* Conventional memory left once the extender and this EXE are in place: the audio ring, the
+     * only base-memory allocation the game makes itself, has to come out of what remains. */
+    printf("icftd: %lu KB conventional memory, %lu KB free with the EXE loaded\n",
+           (unsigned long)plat_base_total_kb(), (unsigned long)plat_free_base_kb());
 
     /* Settings next to the executable; a fresh copy gets the whole file written. */
     rt_config_ensure();

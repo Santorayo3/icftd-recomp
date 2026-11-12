@@ -382,7 +382,12 @@ static const u8 g_page16[4] = { 0x8F, 0x8B, 0x89, 0x8A };
 #define DMA16_MODE     0xD6u
 #define DMA16_CLEAR_FF 0xD8u
 
-#define SB_BUF_BYTES  8192u            /* ring in conventional memory: a power of two */
+/* 16 KB of audio = 93 ms at 44,100 Hz stereo. It has to absorb two things: the writer produces a
+ * frame's worth (3528 B) in one burst every 20 ms, and DOSBox's Sound Blaster pulls in mixer blocks
+ * of 1024 samples (23 ms), so an 8 KB ring left barely two blocks of slack and every block boundary
+ * could dip into starvation - audible as light crackle. Costs 32 KB of base memory (the allocator
+ * takes twice the ring to step over a DMA page boundary); 551 KB stay free. */
+#define SB_BUF_BYTES  16384u           /* ring in conventional memory: a power of two */
 #define SB_MAX_FRAMES (SB_BUF_BYTES / 2u)
 
 static struct
@@ -491,6 +496,29 @@ static u32 sb_phys(u32 seg) { return (u32)seg << 4; }
  * 8237 can reach - plus a selector whose base locates it, which is what the writes use. A channel
  * cannot carry into the next page, so the window also has to sit inside one 128 KB block (16-bit)
  * or 64 KB block (8-bit); one spare window is enough to step over a boundary. */
+/* Conventional memory the BIOS reports for this machine, in KB (640 on any PC). */
+u32 plat_base_total_kb(void)
+{
+    union REGS r;
+
+    r.x.eax = 0;
+    int386(0x12, &r, &r);
+    return (u32)(r.x.eax & 0xFFFFu);
+}
+
+/* Largest free block of base memory, in KB: INT 21h AH=48h with an impossible size always fails
+ * and leaves the largest block it could have served in BX. Base memory is what an 8237 can reach,
+ * so this is the budget the DMA ring has to come out of. */
+u32 plat_free_base_kb(void)
+{
+    union REGS r;
+
+    r.h.ah = 0x48;
+    r.x.ebx = 0xFFFFu;
+    int386(0x21, &r, &r);
+    return r.x.cflag ? (u32)(r.x.ebx & 0xFFFFu) / 64u : 0u;
+}
+
 static int sb_alloc(u32 bytes, u32 boundary)
 {
     union REGS r;
@@ -751,6 +779,7 @@ u32 plat_audio_open(u32 rate)
 {
     int ver;
     u32 tcUsed = 0;
+    u32 freeBefore;
 
     memset(&g_sb, 0, sizeof g_sb);
     if (!sb_parse())
@@ -773,6 +802,7 @@ u32 plat_audio_open(u32 rate)
     else { g_sb.bits = 8; g_sb.stereo = 0; g_sb.rate = 22050u; g_sb.decim = 2; }
     g_sb.bytesFrame = (u32)(g_sb.bits / 8) * (u32)(g_sb.stereo ? 2 : 1);
 
+    freeBefore = plat_free_base_kb();
     if (!sb_alloc(SB_BUF_BYTES, g_sb.bits == 16 ? 0x20000u : 0x10000u))
     {
         printf("audio: no %u bytes of base memory for the DMA ring - sound disabled\n",
@@ -780,6 +810,9 @@ u32 plat_audio_open(u32 rate)
         sb_free_mem();
         return 0;
     }
+    printf("audio: DMA ring %u B, %u KB of base memory (%u -> %u KB free)\n",
+           (unsigned)SB_BUF_BYTES, freeBefore - plat_free_base_kb(),
+           freeBefore, plat_free_base_kb());
     /* Silence: unsigned 8-bit silence is 0x80, signed 16-bit silence is 0. */
     memset(g_sb.buf, g_sb.bits == 8 ? 0x80 : 0x00, SB_BUF_BYTES);
 

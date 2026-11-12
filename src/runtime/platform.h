@@ -95,6 +95,10 @@ u32  plat_rtc_elapsed_ms(void);
 /* Machine time the 8254 counted (emulated milliseconds): with a fixed DOSBox cycle setting this is
  * the host instruction count of the run, divided by the cycles per millisecond. */
 u32  plat_emulated_ms(void);
+/* Largest free block of base memory in KB (0 where the platform has no such concept). */
+u32  plat_free_base_kb(void);
+/* Conventional memory the machine has, in KB. */
+u32  plat_base_total_kb(void);
 /* --- files ---------------------------------------------------------------- */
 /* Only what a pack reader needs: open, size, positional read, close.  No stdio in
  * the core, because the DOS build may later serve reads from XMS or a RAM cache. */

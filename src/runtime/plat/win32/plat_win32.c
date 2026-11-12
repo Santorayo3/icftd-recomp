@@ -517,6 +517,9 @@ u32 plat_emulated_ms(void)
     return 0;                          /* no emulated clock under the host's own scheduler */
 }
 
+u32 plat_free_base_kb(void) { return 0; }
+u32 plat_base_total_kb(void) { return 0; }
+
 u32 plat_pump(input_state *in)
 {
     MSG msg;
