@@ -1053,3 +1053,44 @@ out-of-RAM accesses are the price. Parity still holds either way (both front end
 so parity alone could not have caught it.
 
 
+
+## The intro never starts another score: a 0-byte voice object (2026-11-12)
+
+Found while looking for the missing fanfare, by following the machine rather than the picture.
+Chain, all addresses image-relative (add the load base 0x4000 for a runtime PC):
+
+```
+frame 29   FUN_0000E804 (the instrument loader) allocates the four channel voice objects.
+           For three of them `AllocMem($20, MEMF_CLEAR|MEMF_PUBLIC)` from 0x0E930.
+           For the fourth the size word A4+0xAC2 is 0, so it is a 0-byte allocation.
+frame 29   its handler word is therefore still 0 - FUN_0000F06A (which installs the type-2
+           handler via `lea (0xc2c,PC)` -> 0x0FCCE) is never applied to it, and the block is
+           8 bytes (rt_alloc(0)); the tick's channel entry (player block +0x3E, four 22-byte
+           entries) points at it from +4.
+frame 1630 FUN_0000F3F4 (the score player's per-channel tick) runs
+           `move.l (4,A1),D0 / movea.l D0,A4 / movea.l (0,A4),A4 / jsr (0,A4)` at 0x0F40E..0x0F41E
+           and calls 0. Eight handler runs fail (frames 1630..1637), each aborting the tick, so
+           the player cannot start another score - which is the hand-off's "nothing starts
+           another score after the volume fade at frame 1617".
+```
+
+Why the size word is 0: the loader sets it to 0x20 itself at 0x0E8EA for the *shared* pair, then
+calls its open helper for the name it has just substituted, `"Desert1:sfx/o.rff"` (0x0E8D4). The
+helper first looks the name up in the open bank's directory (compare loop at 0x20204, walk at
+0x203xx) - the directory holds the *bare* names, and it does hold `o.rff` with size 0x20 - so the
+lookup misses on the full path and the walk's end-of-list path clears the size word
+(`clr.l (0xac2,A4)` at 0x2046E). It then falls back to a plain `dos.Open`, which succeeds, and the
+loader allocates the size it now holds: 0.
+
+Closed on the way: the FileHandle block we hand out now carries `fh_Pos` and `fh_End` (and zeroed
+`fh_Funcs`/`fh_Arg1`/`fh_Arg2`), because AmigaDOS maintains those fields on every operation and we
+left them zero - any code that asks a handle for a file's length read "empty". Measured: no change
+to the intro (8M instructions still reach frame 1824 with 2286 rasters), so the engine does not read
+the length off the handle here; it is kept because it is a real difference from AmigaDOS.
+
+Next step, and the only one that settles it: the open helper the loader calls is not covered by
+`re\disasm\dshell.asm` (the routine the trace enters at image 0x2145C is a 3-instruction wrapper
+around one library trap, and the walk is reached from it). Disassemble image 0x21300..0x21500 and
+image 0x20200..0x20500 properly and diff them against the reference, or dump the reference's RAM at
+the same content position and read the size word (engine data base A4 = 0x29A56, size at A4+0xAC2)
+to see whether the original holds 0x20 or 0x1622 there.
