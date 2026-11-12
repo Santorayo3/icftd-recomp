@@ -829,7 +829,7 @@ static void conv_picture(rt_machine *m, int w, int h, int bpr, int np, const u32
 
 void rt_gfx_present(rt_machine *m, u32 view)
 {
-    u32 vp, cm, ri, bm, table;
+    u32 vp, cm, ri, bm, table, bplcon0 = 0;
     int bpr, rows, depth, w, h, x, y, p, count, entries;
     static int s_progTiles;
 
@@ -902,6 +902,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
             u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
             u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
             int idx;
+            if (reg == 0x100u) bplcon0 = val;        /* BPLCON0: hires and the plane count */
             if (reg < 0x180u || reg > 0x1BEu || (reg & 1u) != 0) continue;
             idx = (int)((reg - 0x180u) >> 1);
             gfx->pal[idx * 3 + 0] = (u8)(((val >> 8) & 0xF) * 17);
@@ -935,6 +936,27 @@ void rt_gfx_present(rt_machine *m, u32 view)
             }
             count = cmCount;
         }
+    }
+    /* Chip RAM has one bus and Agnus takes its DMA slots first: the 68000 only runs a memory cycle
+     * in a slot nobody else asked for. Per line (227 colour clocks = 454 68000 cycles in lores) the
+     * display fetches one word per 16 pixels per plane, refresh takes two slots, and each enabled
+     * audio channel one word per sample. With five bitplanes that leaves the CPU about half the bus,
+     * which is why the same loop takes twice as long on an A500 as nominal 68000 cycle counts say.
+     * Charging these cycles to the frame budget only affects CPU-bound frames: where the engine
+     * finishes early and waits for the vblank, nothing changes. The blitter is not counted here -
+     * rt_blit_run charges its own slots. */
+    {
+        u32 words = bpr > 0 ? (u32)bpr / 2u : 0u;
+        u32 cc = 0u;
+        int ch = 0, k;
+
+        if ((bplcon0 & 0x8000u) != 0) words *= 2u;       /* hi-res: two colour clocks per word */
+        cc += (u32)(depth > 0 ? depth : 0) * words;
+        cc += 2u;                                       /* memory refresh */
+        for (k = 0; k < 4; k++)
+            if ((m->audio.dma & (1u << k)) != 0) ch++;
+        cc += (u32)ch * 3u;                             /* ~3 samples per line at 44 kHz */
+        m->dmaSteal = cc * 625u;                        /* 2 68000 cycles per colour clock, 312.5 lines */
     }
     if (count > 0 && count <= 256 && table != 0)
     {

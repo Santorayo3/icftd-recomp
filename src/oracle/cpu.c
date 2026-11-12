@@ -283,7 +283,7 @@ void oracle_tick(rt_machine *m)
      * CPU is stuck waiting for it (blitter.c). Only a WaitTOF/WaitBOVP resets it, because that is
      * the program declaring the rest of the frame idle. A debt bigger than one frame therefore
      * costs more than one vblank - the next instruction triggers the tick again. */
-    m->cyclesToTick += EMU_CYCLES_PER_FRAME;
+    m->cyclesToTick += EMU_CYCLES_PER_FRAME - (long)m->dmaSteal;
     /* The raster has finished the last frame: what was drawn into the loaded view is on screen. */
     rt_frame_present(m);
     if (m->pressAt != 0)
