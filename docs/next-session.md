@@ -163,6 +163,30 @@ times), or its display is not the 5-plane lores / DDF $38..$D0 we assume and it 
 we model. The second is decidable from one WinUAE savestate (custom registers), the first from the
 disassembly of the library routines concerned.
 
+**All three cycle-exact flags are modelled now (2026-11-12)**
+
+`cpu_cycle_exact` (instruction cost from Musashi's table, one colour clock of bus per word, plus the
+waits the slot map charges), `blitter_cycle_exact` (a device taking slots as the clock passes) and
+`copper_cycle_exact` (a device fetching one instruction word per second clock, applying MOVEs at
+their beam positions, WAIT parking on the beam position). With the display DMA, refresh, audio,
+sprite and disk slots the map already claimed, every bus master now takes its time out of the same
+per-line map, and nothing is charged as a lump at the end of an instruction or a frame except the
+CPU's own words.
+
+What is deliberately *not* cycle-exact, and why:
+
+* **CPU accesses are charged at the instruction boundary, not at the access.** Doing it at the
+  access made the two front ends charge the accesses each of them happens to perform, which differ
+  (1456 frames against 1407 for the same instruction count) - the host/interpreter timeline
+  invariant, the only mechanical check this project has, stopped holding. The clocks are the same;
+  only where a wait lands inside one instruction differs.
+* **The renderer is still one chunky conversion per frame**, so a list that changes a display
+  register mid-screen would not be honoured per line. The copper's register writes land in the
+  register file at the right time; the picture is composed at the frame boundary.
+* **Sprite and audio fetch devices** are still missing: their slots are claimed, but nothing advances
+  a sprite pointer or a shift register from them, and audio's fetch is driven by the device clock
+  (`rt_time_slice`) rather than by bus slots.
+
 **Next, in this order**
 
 1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
