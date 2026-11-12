@@ -256,16 +256,26 @@ void rt_blit_run(rt_machine *m)
 
     if (rows == 0) return;
     m->blits++;
-    /* The bytes are produced now - the result is identical either way - but the bus is not free:
-     * the blit takes one channel slot per channel per output word, handed out by the arbiter one
-     * colour clock at a time (slots.c, rt_slot_device_tick) while the CPU keeps running and waits
-     * for its own slots. DMACONR reports BBUSY until the last slot is used, which is what WaitBlit
-     * and the engine's own polls read. */
+    /* Spent before the blit does its work, so a frame boundary inside it sees the same state the
+     * interpreter sees. A single blit may cost several frames: the budget carries the debt (see
+     * oracle_tick), which is exactly "the CPU is stuck waiting for the blitter". */
     {
-        long slots = (long)words * (long)rows * (long)blit_channels(b);
-        if (slots > 64L * EMU_CYCLES_PER_FRAME) slots = 64L * EMU_CYCLES_PER_FRAME;
-        rt_blit_start(m, slots);
-        m->blitCycles += slots * 2L;
+        long cost = rt_blit_charge(m, words, rows, blit_channels(b));
+        long cap = 16L * EMU_CYCLES_PER_FRAME;
+        if (cost > cap)
+        {
+            if (m->progress && m->blitLogs < 20)
+            {
+                m->blitLogs++;
+                printf("emu: blit %dx%d costs %ld cycles, clamped to %ld (frame %lu)\n",
+                       words * 16, rows, cost, cap, (unsigned long)m->frame);
+            }
+            cost = cap;
+        }
+        m->cyclesToTick -= cost;
+        m->blitCycles += cost;
+        /* The blit is device time too: while it runs the music and the CIA timers keep going. */
+        rt_time_run(m, cost);
     }
     /* --blitlog: every blit's geometry plus where it lands in the bitmap on screen (D is a plane
      * pointer, so the first row is (D - plane) / bytesPerRow). That is how the tile renderer
