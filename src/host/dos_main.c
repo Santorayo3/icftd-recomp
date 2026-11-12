@@ -437,7 +437,7 @@ int main(int argc, char **argv)
         interpreted++;
         while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
         {
-            u32 cost = oracle_cycle_cost(pc);
+            u32 cost = oracle_instruction_cost(&m, pc);
 
             m.cyclesToTick -= (long)cost;
             rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */

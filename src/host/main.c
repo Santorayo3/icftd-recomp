@@ -357,6 +357,10 @@ int main(int argc, char **argv)
     int blitBytePtr = 0;
     int slot = 1;
     int slotGiven = 0;
+    int slotsDump = 0;
+    int slotsCheck = 0;
+    u32 slotsAt = 0;
+    const char *busTablePath = 0;
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -370,7 +374,10 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--calllog") == 0 && i + 1 < argc) { callLog = argv[++i]; continue; }
         if (strcmp(argv[i], "--ring") == 0) { ring = 1; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
-        if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
+        if (strcmp(argv[i], "--slots") == 0) { slotsDump = 1; continue; }
+        if (strcmp(argv[i], "--slots-check") == 0) { slotsCheck = 1; continue; }
+        if (strcmp(argv[i], "--slotsat") == 0 && i + 1 < argc) { slotsAt = (u32)strtoul(argv[++i], 0, 0); continue; }
+        if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTablePath = argv[++i]; continue; }        if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
@@ -460,6 +467,7 @@ int main(int argc, char **argv)
         if (strchr(argv[i], '\\') || strchr(argv[i], '/') || strchr(argv[i], '.')) image = argv[i];
         else insns = strtol(argv[i], 0, 0);
     }
+    if (slotsCheck) return rt_slots_selftest() == 0 ? 0 : 1;
     if (insns <= 0) insns = 40000000L;
     if (runForever) insns = 0x7FFFFFF0L;       /* the window decides when to stop */
     /* One rc_call runs a whole translated function, so the limit has to be armed inside the
@@ -485,6 +493,8 @@ int main(int argc, char **argv)
     }
     m.dosLog = dosLog;
     m.textLog = textLog;
+    m.busTable = busTablePath != 0;
+    m.slotsAt = slotsAt;
     m.saveSlot = slot;
     if (slotGiven)
     {
@@ -618,7 +628,7 @@ int main(int argc, char **argv)
         interp_note(pc, !g_isActive);
         while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
         {
-            u32 cost = oracle_cycle_cost(pc);
+            u32 cost = oracle_instruction_cost(&m, pc);
 
             rt_trace(&m, pc);
             m.cyclesToTick -= (long)cost;
@@ -697,6 +707,8 @@ int main(int argc, char **argv)
             if (hist[k] != 0) printf(" %d:%lu", k, (unsigned long)hist[k]);
         printf("\n");
     }
+    if (slotsDump) rt_slots_print(&m);
+    if (busTablePath != 0) oracle_bus_dump(busTablePath);
     rt_shutdown(&m);
     if (g_window) plat_shutdown();
     rc = 0;

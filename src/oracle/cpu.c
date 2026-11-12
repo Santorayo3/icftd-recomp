@@ -44,6 +44,9 @@ extern unsigned char m68ki_cycles[][0x10000];
  * the extension word, not the opcode, and leaving it out keeps this a single array lookup that the
  * translated code can compute at translation time. Measured error: see docs\next-session.md.
  *
+ * This is the base count: the bus arbitration on top of it (slots.c, rt_bus_charge) turns it into
+ * the time the instruction really takes, and both front ends apply exactly that rule.
+ *
  * This is the one definition of "time" in the project: the interpreter, the host's interpreted
  * fallback and the translated stream all charge exactly this. */
 u32 oracle_cycle_cost(u32 pc)
@@ -55,11 +58,17 @@ u32 oracle_cycle_cost(u32 pc)
      * translated stream charges for the same slot (src\recomp\cpu.c, rc_os_call_a6). */
     if (rt_library_of(rt_current, pc, 0) >= 0) return 0;
     c = (u32)m68ki_cycles[0][rt_read16(&rt_current->mem, pc)];
-    /* The 68000 only gets a chip-RAM cycle in a bus slot Agnus did not take (see rt_gfx_present),
-     * so its instruction time is stretched by the display's DMA. The translated stream applies the
-     * same factor to its baked cost in src\recomp\cpu.c, step_budget(). */
-    if (rt_current->cpuStretch > 256u) c = (c * rt_current->cpuStretch) >> 8;
     return c;
+}
+
+/* The real cost of the instruction at `pc`: its base cycle count with its bus words walked
+ * through the chip bus (slots.c). Identical to the translated stream's rc_step, which calls
+ * rt_bus_charge with the cost baked into the emitted code. */
+u32 oracle_instruction_cost(rt_machine *m, u32 pc)
+{
+    u32 c = oracle_cycle_cost(pc);
+
+    return (u32)rt_bus_charge(m, (long)c, rt_read16(&m->mem, pc), pc);
 }
 
 int oracle_dump_cycle_table(const char *path)
@@ -83,6 +92,7 @@ unsigned int m68k_read_memory_8(unsigned int a)
 {
     a &= 0xFFFFFFu;
     if (!rt_bus_is_io(rt_current, a) && !ram_has(a)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    if (rt_current->busTable) rt_current->busWords++;
     return rt_bus_read8(rt_current, a);
 }
 
@@ -90,6 +100,7 @@ unsigned int m68k_read_memory_16(unsigned int a)
 {
     a &= 0xFFFFFFu;
     if (!rt_bus_is_io(rt_current, a) && !ram_has(a + 1u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    if (rt_current->busTable) rt_current->busWords++;
     return rt_bus_read16(rt_current, a);
 }
 
@@ -97,18 +108,21 @@ unsigned int m68k_read_memory_32(unsigned int a)
 {
     a &= 0xFFFFFFu;
     if (!rt_bus_is_io(rt_current, a) && !ram_has(a + 3u)) note_bad(a, (u32)m68k_get_reg(0, M68K_REG_PC));
+    if (rt_current->busTable) rt_current->busWords += 2;   /* two word transfers */
     return rt_bus_read32(rt_current, a);
 }
 
 void m68k_write_memory_8(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
+    if (rt_current->busTable) rt_current->busWords++;
     rt_bus_write8(rt_current, a, v);
 }
 
 void m68k_write_memory_16(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
+    if (rt_current->busTable) rt_current->busWords++;
     if (rt_current->dffLog && rt_current->dffSeen < 64 && a >= 0xDFF000u && a < 0xDFF100u)
     {
         rt_current->dffSeen++;
@@ -121,6 +135,7 @@ void m68k_write_memory_16(unsigned int a, unsigned int v)
 void m68k_write_memory_32(unsigned int a, unsigned int v)
 {
     a &= 0xFFFFFFu;
+    if (rt_current->busTable) rt_current->busWords += 2;
     rt_bus_write32(rt_current, a, v);
 }
 
@@ -282,10 +297,11 @@ void oracle_tick(rt_machine *m)
     int i;
 
     if (m->tickLog)
-        printf("tick %lu in insns %ld budget %ld blitcyc %ld pc %06lx\n", (unsigned long)m->frame,
+        printf("tick %lu in insns %ld budget %ld blitcyc %ld step %lu pc %06lx\n", (unsigned long)m->frame,
                (long)m->insns, (long)m->cyclesToTick, (long)m->blitCycles,
-               (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+               (unsigned long)rt_read32(&m->mem, EMU_STEP_COUNTER), (unsigned long)m68k_get_reg(0, M68K_REG_PC));
     m->frame++;
+    if (m->slotsAt != 0 && m->frame == m->slotsAt) rt_slots_print(m);
     /* The budget carries whatever the last frame overspent: a blit can cost several frames, and the
      * CPU is stuck waiting for it (blitter.c). Only a WaitTOF/WaitBOVP resets it, because that is
      * the program declaring the rest of the frame idle. A debt bigger than one frame therefore
@@ -319,6 +335,53 @@ void oracle_tick(rt_machine *m)
     if (m->tickLog)
         printf("tick %lu out insns %ld budget %ld pc %06lx\n", (unsigned long)m->frame,
                (long)m->insns, (long)m->cyclesToTick, (unsigned long)m68k_get_reg(0, M68K_REG_PC));
+}
+
+/* --- bus-word census (--bustable) --------------------------------------------------------- *
+ * How many chip-bus words an instruction needs is the one datum the bus arbiter lacks: it turns
+ * the 68000 cycle count into time on a bus Agnus also uses. It is a property of the instruction,
+ * so it is measured once on the interpreter (each fetch, extension word, operand read and write is
+ * one word transfer) and baked into src\runtime\amiga\bus_cycles.c by tools\gen-buscycles.ps1.
+ * The census records min/max, so an opcode whose count is not stable (MOVEM's register list) shows
+ * up instead of being averaged silently. */
+static u32 busCounts[0x10000];
+static u32 busSums[0x10000];
+static u16 busMins[0x10000];
+static u16 busMaxs[0x10000];
+
+static void bus_record(u32 opcode, int words)
+{
+    u16 w = (u16)words;
+
+    if (busCounts[opcode] == 0) { busMins[opcode] = w; busMaxs[opcode] = w; }
+    else
+    {
+        if (w < busMins[opcode]) busMins[opcode] = w;
+        if (w > busMaxs[opcode]) busMaxs[opcode] = w;
+    }
+    busCounts[opcode]++;
+    busSums[opcode] += (u32)words;
+}
+
+int oracle_bus_dump(const char *path)
+{
+    FILE *f = fopen(path, "w");
+    u32 opcode;
+    int n = 0;
+
+    if (f == 0) { printf("emu: cannot write %s\n", path); return 0; }
+    fprintf(f, "# opcode count min max sum - measured bus words per instruction\n");
+    for (opcode = 0; opcode < 0x10000u; opcode++)
+    {
+        if (busCounts[opcode] == 0) continue;
+        fprintf(f, "%04lX %lu %u %u %lu\n", (unsigned long)opcode,
+                (unsigned long)busCounts[opcode], (unsigned)busMins[opcode],
+                (unsigned)busMaxs[opcode], (unsigned long)busSums[opcode]);
+        n++;
+    }
+    fclose(f);
+    printf("emu: bus-word census: %d opcode(s) written to %s\n", n, path);
+    return 1;
 }
 
 /* One instruction, the library trap and the fail-fast checks. 1 = keep running. */
@@ -412,7 +475,9 @@ int oracle_step(rt_machine *m)
                (unsigned long)m68k_get_reg(0, M68K_REG_A0),
                (unsigned long)m68k_get_reg(0, M68K_REG_A7));
     }
+    if (m->busTable) m->busWords = 0;
     m68k_execute(1);
+    if (m->busTable) bus_record(rt_read16(&m->mem, pc), (int)m->busWords);
     return 1;
 }
 
@@ -463,13 +528,14 @@ u32 oracle_run(rt_machine *m, long maxInsns)
             oracle_tick(m);
             if (m->stop) break;
         }
-        /* The budget is charged per instruction from the 68000 cycle table, so a frame is
-         * EMU_CYCLES_PER_FRAME cycles - the same rule the translated code follows
-         * (src\recomp\cpu.c, rc_step, and the host's interpreted path in src\host\main.c). */
+        /* The budget is charged per instruction from the 68000 cycle table, with the instruction's
+         * bus words walked through the chip bus (rt_bus_charge) - the same rule the translated code
+         * follows (src\recomp\cpu.c, step_budget). */
         {
-            u32 cost = oracle_cycle_cost(m68k_get_reg(0, M68K_REG_PC));
+            u32 pc = m68k_get_reg(0, M68K_REG_PC);
+            u32 cost = oracle_instruction_cost(m, pc);
 
-            rt_trace(m, m68k_get_reg(0, M68K_REG_PC));
+            rt_trace(m, pc);
             m->cyclesToTick -= (long)cost;
             rt_time_run(m, (long)cost);      /* Paula + CIA timers, same clock as the budget */
             rt_cia_service(m);               /* a timer expiry is taken between instructions */

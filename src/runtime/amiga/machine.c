@@ -1619,7 +1619,7 @@ int rt_init(rt_machine *m)
 {
     memset(m, 0, sizeof(*m));
     if (!rt_mem_init(&m->mem, EMU_RAM_SIZE)) return 0;
-    m->cpuStretch = 256u;                /* full bus speed until a display says otherwise */
+    rt_slots_reset(m);                   /* every clock is the CPU's until a display is programmed */
     rt_current = m;
     /* exec, graphics and dos bases up front, so the run stops at the first LVO instead of
      * following a null library pointer into nothing. */
@@ -1825,7 +1825,7 @@ int rt_bus_is_io(rt_machine *m, u32 a)
 /* The register file itself, inside a window that runs much wider than it. */
 static int is_custom(rt_machine *m, u32 a)
 {
-    return rt_bus_is_io(m, a) && a >= 0xDFF000u && a < 0xDFF100u;
+    return rt_bus_is_io(m, a) && a >= 0xDFF000u && a < 0xDFF200u;
 }
 
 /* --- the registers that come from the clock, not from a store ------------------------------- *
@@ -1921,7 +1921,7 @@ u32 rt_bus_read32(rt_machine *m, u32 a)
     a &= 0xFFFFFFu;
     if (is_custom(m, a) && a == 0xDFF004u)                   /* VPOSR:VHPOSR in one long */
         return (beam_register(m, 0xDFF004u) << 16) | beam_register(m, 0xDFF006u);
-    if (is_custom(m, a) && a < 0xDFF0FCu)
+    if (is_custom(m, a) && a < 0xDFF1FCu)
         return ((u32)m->custom[(a - 0xDFF000u) >> 1] << 16) |
                (u32)m->custom[(a + 2 - 0xDFF000u) >> 1];
     return rt_read32(&m->mem, a);

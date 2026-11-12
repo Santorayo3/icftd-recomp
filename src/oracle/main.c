@@ -140,6 +140,9 @@ int main(int argc, char **argv)
     int ring = 0;
     const char *inputPath = 0;
     const char *cycleTable = 0;
+    const char *busTable = 0;
+    int slotsDump = 0;
+    u32 slotsAt = 0;
     const char *audioDump = 0;
     int blitBytePtr = 0;
     int stateEvery = 1;
@@ -189,6 +192,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
         if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
         if (strcmp(argv[i], "--cyclestable") == 0 && i + 1 < argc) { cycleTable = argv[++i]; continue; }
+        if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTable = argv[++i]; continue; }
+        if (strcmp(argv[i], "--slots") == 0) { slotsDump = 1; continue; }
+        if (strcmp(argv[i], "--slotsat") == 0 && i + 1 < argc) { slotsAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
@@ -232,7 +238,7 @@ int main(int argc, char **argv)
                "                    [--window] [--run] [--dump <prefix> [frames]] [--press <frame>]\n"
                "                    [--state <prefix> [--every <n>] [--ram <frame[,frame...]>]]\n"
                "                    [--input <script>] [--base <addr>] [--entry <addr>] [--a4 <addr>]\n"
-               "                    [--audiodump <file>]\n"
+               "                    [--audiodump <file>] [--bustable <file>] [--slots]\n"
                "  --run    open the window and play until it is closed (space = fire, esc = quit)\n"
                "  --state  canonical machine-state dump per frame (registers, custom regs, RAM hash)\n"
                "  --ram    also write the full RAM image at these frames (<prefix>.<frame>.ram)\n"
@@ -309,6 +315,8 @@ int main(int argc, char **argv)
     m.traceTo = traceTo;
     m.tickLog = tickLog;
     m.blitBytePtr = blitBytePtr;
+    m.busTable = busTable != 0;
+    m.slotsAt = slotsAt;
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
@@ -361,6 +369,8 @@ int main(int argc, char **argv)
         printf("emu: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
         state_close();
         if (ramStop != 0) state_ram_snapshot(&m, ramStop);
+        if (slotsDump) rt_slots_print(&m);
+        if (busTable != 0) oracle_bus_dump(busTable);
         rc = 0;
     }
 

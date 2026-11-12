@@ -168,12 +168,25 @@ Three pieces make the clock:
    through `oracle_cycle_cost()`, so the two front ends cannot drift. Only the base table is used;
    the +2/+4 an indexed effective address costs - which lives in an extension word, not the opcode,
    and the rare DBcc-taken surcharge are not modelled (measured together: under 2 % of the total).
-2. **The blitter owns the bus.** `rt_blit_run` charges the blit's DMA time - one slot per output
-   word per enabled channel, two 68000 clocks each (`blitter.c`, HRM's lowres timing) - to the frame
-   budget, and the budget carries a multi-frame debt across vblanks (the CPU is stuck waiting for
-   the blitter). The blit itself still completes in one go; the bytes are identical, only the clock
-   moves.
-3. **Blaming the right party.** The host sleeps to 50 Hz (`plat_frame_sync`), never the emulator, and
+2. **The bus has one owner per colour clock.** `slots.c` builds, from the live display (the View's
+   ViewPort and BitMap: plane count, hi-res bit, DWidth/DHeight - the numbers graphics.library would
+   put in BPLCON0/DDFSTRT/DDFSTOP/DIWSTRT/DIWSTOP - plus DMACON's audio channels and SPRxCTL), a
+   227-entry map per line of who owns each colour clock: strobe and three refresh slots at 3/5/7/9,
+   disk, audio, sprites, and the bitplane fetch pattern from WinUAE's `cycle_diagram_table`
+   (`custom.cpp`). `rt_slots_selftest()` diffs that pattern against the table for 1..8 planes lores
+   and 1..4 hires (`--slots-check`), and `--slots` prints the map for the current registers.
+   With the intro's five planes and a 20-word DDF window, Agnus takes 108 of a display line's 227
+   clocks (3 of every 8 inside the window) and 4 of a blank line's: 22,052 of 70,937 per frame.
+3. **Every consumer walks that map.** A 68000 memory word needs 4 clocks - address and data, HRM -
+   i.e. 2 colour clocks, each of which has to be one Agnus did not take; `bus_cycles.c`
+   (`tools\gen-buscycles.ps1`, measured on the oracle with `--bustable`, MOVEM exact from its
+   register mask) says how many words an instruction transfers. The blitter takes one clock per
+   enabled channel per output word (UAE `blitter.cpp`, `blit_cyclecount`), walked through the same
+   map from the same cursor, so a five-plane display slows the blitter the way UAE's
+   `blitter_slowdown` does. Internal cycles (register work, EA calculation) run at the 68000's own
+   rate. The budget carries a multi-frame debt across vblanks - the CPU is stuck waiting for the
+   blitter.
+4. **Blaming the right party.** The host sleeps to 50 Hz (`plat_frame_sync`), never the emulator, and
    `--speed` is an inspection aid only. The host's period is counted on `QueryPerformanceCounter`:
    `GetTickCount`'s 15.6 ms granularity cannot express the Amiga's 20.000 ms frame, so the old loop
    alternated 15/31 ms. Measured over a 4 s windowed run: 198 frames presented, i.e. 49.5-50 Hz.

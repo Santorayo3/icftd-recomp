@@ -15,6 +15,7 @@
 #include "blitter.h"
 #include "display.h"
 #include "platform.h"
+#include "slots.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -224,13 +225,15 @@ static void blit_row(rt_machine *m, int row, int words, int descending, u16 *hol
     }
 }
 
-/* The blitter is not free. It owns the bus for one DMA slot per output word per enabled channel,
- * two 68000 clocks each (lowres), and the engine waits for it - WaitBlit, or a DMACONR poll -
- * before it touches the result. Charging those clocks to the frame budget is what makes a
- * blit-heavy scene lose frames the way the original does: the picture is still produced here in
- * one go (the bytes are identical), only the clock moves. Without it a scene that the A500 can only
- * manage at ~10 Hz plays at the full 50 Hz (docs\drawing-model.md, "Measured timing"). */
-static long blit_dma_cycles(const rt_blitter *b, int words, int rows)
+/* The blitter is not free. It owns the bus for one DMA slot per output word per enabled channel
+ * (UAE blitter.cpp: blit_cyclecount counts the channels used), and the engine waits for it -
+ * WaitBlit, or a DMACONR poll - before it touches the result. Charging those slots to the frame
+ * budget is what makes a blit-heavy scene lose frames the way the original does: the picture is
+ * still produced here in one go (the bytes are identical), only the clock moves. The slots are
+ * walked through the same map the CPU uses (slots.c, rt_blit_charge), because it is the same
+ * chip bus - with five bitplanes the display takes five of every eight clocks, and the blitter
+ * only gets the rest. */
+static int blit_channels(const rt_blitter *b)
 {
     int ch = 0;
     if ((b->con0 & 0x0800u) != 0) ch++;          /* USEA */
@@ -238,7 +241,7 @@ static long blit_dma_cycles(const rt_blitter *b, int words, int rows)
     if ((b->con0 & 0x0200u) != 0) ch++;          /* USEC */
     if ((b->con0 & 0x0100u) != 0) ch++;          /* USED */
     if (ch == 0) ch = 1;
-    return (long)words * (long)rows * (long)ch * 2L;
+    return ch;
 }
 
 u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
@@ -257,8 +260,8 @@ void rt_blit_run(rt_machine *m)
      * interpreter sees. A single blit may cost several frames: the budget carries the debt (see
      * oracle_tick), which is exactly "the CPU is stuck waiting for the blitter". */
     {
-        long cost = blit_dma_cycles(b, words, rows);
-        long cap = 8L * EMU_CYCLES_PER_FRAME;
+        long cost = rt_blit_charge(m, words, rows, blit_channels(b));
+        long cap = 16L * EMU_CYCLES_PER_FRAME;
         if (cost > cap)
         {
             if (m->progress && m->blitLogs < 20)
@@ -427,10 +430,22 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
 {
     rt_blitter *b = &m->blit;
 
+    /* The register file keeps what was written: the display registers (BPLCON0 at $100, the DDF
+     * window, DIW, the sprites) are the state the slot map is built from, and a read-back must
+     * return it. DMACON is the one set/clear register, so its effective value is accumulated. */
+    if (reg != 0x096u)
+        m->custom[(reg & 0x1FFu) >> 1] = v;
+    else
+    {
+        u16 cur = m->custom[0x096 >> 1];
+        cur = (u16)(((v & 0x8000u) != 0) ? (cur | (v & 0x7FFFu)) : (cur & ~(v & 0x7FFFu)));
+        m->custom[0x096 >> 1] = cur;
+    }
+    m->slots.dirty = 1;
+
     /* Paula's four channels: $DFF0A0..$DFF0DE (their state lives in audio.c). */
     if (reg >= 0x0A0u && reg <= 0x0DEu)
     {
-        m->custom[reg >> 1] = v;
         rt_audio_write16(m, reg, v);
         return;
     }
@@ -457,6 +472,6 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
     case 0x072: b->bdat = v; break;
     case 0x074: b->adat = v; break;
     case 0x096: rt_audio_dmacon(m, v); break;   /* DMACON: audio DMA bits, master DMAEN */
-    default:    m->custom[reg >> 1] = v; break;
+    default:    break;                          /* the register file already holds it */
     }
 }

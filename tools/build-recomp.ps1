@@ -38,6 +38,8 @@ $sources = @(
     (Join-Path $rt 'amiga\blitter.c'),
     (Join-Path $rt 'amiga\display.c'),
     (Join-Path $rt 'amiga\audio.c'),
+    (Join-Path $rt 'amiga\slots.c'),
+    (Join-Path $rt 'amiga\bus_cycles.c'),
     (Join-Path $rt 'plat\win32\plat_win32.c')
 )
 # Every translated function: one file per function, discovered so the script never needs editing.

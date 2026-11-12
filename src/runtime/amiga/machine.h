@@ -9,6 +9,7 @@
 #include "types.h"
 #include "memory.h"
 #include "audio.h"
+#include "slots.h"
 
 /* Memory map. The image is flattened at 0x4000, not 0: address 4 must hold AbsExecBase, and at
  * base 0 the code hunk (entry stub `jmp`) overlaps it - the cstart's `movea.l 4.w,a6` would read
@@ -106,7 +107,7 @@ typedef struct rt_blitter
 typedef struct rt_machine
 {
     rt_mem mem;
-    u16     custom[0x100 / 2];            /* 0xDFF000..0xDFF0FF, raw */
+    u16     custom[0x200 / 2];            /* 0xDFF000..0xDFF1FF, raw (BPLCON0/color live here) */
     rt_blitter blit;                     /* BLTCON/pointers/modulos (blit.c) */
     rt_gfx_state gfx;                    /* framebuffer + drawing state (emu\gfx.c) */
     rt_audio audio;                      /* Paula channels, mixer, gains (audio.c) */
@@ -184,8 +185,11 @@ typedef struct rt_machine
     int     textSeen;
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
-    u32     dmaSteal;                     /* chip-RAM bus cycles per frame the display and audio DMA take */
-    u32     cpuStretch;                   /* 256 = the 68000 at full bus speed; higher when DMA takes slots */
+    u32     dmaSteal;                     /* chip-RAM bus colour clocks per frame the DMA takes (report) */
+    rt_slots slots;                       /* the per-line bus map and its register snapshot (slots.c) */
+    u32     slotsAt;                      /* --slotsat <frame>: dump the map at that boundary (0 = never) */
+    int     busTable;                     /* --bustable: measure bus words per opcode */
+    long    busWords;                     /* ... the counter the CPU's memory callbacks bump */
     void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */
     void  (*on_present)(struct rt_machine *m);  /* tool hook: dump a frame / show the window */
 } rt_machine;
@@ -236,6 +240,10 @@ void rt_ram_snapshot(rt_machine *m, const char *path);
 void rt_trace(rt_machine *m, u32 pc);
 /* Dumps a graphics.library Text call's pointers and pens (development aid). */
 void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
+/* The engine's own MovE step counter (docs\drawing-model.md): its MovE loop increments it once per
+ * walked step, so it says how much content one frame advanced. Reported by --ticklog. */
+#define EMU_STEP_COUNTER 0x0003010Cu
+
 /* A shim asked for the next vertical blank: end this frame without executing anything. */
 void rt_request_vblank(rt_machine *m);
 /* dos.Delay(n): the calling task is asleep for n of the 50 Hz ticks, i.e. n frame boundaries. */

@@ -1,0 +1,124 @@
+<#
+.SYNOPSIS
+    Turns the oracle's bus-word census into src\runtime\amiga\bus_cycles.c.
+
+.DESCRIPTION
+    The arbiter (slots.c) needs to know how many chip-bus words an instruction transfers: that is
+    what turns the 68000's cycle count into time on a bus Agnus also uses. The number is measured,
+    not guessed - `icftd-oracle.exe <image> --bustable <file>` counts every word the core reads or
+    writes per opcode (fetch, extension words, operand reads, operand writes) and records
+    min/max/sum/count.
+
+    This script writes those values into the generated table:
+      * opcodes whose count never varied  -> that value (the exact one);
+      * MOVEM                               -> the minimum; rt_bus_charge() adds the real register
+                                               count from the mask in the extension word;
+      * other opcodes whose count varied    -> round(mean). The only such opcodes are Bcc/DBcc,
+                                               where a taken branch transfers its extension word:
+                                               the mean is the unbiased number for the run;
+      * unmeasured opcodes                  -> the default below, derived from the measured ratio
+                                               of bus words to 68000 cycles.
+    The script also validates a hand-checked set of instructions against the HRM timing tables, so
+    a broken census cannot slip through silently.
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File tools\gen-buscycles.ps1 -Census out\bus.txt
+#>
+param(
+    [string]$Census = 'out\bus.txt',
+    [string]$Out = 'src\runtime\amiga\bus_cycles.c'
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+Push-Location $root
+try {
+    if (-not (Test-Path $Census)) { throw "no census file $Census - run icftd-oracle.exe <image> --bustable $Census" }
+
+    $rows = @{}
+    foreach ($line in Get-Content $Census) {
+        if ($line -match '^\s*#' -or $line -notmatch '\S') { continue }
+        $p = $line -split '\s+'
+        $rows[[Convert]::ToInt32($p[0], 16)] = [pscustomobject]@{
+            n = [int64]$p[1]; min = [int]$p[2]; max = [int]$p[3]; sum = [int64]$p[4]
+        }
+    }
+    if ($rows.Count -eq 0) { throw "census $Census has no rows" }
+
+    # The default for an opcode the run never executed: the measured ratio of bus words to the
+    # instruction's own 68000 cycle count, applied to the average cost of the measured stream.
+    $sumWords = 0.0; $sumInsns = 0.0
+    foreach ($op in $rows.Keys) { $sumWords += $rows[$op].sum; $sumInsns += $rows[$op].n }
+    $ratio = $sumWords / $sumInsns
+    $default = [int][Math]::Round($ratio)
+
+    # MOVEM keeps just its two fixed words (opcode + register mask); the registers come from the
+    # mask at run time (rt_bus_charge), so the variable part is never averaged.
+    function Is-Movem([int]$op) { return (($op -band 0xFB80) -eq 0x4880) }
+
+    $table = New-Object int[] 65536
+    for ($i = 0; $i -lt 65536; $i++) { $table[$i] = $default }
+    $var = 0
+    foreach ($op in $rows.Keys) {
+        $r = $rows[$op]
+        if (Is-Movem $op) { $table[$op] = 2 }
+        elseif ($r.min -eq $r.max) { $table[$op] = $r.min }
+        else { $var++; $table[$op] = [int][Math]::Round($r.sum / [double]$r.n) }
+    }
+
+    # --- validation against the HRM's own timings ------------------------------------------------
+    # (opcode, expected bus words, why). A 68000 memory cycle is one word transfer, so a 32-bit
+    # access is two. These shapes are pinned by HRM 8-1..8-9, independently of the census.
+    $checks = @(
+        @{ op = 0x4E71; w = 1; why = 'NOP: one opcode fetch' }
+        @{ op = 0x4E75; w = 3; why = 'RTS: fetch + a long read of the return address (2 words)' }
+        @{ op = 0x302D; w = 3; why = 'MOVE.W (d16,A5),D0: fetch + displacement + operand read' }
+        @{ op = 0x0C6C; w = 4; why = 'CMPI.W #imm,(d16,A4): fetch + imm + disp + read' }
+        @{ op = 0x426C; w = 3; why = 'CLR.W (d16,A4): fetch + disp + write' }
+        @{ op = 0x0800; w = 2; why = 'BSET #0,D0: fetch + immediate' }
+        @{ op = 0x4E55; w = 4; why = 'LINK A5,#imm: fetch + imm + push a long (2 words)' }
+        @{ op = 0x4E5D; w = 3; why = 'UNLK A5: fetch + pop a long (2 words)' }
+        @{ op = 0x4EAC; w = 4; why = 'JSR (d16,A4): fetch + disp + push a long (2 words)' }
+        @{ op = 0x3942; w = 3; why = 'MOVE.W D2,(d16,A4): fetch + disp + write' }
+    )
+    $failed = 0
+    foreach ($c in $checks) {
+        if (-not $rows.ContainsKey($c.op)) { Write-Host ("  (not in census: {0:X4} {1})" -f $c.op, $c.why); continue }
+        if ($table[$c.op] -ne $c.w) {
+            Write-Host ("  MISMATCH {0:X4}: table says {1}, HRM says {2} ({3})" -f $c.op, $table[$c.op], $c.w, $c.why)
+            $failed++
+        }
+    }
+
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('/* Bus words per 68000 instruction - generated by tools\gen-buscycles.ps1, do not edit.')
+    [void]$sb.AppendLine(' *')
+    [void]$sb.AppendLine(' * Measured on the oracle: every word the core reads or writes per opcode (instruction fetch,')
+    [void]$sb.AppendLine(' * extension words, operand reads, operand writes), over one run of the original program.')
+    [void]$sb.AppendLine(' * A 68000 memory access is one word transfer; the arbiter (slots.c, rt_bus_charge) walks these')
+    [void]$sb.AppendLine(' * through the chip-bus slot map, so the time an instruction takes on a contended bus is its')
+    [void]$sb.AppendLine(' * internal cycles plus one clock of wait for each DMA-owned colour clock in front of an access.')
+    [void]$sb.AppendLine(' *')
+    [void]$sb.AppendLine((" * Census: {0} opcode(s) seen; {1} with a data-dependent count (Bcc/DBcc: a taken branch" -f $rows.Count, $var))
+    [void]$sb.AppendLine(' * transfers its extension word; MOVEM: the register list). MOVEM is charged exactly from its')
+    [void]$sb.AppendLine(" * mask at run time; the Bcc/DBcc entries hold the mean of the run, which is unbiased for timing.")
+    [void]$sb.AppendLine((" * Unmeasured opcodes: {0} word(s) (the measured mean of {1:N2} words per instruction). */" -f $default, $ratio))
+    [void]$sb.AppendLine('#include "types.h"')
+    [void]$sb.AppendLine('#include "slots.h"')
+    [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('const u8 rt_bus_cycles[0x10000] = {')
+    for ($base = 0; $base -lt 65536; $base += 16) {
+        $vals = ($base..($base + 15) | ForEach-Object { '{0,2}' -f $table[$_] }) -join ','
+        [void]$sb.AppendLine(('    /* {0:X4} */ {1},' -f $base, $vals))
+    }
+    [void]$sb.AppendLine('};')
+
+    $new = $sb.ToString() -replace "`r`n", "`n"
+    $path = Join-Path $root $Out
+    $old = if (Test-Path $path) { (Get-Content $path -Raw) -replace "`r`n", "`n" } else { '' }
+    if ($old -ne $new) { [System.IO.File]::WriteAllText($path, $new, (New-Object System.Text.UTF8Encoding($false))) }
+
+    Write-Host ("bus cycles: {0} opcode(s), {1} variable, default {2}, {3} words/instruction" -f $rows.Count, $var, $default, [Math]::Round($ratio, 2))
+    Write-Host ("-> {0}" -f $path)
+    if ($failed -ne 0) { throw "$failed HRM check(s) failed" }
+}
+finally { Pop-Location }

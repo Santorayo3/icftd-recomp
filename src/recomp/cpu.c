@@ -84,13 +84,13 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
     }
     if (rc_frame_hook != 0)
     {
-        long bus = (long)cost;
+        long bus = rt_bus_charge(m, (long)cost, rt_read16(&m->mem, c->pc), c->pc);
 
-        /* The 68000 only gets a chip-RAM cycle in a bus slot Agnus did not take, so its instruction
-         * time is stretched by the display's DMA share (rt_gfx_present). The interpreter applies the
-         * same factor in oracle_cycle_cost(). The blitter's own cycles are bus cycles already and
-         * are charged as such, so they are not stretched again. */
-        if (m->cpuStretch > 256u) bus = (bus * (long)m->cpuStretch) >> 8;
+        /* rt_bus_charge walks the instruction's bus words through the slot map (slots.c): internal
+         * cycles run at the 68000's full rate, each bus word waits for a colour clock Agnus did not
+         * take. The interpreter charges the same rule from oracle_cycle_cost's base count, so the
+         * two front ends cannot drift. The blitter's own cycles are bus cycles already and are
+         * charged as such, so they are not stretched again. */
         m->cyclesToTick -= bus;
         rt_time_slice(m, bus);           /* Paula + CIA timers, the same clock as the budget */
         if (m->ciaPending) rt_cia_service(m);

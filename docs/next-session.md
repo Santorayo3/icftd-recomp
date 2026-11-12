@@ -4,6 +4,70 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+## The bus arbiter: stages 0 and 4 (2026-11-12, later session)
+
+`cpuStretch` is gone. The machine now has a real slot map and every consumer walks it.
+
+**What exists**
+
+* `src\runtime\amiga\slots.c` + `slots.h` - a 227-entry ownership map per line, built from the View
+  (ViewPort DWidth/DHeight/Modes and the BitMap's depth - the numbers graphics.library would program
+  into BPLCON0/DDFSTRT/STOP/DIWSTRT/STOP), from DMACON's audio channels, and from SPRxCTL. Strobe and
+  three refresh slots sit at colour clocks 3/5/7/9, then disk, audio, sprites, then the bitplane
+  fetch pattern of UAE's `cycle_diagram_table` (`custom.cpp`, `create_cycle_diagram_table`) through a
+  20-word DDF window. `--slots-check` diffs that pattern against the table for 1..8 planes lores and
+  1..4 hires (12 patterns, computed independently of the code under test); `--slots` prints the
+  register snapshot, the map, the per-line and per-frame DMA totals; `--slotsat <frame>` dumps it at
+  a frame boundary. The intro measures: 5 planes, DDF $38..$D0, 108 DMA clocks on a display line and
+  4 on a blank one = **22,052 of 70,937 clocks per frame**, 3 of every 8 clocks free inside the
+  fetch window.
+* `src\runtime\amiga\bus_cycles.c` - bus words per opcode, **measured**, not guessed:
+  `icftd-oracle.exe <image> --bustable out\bus.txt` counts every word the core reads or writes per
+  opcode (fetch, extension words, operand reads and writes, 32-bit accesses as two words) and
+  `tools\gen-buscycles.ps1` bakes it in. 1,190 opcode words occur in the original's own run, mean
+  **2.22 words per instruction**; 15 have a data-dependent count (Bcc/DBcc transfer their extension
+  word only when taken - the table holds the run's mean; MOVEM is charged exactly from its register
+  mask at run time, so its 6..34 words are never averaged). The generator validates ten hand-derived
+  HRM cases (NOP 1, RTS 3, MOVE.W (d16,A5),D0 3, CMPI.W #imm,(d16,A4) 4, LINK 4, UNLK 3,
+  JSR (d16,A4) 4, ...) and refuses to write the file if one fails.
+* `rt_bus_charge()` (CPU) and `rt_blit_charge()` (blitter) walk the map from the frame's own cursor:
+  the CPU pays 2 colour clocks per memory word (address and data, HRM), the blitter one clock per
+  enabled channel per output word (UAE `blit_cyclecount`), and every DMA-owned clock in front of a
+  needed one is a wait state. Internal cycles run at the 68000's own rate. So CPU and blitter share
+  one bus, which is the part the old frame-wide `dmaSteal`/`cpuStretch` aggregate could not express.
+* Proof: `tools\gate.ps1` **4/4**, and oracle vs translated RAM at frame 400 is **byte-identical**
+  (0 differing bytes of 2 MB) - the arbiter is applied identically by both front ends.
+
+**What it changed, and what it did not**
+
+| measure (intro, desert phase) | before | after |
+|---|---|---|
+| blitter charge, frame 1000 (cumulative) | 43.5M cycles | 64.9M (1.49x: the display now steals from the blitter too) |
+| instructions/frame | 4,015 | 4,104 |
+| engine MovE steps/frame (`--ticklog`'s `step`, DAT 0x3010C) | - | **0.26** (one step per 3.8 frames) |
+| "IT CAME FROM THE DESERT" fully drawn | frame 1400 = 28.0 s | frame 1400 = **28.0 s** |
+| screen black / Load Screen | 1600 / ~1650 | **1600 / ~1650** |
+
+So the arbiter is *more faithful* (it reproduces UAE's blitter_slowdown and the CPU's wait states per
+access instead of one global factor) but it does **not** move the content timeline: the extra
+blitter contention is offset because the old 1.92 flat stretch overcharged internal cycles. The
+remaining ~1.45x has another cause - see below.
+
+**Next, in this order**
+
+1. **The fanfare is the real marker, and it is a code-path difference.** The intro music fades to
+   volume 2 at frame 1617 and nothing starts another score, while cycle-exact WinUAE plays a fanfare
+   with the logo. Trace the score-start routine - the player is `FUN_0000f264` (four 0x16-byte channel
+   entries at A6+0x3E with `jsr (A4)` / `jsr (4,A4)` callbacks, DMACON written at 0xf454/0xf49c),
+   started through `FUN_0000f4c0`/`FUN_0000f286`, with `FUN_0000e804` loading `DES4:SCORES`/`INSTS`.
+   Find who decides "song finished, start the next one" and compare its condition with the original.
+2. **Measure the reference instead of guessing it.** The 29 s figure is a phone stopwatch reading.
+   WinUAE can be driven with our own `tools\icftd.uae` (already `cpu_cycle_exact=true`); a
+   frame-indexed reading needs either continuous screenshots or a Lua script (`uae_write_config`,
+   `uae_read_u16`) - anything that yields a frame number rather than a wall clock.
+3. Then re-baseline the four markers with RAM dumps at equal content positions (the 400-frame
+   fingerprint stays retired), and decide level 1 vs level 2 from the *fanfare*, not from the logo.
+
 ## The MS-DOS target (2026-11-11, later session) — it runs; performance is the open work
 
 Step 1 as agreed: **no audio**, VGA, `icftd.ini` without a fullscreen entry, save slots as

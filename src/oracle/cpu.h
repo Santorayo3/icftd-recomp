@@ -42,4 +42,11 @@ int oracle_dump_cycle_table(const char *path);
  * build bakes the same number in at translation time (tools\gen-cycles.ps1 -> CycleTable.cs). */
 u32 oracle_cycle_cost(u32 pc);
 
+/* The same base count with the instruction's bus words walked through the chip bus (slots.c):
+ * this is what both front ends charge to the frame budget. */
+u32 oracle_instruction_cost(rt_machine *m, u32 pc);
+
+/* --bustable: writes the measured bus words per opcode (opcode count min max sum per line). */
+int oracle_bus_dump(const char *path);
+
 #endif

@@ -937,39 +937,12 @@ void rt_gfx_present(rt_machine *m, u32 view)
             count = cmCount;
         }
     }
-    /* Chip RAM has one bus and Agnus takes its DMA slots first: the 68000 only runs a memory cycle
-     * in a slot nobody else asked for. Per line (227 colour clocks in lores, 455 in hires, each two
-     * 68000 cycles) the allocator hands out: one slot per bitplane word through the DDF window
-     * (WinUAE's bpl_sequence is { 8, 4, 6, 2, 7, 3, 5, 1 } - a fetch every colour clock, cycling
-     * through the planes), two slots for memory refresh and one per enabled audio channel. With
-     * five bitplanes that leaves the CPU a little over half the bus, which is why the same loop
-     * takes almost twice as long on an A500 as nominal 68000 cycle counts say. Charging these
-     * cycles to the frame budget only affects CPU-bound frames: where the engine finishes early
-     * and waits for the vblank nothing changes. The blitter is not counted here - rt_blit_run
-     * charges its own slots. */
-    {
-        u32 words = bpr > 0 ? (u32)bpr / 2u : 0u;
-        u32 cc = 0u;
-        int ch = 0, k;
-
-        if ((bplcon0 & 0x8000u) != 0) words *= 2u;      /* hires: a word fetch every other clock */
-        cc += (u32)(depth > 0 ? depth : 0) * words;
-        cc += 2u;                                        /* memory refresh */
-        for (k = 0; k < 4; k++)
-            if ((m->audio.dma & (1u << k)) != 0) ch++;
-        cc += (u32)ch;                                  /* one audio slot per channel per line */
-        m->dmaSteal = cc * 625u;                        /* colour clocks * 2 cycles * 312.5 lines */
-        /* What is left of the frame's bus is the share the 68000 can use, so its instruction time
-         * stretches by the reciprocal. 256 = full speed, 512 = half the bus; capped at 4x so a
-         * nonsense register value cannot stall the machine. */
-        if (m->dmaSteal < EMU_CYCLES_PER_FRAME)
-            m->cpuStretch = (u32)EMU_CYCLES_PER_FRAME * 256u /
-                            ((u32)EMU_CYCLES_PER_FRAME - m->dmaSteal);
-        else
-            m->cpuStretch = 1024u;
-        if (m->cpuStretch < 256u) m->cpuStretch = 256u;
-        if (m->cpuStretch > 1024u) m->cpuStretch = 1024u;
-    }
+    /* The bus is arbitrated by slots.c: rt_slots_update() reads the register state this view
+     * programmed (the copper list is where BPLCON0/DDF/DIW/DMACON live) and builds the per-line
+     * map the 68000's accesses are charged against. The blitter's own cycles are bus cycles and
+     * are charged as such (blitter.c), so they are not part of the map. */
+    rt_slots_update(m);
+    m->dmaSteal = m->slots.frameDma;
     if (count > 0 && count <= 256 && table != 0)
     {
         for (p = 0; p < count; p++)
