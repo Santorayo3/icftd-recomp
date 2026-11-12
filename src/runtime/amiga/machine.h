@@ -200,7 +200,10 @@ typedef struct rt_machine
     int     textLog;                      /* --textlog: dump the RastPort/BitMap a Text call gets */
     int     textSeen;
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
-    u32     presents;
+    /* How often an interrupt arrived while the 68000's own mask (SR bits 8-10) would have deferred
+     * it. The machine delivers handlers unconditionally; this counts what the hardware rule would
+     * have changed, so the difference can be decided on a number instead of a guess. */
+    u32     irqDeferredCia, irqDeferredVb;    u32     presents;
     u32     dmaSteal;                     /* chip-RAM bus colour clocks per frame the DMA takes (report) */
     rt_slots slots;                       /* the per-line bus map and its register snapshot (slots.c) */
     rt_copper copper;                     /* the copper's program and its beam state (copper.c) */

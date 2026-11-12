@@ -392,6 +392,9 @@ void oracle_tick(rt_machine *m)
     {
         u32 code = m->intCode[i];
         if (code == 0) continue;
+        /* The vblank is interrupt level 3: count the times the 68000's mask (SR bits 8-10) would
+         * have held it off, so the masking rule can be decided on a number. */
+        if (((m68k_get_reg(0, M68K_REG_SR) >> 8) & 7u) >= 3u) m->irqDeferredVb++;
         if (!oracle_run_handler(m, code, m->intData[i])) break;
         oracle_restore_regs(save);        /* handlers nest in order, each sees the same state */
     }

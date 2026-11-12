@@ -381,6 +381,9 @@ int main(int argc, char **argv)
         if (m.mem.bad != 0) printf("emu: %lu access(es) outside the RAM block\n",
                                    (unsigned long)m.mem.bad);
         printf("emu: %lu raster(s) presented\n", (unsigned long)rt_gfx_frames());
+    if (m.irqDeferredCia != 0 || m.irqDeferredVb != 0)
+        printf("emu: %lu CIA and %lu vblank interrupt(s) arrived while the 68000's mask would have deferred them\n",
+               (unsigned long)m.irqDeferredCia, (unsigned long)m.irqDeferredVb);
         state_close();
         if (ramStop != 0) state_ram_snapshot(&m, ramStop);
         if (slotsDump) rt_slots_print(&m);

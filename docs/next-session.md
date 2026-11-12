@@ -187,6 +187,26 @@ What is deliberately *not* cycle-exact, and why:
   a sprite pointer or a shift register from them, and audio's fetch is driven by the device clock
   (`rt_time_slice`) rather than by bus slots.
 
+**The interrupt mask is the next real divergence (measured, not guessed)**
+
+The 68000 takes an interrupt only when its level is above the mask in SR bits 8-10. This machine
+delivers handlers unconditionally. Counting what the rule would change, with the interpreter's live
+SR (`--instlen`-era oracle, `emu: N CIA and M vblank interrupt(s) arrived while the 68000's mask
+would have deferred them`):
+
+* **CIA (level 6): 0 deferrals** in 5,400,000 instructions - the music driver's timer is always
+  taken when it arrives, so delivering it as we do is equivalent.
+* **vblank (level 3): 1397 deferrals, i.e. every single frame.** The engine sits at mask >= 3 at the
+  frame boundary, so on the machine the vblank server does *not* run at the boundary: it runs at the
+  first instruction after the CPU lowers its mask (inside a WaitTOF and the like). We run it at the
+  boundary instead.
+
+So interrupt masking has to become real - pending levels held until the mask drops - and it is the
+one place where the engine's own design depends on a rule this machine does not implement. Note the
+translated build cannot answer the question: its `cpu_t::sr` is only as fresh as the last
+instruction that changed it, and a handler leaves 0x2700 in the core, so the interpreter's live SR
+is the measurement.
+
 **Next, in this order**
 
 1. **Find what the intro does per step, in the code.** The bus model is now hardware-derived and the
