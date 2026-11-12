@@ -48,11 +48,18 @@ extern unsigned char m68ki_cycles[][0x10000];
  * fallback and the translated stream all charge exactly this. */
 u32 oracle_cycle_cost(u32 pc)
 {
+    u32 c;
+
     /* A library entry is not an instruction: the trap is performed by the OS call, and the words
      * "at" the LVO are whatever the stub area holds. It costs nothing, which is what the
      * translated stream charges for the same slot (src\recomp\cpu.c, rc_os_call_a6). */
     if (rt_library_of(rt_current, pc, 0) >= 0) return 0;
-    return (u32)m68ki_cycles[0][rt_read16(&rt_current->mem, pc)];
+    c = (u32)m68ki_cycles[0][rt_read16(&rt_current->mem, pc)];
+    /* The 68000 only gets a chip-RAM cycle in a bus slot Agnus did not take (see rt_gfx_present),
+     * so its instruction time is stretched by the display's DMA. The translated stream applies the
+     * same factor to its baked cost in src\recomp\cpu.c, step_budget(). */
+    if (rt_current->cpuStretch > 256u) c = (c * rt_current->cpuStretch) >> 8;
+    return c;
 }
 
 int oracle_dump_cycle_table(const char *path)
@@ -283,7 +290,7 @@ void oracle_tick(rt_machine *m)
      * CPU is stuck waiting for it (blitter.c). Only a WaitTOF/WaitBOVP resets it, because that is
      * the program declaring the rest of the frame idle. A debt bigger than one frame therefore
      * costs more than one vblank - the next instruction triggers the tick again. */
-    m->cyclesToTick += EMU_CYCLES_PER_FRAME - (long)m->dmaSteal;
+    m->cyclesToTick += EMU_CYCLES_PER_FRAME;
     /* The raster has finished the last frame: what was drawn into the loaded view is on screen. */
     rt_frame_present(m);
     if (m->pressAt != 0)

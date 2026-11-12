@@ -184,6 +184,7 @@ typedef struct rt_machine
     u32     handlerRuns;                  /* interrupt servers entered, for --progress */
     u32     presents;
     u32     dmaSteal;                     /* chip-RAM bus cycles per frame the display and audio DMA take */
+    u32     cpuStretch;                   /* 256 = the 68000 at full bus speed; higher when DMA takes slots */
     void  (*on_frame)(struct rt_machine *m);    /* tool hook: once per emulated frame, input+pacing */
     void  (*on_present)(struct rt_machine *m);  /* tool hook: dump a frame / show the window */
 } rt_machine;

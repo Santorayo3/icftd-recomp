@@ -959,6 +959,16 @@ void rt_gfx_present(rt_machine *m, u32 view)
             if ((m->audio.dma & (1u << k)) != 0) ch++;
         cc += (u32)ch;                                  /* one audio slot per channel per line */
         m->dmaSteal = cc * 625u;                        /* colour clocks * 2 cycles * 312.5 lines */
+        /* What is left of the frame's bus is the share the 68000 can use, so its instruction time
+         * stretches by the reciprocal. 256 = full speed, 512 = half the bus; capped at 4x so a
+         * nonsense register value cannot stall the machine. */
+        if (m->dmaSteal < EMU_CYCLES_PER_FRAME)
+            m->cpuStretch = (u32)EMU_CYCLES_PER_FRAME * 256u /
+                            ((u32)EMU_CYCLES_PER_FRAME - m->dmaSteal);
+        else
+            m->cpuStretch = 1024u;
+        if (m->cpuStretch < 256u) m->cpuStretch = 256u;
+        if (m->cpuStretch > 1024u) m->cpuStretch = 1024u;
     }
     if (count > 0 && count <= 256 && table != 0)
     {
