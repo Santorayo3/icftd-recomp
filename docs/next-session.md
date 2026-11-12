@@ -1085,12 +1085,37 @@ loader allocates the size it now holds: 0.
 Closed on the way: the FileHandle block we hand out now carries `fh_Pos` and `fh_End` (and zeroed
 `fh_Funcs`/`fh_Arg1`/`fh_Arg2`), because AmigaDOS maintains those fields on every operation and we
 left them zero - any code that asks a handle for a file's length read "empty". Measured: no change
-to the intro (8M instructions still reach frame 1824 with 2286 rasters), so the engine does not read
-the length off the handle here; it is kept because it is a real difference from AmigaDOS.
+to the intro (8M instructions still reach frame 1824 with 2286 rasters). A read-watch over the whole
+44-byte block then showed the engine never reads it at all in the first 60 frames, so the file's
+length is never taken from the handle here; the change is kept because it is a real difference from
+AmigaDOS, not because it fixed anything.
 
-Next step, and the only one that settles it: the open helper the loader calls is not covered by
-`re\disasm\dshell.asm` (the routine the trace enters at image 0x2145C is a 3-instruction wrapper
-around one library trap, and the walk is reached from it). Disassemble image 0x21300..0x21500 and
-image 0x20200..0x20500 properly and diff them against the reference, or dump the reference's RAM at
-the same content position and read the size word (engine data base A4 = 0x29A56, size at A4+0xAC2)
-to see whether the original holds 0x20 or 0x1622 there.
+### What the disassembly now says, and what it rules out
+
+* `export\code\dshell4k\dshell.img` (the image we run) is `export\code\dshell\dshell.img` (the image
+  `re\disasm` was made from) **relocated to 0x4000**: of 792 differing bytes, every one is explained
+  by a long that differs by exactly +0x4000 (198 longs), and the 160-entry vector table at 0x21A58
+  is 160/160 correct. So the image is not a divergence, and every address in the disassembly maps to
+  a runtime address by minus 0x4000.
+* Engine vector slot 116 is a plain **`strcmp`** (`0x208E8`: `cmpm.b`/`dbeq`, returns 0/1/-1). The
+  loader's branch is therefore `strcmp(instrument_name, "o.rff") == 0`, and the intro's fifth
+  instrument really is the generic pair - the branch itself is right.
+* `FUN_00020266` (`0x20266`) is the file-context reset: it closes the current bank handle, clears the
+  volume string, and **clears the size word** (`clr.l (0xac2,A4)` at `0x2029E`). The engine's open
+  runs it *before* opening.
+* `FUN_00020476` (`0x20476`) looks the name up in the parsed directory and, on a miss, tail-jumps to
+  `dos.Open` (`jmp 0x2145C`, a three-instruction wrapper). It has no way to set the size.
+* `FUN_000203DE` (`0x203DE`) is the directory parser: it stores each entry's size into the size word
+  at `0x20422` and clears it at `0x2046E`.
+
+Consequence, stated honestly: on the `Desert1:sfx/o.rff` path the engine's *own* instructions are
+what leave the size at 0, and the loader then passes it to AllocMem. The reference runs the same
+instructions on the same data, so the earlier claim that this chain *is* the missing fanfare is not
+established - what is established is that our build ends up with a 0-byte voice object whose null
+handler is called eight times at frames 1630..1637.
+
+Next step, and it has to come from the reference: dump the reference's RAM at the same content
+position (engine data base A4 = 0x29A56, size word at A4+0xAC2, and the four 22-byte channel entries
+at player block +0x3E) and read whether the original holds 0x20 there and whether its channel 3
+object has a handler. Without that, the engine's own code gives nothing further to diff.
+
