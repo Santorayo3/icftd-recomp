@@ -405,6 +405,12 @@ void rt_cia_service(rt_machine *m)
 
 void rt_time_idle(rt_machine *m)
 {
-    if (m->cyclesToTick > 0) rt_time_run(m, m->cyclesToTick);
+    if (m->cyclesToTick > 0)
+    {
+        /* The clock keeps running while the task sleeps, so a blit in flight finishes during the
+         * idle time exactly as it would on the machine. */
+        rt_bus_idle(m, m->cyclesToTick);
+        rt_time_run(m, m->cyclesToTick);
+    }
     m->cyclesToTick = 0;
 }

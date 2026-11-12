@@ -22,6 +22,7 @@
 #include "types.h"
 #include "machine.h"
 #include "slots.h"
+#include "blitter.h"
 
 /* UAE custom.cpp: the plane fetch order for a fetch group. */
 static const u8 g_seq8[8] = { 8, 4, 6, 2, 7, 3, 5, 1 };   /* 8-plane max (lores)  */
@@ -290,21 +291,55 @@ void rt_slots_update(rt_machine *m)
 }
 
 /* --- the bus walker ------------------------------------------------------------------------ *
- * Every consumer walks the map: a slot it may use is a colour clock no DMA source holds, and
- * every DMA-owned clock in front of it is a wait. The CPU's memory word needs 2 clocks (address
- * and data, HRM), the blitter one per channel per word (UAE blitter.cpp, blit_cyclecount). The
- * walk starts at the time already spent in this frame, so CPU and blitter share one bus - which
- * is what makes the total conserved instead of each consumer being charged twice. */
-static long walk_slots(rt_machine *m, long pos, int slots)
+ * Every consumer walks the map one colour clock at a time: a clock the display DMA owns is a wait
+ * for whoever wants the bus, and a clock that belongs to nobody is taken by the first consumer
+ * that asks. The CPU's memory word needs 2 clocks (address and data, HRM), the blitter one clock
+ * per channel per output word (UAE blitter.cpp, blit_cyclecount). The walk starts at the time
+ * already spent in this frame, so CPU and blitter share one bus - which is what makes the total
+ * conserved instead of each consumer being charged twice, and what makes a running blit slow the
+ * CPU down instead of being a lump on the budget. */
+static long walk_slots(rt_machine *m, long pos, int clocks)
 {
-    int i;
+    int i = 0;
 
-    for (i = 0; i < slots; i++)
+    while (i < clocks)
     {
-        while (rt_slot_taken(m, pos)) pos += 2;
+        int taken = rt_slot_taken(m, pos);
+        if (!taken && rt_blit_take_clock(m)) { pos += 2; continue; }   /* the blitter took it */
+        pos += 2;
+        if (!taken) i++;
+    }
+    return pos;
+}
+
+/* Time passing without the CPU using the bus (an instruction's internal cycles, or an idle
+ * frame): the clock still moves and the blitter still takes the clocks nobody else owns. */
+static long frame_cursor(const rt_machine *m);
+
+static long beam_pass(rt_machine *m, long pos, int clocks)
+{
+    while (clocks-- > 0)
+    {
+        if (!rt_slot_taken(m, pos)) rt_blit_take_clock(m);
         pos += 2;
     }
     return pos;
+}
+
+/* Waits for a running blit the way the hardware makes the CPU wait: the clock keeps passing, the
+ * blitter takes the clocks nobody else owns, and the caller's budget is charged for the time that
+ * goes by. Returns the 68000 cycles it cost. */
+long rt_blit_wait(rt_machine *m)
+{
+    long start = m->cyclesToTick;
+    long guard = 64L * EMU_CYCLES_PER_FRAME;      /* a wedged blit must not hang the front end */
+
+    while (m->blit.run && guard-- > 0)
+    {
+        if (!rt_slot_taken(m, frame_cursor(m))) rt_blit_take_clock(m);
+        m->cyclesToTick -= 2;
+    }
+    return start - m->cyclesToTick;
 }
 
 /* Where in the frame the machine currently is, in 68000 clock cycles. */
@@ -333,6 +368,14 @@ int rt_slot_taken(rt_machine *m, long pos)
     return map[cck] != RT_SLOT_CPU;
 }
 
+long rt_bus_idle(struct rt_machine *m, long cycles)
+{
+    long clocks = cycles / 2L;
+
+    if (clocks > 0) beam_pass(m, frame_cursor(m), (int)clocks);
+    return cycles;
+}
+
 long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
 {
     rt_slots *s = &m->slots;
@@ -354,30 +397,11 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
     if ((long)accesses * 4L > cost) accesses = (int)(cost / 4L);
 
     start = frame_cursor(m);
-    /* Internal cycles (register work) run at the 68000's own rate; then each memory word takes
-     * its two clocks only when Agnus leaves them free. */
-    pos = walk_slots(m, start + (cost - 4L * (long)accesses), accesses * 2);
-    return pos - start;
-}
-
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int clocksPerWord)
-{
-    rt_slots *s = &m->slots;
-    long start, pos;
-    long slots;
-
-    if (!s->valid) return (long)words * (long)rows * (long)clocksPerWord * 2L;
-    if (s->dirty) rt_slots_update(m);
-
-    /* UAE blitter.cpp: blit_cyclecount colour clocks per output word (four, minus the channels
-     * that need no fetch of their own); each of those clocks has to be free of display DMA, so a
-     * five-plane screen slows the blitter down exactly as UAE's blitter_slowdown does - and the
-     * CPU's and the blitter's slots are the same bus, walked from the same cursor. */
-    if (clocksPerWord < 1) clocksPerWord = 1;
-    slots = (long)words * (long)rows * (long)clocksPerWord;
-    if (slots > 8L * EMU_CYCLES_PER_FRAME) slots = 8L * EMU_CYCLES_PER_FRAME;
-    start = frame_cursor(m);
-    pos = walk_slots(m, start, (int)(slots & 0x7FFFFFFFL));
+    /* Internal cycles (register work) run at the 68000's own rate, but the clock still passes and
+     * the blitter still takes the clocks nobody owns; then each memory word takes its two clocks
+     * only when Agnus leaves them free for the CPU. */
+    pos = beam_pass(m, start, (int)((cost - 4L * (long)accesses) / 2L));
+    pos = walk_slots(m, pos, accesses * 2);
     return pos - start;
 }
 

@@ -102,6 +102,13 @@ typedef struct rt_blitter
     u32 cpt, bpt, apt, dpt;
     s16 cmod, bmod, amod, dmod;
     u16 cdat, bdat, adat;
+    /* The blitter is a device on the bus clock, not a function: BLTSIZE starts it, it takes one
+     * colour clock per channel per output word out of the same slots the CPU and the display use,
+     * and the data path runs when the last of its slots has passed. runLeft counts those slots
+     * down; run is what DMACONR's BBUSY bit reports and what a WaitBlit waits for. */
+    int  run;
+    long runLeft;
+    int  runWords, runRows, runDesc;
 } rt_blitter;
 
 typedef struct rt_machine

@@ -258,37 +258,17 @@ static int blit_words_cost(const rt_blitter *b)
 
 u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
 
-void rt_blit_run(rt_machine *m)
+/* The data path. Unchanged from when BLTSIZE ran it directly: the same bytes come out, so a
+ * picture cannot change because the blit now takes real time. */
+static void rt_blit_exec(rt_machine *m)
 {
     rt_blitter *b = &m->blit;
-    int words = (b->size & 0x3Fu) == 0 ? 64 : (b->size & 0x3F);
-    int rows = (b->size >> 6) & 0x3FF;
-    int descending = (b->con1 & 0x0002) != 0;
+    int words = b->runWords;
+    int rows = b->runRows;
+    int descending = b->runDesc;
     int r;
 
     if (rows == 0) return;
-    m->blits++;
-    /* Spent before the blit does its work, so a frame boundary inside it sees the same state the
-     * interpreter sees. A single blit may cost several frames: the budget carries the debt (see
-     * oracle_tick), which is exactly "the CPU is stuck waiting for the blitter". */
-    {
-        long cost = rt_blit_charge(m, words, rows, blit_words_cost(b));
-        long cap = 16L * EMU_CYCLES_PER_FRAME;
-        if (cost > cap)
-        {
-            if (m->progress && m->blitLogs < 20)
-            {
-                m->blitLogs++;
-                printf("emu: blit %dx%d costs %ld cycles, clamped to %ld (frame %lu)\n",
-                       words * 16, rows, cost, cap, (unsigned long)m->frame);
-            }
-            cost = cap;
-        }
-        m->cyclesToTick -= cost;
-        m->blitCycles += cost;
-        /* The blit is device time too: while it runs the music and the CIA timers keep going. */
-        rt_time_run(m, cost);
-    }
     /* --blitlog: every blit's geometry plus where it lands in the bitmap on screen (D is a plane
      * pointer, so the first row is (D - plane) / bytesPerRow). That is how the tile renderer
      * (FUN_00011512) and the sprite path (FUN_0000e03c) are measured against the view. */
@@ -437,6 +417,51 @@ void rt_blit_run(rt_machine *m)
     }
 }
 
+/* Writing BLTSIZE starts the device: it does not do the work, it claims the bus for the number of
+ * colour clocks the hardware would need and lets the clock take them (rt_blit_take_clock). The
+ * CPU keeps running meanwhile - slower, because the blitter owns slots - and whatever waits for the
+ * blit (WaitBlit, or a DMACONR BBUSY poll) waits for exactly that long, which is the whole point:
+ * on the original the wait loop is real time spent contending for the same bus. */
+void rt_blit_start(rt_machine *m)
+{
+    rt_blitter *b = &m->blit;
+    long clocks;
+
+    /* A BLTSIZE written while a blit is still running would lose it; the hardware queues nothing,
+     * so the pending one is waited out first - and that wait is time on the bus, which is exactly
+     * what a block charge used to hide. */
+    if (b->run)
+    {
+        long c = rt_blit_wait(m);
+        if (c > 0) rt_time_run(m, c);
+    }
+
+    b->runWords = (b->size & 0x3Fu) == 0 ? 64 : (b->size & 0x3F);
+    b->runRows = (b->size >> 6) & 0x3FF;
+    b->runDesc = (b->con1 & 0x0002) != 0;
+    if (b->runRows == 0) return;
+
+    clocks = (long)b->runWords * (long)b->runRows * (long)blit_words_cost(b);
+    if (clocks < 1) clocks = 1;
+    b->runLeft = clocks;
+    b->run = 1;
+    m->blits++;
+}
+
+int rt_blit_take_clock(rt_machine *m)
+{
+    rt_blitter *b = &m->blit;
+
+    if (!b->run) return 0;
+    m->blitCycles += 2;                        /* one colour clock of device time */
+    if (--b->runLeft <= 0)
+    {
+        b->run = 0;
+        rt_blit_exec(m);
+    }
+    return 1;
+}
+
 /* Register write from the emulated 68000. `reg` is the offset from $DFF000. */
 void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
 {
@@ -475,7 +500,7 @@ void rt_custom_write16(rt_machine *m, u16 reg, u16 v)
     case 0x052: b->apt = ((b->apt & 0xFFFF0000u) | v) & ~1u; break;
     case 0x054: b->dpt = (b->dpt & 0x0000FFFFu) | ((u32)v << 16); break;
     case 0x056: b->dpt = ((b->dpt & 0xFFFF0000u) | v) & ~1u; break;   /* word pointer: no bit 0 */
-    case 0x058: b->size = v; rt_blit_run(m); break;      /* writing BLTSIZE starts the blit */
+    case 0x058: b->size = v; rt_blit_start(m); break;    /* writing BLTSIZE starts the blit */
     case 0x060: b->cmod = (s16)v; break;
     case 0x062: b->bmod = (s16)v; break;
     case 0x064: b->amod = (s16)v; break;

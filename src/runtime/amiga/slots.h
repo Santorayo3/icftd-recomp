@@ -79,10 +79,12 @@ int  rt_slot_taken(struct rt_machine *m, long pos);
  * Returns the time to charge to the frame budget. */
 long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc);
 
-/* The same walk for the blitter: `clocksPerWord` colour clocks per output word (UAE's
- * blit_cyclecount: 4 minus the channels that need no fetch). Returns the time the blit occupies
- * the bus, which the frame budget is charged for. */
-long rt_blit_charge(struct rt_machine *m, int words, int rows, int clocksPerWord);
+long rt_blit_wait(struct rt_machine *m);
+
+/* Nobody is using the bus for `cycles` 68000 cycles (an idle frame, a dos.Delay): the clock keeps
+ * passing and the blitter keeps taking the clocks nobody else owns, so a blit started before the
+ * idle time is finished by it. Returns `cycles`. */
+long rt_bus_idle(struct rt_machine *m, long cycles);
 
 /* --slots: register snapshot, ownership of one line, the bitplane diagram, and the frame share. */
 void rt_slots_print(struct rt_machine *m);

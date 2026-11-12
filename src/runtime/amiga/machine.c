@@ -1459,7 +1459,13 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             waitFrame = 1;
             result = 0;
             break;
-        case -228:                               /* WaitBlit */
+        case -228:                               /* WaitBlit - the CPU waits for the device */
+            {
+                long c = rt_blit_wait(m);
+                if (c > 0) rt_time_run(m, c);
+            }
+            result = 0;
+            break;
         case -456:                               /* OwnBlitter */
         case -462:                               /* DisownBlitter */
         case -576:                               /* FreeColorMap */
@@ -1967,6 +1973,8 @@ u32 rt_bus_read16(rt_machine *m, u32 a)
         if (a == 0xDFF00Cu) return m->joy0;                  /* JOY0DAT */
         if (a == 0xDFF00Eu) return m->joy1;                  /* JOY1DAT */
         if (a == 0xDFF016u) return 0xFFFFu;                  /* POTINP: nothing plugged in */
+        if (a == 0xDFF002u)                                  /* DMACONR: BBUSY is the blitter */
+            return m->custom[0x002u >> 1] | (m->blit.run ? 0x4000u : 0u);
         if (a == 0xDFF004u || a == 0xDFF006u) return beam_register(m, a);
         return m->custom[(a - 0xDFF000u) >> 1];
     }
