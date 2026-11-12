@@ -1202,3 +1202,26 @@ The 68-byte difference is a live lead, not noise: a small element at rows 138..1
 Next: one more state (any desert position) so that two states carry both `CYCS` and a pixel anchor.
 The delta between them is the reference's exact machine time for a known stretch of content, and the
 divergence ratio then needs no stopwatch at all.
+
+### Stopwatch-free ratio: the heavy phase is where the time goes
+
+Second desert state (quit ~10 s after the desert scene appeared), anchored by bitmap match to our
+**frame 750** - again **0 of 45,360 bytes** different. With `CYCS` on both sides:
+
+| state | reference since reset | our content anchor |
+|---|---|---|
+| desert scene | 58.83 s | frame 750 |
+| Load Screen | 86.07 s | frame 1650 |
+
+Delta: 49,549,338,624 cycles = 96,776,052 colour clocks = 1362.1 frames = **27.24 s**, against our
+900 frames = **18.00 s** for the same content: **ratio 1.513**.
+
+That is higher than the whole-intro ratios from the stopwatch (1.26 to 1.31), so the extra machine
+time is *not* spread evenly: it is concentrated in the animated desert stretch, which is exactly the
+phase where the blitter saturates the bus. The logo/loading stretch is nearly 1:1.
+
+Caveat, and it is checkable: the two states come from different runs, so the delta is only exact if
+the two runs boot identically (the emulator is deterministic, and `statefile_quit` writes on quit, so
+one state per run is all it can give). Repeating the Load Screen run and getting the same
+156,559,541,248 cycles again would prove the runs are identical and pin 1.513; a different value
+would say the delta carries boot variance and only same-run comparisons are usable.
