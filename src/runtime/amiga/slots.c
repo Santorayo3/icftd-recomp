@@ -298,7 +298,14 @@ void rt_slots_update(rt_machine *m)
  * per channel per output word (UAE blitter.cpp, blit_cyclecount). The walk starts at the time
  * already spent in this frame, so CPU and blitter share one bus - which is what makes the total
  * conserved instead of each consumer being charged twice, and what makes a running blit slow the
- * CPU down instead of being a lump on the budget. */
+ * CPU down instead of being a lump on the budget.
+ *
+ * Not modelled, and measured rather than assumed: UAE also lets a waiting CPU steal the blitter's
+ * slot once it has waited through BLIT_NASTY_CPU_STEAL_CYCLE_COUNT DMA cycles with BLTPRI clear
+ * (custom.cpp dma_cycle -> nasty_cnt, blitter.cpp:1755). Implementing that made this machine
+ * *faster* - the MovE script finished by frame 700 instead of 1640 - so this engine's cost is not
+ * a starved CPU but blit work, and the rule stays out until the blit side is right. */
+
 static long walk_slots(rt_machine *m, long pos, int clocks)
 {
     int i = 0;

@@ -1225,3 +1225,34 @@ the two runs boot identically (the emulator is deterministic, and `statefile_qui
 one state per run is all it can give). Repeating the Load Screen run and getting the same
 156,559,541,248 cycles again would prove the runs are identical and pin 1.513; a different value
 would say the delta carries boot variance and only same-run comparisons are usable.
+
+### Accounting for the desert stretch, and a rejected fix (2026-11-12)
+
+Our machine over frames 750..1650 (the stretch the reference state pair covers): 900 frames,
+194 MovE steps (283 -> 477), 2,840,523 instructions.
+
+| quantity | ours | reference (from 1362.1 frames / 194 steps) |
+|---|---|---|
+| frames per step | 4.64 | 7.02 |
+| 68000 cycles per step | 658,183 | 996,000 (+51 %) |
+| instructions per step | 14,642 | same code |
+| cycles per instruction | 45 | 68 |
+| blitter device clocks per step | 151,725 (= 303,450 cycles, 46 % of the budget) | - |
+
+45 cycles per instruction against a nominal ~10 says this machine is *contention*-dominated, not
+instruction-cost-dominated, and the reference is 52 % worse again.
+
+Tried and rejected: UAE's CPU steal. `dma_cycle()` counts every DMA cycle the CPU waits through
+(`nasty_cnt`) and `generate_blitter` skips the blitter's cycle once that reaches
+BLIT_NASTY_CPU_STEAL_CYCLE_COUNT (3) with BLTPRI clear - which this engine leaves clear
+(DMACON $020F). Implemented in walk_slots it made the port **much faster**: the script reached its
+last step (477) by frame ~700 instead of ~1640, i.e. 1.47 frames/step against our 4.64 and the
+reference's 7.02. Reverted; the rule is documented in slots.c so it is not rediscovered as a "fix".
+
+What the three captured states do say, and it is the one place the time can be: the CPU was inside
+Kickstart ROM in **3 of 3** samples (PC 0xFE5A6E, 0xFE5862, 0xFE5A70) while our build is always in
+the game's own code. If the reference spent a small fraction of its time in library routines, three
+independent samples would not all land there. Our library shims consume exactly zero machine time,
+so that is where the missing ~50 % of the desert stretch most plausibly lives - the ROM cost of the
+calls the engine makes every step (WaitBOVP, WaitBlit, the MovE draw path), not the instruction
+stream and not the bus arbitration.
