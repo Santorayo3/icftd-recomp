@@ -4,6 +4,110 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+## The hospital's scroll and its garbage band (2026-11-13, after the flight)
+
+Reported as "the hospital minigame has the same issue as the flight": the scroll stepped instead of
+moving, and a band of the *desert* showed under the room. Both are presenter divergences, and both
+were found by reading what the engine programs rather than by looking at the picture.
+
+**What the original does, in order.** "Escape Hospital" runs `FUN_0001819a`, which sets the screen
+parameters in globals the display code then derives everything from:
+
+    0x2a196 = 0x150 (336)   bitmap width in pixels   -> 0x28d24 = 0x2a196/8 = 42  bytes/row (0x1b94a)
+    0x2a198 = 200           ViewPort height
+    0x2a19a = 5             bitplanes
+    0x2a1a0 = 10            vertical coarse unit, in bitmap rows
+    0x29ed4 = 3             fine-scroll step per scene tick (horizontal)
+    0x29ed6 = 2             the same for the vertical accumulator
+
+`FUN_00017f34` then allocates a 400-byte copper list, copies the level's own template into it up to
+its `0xFACE` terminator, saves the View's existing `cprlist` start/MaxCount (`0x2a888`/`0x2a88c`),
+points `cprlist->start` at its own list and calls LoadView. **The engine's list is the display**; the
+system list MrgCop built is not running. `FUN_00017fdc` fills the five `BPLxPT` entries with
+
+    list+0x2A   = 0x28d24 * 10 + bitmap plane      (a ten-row lead-in into a 216-row bitmap)
+
+and `FUN_000180f0` -> `FUN_00017cec` patches the list every scene tick (gated by `0x28ce0`): the
+`0102` entry becomes `fine | fine<<4`, `0x28cd8` (bytes) is added to both five-plane sets, one set is
+written back into `list+0x2A`, and the sets are swapped. For the vertical direction `0x28cd8` is
+`+-(0x28cde * 0x28d24)` = **two bitmap rows**, so the vertical scroll is nothing but the plane
+pointers moving; horizontally the coarse step does *not* move them (the renderer redraws the strip -
+`0x28d28`/`0x28d2a` and the `0x2ae1e` delta are its state, and `0x2ae1e` is written but never read).
+
+The list itself, read out of live RAM at frame 1000:
+
+    e 0  WAIT 1B01 FFFE          ; playfield starts
+    e 1  BPLCON0 0200            ; "one plane" while the border/vblank runs - the bus is the CPU's
+    e 2  BPLCON2 0024
+    e 3  DIWSTRT 2C90            ; display lines 0x2C..0xE0 = 180 rows
+    e 4  DIWSTOP E0B0
+    e 5  DDFSTRT 0038            ; 38-byte fetch window ...
+    e 6  DDFSTOP 00C8
+    e 7  BPLCON1 00EE            ; = fine|fine<<4, the only horizontal scroll
+    e 8  BPL1MOD 0004            ; ... plus 4 = the 42-byte stride
+    e 9  BPL2MOD 0004
+    e10..e19  five BPLxPT = bitmap plane + 0x1A4
+    e20..e51  32 colours
+    e52  WAIT 1D01 FFFE
+    e53  BPLCON0 5200            ; the real five-plane value, in force for the visible window
+    e54  WAIT E501 FF00          ; the template's second region, below the window: not displayed
+    e55  BPLCON0 0200
+    e56  WAIT FFFF FFFE          ; end
+
+So the picture is fully described by machine state: display row `y` (0..179) shows bit `x - d` of the
+byte at `BPLxPT + y*42`, and everything outside the window is the border, i.e. pen 0 = COLOR00.
+
+**Divergence 1: the presenter read the ViewPort's BitMap, not the list's planes.** The branch that
+was supposed to prefer the list's pointers was dead code - `if (nPlanes > 0 && listPlanes[0] != 0)`,
+with `nPlanes` never assigned - so every single-region list fell back to `bm_plane(bm, p)` at bitmap
+row 0. For the hospital that loses the ten-row lead-in (the room is drawn from row 10) *and* every
+vertical step, because only the pointers carry the vertical scroll. The group in force at the top of
+the frame (the one the first `WAIT` closes, `regions[0]`) now supplies both the planes and the
+delays; a list that names no plane pointer still leaves the ViewPort's planes.
+
+**Divergence 2: nothing was drawn outside the window.** The converters write `w` x `h` pixels and the
+old code stopped there, so the 20 buffer rows below DIWSTOP kept whatever the previous screen left -
+in the hospital playthrough that was the desert, the garbled band at the bottom. Rows below `h` and
+columns right of `w` are now cleared to pen 0, as the border is.
+
+**Divergence 3: the prefetch byte before a row was unreachable.** `plane_row_byte()` clamped the
+*row-relative* offset at 0, so the top row of a delayed playfield could not read the bytes in front
+of it. It now clamps the *address* at the plane's start, which is what bitplane DMA does.
+
+**Verified against the model, not against a feeling.** A raster rebuilt from RAM alone - copper list,
+bitmap bytes, palette - and compared with what the presenter wrote:
+
+    frame 7390 (d=11)   planes 0x4438C 0x466FC 0x48A6C 0x4ADDC 0x4D14C, DIW 180 rows
+                        before divergence 3: 11 of 64 000 pixels differ (x=0..10 of row 0)
+                        after:               0 of 64 000 pixels differ
+    frame 7440 (d=0)    planes 0x443E0 ... (the pointer two rows lower)
+                        0 of 64 000 pixels differ
+
+and the motion of the presented rasters over the recorded playthrough (`out\hospital-live.txt`), band
+shifts between consecutive frames, frames 7432-7560:
+
+    before   dy = 0 for all 130 frame pairs (the view never moved vertically)
+    after    dy = -2 on 10 pairs, residual 0.9 (a pixel-exact two-row step, as the pointers say)
+
+**Nothing that worked before changed.** Same frames before/after: intro identical, map identical,
+flight differs by **one** pixel - `y=158 x=0`, the first pixel of the HUD region's top row, which
+divergence 3 corrects. `tools\gate.ps1` 5/5. A presenter change must not touch machine state, and
+does not: the same input reaches the same frame with the same 13 809 presents.
+
+**New gate check.** `tools\present-check.ps1` now enters the hospital with
+`--call 0x1C19A:2500` on `ref\inputs\flight-crash-hospital-room.txt` - late enough that the map has
+put a picture in the rows below DIWSTOP, which is what makes the check able to fail - and requires
+those rows to be one colour (the border) plus coverage >= 0.80. Measured: the pre-fix presenter fails
+it with 765 stale pixels, the fixed one passes (coverage 0.900).
+
+**Tooling.** The host can now write a raster per presented frame, the way the oracle's `--dump` does:
+`--dump <prefix> [n] [--dumpfrom <frame>]`. Files are named `<prefix><frame>.bmp`, so a raster lines
+up with the `--state`/`--ram` dump of the same frame - which is how the comparison above was made
+possible at all.
+
+**Still open, unchanged:** the scene tick's cadence (the flight's note applies - ~16.5 Hz, three
+vblanks per tick). Nothing here touches it; both minigames move in the steps the engine takes.
+
 **Third divergence: the playfield did not stop where the copper says it does.**
 With the scroll smooth, the bottom of the flight screen showed a band of noise. It is the HUD - the
 canister count and the FUEL bar - which is a *second display region* in the same copper list:
@@ -222,6 +326,9 @@ fixture and `rrun` script registers. `/ref/` is gitignored, so the recording liv
 ViewPort (`rt_gfx_present`). It leaves the room case untouched (that list has no `BPLxPT`) and changes
 the flight's own picture (61,355 of 192,054 bytes at frame 2890), so it was backed out - the list has
 to be *made* correct in `MrgCop` first, and only then can the presenter prefer it.
+*(2026-11-13: `MrgCop` now writes BPLCON0/DDF/DIW and the plane pointers, and the presenter does take
+the list's planes for a single-region list - measured on the flight as one changed pixel, see the
+hospital section at the top of this file.)*
 
 ## The hospital escape minigame runs translated (2026-11-12, later session)
 "Escape Hospital" is menu entry 6 of `FUN_0000247a` (action char `'}'`); `FUN_00002cc8` case 6 jumps

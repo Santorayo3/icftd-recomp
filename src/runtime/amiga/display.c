@@ -822,16 +822,16 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view)
 /* One byte of a plane's row, `byteIdx` counted from the row's first byte. Negative indices read
  * the bytes before the row, which is what the shifter has already fetched when BPLCON1 delays the
  * playfield past the left edge (bitplane DMA runs linearly through the plane, so the prefetch word
- * of a display line is the memory in front of it). */
+ * of a display line is the memory in front of it). Only memory before the *plane* has nothing to
+ * read: the address is clamped at the plane's start, not at the row's. */
 static u32 plane_row_byte(rt_machine *m, u32 plane, int bpr, int y, int byteIdx)
 {
-    long off;
+    long addr;
 
     if (plane == 0) return 0;
-    off = (long)y * (long)bpr + (long)byteIdx;
-    if (off < 0) off = 0;
-    if ((u32)off >= m->mem.size) return 0;
-    return rt_read8(&m->mem, plane + (u32)off);
+    addr = (long)plane + (long)y * (long)bpr + (long)byteIdx;
+    if (addr < 0 || (u32)addr >= m->mem.size) return 0;
+    return rt_read8(&m->mem, (u32)addr);
 }
 
 /* The screen with BPLCON1's playfield delays applied. The hardware puts fetched data into the
@@ -987,12 +987,10 @@ void rt_gfx_present(rt_machine *m, u32 view)
 {
     u32 vp, cm, ri, bm, table, bplcon0 = 0;
     u32 listPlanes[8];
-    int nPlanes = 0;
-    int bpr, rows, depth, w, h, x, y, p, count, entries, d1 = 0, d2 = 0, haveBplcon1 = 0;
-    int planesSeen = 0, depth8 = depth;
+    int bpr, rows, depth, w, h, x, y, p, count, entries, d1 = 0, d2 = 0;
+    int planesSeen = 0;
     static rt_region regions[EMU_MAX_REGIONS];
-    int regionCount = 0, regRow = 0, regVStart = 0, regVStop = 0, regHStart = 0, regHStop = 0;
-    int frameD1 = 0, frameD2 = 0;
+    int regionCount = 0, regRow = 0, regVStart = 0;
     static int s_progTiles;
 
     if (view == 0 || gfx == 0 || gfx->fb == 0) return;
@@ -1054,7 +1052,6 @@ void rt_gfx_present(rt_machine *m, u32 view)
     count = 0;
     entries = 0;
     table = 0;
-    depth8 = depth;
     for (p = 0; p < 8; p++) listPlanes[p] = 0;
     {
         u32 list = gfx->cprList;
@@ -1106,12 +1103,6 @@ void rt_gfx_present(rt_machine *m, u32 view)
             {
                 d1 = (int)(val & 0x0Fu);
                 d2 = (int)((val >> 4) & 0x0Fu);
-                if (!haveBplcon1)
-                {
-                    haveBplcon1 = 1;
-                    frameD1 = d1;
-                    frameD2 = d2;
-                }
             }
             /* A WAIT ends the current display region and starts the next one at its line. The
              * flight screen is built this way: the playfield from line 0x1B, then a HUD region at
@@ -1244,8 +1235,8 @@ void rt_gfx_present(rt_machine *m, u32 view)
         nib_tables();
         for (p = 0; p < 8; p++) planes[p] = 0;
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
-        /* The copper list names the planes the beam reads; take them when it has them (the
-         * ViewPort's BitMap is the buffer MrgCop saw, not necessarily the one on screen now). */
+        /* More than one display region in the list: each one is a plane set and a delay of its
+         * own, and each starts its bitmap at its own first row. */
         if (regionCount > 1)
         {
             int y0;
@@ -1283,22 +1274,36 @@ void rt_gfx_present(rt_machine *m, u32 view)
             conv_saved(m, bm, w, h, bpr, np, planes, -1, -1);
             didRows = 1;
         }
-        /* The copper list names the planes the beam reads; take them when it has them (the
-         * ViewPort's BitMap is the buffer MrgCop saw, not necessarily the one on screen now). */
-        if (!didRows && nPlanes > 0 && listPlanes[0] != 0)
+        /* The planes the beam reads come from the copper list, not from the ViewPort: the list is
+         * what the copper executes, and it is where the engine scrolls. `MrgCop` fills its list
+         * with the same plane pointers the ViewPort names, so a static screen changes nothing; the
+         * minigames point the list at a bitmap *plus a row lead-in* and then step those pointers,
+         * which a presenter reading the BitMap from row 0 never shows - the hospital renders its
+         * room 10 rows into the bitmap and scrolls vertically by moving the pointers. The group in
+         * force at the top of the frame is the one the first `WAIT` closes, i.e. regions[0]; a
+         * list that names no plane pointer leaves the ViewPort's planes. */
+        if (!didRows && regionCount > 0)
         {
             int k3;
             for (k3 = 0; k3 < np && k3 < 8; k3++)
-                if (listPlanes[k3] != 0) planes[k3] = listPlanes[k3];
-            for (k3 = 0; k3 < 8; k3++)
-                if (planes[k3] != 0 && planes[k3] + (u32)(bpr * h) > m->mem.size)
-                    planes[k3] = bm_plane(m, bm, k3);
+                if (regions[0].planes[k3] != 0) planes[k3] = regions[0].planes[k3];
+            d1 = regions[0].d1;
+            d2 = regions[0].d2;
         }
         if (!didRows && !conv_same(m, bm, w, h, bpr, np, planes, d1, d2))
         {
             if (d1 != 0 || d2 != 0) conv_picture_scrolled(m, w, h, bpr, np, planes, d1, d2);
             else conv_picture(m, w, h, bpr, np, planes);
             conv_saved(m, bm, w, h, bpr, np, planes, d1, d2);
+        }
+        /* Everything outside the window the list programs is border, which is pen 0 (COLOR00):
+         * below DIWSTOP, and right of the ViewPort's width. Only the row loop above knows about
+         * the window, so without this a screen shorter than the 200-row buffer keeps the previous
+         * screen's pixels there (the hospital's 180-row view showed the desert). */
+        if (!didRows && (h < EMU_FB_MAX_H || w < EMU_FB_MAX_W))
+        {
+            for (y = h; y < EMU_FB_MAX_H; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W, 0, (size_t)w);
+            for (y = 0; y < h; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W + w, 0, (size_t)(EMU_FB_MAX_W - w));
         }
         if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }

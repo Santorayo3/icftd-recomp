@@ -13,12 +13,16 @@
  *                [--input <script>] [--data <dir>] [--progress] [--blitlog] [--base <addr>]
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
+ *                [--dump <prefix> [n]] [--dumpfrom <frame>]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
  * arrows are the joystick, F1..F4 pick a save slot and F5 cycles them); without it the build runs
  * headless and only reports machine state. `--call` enters one of the engine's own routines at a
  * frame boundary, with the program-end sentinel as its return address.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
+ * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
+ * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
+ * (`--dumpfrom` starts the sequence at an emulated frame, for a scene reached deep into a run).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +153,11 @@ static struct { u32 addr, val; } g_pokes[HOST_MAX_POKES];
 static int g_pokeCount;
 static u32 g_pokeFrame;
 static const char *shotPath;
+#define HOST_DUMP_MAX 512
+static const char *dumpPrefix;    /* --dump: one raster per presented frame */
+static int  dumpCount = 64;
+static int  dumpIndex;
+static u32  dumpFrom;             /* --dumpfrom: start the sequence at this emulated frame */
 static const char *osdText;      /* --osd: keep this overlay up, instead of only on a slot change */
 static int g_interpStat;
 
@@ -328,6 +337,15 @@ static void host_present(rt_machine *m)
         else rt_osd_text(m, osdText, EMU_OSD_FRAMES);
     }
     if (shotPath != 0) shot_write(shotPath);
+    if (dumpPrefix != 0 && dumpIndex < dumpCount && m->frame >= dumpFrom)
+    {
+        /* The emulated frame is in the name: it is the only way to line a raster up with a
+         * --state / --ram dump of the same frame. */
+        char path[280];
+        sprintf(path, "%s%06lu.bmp", dumpPrefix, (unsigned long)m->frame);
+        dumpIndex++;
+        shot_write(path);
+    }
     if (!g_window) return;
     dst = plat_framebuffer();
     cw = w < SCREEN_W ? w : SCREEN_W;
@@ -400,6 +418,16 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--dump") == 0 && i + 1 < argc)
+        {
+            dumpPrefix = argv[++i];
+            dumpCount = HOST_DUMP_MAX;
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
+                dumpCount = (int)strtol(argv[++i], 0, 0);
+            if (dumpCount > HOST_DUMP_MAX) dumpCount = HOST_DUMP_MAX;
+            continue;
+        }
+        if (strcmp(argv[i], "--dumpfrom") == 0 && i + 1 < argc) { dumpFrom = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--osd") == 0 && i + 1 < argc) { osdText = argv[++i]; continue; }
         if (strcmp(argv[i], "--poke") == 0 && i + 1 < argc)
         {
@@ -532,6 +560,9 @@ int main(int argc, char **argv)
         if (g_record == 0) { printf("recomp: cannot write %s\n", recordPath); rt_shutdown(&m); return 1; }
         printf("recomp: recording input -> %s\n", recordPath);
     }
+    if (dumpPrefix != 0)
+        printf("recomp: dumping %d raster(s) -> %s<frame>.bmp from frame %lu\n", dumpCount, dumpPrefix,
+               (unsigned long)dumpFrom);
     {
         int k;
         for (k = 0; k < g_pokeCount; k++) rt_poke(&m, g_pokeFrame, g_pokes[k].addr, g_pokes[k].val);
@@ -585,7 +616,7 @@ int main(int argc, char **argv)
         if (!rt_audio_capture(&m, audioDump)) { printf("recomp: cannot write %s\n", audioDump); rt_shutdown(&m); return 1; }
         printf("recomp: audio -> %s (%lu Hz stereo, raw s16)\n", audioDump, (unsigned long)EMU_AUD_RATE);
     }
-    if (g_window || shotPath != 0) m.on_present = host_present;
+    if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);

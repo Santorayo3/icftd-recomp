@@ -4,7 +4,9 @@
 #   - the picture must cover the screen (a bad DIW read once collapsed the map screen into a few
 #     rows behind a huge black frame),
 #   - it must change while the game is running (a stale framebuffer looks exactly like a freeze),
-#   - it must change *where the input says it should* (the scrolling minigames).
+#   - it must change *where the input says it should* (the scrolling minigames),
+#   - nothing outside the window the copper list programs may keep the previous screen's pixels
+#     (the hospital windows 180 of the 200 buffer rows; the desert stayed under it).
 #
 # Frames are chosen from the two recorded sessions in out\, which are gitignored; when they are
 # missing the step reports SKIP rather than failing, so the gate still runs on a fresh clone.
@@ -20,11 +22,11 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 New-Item -ItemType Directory -Force -Path $ShotDir | Out-Null
 
-function Shot([string]$inputFile, [long]$insns, [string]$name)
+function Shot([string]$inputFile, [long]$insns, [string]$name, [string[]]$extra = @())
 {
     $bmp = Join-Path $ShotDir "$name.bmp"
     if (Test-Path $bmp) { Remove-Item $bmp -Force }
-    $null = & $Exe --input $inputFile $insns --shot $bmp 2>&1
+    $null = & $Exe @extra --input $inputFile $insns --shot $bmp 2>&1
     if (-not (Test-Path $bmp)) { throw "$name : no raster written ($inputFile @ $insns)" }
     return [System.Drawing.Bitmap]::FromFile((Resolve-Path $bmp).Path)
 }
@@ -86,6 +88,40 @@ if (Test-Path 'out\flight-live.txt') {
         else { Write-Output "present: motion  ok   - $d pixel(s) differ between two frames" }
     } catch { Write-Output "present: motion  FAIL - $_"; $fail++ }
     finally { if ($a) { $a.Dispose() }; if ($b) { $b.Dispose() } }
+}
+
+# A screen whose copper list windows fewer rows than the 200-row buffer must show the border below
+# it, not the pixels of whatever screen was up before. The hospital's list ends at DIWSTOP 0xE0,
+# i.e. 180 rows, and the 20 rows under it used to keep the previous screen's picture: that was the
+# garbled band at the bottom of the minigame, and the coverage check cannot see it (the room covers
+# the rest). The scene is entered with --call at a frame where the map has already put a picture in
+# those rows - entering it earlier leaves them black, and then the check could not fail.
+if (Test-Path 'ref\inputs\flight-crash-hospital-room.txt') {
+    try {
+        $h = Shot 'ref\inputs\flight-crash-hospital-room.txt' 27000000 'hospital' @('--call','0x1C19A:2500')
+        try {
+            $below = 0
+            $ref = $h.GetPixel(0, 180).ToArgb()
+            for ($y = 180; $y -lt $h.Height; $y += 2) {
+                for ($x = 0; $x -lt $h.Width; $x += 4) {
+                    if ($h.GetPixel($x, $y).ToArgb() -ne $ref) { $below++ }
+                }
+            }
+            $cov = Coverage $h
+            if ($below -ne 0) {
+                Write-Output ("present: hospital FAIL - {0} pixel(s) below DIWSTOP are not the border colour (stale picture from the screen before)" -f $below)
+                $fail++
+            } elseif ($cov -lt 0.80) {
+                Write-Output ("present: hospital FAIL - coverage {0:N3} < 0.80 (cropped or blank window)" -f $cov)
+                $fail++
+            } else {
+                Write-Output ("present: hospital ok   - coverage {0:N3}, border below DIWSTOP clean" -f $cov)
+            }
+        }
+        finally { $h.Dispose() }
+    } catch { Write-Output "present: hospital FAIL - $_"; $fail++ }
+} else {
+    Write-Output 'present: hospital SKIP (no ref\inputs\flight-crash-hospital-room.txt)'
 }
 
 if ($fail -ne 0) { Write-Output "present: $fail check(s) failed"; exit 1 }
