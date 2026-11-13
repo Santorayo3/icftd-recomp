@@ -183,6 +183,7 @@ public sealed class Fixture
     static void SetRegister(Cpu68k cpu, string name, uint value)
     {
         if (name.Length < 2) throw new FormatException($"bad register name '{name}'");
+        if (name.Equals("SR", StringComparison.OrdinalIgnoreCase)) { cpu.SR = value; return; }
         int index = int.Parse(name[1..], CultureInfo.InvariantCulture);
         if (index is < 0 or > 7) throw new FormatException($"bad register name '{name}'");
         switch (char.ToUpperInvariant(name[0]))

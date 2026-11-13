@@ -2706,13 +2706,14 @@ L_FBBE:
     rc_d_set(c, 1, RC_W, t2);
 
 L_FBC0:
-    /* 0000fbc0   2  add.w D0,D5 */
+    /* 0000fbc0   2  addx.w D5,D0 */
     c->pc = RC_ADDR(0x0000fbc0u);
     rc_step(c, m, 4);
-    t1 = rc_d_get(c, 5, RC_W);
-    t2 = t1 + rc_d_get(c, 0, RC_W);
-    rc_flags_add(c, RC_W, t1, rc_d_get(c, 0, RC_W), t2, 0);
-    rc_d_set(c, 5, RC_W, t2);
+    t0 = rc_d_get(c, 5, RC_W);
+    t1 = rc_d_get(c, 0, RC_W);
+    t2 = t1 + t0 + ((c->sr & RC_X) ? 1u : 0u);
+    rc_flags_addx(c, RC_W, t1, t0, ((c->sr & RC_X) ? 1u : 0u), t2);
+    rc_d_set(c, 0, RC_W, t2);
 
 L_FBC2:
     /* 0000fbc2   2  subq.w #1,D6 */
@@ -2825,13 +2826,14 @@ L_FBDE:
     rc_d_set(c, 1, RC_W, t2);
 
 L_FBE0:
-    /* 0000fbe0   2  add.w D0,D5 */
+    /* 0000fbe0   2  addx.w D5,D0 */
     c->pc = RC_ADDR(0x0000fbe0u);
     rc_step(c, m, 4);
-    t1 = rc_d_get(c, 5, RC_W);
-    t2 = t1 + rc_d_get(c, 0, RC_W);
-    rc_flags_add(c, RC_W, t1, rc_d_get(c, 0, RC_W), t2, 0);
-    rc_d_set(c, 5, RC_W, t2);
+    t0 = rc_d_get(c, 5, RC_W);
+    t1 = rc_d_get(c, 0, RC_W);
+    t2 = t1 + t0 + ((c->sr & RC_X) ? 1u : 0u);
+    rc_flags_addx(c, RC_W, t1, t0, ((c->sr & RC_X) ? 1u : 0u), t2);
+    rc_d_set(c, 0, RC_W, t2);
 
 L_FBE2:
     /* 0000fbe2   2  subq.w #1,D6 */

@@ -114,6 +114,7 @@ public sealed class Emitter
         while (work.Count > 0)
         {
             uint pc = work.Pop();
+            var path = new List<Insn>();
             while (pc >= entry && pc < limit)
             {
                 if (done.ContainsKey(pc)) break;
@@ -124,6 +125,13 @@ public sealed class Emitter
                     return f;
                 }
                 done.Add(pc, insn);
+                path.Add(insn);
+
+                /* A switch's case bodies are reachable only through its computed jump; the jump
+                 * instruction itself is not a branch this walk can follow. Enqueue them here, or
+                 * most of the function is never decoded and the size/count check fails. */
+                if (insn.Kind == Opk.Jmp)
+                    EnqueueSwitchTargets(path, insn, done, entry, limit, work);
 
                 uint next = pc + (uint)insn.Len;
                 switch (insn.Kind)
@@ -166,6 +174,84 @@ public sealed class Emitter
             return f;
         }
         return f;
+    }
+
+    /// <summary>
+    /// Follows the compiler's switch idiom. The original dispatches with
+    ///
+    ///     cmp.l #N,Dn                 ; the index is 0..N-1
+    ///     bcc default
+    ///     asl.l #1,Dn
+    ///     move.w (table,PC,Dn.w),Dn   ; table[i] = a byte offset, i = Dn/2
+    ///     jmp (base,PC,Dn.w)          ; target = base + (int16)table[i]
+    ///
+    /// so the case bodies have no static branch pointing at them. The table base is the move's
+    /// PC-relative address and the entries are signed word offsets from the jmp's PC-relative
+    /// base; every target inside the function is a control-flow successor.
+    /// </summary>
+    void EnqueueSwitchTargets(List<Insn> path, Insn jmp, Dictionary<uint,Insn> done,
+                              uint entry, uint limit, Stack<uint> work)
+    {
+        var before = new List<Insn>();
+        for (int k = path.Count - 2; k >= 0 && before.Count < 8; k--) before.Add(path[k]);
+        foreach (uint target in SwitchTargets(before, jmp))
+        {
+            if (target >= entry && target < limit && !done.ContainsKey(target))
+                work.Push(target);
+        }
+    }
+
+    /// <summary>
+    /// The case targets of the compiler's switch jump, in the original's own order. `before`
+    /// holds the instructions preceding the jump, nearest first.
+    /// </summary>
+    public IEnumerable<uint> SwitchTargets(List<Insn> before, Insn jmp)
+    {
+        Ea jmpEa = jmp.Src!;
+        if (jmpEa.Mode != 7 || !jmpEa.IsPcRelative || jmpEa.IndexReg < 0) yield break;
+
+        Insn? load = null;
+        uint boundValue = 0;
+        bool haveBound = false;
+        for (int k = 0; k < before.Count && k < 8; k++)
+        {
+            Insn prev = before[k];
+            if (load == null)
+            {
+                if (prev.Kind == Opk.Move && prev.Size == 2 &&
+                    prev.Dst is { Mode: 0 } dst && dst.Reg == jmpEa.IndexReg &&
+                    prev.Src is { Mode: 7, IsPcRelative: true } src && src.IndexReg == jmpEa.IndexReg)
+                    load = prev;
+                continue;
+            }
+            /* The bound is a compare of the index register with an immediate. This assembler
+             * emits it as CMP #imm,Dn (group B), not CMPI; accept both spellings. */
+            if (prev.Kind == Opk.CmpI && prev.Dst is { Mode: 0 } cmpDst && cmpDst.Reg == jmpEa.IndexReg)
+            {
+                boundValue = prev.Imm;
+                haveBound = true;
+                break;
+            }
+            if (prev.Kind == Opk.Cmp && prev.Reg == jmpEa.IndexReg &&
+                prev.Src is { Mode: 7, Reg: 4 } cmpImm)
+            {
+                boundValue = cmpImm.Imm;
+                haveBound = true;
+                break;
+            }
+        }
+        if (load == null || !haveBound) yield break;
+
+        int count = (int)boundValue;
+        uint table = load.Src!.Abs;
+        if (count <= 0 || count > 1024 || (long)table + (long)count * 2 > Image.Length) yield break;
+
+        uint jmpBase = jmpEa.Abs;
+        for (int i = 0; i < count; i++)
+        {
+            int off = (short)_dec.Read16(table + (uint)i * 2);
+            yield return jmpBase + (uint)(int)off;
+        }
     }
 
     // ---- target resolution ---------------------------------------------------
@@ -302,11 +388,36 @@ public sealed class Emitter
                 }
             }
         }
+        /* A computed switch is the only static way to find a case body (a shared epilogue, for
+         * instance) that no constant branch names. Enumerate its table exactly as the dispatch
+         * instruction will; `recomp` then emits whatever lies outside the modelled functions. */
+        var byEnd = new Dictionary<uint, Insn>();
+        uint bodyEnd = f.Entry;
+        foreach (Insn i in f.Insns)
+        {
+            uint after = i.Addr + (uint)i.Len;
+            byEnd[after] = i;
+            if (after > bodyEnd) bodyEnd = after;
+        }
+        foreach (Insn i in f.Insns)
+        {
+            if (i.Kind != Opk.Jmp) continue;
+            Ea ea = i.Src!;
+            if (ea.Mode != 7 || !ea.IsPcRelative || ea.IndexReg < 0) continue;
+            var before = new List<Insn>();
+            uint at = i.Addr;
+            for (int n = 0; n < 8 && byEnd.TryGetValue(at, out Insn? prev); n++)
+            {
+                before.Add(prev);
+                at = prev.Addr;
+            }
+            foreach (uint t in SwitchTargets(before, i)) yield return t;
+        }
         // The fall-through tail, and only then: a body that ends in a branch does not reach the byte
         // after it, which is very often data.
         Opk last = f.Insns[^1].Kind;
         if (last != Opk.Rts && last != Opk.Rtr && last != Opk.Bra && last != Opk.Jmp)
-            yield return f.Entry + (uint)f.Size;
+            yield return bodyEnd;
     }
 
     /// <summary>Resolves `jsr/jmp (d16,A4)` to a slot; -1 when the displacement is not a slot.</summary>

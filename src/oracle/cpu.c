@@ -597,8 +597,7 @@ int oracle_step(rt_machine *m)
         return 0;
     }
     if (rt_library_of(m, pc, &lvo) >= 0)
-    {
-        /* The program is parked on a library stub: `jsr (lvo,A6)` with the return address at A7.
+    {        /* The program is parked on a library stub: `jsr (lvo,A6)` with the return address at A7.
          * Hand the call to the runtime with the CPU values as plain arguments, then perform the
          * ABI's effects here - result in D0, stack popped past the return address, PC back in the
          * caller. The translated build does exactly the same thing with its own registers. */
@@ -645,17 +644,18 @@ int oracle_step(rt_machine *m)
 }
 
 /* The one-shot scene entry set by oracle_call_at (see its comment in cpu.h). */
-static u32 callPc, callFrame, callArg, callAtPc;
+static u32 callPc, callFrame, callArg, callAtPc, callRetPc;
 static long callInsns;
 static int callDone;
 
-void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc)
+void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc, u32 retPc)
 {
     callPc = pc;
     callFrame = frame;
     callArg = arg;
     callInsns = insns;
     callAtPc = atPc;
+    callRetPc = retPc;
     callDone = 0;
 }
 
@@ -673,7 +673,7 @@ u32 oracle_run(rt_machine *m, long maxInsns)
             sp -= 4;
             rt_write32(&m->mem, sp, callArg);      /* the routine's first argument */
             sp -= 4;
-            rt_write32(&m->mem, sp, EMU_EXIT_PC);  /* return into the program-end sentinel */
+            rt_write32(&m->mem, sp, callRetPc != 0 ? callRetPc : EMU_EXIT_PC);
             m68k_set_reg(M68K_REG_A7, sp);
             m68k_set_reg(M68K_REG_PC, callPc);
             printf("emu: calling %06lX(%08lX) at frame %lu\n", (unsigned long)callPc,

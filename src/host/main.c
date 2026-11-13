@@ -76,6 +76,7 @@ static void scatter(cpu_t *c, rt_machine *m)
 
 /* --call: enter one of the engine's own routines once, at a chosen frame. */
 static u32 g_callPc;
+static u32 g_callRet;                      /* --call's 4th field: return here instead of the sentinel */
 static u32 g_callFrame;
 static u32 g_callArg;
 static int g_called;
@@ -83,11 +84,6 @@ static int g_called;
 /* --poke <frame>:<addr>=<value>[,<addr>=<value>...] writes engine globals at a frame boundary, so
  * a state the game's own menus would produce (e.g. DAT_000269d6 = 9, "Take a Flight") can be set
  * without playing the UI. Machine state, like --call - never a picture. */
-#define HOST_MAX_POKES 8
-static struct { u32 addr, val; } g_pokes[HOST_MAX_POKES];
-static int g_pokeCount;
-static u32 g_pokeFrame;
-static int g_poked;
 
 /* The last few addresses the dispatcher entered, newest last: a crash inside translated code is
  * located by m->pc (set per instruction), a crash in a shim by the entry that made the call. */
@@ -145,6 +141,13 @@ static void host_cia(rt_machine *m, u32 code)
  * drawing, so input cannot wait for a present) and a 50 Hz clock. */
 static u32 g_window;
 static u8  g_fireShown;
+static FILE *g_record;                    /* --record: one line per input change, replayable */
+static int g_recFire = -1;
+static u16 g_recJoy = 0xFFFF;
+#define HOST_MAX_POKES 8
+static struct { u32 addr, val; } g_pokes[HOST_MAX_POKES];
+static int g_pokeCount;
+static u32 g_pokeFrame;
 static const char *shotPath;
 static const char *osdText;      /* --osd: keep this overlay up, instead of only on a slot change */
 static int g_interpStat;
@@ -249,6 +252,15 @@ static void host_input(rt_machine *m)
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     m->joy0 = joy;
+    if (g_record != 0 && ((int)m->fireDown != g_recFire || joy != g_recJoy))
+    {
+        /* The same frame-indexed form --input reads, so a played session can be replayed exactly in
+         * both front ends. Sparse: one line only when fire or the stick changes. */
+        g_recFire = m->fireDown;
+        g_recJoy = joy;
+        fprintf(g_record, "%lu %d 0x%04X\n", (unsigned long)m->frame, (int)m->fireDown, joy);
+        fflush(g_record);
+    }
     if (m->fireDown != g_fireShown)
     {
         g_fireShown = m->fireDown;
@@ -345,6 +357,7 @@ int main(int argc, char **argv)
     int textLog = 0;
     long speedPercent = 100;
     const char *inputPath = 0;
+    const char *recordPath = 0;
     long insns = 40000000L;
     u32 base = HS_BASE;
     int i, rc = 1, progress = 0, stateEvery = 1;
@@ -390,6 +403,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--osd") == 0 && i + 1 < argc) { osdText = argv[++i]; continue; }
         if (strcmp(argv[i], "--poke") == 0 && i + 1 < argc)
         {
+            /* <frame>:<addr>=<val>[,...] - the runtime writes these at that frame boundary, so the
+             * write also lands inside a scene that runs its setup within one translated function. */
             char *p = argv[++i];
             g_pokeFrame = (u32)strtoul(p, &p, 0);
             while (*p == ':' || *p == ',') p++;
@@ -410,7 +425,8 @@ int main(int argc, char **argv)
             char *p = argv[++i];
             g_callPc = (u32)strtoul(p, &p, 0);
             g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
-            if (*p == ':') g_callArg = (u32)strtoul(p + 1, 0, 0);
+            if (*p == ':') g_callArg = (u32)strtoul(p + 1, &p, 0);
+            if (*p == ':') g_callRet = (u32)strtoul(p + 1, &p, 0);
             continue;
         }
         if (strcmp(argv[i], "--speed") == 0 && i + 1 < argc)
@@ -429,6 +445,7 @@ int main(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--record") == 0 && i + 1 < argc) { recordPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
         if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
@@ -509,6 +526,16 @@ int main(int argc, char **argv)
         rt_osd_text(&m, msg, EMU_OSD_FRAMES);
     }
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
+    if (recordPath != 0)
+    {
+        g_record = fopen(recordPath, "w");
+        if (g_record == 0) { printf("recomp: cannot write %s\n", recordPath); rt_shutdown(&m); return 1; }
+        printf("recomp: recording input -> %s\n", recordPath);
+    }
+    {
+        int k;
+        for (k = 0; k < g_pokeCount; k++) rt_poke(&m, g_pokeFrame, g_pokes[k].addr, g_pokes[k].val);
+    }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     if (frameLog != 0) rt_framelog_open(&m, frameLog);
     /* The settings file, written with its defaults when this is the first start. */
@@ -581,18 +608,6 @@ int main(int argc, char **argv)
     {
         u32 pc;
 
-        if (g_pokeCount != 0 && !g_poked && m.frame >= g_pokeFrame)
-        {
-            int k;
-            g_poked = 1;
-            for (k = 0; k < g_pokeCount; k++)
-            {
-                rt_write32(&m.mem, g_pokes[k].addr, g_pokes[k].val);
-                printf("recomp: poke %06lX = %08lX at frame %lu (%ld insns)\n",
-                       (unsigned long)g_pokes[k].addr, (unsigned long)g_pokes[k].val,
-                       (unsigned long)m.frame, (long)m.insns);
-            }
-        }
         if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
         {
             /* Enter one of the engine's own routines as if its caller had just called it: a frame
@@ -606,12 +621,14 @@ int main(int argc, char **argv)
             r[REGS_A + 7] -= 4;
             rt_write32(&m.mem, r[REGS_A + 7], g_callArg);   /* the routine's first argument */
             r[REGS_A + 7] -= 4;
-            rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
+            rt_write32(&m.mem, r[REGS_A + 7], g_callRet != 0 ? g_callRet : EMU_EXIT_PC);
             r[REGS_PC] = g_callPc;
             oracle_regs_set(r);
             printf("recomp: calling %06lX(%08lX) at frame %lu (%ld insns, was at pc %06lX)\n",
                    (unsigned long)g_callPc, (unsigned long)g_callArg, (unsigned long)m.frame,
                    (long)m.insns, (unsigned long)beforePc);
+            if (g_callRet != 0)
+                printf("recomp:      returns into the program at %06lX\n", (unsigned long)g_callRet);
         }
         pc = m68k_get_reg(0, M68K_REG_PC);
 

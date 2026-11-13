@@ -71,6 +71,7 @@ if (-not $Quick) {
 
 Step 'interpreter fixtures' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\harness-check.ps1 }
 Step 'translated vs interpreted (fixtures)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\recomp-fixtures.ps1 }
+Step 'presentation (raster)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\present-check.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String

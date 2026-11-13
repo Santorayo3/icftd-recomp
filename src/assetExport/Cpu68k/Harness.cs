@@ -531,6 +531,7 @@ internal static class Harness
     static void SetRegister(Cpu68k cpu, string reg, uint value)
     {
         string r = reg.ToUpperInvariant();
+        if (r == "SR") { cpu.SR = value; return; }
         int i = int.Parse(r[1..], CultureInfo.InvariantCulture);
         switch (r[0])
         {

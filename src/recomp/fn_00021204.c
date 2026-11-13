@@ -278,12 +278,13 @@ L_2123E:
     rc_d_set(c, 0, RC_L, t2);
 
 L_21240:
-    /* 00021240   2  add.l D1,D1 */
+    /* 00021240   2  addx.l D1,D1 */
     c->pc = RC_ADDR(0x00021240u);
     rc_step(c, m, 8);
+    t0 = rc_d_get(c, 1, RC_L);
     t1 = rc_d_get(c, 1, RC_L);
-    t2 = t1 + rc_d_get(c, 1, RC_L);
-    rc_flags_add(c, RC_L, t1, rc_d_get(c, 1, RC_L), t2, 0);
+    t2 = t1 + t0 + ((c->sr & RC_X) ? 1u : 0u);
+    rc_flags_addx(c, RC_L, t1, t0, ((c->sr & RC_X) ? 1u : 0u), t2);
     rc_d_set(c, 1, RC_L, t2);
 
 L_21242:

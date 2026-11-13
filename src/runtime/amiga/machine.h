@@ -162,6 +162,12 @@ typedef struct rt_machine
     u32     osdFont;                      /* the game's TextFont, for the on-screen display */
     int     saveSlot;                     /* saves\slot<N> - the player picks it with F1..F5 */
     const char *saveDir;                  /* "saves" relative to the executable */
+    /* --poke: up to RT_MAX_POKES words written once, at the first frame boundary >= pokeFrame. */
+    u32     pokeAddr[8];
+    u32     pokeVal[8];
+    int     pokeWanted;
+    int     pokeCount;
+    u32     pokeFrame;
     u32     saves;                        /* save files completed, for the log */
     long    insns;
     u32     pc;                           /* current PC, reported by the CPU front end */
@@ -216,6 +222,11 @@ typedef struct rt_machine
 
 /* 68000 cycles between two E-clock pulses: the CIA timers count those (audio.c, cia_tick). */
 #define EMU_CYCLES_PER_E 10u
+
+/* --poke: engine globals written at a frame boundary, so a front end can drive the machine into a
+ * state without playing to it (the same class of seam as --call). Applied by the runtime at the
+ * frame boundary, so it reaches code that is running inside one translated function as well. */
+void rt_poke(rt_machine *m, u32 frame, u32 addr, u32 val);
 
 /* The recent-PC ring costs a store on every instruction and is a development aid only (-w is
  * needed to read it): the DOS release is built with -dEMU_TRACE_RING=0. Nothing emulated depends

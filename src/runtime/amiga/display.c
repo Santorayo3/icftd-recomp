@@ -45,13 +45,19 @@ static int  g_srcValid;
 static u32  g_srcBm;
 static int  g_srcW, g_srcH, g_srcBpr, g_srcPlanes, g_srcLen;
 
+/* BPLCON1's two playfield delays are part of the picture, not of the plane bytes: the engine
+ * scrolls by patching that register in the copper list and never touches the bitmap, so a frame
+ * that only changed the delays still has to be converted again. */
+static int  g_srcD1 = -1, g_srcD2 = -1;
+
 /* 1 when gfx->fb still holds what these planes would convert to. */
-static int conv_same(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes)
+static int conv_same(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes,
+                     int d1, int d2)
 {
     int p;
 
     if (!g_srcValid || g_srcPlanes != np || g_srcBm != bm || g_srcW != w || g_srcH != h ||
-        g_srcBpr != bpr || g_srcLen != bpr * h)
+        g_srcBpr != bpr || g_srcLen != bpr * h || g_srcD1 != d1 || g_srcD2 != d2)
         return 0;
     for (p = 0; p < np; p++)
         if (memcmp(g_src + (u32)p * (u32)g_srcLen, m->mem.base + planes[p], (size_t)g_srcLen) != 0)
@@ -61,11 +67,14 @@ static int conv_same(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const
 
 /* Remembers the bytes that were just converted. A picture whose rows are not all inside RAM is not
  * a plane-byte conversion at all (the accessor answers 0 outside), so it is not remembered. */
-static void conv_saved(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes)
+static void conv_saved(rt_machine *m, u32 bm, int w, int h, int bpr, int np, const u32 *planes,
+                       int d1, int d2)
 {
     int p, len = bpr * h;
 
     g_srcValid = 0;
+    g_srcD1 = d1;
+    g_srcD2 = d2;
     if (np > CONV_PLANES || len <= 0 || len > CONV_SRC_MAX / CONV_PLANES) return;
     if (g_src == 0) g_src = (u8 *)plat_alloc(CONV_SRC_MAX);
     if (g_src == 0) return;
@@ -689,63 +698,173 @@ void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b)
 }
 
 /* --- present ------------------------------------------------------------------------------- */
+/* --- the copper list graphics.library builds for a View ------------------------------------ */
+/* What the OS turns ViewPort DWidth/DHeight/Modes and the RasInfo's BitMap depth into: the
+ * registers the copper programs for a screen. The 320x200 five-plane ViewPort the engine builds
+ * gives BPLCON0 5000, DDF 0038..00D0 and DIW 2C81..F4C1 - a screen that starts on line 44, 200
+ * lines tall. slots.c derives its colour-clock map from the same numbers, which is why they live
+ * here and not in two places. */
+void rt_gfx_view_regs(rt_machine *m, u32 vp, rt_view_regs *r)
+{
+    int w = 0, h = 0;
+    u16 modes = 0;
+    u32 ri = 0, bm = 0;
+
+    r->planes = 0;
+    r->hires = 0;
+    r->words = 0;
+    r->vstart = 0x2C;
+    r->vstop = 0x2C + 200;
+    if (vp != 0)
+    {
+        w = (int)rt_read16(&m->mem, vp + EMU_VP_WIDTH);
+        h = (int)rt_read16(&m->mem, vp + EMU_VP_HEIGHT);
+        modes = (u16)rt_read16(&m->mem, vp + EMU_VP_MODES);
+        ri = rt_read32(&m->mem, vp + EMU_VP_RASINFO);
+        bm = ri != 0 ? rt_read32(&m->mem, ri + EMU_RI_BITMAP) : 0;
+        if (bm != 0)
+        {
+            int d = bm_depth(m, bm);
+            if (d > 0 && d <= 8) r->planes = d;
+        }
+        if (w > 0) r->words = (w + 15) / 16;
+        r->hires = (modes & 0x8000u) != 0;
+        if (h > 0) r->vstop = r->vstart + h;
+        if (r->vstop > EMU_FRAME_LINES) r->vstop = EMU_FRAME_LINES;
+    }
+    r->bplcon0 = (u16)(((u32)r->planes << 12) | (r->hires ? 0x8000u : 0u));
+    r->ddfstrt = 0x0038u;
+    r->ddfstop = (u16)(0x0038u + 8u * (u32)(r->words > 0 ? r->words - 1 : 0));
+    r->diwstrt = (u16)(((u32)r->vstart << 8) | 0x81u);
+    r->diwstop = (u16)((((u32)r->vstop & 0xFFu) << 8) | 0xC1u);
+}
+
 /* MrgCop is not decoration: FUN_0001FDE8 walks the list MrgCop built and remembers the address of
  * every palette data word, so the game can fade the screen by patching the copper list itself.
  * FUN_0001FD7A searches a cprlist { Next, start, MaxCount } - start is an array of 2-word
  * (register, value) entries - for register 0x180 + 2*k, k from (view+0x12)-1 down to 0. 0x180 is
- * COLOR00, and view+0x12 holds the colour count (1 << depth, 32 here), so the list is one CMove per
- * colour. We never execute it - the renderer is chunky - but it is also where the palette lives,
- * so rt_gfx_present() reads the colours back out of it instead of keeping a copy in sync. */
+ * COLOR00, and view+0x12 holds the colour count (1 << depth, 32 here).
+ *
+ * The list is what the display *is*: graphics.library programs BPLCON0, the DDF window, DIW and
+ * one pointer per bitplane from the ViewPort, then the palette, and the copper writes them at the
+ * top of every frame. Writing only the palette left the plane pointers wherever the previous list
+ * had put them - zero, when the previous list was one of ours - so nothing pointed the display at
+ * the picture the engine had just drawn. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view)
 {
-    u32 vp, cm, table, list, start;
-    int depth = 5, colours, i;
+    rt_view_regs r;
+    u32 vp, cm, table, ri, bm, list, start;
+    int depth, colours, entries, e = 0, i;
 
     if (view == 0) return;
     vp = rt_read32(&m->mem, view);
-    if (vp != 0)
-    {
-        u32 ri = rt_read32(&m->mem, vp + EMU_VP_RASINFO);
-        u32 bm = ri != 0 ? rt_read32(&m->mem, ri + EMU_RI_BITMAP) : 0;
-        if (bm != 0)
-        {
-            int d = bm_depth(m, bm);
-            if (d > 0 && d <= 8) depth = d;
-        }
-    }
+    rt_gfx_view_regs(m, vp, &r);
+    depth = r.planes > 0 ? r.planes : 5;
+    ri = vp != 0 ? rt_read32(&m->mem, vp + EMU_VP_RASINFO) : 0;
+    bm = ri != 0 ? rt_read32(&m->mem, ri + EMU_RI_BITMAP) : 0;
+
     colours = (int)rt_read16(&m->mem, view + 0x12);
     if (colours <= 0 || colours > 256) colours = 1 << depth;
 
     cm = vp != 0 ? rt_read32(&m->mem, vp + EMU_VP_COLORMAP) : 0;
     table = cm != 0 ? rt_read32(&m->mem, cm + EMU_CM_TABLE) : 0;
 
-    list = rt_alloc_bytes(10);                        /* struct cprlist */
-    start = rt_alloc_bytes((u32)(colours + 1) * 4u);  /* one entry per colour, then the terminator */
+    /* BPLCON0, DDFSTRT/STOP, DIWSTRT/STOP, the plane pointer of each plane as its high then its
+     * low word (the copper writes one 16-bit register at a time), then the palette. */
+    entries = 5 + 2 * depth + colours;
+    list = rt_alloc_bytes(10);                              /* struct cprlist */
+    start = rt_alloc_bytes((u32)(entries + 1) * 4u);        /* ... and the terminating WAIT */
     if (list == 0 || start == 0) return;
+#define MRG_MOVE(reg, val)                                                       \
+    do {                                                                         \
+        rt_write16(&m->mem, start + (u32)e * 4u, (u32)(reg));                    \
+        rt_write16(&m->mem, start + (u32)e * 4u + 2u, (u32)(val));               \
+        e++;                                                                     \
+    } while (0)
+    MRG_MOVE(0x100u, r.bplcon0);                            /* BPLCON0            */
+    MRG_MOVE(0x092u, r.ddfstrt);                            /* DDFSTRT            */
+    MRG_MOVE(0x094u, r.ddfstop);                            /* DDFSTOP            */
+    MRG_MOVE(0x08Eu, r.diwstrt);                            /* DIWSTRT            */
+    MRG_MOVE(0x090u, r.diwstop);                            /* DIWSTOP            */
+    for (i = 0; i < depth; i++)
+    {
+        u32 plane = bm != 0 ? bm_plane(m, bm, i) : 0;
+        MRG_MOVE(0x0E0u + 4u * (u32)i, (plane >> 16) & 0xFFFFu);   /* BPLnPTH */
+        MRG_MOVE(0x0E2u + 4u * (u32)i, plane & 0xFFFFu);           /* BPLnPTL */
+    }
     for (i = 0; i < colours; i++)
     {
         u32 colour = table != 0 ? rt_read16(&m->mem, table + (u32)i * 2u) : 0;
-        rt_write16(&m->mem, start + (u32)i * 4u, (u32)(0x180 + 2 * i));   /* COLORxx */
-        rt_write16(&m->mem, start + (u32)i * 4u + 2u, colour);
+        MRG_MOVE(0x180u + 2u * (u32)i, colour);             /* COLORxx            */
     }
+#undef MRG_MOVE
     /* The copper executes this list, so it needs an end: wait for ever, one entry past the last
-     * colour. The colour entries stay first and in order, which is what the engine's own readers
-     * depend on - FUN_0001FDE8 collects each palette word's address and FUN_0001FD7A searches for
-     * 0x180+2k, and both walk MaxCount entries, so one extra MOVE-less entry is invisible to
-     * them. */
-    rt_write16(&m->mem, start + (u32)colours * 4u, 0xFFFFu);               /* WAIT $FFFF,$FFFE */
-    rt_write16(&m->mem, start + (u32)colours * 4u + 2u, 0xFFFEu);
-    rt_write32(&m->mem, list + 0, 0);                    /* Next */
+     * colour. The engine's own readers walk MaxCount entries and only match what they look for -
+     * FUN_0001FDE8 collects each palette word's address and FUN_0001FD7A searches for 0x180+2k - so
+     * the display entries and the extra terminator are invisible to them. */
+    rt_write16(&m->mem, start + (u32)e * 4u, 0xFFFFu);      /* WAIT $FFFF,$FFFE */
+    rt_write16(&m->mem, start + (u32)e * 4u + 2u, 0xFFFEu);
+    rt_write32(&m->mem, list + 0, 0);                       /* Next */
     rt_write32(&m->mem, list + 4, start);
-    rt_write16(&m->mem, list + 8, (u32)(colours + 1));   /* MaxCount, in entries (FUN_0001FD7A) */
-    rt_write32(&m->mem, view + 4, list);                 /* v_LOFCprList */
-    rt_write32(&m->mem, view + 8, list);                 /* v_SHFCprList */
-    gfx->cprList = list;
+    rt_write16(&m->mem, list + 8, (u32)(entries + 1));      /* MaxCount, in entries (FUN_0001FD7A) */
+    rt_write32(&m->mem, view + 4, list);                    /* v_LOFCprList */
+    rt_write32(&m->mem, view + 8, list);                    /* v_SHFCprList */
     gfx->cprList = list;
     if (m->trace || gfx->frames == 0)
-        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d cprlist %06lX start %06lX\n",
-               (unsigned long)view, (unsigned long)vp, depth, colours, (unsigned long)list,
-               (unsigned long)start);
+        printf("emu: MrgCop view=%06lX vp=%06lX depth %d colours %d entries %d cprlist %06lX "
+               "start %06lX BPLCON0 %04lX DDF %04lX..%04lX DIW %04lX..%04lX\n",
+               (unsigned long)view, (unsigned long)vp, depth, colours, entries + 1,
+               (unsigned long)list, (unsigned long)start, (unsigned long)r.bplcon0,
+               (unsigned long)r.ddfstrt, (unsigned long)r.ddfstop,
+               (unsigned long)r.diwstrt, (unsigned long)r.diwstop);
+}
+
+/* One byte of a plane's row, `byteIdx` counted from the row's first byte. Negative indices read
+ * the bytes before the row, which is what the shifter has already fetched when BPLCON1 delays the
+ * playfield past the left edge (bitplane DMA runs linearly through the plane, so the prefetch word
+ * of a display line is the memory in front of it). */
+static u32 plane_row_byte(rt_machine *m, u32 plane, int bpr, int y, int byteIdx)
+{
+    long off;
+
+    if (plane == 0) return 0;
+    off = (long)y * (long)bpr + (long)byteIdx;
+    if (off < 0) off = 0;
+    if ((u32)off >= m->mem.size) return 0;
+    return rt_read8(&m->mem, plane + (u32)off);
+}
+
+/* The screen with BPLCON1's playfield delays applied. The hardware puts fetched data into the
+ * shifter `PF1H`/`PF2H` colour clocks late (winuae drawing.cpp, bplcon1_shift), so pixel x of a
+ * line shows bit x-d of its playfield's plane data: the picture sits d pixels to the right of
+ * where a straight copy would put it.
+ *
+ * This is how the engine scrolls horizontally - it never moves the plane pointers for it. The
+ * vblank server patches the copper list's BPLCON1 entry from the fine scroll accumulator
+ * (FUN_00011cdc at 0x11cf2: fine | fine<<4) and advances the coarse position only when that
+ * accumulator wraps, so a presenter that ignores the register shows a frozen picture that jerks
+ * a whole tile every 16 steps. Playfields alternate over the bitplanes (1,3,5 = playfield 1), as
+ * on the Amiga. */
+static void conv_picture_scrolled(rt_machine *m, int w, int h, int bpr, int np, const u32 *planes,
+                                  int d1, int d2)
+{
+    int x, y, p;
+
+    for (y = 0; y < h; y++)
+    {
+        u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
+        for (x = 0; x < w; x++)
+        {
+            int idx = 0;
+            for (p = 0; p < np; p++)
+            {
+                int s = x - (((p & 1) != 0) ? d2 : d1);
+                u32 byte = plane_row_byte(m, planes[p], bpr, y, s >> 3);
+                if (((byte >> (7 - (s & 7))) & 1u) != 0) idx |= 1 << p;
+            }
+            row[x] = (u8)idx;
+        }
+    }
 }
 
 /* One planar -> chunky pass over the whole visible area. The plane pointers are read once per row;
@@ -834,10 +953,46 @@ static void conv_picture(rt_machine *m, int w, int h, int bpr, int np, const u32
     }
 }
 
+/* --- display regions ------------------------------------------------------------------------
+ * One copper list can program more than one screen region: the flight builds a playfield and, below
+ * it, a HUD strip with its own five plane pointers (the fuel/canister panel). A presenter that
+ * converts one plane set for the whole frame paints the playfield over the HUD's rows, which is
+ * what showed up as garbage at the bottom of the flight screen. */
+#define EMU_MAX_REGIONS 4
+typedef struct
+{
+    int row;                    /* first display row this region covers (0-based) */
+    int n;                      /* plane count in force here */
+    u32 planes[8];
+    int d1, d2;                 /* BPLCON1 playfield delays in force here */
+} rt_region;
+
+/* A plane-pointer group read out of a copper list is usable when every pointer is in RAM and the
+ * rows it needs fit there. */
+static int list_planes_ok(rt_machine *m, const u32 *pl, int n, int bpr, int h)
+{
+    int i;
+
+    if (n <= 0) return 0;
+    for (i = 0; i < n; i++)
+    {
+        if (pl[i] == 0) return 0;
+        if ((pl[i] & 1u) != 0) return 0;
+        if (pl[i] + (u32)(bpr * h) > m->mem.size) return 0;
+    }
+    return 1;
+}
+
 void rt_gfx_present(rt_machine *m, u32 view)
 {
     u32 vp, cm, ri, bm, table, bplcon0 = 0;
-    int bpr, rows, depth, w, h, x, y, p, count, entries;
+    u32 listPlanes[8];
+    int nPlanes = 0;
+    int bpr, rows, depth, w, h, x, y, p, count, entries, d1 = 0, d2 = 0, haveBplcon1 = 0;
+    int planesSeen = 0, depth8 = depth;
+    static rt_region regions[EMU_MAX_REGIONS];
+    int regionCount = 0, regRow = 0, regVStart = 0, regVStop = 0, regHStart = 0, regHStop = 0;
+    int frameD1 = 0, frameD2 = 0;
     static int s_progTiles;
 
     if (view == 0 || gfx == 0 || gfx->fb == 0) return;
@@ -899,23 +1054,119 @@ void rt_gfx_present(rt_machine *m, u32 view)
     count = 0;
     entries = 0;
     table = 0;
+    depth8 = depth;
+    for (p = 0; p < 8; p++) listPlanes[p] = 0;
     {
         u32 list = gfx->cprList;
         u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
+        u32 diwStart = 0;
+        u32 diwStop = 0xFFFFu;
+        int haveDiw = 0;
         int e;
         entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
+        /* DIWSTRT/DIWSTOP first, by register (the entry index differs per list): they are the
+         * frame's origin and end, and the region rows below are `vpos - vstart`, so they cannot be
+         * read after the regions are recorded (that put the HUD's WAIT 0xCA at row 202 instead of
+         * 158 and hid it behind the bottom of the frame).
+         *
+         * Only the vertical part is used. The engine's 0x90..0xB0 horizontal pair does not mean
+         * "inset window" - the original fills the width - and applying it cropped the picture to a
+         * 160-pixel column. */
+        if (start != 0)
+        {
+            int e2;
+            for (e2 = 0; e2 < entries && e2 < 256; e2++)
+            {
+                u32 r2 = rt_read16(&m->mem, start + (u32)e2 * 4u);
+                u32 v2 = rt_read16(&m->mem, start + (u32)e2 * 4u + 2u);
+                if (r2 == 0x08Eu && !haveDiw) { diwStart = v2; haveDiw = 1; }
+                else if (r2 == 0x090u && diwStop == 0xFFFFu) diwStop = v2;
+            }
+            if (haveDiw && diwStop != 0xFFFFu)
+            {
+                int vs = (int)((diwStart >> 8) & 0xFFu), ve = (int)((diwStop >> 8) & 0xFFu);
+                if (ve > vs && ve - vs >= (h * 3) / 4)
+                {
+                    regVStart = vs;
+                    if (ve - vs < h) h = ve - vs;
+                }
+            }
+        }
+
         for (e = 0; start != 0 && e < entries && e < 256; e++)
         {
             u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
             u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
             int idx;
             if (reg == 0x100u) bplcon0 = val;        /* BPLCON0: hires and the plane count */
+            /* BPLCON1: PF1H (bits 3-0), PF2H (bits 7-4) - winuae drawing.cpp, update_bplcon1.
+             * Per display region: the engine writes a different value for the panel below the
+             * playfield, so the delay belongs to the region, not to the frame. */
+            if (reg == 0x102u)
+            {
+                d1 = (int)(val & 0x0Fu);
+                d2 = (int)((val >> 4) & 0x0Fu);
+                if (!haveBplcon1)
+                {
+                    haveBplcon1 = 1;
+                    frameD1 = d1;
+                    frameD2 = d2;
+                }
+            }
+            /* A WAIT ends the current display region and starts the next one at its line. The
+             * flight screen is built this way: the playfield from line 0x1B, then a HUD region at
+             * line 0xCA with its own five plane pointers (the fuel/canister panel). Rendering the
+             * playfield's planes over those rows is what put garbage at the bottom of the frame. */
+            if ((reg & 1u) != 0 && (reg & 0x8000u) != 0 && e + 1 < entries)
+            {
+                if (planesSeen > 0 && regionCount < EMU_MAX_REGIONS)
+                {
+                    rt_region *rg = &regions[regionCount++];
+                    int q2;
+                    rg->row = regRow < 0 ? 0 : regRow;
+                    rg->n = planesSeen;
+                    for (q2 = 0; q2 < 8; q2++) rg->planes[q2] = listPlanes[q2];
+                    rg->d1 = d1;
+                    rg->d2 = d2;
+                }
+                regRow = (int)((reg >> 8) & 0xFFu) - regVStart;
+                planesSeen = 0;
+                for (p = 0; p < 8; p++) listPlanes[p] = 0;
+                continue;
+            }
+            if (reg >= 0x0E0u && reg <= 0x0FEu)
+            {
+                int k2 = (int)((reg - 0x0E0u) >> 2);
+                if (k2 < 8)
+                {
+                    if ((reg & 2u) == 0)
+                    {
+                        listPlanes[k2] = (u32)val << 16;
+                        if (k2 == 0) planesSeen = 0;
+                    }
+                    else
+                    {
+                        listPlanes[k2] |= (u32)val;
+                        if (k2 + 1 > planesSeen) planesSeen = k2 + 1;
+                    }
+                }
+            }
             if (reg < 0x180u || reg > 0x1BEu || (reg & 1u) != 0) continue;
             idx = (int)((reg - 0x180u) >> 1);
             gfx->pal[idx * 3 + 0] = (u8)(((val >> 8) & 0xF) * 17);
             gfx->pal[idx * 3 + 1] = (u8)(((val >> 4) & 0xF) * 17);
             gfx->pal[idx * 3 + 2] = (u8)((val & 0xF) * 17);
             if (idx + 1 > count) count = idx + 1;
+        }
+        if (planesSeen > 0 && regionCount < EMU_MAX_REGIONS)
+        {
+            rt_region *rg = &regions[regionCount++];
+            int q2;
+            rg->row = regRow < 0 ? 0 : regRow;
+            rg->n = planesSeen;
+            for (q2 = 0; q2 < 8; q2++) rg->planes[q2] = listPlanes[q2];
+            rg->d1 = d1;
+            rg->d2 = d2;
         }
     }
     if (count == 0 && cm != 0)
@@ -989,13 +1240,65 @@ void rt_gfx_present(rt_machine *m, u32 view)
         u32 pt0 = plat_pit_now();
         int np = depth < 8 ? depth : 8;
         u32 planes[8];
+        int didRows = 0;
         nib_tables();
         for (p = 0; p < 8; p++) planes[p] = 0;
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
-        if (!conv_same(m, bm, w, h, bpr, np, planes))
+        /* The copper list names the planes the beam reads; take them when it has them (the
+         * ViewPort's BitMap is the buffer MrgCop saw, not necessarily the one on screen now). */
+        if (regionCount > 1)
         {
-            conv_picture(m, w, h, bpr, np, planes);
-            conv_saved(m, bm, w, h, bpr, np, planes);
+            int y0;
+            int x0 = 0, x1 = w;
+            for (y0 = 0; y0 < h; y0++)
+            {
+                int r = 0;
+                u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
+                int dd1, dd2;
+                int ry;
+                while (r + 1 < regionCount && regions[r + 1].row <= y0) r++;
+                dd1 = regions[r].d1;
+                dd2 = regions[r].d2;
+                ry = y0 - regions[r].row;      /* the region's own row, not the display row */
+                for (x = 0; x < x0; x++) row[x] = 0;
+                for (; x < x1; x++)
+                {
+                    int idx = 0;
+                    int sx = x - x0;
+                    for (p = 0; p < np; p++)
+                    {
+                        int s = sx - (((p & 1) != 0) ? dd2 : dd1);
+                        u32 byte = plane_row_byte(m, regions[r].planes[p], bpr, ry, s >> 3);
+                        if (((byte >> (7 - (s & 7))) & 1u) != 0) idx |= 1 << p;
+                    }
+                    row[x] = (u8)idx;
+                }
+                for (; x < w; x++) row[x] = 0;
+            }
+            for (y0 = h; y0 < EMU_FB_MAX_H; y0++)
+            {
+                u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
+                for (x = 0; x < w; x++) row[x] = 0;
+            }
+            conv_saved(m, bm, w, h, bpr, np, planes, -1, -1);
+            didRows = 1;
+        }
+        /* The copper list names the planes the beam reads; take them when it has them (the
+         * ViewPort's BitMap is the buffer MrgCop saw, not necessarily the one on screen now). */
+        if (!didRows && nPlanes > 0 && listPlanes[0] != 0)
+        {
+            int k3;
+            for (k3 = 0; k3 < np && k3 < 8; k3++)
+                if (listPlanes[k3] != 0) planes[k3] = listPlanes[k3];
+            for (k3 = 0; k3 < 8; k3++)
+                if (planes[k3] != 0 && planes[k3] + (u32)(bpr * h) > m->mem.size)
+                    planes[k3] = bm_plane(m, bm, k3);
+        }
+        if (!didRows && !conv_same(m, bm, w, h, bpr, np, planes, d1, d2))
+        {
+            if (d1 != 0 || d2 != 0) conv_picture_scrolled(m, w, h, bpr, np, planes, d1, d2);
+            else conv_picture(m, w, h, bpr, np, planes);
+            conv_saved(m, bm, w, h, bpr, np, planes, d1, d2);
         }
         if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }

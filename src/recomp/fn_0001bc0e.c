@@ -908,14 +908,14 @@ L_1BD6C:
     rc_set_nzvc(c, t0, RC_B);
 
 L_1BD6E:
-    /* 0001bd6e   2  subx.b D0,D1 */
+    /* 0001bd6e   2  sub.b D1,(A0) */
     c->pc = RC_ADDR(0x0001bd6eu);
     rc_step(c, m, 12);
-    t0 = rc_d_get(c, 0, RC_B);
-    t1 = rc_d_get(c, 1, RC_B);
-    t2 = t1 - t0 - ((c->sr & RC_X) ? 1u : 0u);
-    rc_flags_subx(c, RC_B, t1, t0, ((c->sr & RC_X) ? 1u : 0u), t2);
-    rc_d_set(c, 1, RC_B, t2);
+    t3 = c->a[0];
+    t1 = rc_rd8(c, m, t3);
+    t2 = t1 - rc_d_get(c, 1, RC_B);
+    rc_flags_sub(c, RC_B, t1, rc_d_get(c, 1, RC_B), t2, 0);
+    rc_wr8(c, m, t3, t2);
 
 L_1BD70:
     /* 0001bd70   6  adda.l #14,A0 */

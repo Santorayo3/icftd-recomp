@@ -1241,11 +1241,16 @@ public sealed class Cpu68k
                 return;
             }
             case 3: Divide(op, opAddr, signed: false); return;
-            case 4: Bcd(op, opAddr, isAdd: false); return;
+            case 4:
             case 5:
-            case 6:
+            case 6: // OR.B/W/L Dn,<ea>, except SBCD which shares opmode 4
             {
-                int size = 1 << (opmode - 4);
+                if (opmode == 4 && (op & 0x30) == 0)
+                {
+                    Bcd(op, opAddr, isAdd: false);
+                    return;
+                }
+                int size = opmode == 4 ? ByteSize : 1 << (opmode - 4);
                 RequireDataEa(mode, ea, opAddr, "OR");
                 Ea e = Resolve(mode, ea, size, opAddr);
                 uint r = ReadEa(e, size) | Truncate(D[reg], size);
@@ -1382,33 +1387,37 @@ public sealed class Cpu68k
                 A[reg] = isAdd ? A[reg] + src : A[reg] - src;
                 return;
             }
-            case 4: // ADDX / SUBX
-            {
-                int size = (op & 0x40) != 0 ? LongSize : ByteSize;
-                uint x = X ? 1u : 0u;
-                // Bit 3: 0 = Dy,Dx, 1 = -(Ay),-(Ax). The source is predecremented and read first.
-                Ea srcEa = ((op & 0x8) != 0) ? Resolve(4, ea, size, opAddr) : Resolve(0, ea, size, opAddr);
-                Ea dstEa = ((op & 0x8) != 0) ? Resolve(4, reg, size, opAddr) : Resolve(0, reg, size, opAddr);
-                uint src = ReadEa(srcEa, size);
-                uint dst = ReadEa(dstEa, size);
-                uint r = isAdd ? dst + src + x : dst - src - x;
-                if (isAdd) FlagsAdd(dst, src, x, r, size, keepZ: true);
-                else FlagsSub(dst, src, x, r, size, keepZ: true);
-                WriteEa(dstEa, size, r, opAddr);
-                return;
-            }
+            case 4:
             case 5:
-            case 6: // Dn op <ea>
+            case 6: // Dn op <ea>, except ADDX/SUBX which share all three opmodes
             {
-                int size = 1 << (opmode - 4);
+                /* ADDX/SUBX occupy opmode 4/5/6 with bits 5-4 clear - EA modes 0 and 1 do not
+                 * exist for this direction, so those patterns are ADDX/SUBX (Musashi addx_8/16/32
+                 * _rr/_mm, mask 0xf1f8, matches 0xd1xx/0xd14x/0xd18x). */
+                if ((op & 0x30) == 0)
+                {
+                    int size = opmode == 4 ? ByteSize : opmode == 5 ? WordSize : LongSize;
+                    uint x = X ? 1u : 0u;
+                    // Bit 3: 0 = Dy,Dx, 1 = -(Ay),-(Ax). The source is predecremented and read first.
+                    Ea srcEa = ((op & 0x8) != 0) ? Resolve(4, ea, size, opAddr) : Resolve(0, ea, size, opAddr);
+                    Ea dstEa = ((op & 0x8) != 0) ? Resolve(4, reg, size, opAddr) : Resolve(0, reg, size, opAddr);
+                    uint src = ReadEa(srcEa, size);
+                    uint dst = ReadEa(dstEa, size);
+                    uint r = isAdd ? dst + src + x : dst - src - x;
+                    if (isAdd) FlagsAdd(dst, src, x, r, size, keepZ: true);
+                    else FlagsSub(dst, src, x, r, size, keepZ: true);
+                    WriteEa(dstEa, size, r, opAddr);
+                    return;
+                }
+                int sz = opmode == 4 ? ByteSize : 1 << (opmode - 4);
                 RequireDataEa(mode, ea, opAddr, isAdd ? "ADD" : "SUB");
-                Ea e = Resolve(mode, ea, size, opAddr);
-                uint src = Truncate(D[reg], size);
-                uint dst = ReadEa(e, size);
-                uint r = isAdd ? dst + src : dst - src;
-                if (isAdd) FlagsAdd(dst, src, 0, r, size);
-                else FlagsSub(dst, src, 0, r, size);
-                WriteEa(e, size, r, opAddr);
+                Ea e = Resolve(mode, ea, sz, opAddr);
+                uint src2 = Truncate(D[reg], sz);
+                uint dst2 = ReadEa(e, sz);
+                uint r2 = isAdd ? dst2 + src2 : dst2 - src2;
+                if (isAdd) FlagsAdd(dst2, src2, 0, r2, sz);
+                else FlagsSub(dst2, src2, 0, r2, sz);
+                WriteEa(e, sz, r2, opAddr);
                 return;
             }
         }
@@ -1508,18 +1517,23 @@ public sealed class Cpu68k
                 SetFlag(FlagC, false);
                 return;
             }
-            case 4: // ABCD
-                Bcd(op, opAddr, isAdd: true);
-                return;
+            case 4:
             case 5:
-                throw new Cpu68kException(opAddr, $"unimplemented opcode {op:X4} at 0x{opAddr:X6}: opmode 5 (AND.W Dn,<ea>)");
-            case 6: // AND.L Dn,<ea>
+            case 6: // AND.B/W/L Dn,<ea>, except ABCD which shares opmode 4
             {
-                RequireDataEa(mode, ea, opAddr, "AND.L");
-                Ea e = Resolve(mode, ea, LongSize, opAddr);
-                uint r = ReadEa(e, LongSize) & D[reg];
-                WriteEa(e, LongSize, r, opAddr);
-                SetLogicFlags(r, LongSize);
+                /* ABCD occupies opmode 4 with bits 5-4 clear; any other opmode-4 encoding is the
+                 * ordinary AND.B Dn,<ea> byte form (Musashi: abcd 8 rr 1100...100000...). */
+                if (opmode == 4 && (op & 0x30) == 0)
+                {
+                    Bcd(op, opAddr, isAdd: true);
+                    return;
+                }
+                int sz = opmode == 4 ? ByteSize : (opmode == 5 ? WordSize : LongSize);
+                RequireDataEa(mode, ea, opAddr, "AND");
+                Ea e = Resolve(mode, ea, sz, opAddr);
+                uint r = ReadEa(e, sz) & Truncate(D[reg], sz);
+                WriteEa(e, sz, r, opAddr);
+                SetLogicFlags(r, sz);
                 return;
             }
             default: // MULS.W

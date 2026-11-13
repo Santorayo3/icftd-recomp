@@ -515,15 +515,20 @@ public sealed class Decoder
                 return;
             case 3: Divide(i, op, false); return;
             case 4:
-                /* SBCD (0x8100..0x810F): bit 3 picks Dy,Dx or -(Ay),-(Ax); the low three bits
-                 * are the source register, bits 11..9 the destination. */
-                Bcd(i, op, Opk.Sbcd);
-                return;
+                /* SBCD (0x8100..0x810F) has bits 5-4 clear: bit 3 picks Dy,Dx or -(Ay),-(Ax),
+                 * the low three bits are the source register, bits 11..9 the destination. Any
+                 * other opmode-4 encoding is the ordinary OR.B Dn,<ea> byte form. */
+                if ((op & 0x30) == 0)
+                {
+                    Bcd(i, op, Opk.Sbcd);
+                    return;
+                }
+                goto case 5;
             case 5:
             case 6:
                 DataEa(mode, ea);
                 i.Kind = Opk.Or;
-                i.Size = 1 << (opmode - 4);
+                i.Size = opmode == 4 ? 1 : 1 << (opmode - 4);
                 i.Reg = reg;
                 i.Dst = Resolve(mode, ea, i.Size);
                 return;
@@ -568,7 +573,9 @@ public sealed class Decoder
         bool mem = ((op >> 3) & 1) != 0;
 
         i.Kind = kind;
-        i.Size = (op & 0x40) != 0 ? 4 : 1;
+        /* ADDX/SUBX size comes from bits 7-6: 00 byte, 01 word, 10 long. */
+        int ss = (op >> 6) & 3;
+        i.Size = ss == 0 ? 1 : ss == 1 ? 2 : 4;
         i.Reg = dst;
         i.Src = new Ea { Mode = mem ? 4 : 0, Reg = src };
     }
@@ -602,18 +609,21 @@ public sealed class Decoder
                 i.Src = Resolve(mode, ea, 2);
                 return;
             case 4:
-                /* ABCD (0xC100..0xC10F), same operand shape as SBCD. */
-                Bcd(i, op, Opk.Abcd);
-                return;
+                /* ABCD (0xC100..0xC10F) has bits 5-4 clear, same operand shape as SBCD; any
+                 * other opmode-4 encoding is AND.B Dn,<ea>. */
+                if ((op & 0x30) == 0)
+                {
+                    Bcd(i, op, Opk.Abcd);
+                    return;
+                }
+                goto case 5;
             case 5:
-                Need(false, "AND.W Dn,<ea>");
-                return;
             case 6:
                 DataEa(mode, ea);
                 i.Kind = Opk.And;
-                i.Size = 4;
+                i.Size = opmode == 4 ? 1 : (opmode == 5 ? 2 : 4);
                 i.Reg = reg;
-                i.Dst = Resolve(mode, ea, 4);
+                i.Dst = Resolve(mode, ea, i.Size);
                 return;
             default:
                 i.Kind = Opk.MulS;
@@ -650,11 +660,16 @@ public sealed class Decoder
                 i.Src = Resolve(mode, ea, i.Size);
                 return;
             case 4:
-                /* ADDX / SUBX: bit 3 picks Dy,Dx (0) or -(Ay),-(Ax) (1), bit 6 the size. */
-                Extend(i, op, isAdd ? Opk.AddX : Opk.SubX);
-                return;
             case 5:
             case 6:
+                /* The EA field is shared: bits 5-4 are 00 for ADDX/SUBX (bit 3 picks Dy,Dx or
+                 * -(Ay),-(Ax)), and EA modes 0 and 1 do not exist for the other direction at all,
+                 * so those patterns are ADDX/SUBX in every size. Anything else is ADD/SUB Dn,<ea>. */
+                if ((op & 0x30) == 0)
+                {
+                    Extend(i, op, isAdd ? Opk.AddX : Opk.SubX);
+                    return;
+                }
                 DataEa(mode, ea);
                 i.Kind = isAdd ? Opk.Add : Opk.Sub;
                 i.Size = 1 << (opmode - 4);

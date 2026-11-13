@@ -101,7 +101,11 @@ public static class RecompCommand
                 {
                     string path = Path.Combine(outDir, $"fn_{addr:x8}.c");
                     File.WriteAllText(path, Header(f, body) + body + "}\n", Utf8NoBom());
-                    emitted.Add((addr, size, f.Insns.Count));
+                    /* The model's size is the sum of instruction bytes; a function with an embedded
+                     * switch table spans further than that (the table sits between instructions),
+                     * and a jsr return address can land after the size boundary. The table entry
+                     * must own every instruction the body dispatches on. */
+                    emitted.Add((addr, Span(f), f.Insns.Count));
                     kept.Add(f);
                     bytes += size;
                     insns += f.Insns.Count;
@@ -128,6 +132,7 @@ public static class RecompCommand
             uint t = work.Dequeue();
             if (t < 2u || t >= (uint)image.Length || claimed.Contains(t)) continue;
             if (InModel(starts, functions, t)) continue;
+            if (emitted.Any(e => t >= e.Addr && t < e.Addr + (uint)e.Bytes)) continue;
             if (blocks.Any(b => t >= b.Entry && t < b.Entry + (uint)b.Size)) continue;
             claimed.Add(t);
 
@@ -187,6 +192,19 @@ public static class RecompCommand
     static void Count(Dictionary<string, int> d, string key)
     {
         d[key] = d.TryGetValue(key, out int n) ? n + 1 : 1;
+    }
+
+    /// <summary>The bytes a decoded function covers, including any embedded data between its
+    /// instructions (the model's size counts only instruction bytes).</summary>
+    static int Span(Emitter.Function f)
+    {
+        uint end = f.Entry;
+        foreach (Insn insn in f.Insns)
+        {
+            uint after = insn.Addr + (uint)insn.Len;
+            if (after > end) end = after;
+        }
+        return (int)(end - f.Entry);
     }
 
     /// <summary>True when `addr` falls inside a modelled function's byte range.</summary>

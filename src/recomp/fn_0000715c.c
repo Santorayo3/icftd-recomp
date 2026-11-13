@@ -642,13 +642,14 @@ L_725A:
     rc_d_set(c, 1, RC_W, rc_shift(c, 0, 1, (c->d[0] & 63u), rc_d_get(c, 1, RC_W), RC_W));
 
 L_725C:
-    /* 0000725c   2  sbcd D0,D1 */
+    /* 0000725c   2  or.b D1,(A0) */
     c->pc = RC_ADDR(0x0000725cu);
     rc_step(c, m, 12);
-    t0 = rc_d_get(c, 0, RC_B);
-    t1 = rc_d_get(c, 1, RC_B);
-    t2 = rc_bcd_sub(c, t1, t0);
-    rc_d_set(c, 1, RC_B, t2);
+    t3 = c->a[0];
+    t1 = rc_rd8(c, m, t3);
+    t2 = t1 | rc_d_get(c, 1, RC_B);
+    rc_wr8(c, m, t3, t2);
+    rc_set_nzvc(c, t2, RC_B);
 
 L_725E:
     /* 0000725e   6  move.w (fffffffe,A5),(ffffcf44,A4) */

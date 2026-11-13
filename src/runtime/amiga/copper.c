@@ -29,7 +29,13 @@ void rt_cop_reset(rt_machine *m)
 void rt_cop_vblank(rt_machine *m)
 {
     rt_copper *c = &m->copper;
-    u32 list = m->gfx.cprList;
+    u32 crl = m->gfx.cprList;
+    /* LoadView puts LOFCprList->start into COP1LC, not the cprlist itself: the struct is
+     * { Next, start, MaxCount } and the program is at `start`. The engine relies on that - it
+     * keeps the list graphics.library built and points the struct's start at a list of its own
+     * (FUN_00011F64: it saves the old start/MaxCount at 0x2A888/0x2A88C and restores them in
+     * FUN_000120F4), so following the struct instead of its start runs the wrong list. */
+    u32 list = crl != 0 ? rt_read32(&m->mem, crl + 4) : 0;
 
     c->list = list;
     c->pc = list;

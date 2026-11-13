@@ -21,6 +21,7 @@
 
 #include "types.h"
 #include "machine.h"
+#include "display.h"
 #include "slots.h"
 #include "copper.h"
 #include "blitter.h"
@@ -178,45 +179,26 @@ void rt_slots_reset(rt_machine *m)
 void rt_slots_update(rt_machine *m)
 {
     rt_slots *s = &m->slots;
-    u32 view = m->view, vp = 0, ri = 0, bm = 0;
+    rt_view_regs vr;
+    u32 view = m->view, vp = 0;
     int vstart, vstop, planes, hires, words, i;
 
     /* The display state the engine programs lives in the View it installed, exactly as the
      * presenter reads it: graphics.library turns ViewPort DWidth/DHeight/Modes and the BitMap's
      * depth into the copper list's BPLCON0/DDFSTRT/DDFSTOP/DIWSTRT/DIWSTOP, and on hardware it is
-     * those registers that decide which colour clocks Agnus takes. This runtime composes no
-     * copper list of its own for the display registers (the list in RAM is the palette the engine
-     * fades), so the same numbers are derived from the structures, as the OS would.
+     * those registers that decide which colour clocks Agnus takes. rt_gfx_view_regs() is that
+     * derivation - the same one MrgCop writes into the list - so the map and the copper cannot
+     * disagree about the geometry.
      *
      * A register the code wrote directly still wins: the game programs BPLCON0/DIW itself on
-     * some screens (LoadView), and that is the state the display is in. */
-    planes = 0;
-    hires = 0;
-    words = 0;
-    vstart = 0x2C;
-    vstop = 0x2C + 200;
-    if (view != 0)
-    {
-        vp = rt_read32(&m->mem, view);
-        if (vp != 0)
-        {
-            int w = (int)rt_read16(&m->mem, vp + 0x18);         /* DWidth  */
-            int h = (int)rt_read16(&m->mem, vp + 0x1A);         /* DHeight */
-            u16 modes = (u16)rt_read16(&m->mem, vp + 0x20);     /* VP Modes */
-
-            ri = rt_read32(&m->mem, vp + 0x24);
-            bm = ri != 0 ? rt_read32(&m->mem, ri + 4) : 0;
-            if (bm != 0)
-            {
-                int d = (int)rt_read8(&m->mem, bm + 5);
-                if (d > 0 && d <= 8) planes = d;
-            }
-            if (w > 0) words = (w + 15) / 16;
-            hires = (modes & 0x8000u) != 0;
-            if (h > 0) vstop = vstart + h;
-            if (vstop > EMU_FRAME_LINES) vstop = EMU_FRAME_LINES;
-        }
-    }
+     * some screens, and that is the state the display is in. */
+    if (view != 0) vp = rt_read32(&m->mem, view);
+    rt_gfx_view_regs(m, vp, &vr);
+    planes = vr.planes;
+    hires = vr.hires;
+    words = vr.words;
+    vstart = vr.vstart;
+    vstop = vr.vstop;
     /* The copper list / direct register writes, when the engine made them. */
     {
         u16 bplcon0 = reg16(m, 0x100);
@@ -238,11 +220,11 @@ void rt_slots_update(rt_machine *m)
             if (vstart > EMU_FRAME_LINES) vstart = EMU_FRAME_LINES;
             if (vstop > EMU_FRAME_LINES) vstop = EMU_FRAME_LINES;
         }
-        s->bplcon0 = bplcon0 != 0 ? bplcon0 : (u16)((planes << 12) | (hires ? 0x8000u : 0u));
-        s->ddfstrt = ddfstrt != 0 ? ddfstrt : 0x0038u;
-        s->ddfstop = ddfstop != 0 ? ddfstop : (u16)(0x0038u + 8u * (u32)(words > 0 ? words - 1 : 0));
-        s->diwstrt = diwstrt != 0 ? diwstrt : (u16)(((u32)vstart << 8) | 0x81u);
-        s->diwstop = diwstop != 0 ? diwstop : (u16)((((u32)vstop & 0xFFu) << 8) | 0xC1u);
+        s->bplcon0 = bplcon0 != 0 ? bplcon0 : vr.bplcon0;
+        s->ddfstrt = ddfstrt != 0 ? ddfstrt : vr.ddfstrt;
+        s->ddfstop = ddfstop != 0 ? ddfstop : vr.ddfstop;
+        s->diwstrt = diwstrt != 0 ? diwstrt : vr.diwstrt;
+        s->diwstop = diwstop != 0 ? diwstop : vr.diwstop;
     }
     s->copperList = m->gfx.cprList;
     s->copperEntries = 0;

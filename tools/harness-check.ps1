@@ -21,6 +21,41 @@ Check '20820 strlen' @('rcmp', '00020820', '--fixture', 'ref\fixtures\00020820-s
 Check '20810 strcpy' @('rcmp', '00020810', '--fixture', 'ref\fixtures\00020810-strcpy.json') 'D0=00030000[\s\S]*48656c6c6f'
 Check '208a4 memset' @('rcmp', '000208a4', '--fixture', 'ref\fixtures\000208a4-memset.json') '00030000\s+4B\s+41414141'
 
+# Opmode 4 is shared: ABCD/SBCD/ADDX/SUBX only when bits 5-4 are clear, otherwise the ordinary
+# AND.B / OR.B / ADD.B / SUB.B Dn,<ea> form.  A byte of 0xF0 with D0.b = 0x0F gives 00, FF, FF,
+# E1 - the mask builder in the hospital minigame depends on the AND/OR pair.
+foreach ($case in @(
+    @{ Name = '1ab60 and.b D0,(A0)';   Entry = '0001ab60'; Addr = '0x30000'; Want = '00' },
+    @{ Name = '1ab84 or.b D0,(A0)';    Entry = '0001ab84'; Addr = '0x30000'; Want = 'ff' },
+    @{ Name = '13ad0 add.b D0,(e,A0)'; Entry = '00013ad0'; Addr = '0x3000e'; Want = 'ff' },
+    @{ Name = '4870 sub.b D0,(A0)';    Entry = '00004870'; Addr = '0x30000'; Want = 'e1' }))
+{
+    $script = "out\opmode4-$($case.Entry).steps"
+    @(
+        'set A0 0x30000'
+        "patch $($case.Addr) f0"
+        'set D0 0x0f'
+        'step 1'
+        "mem $($case.Addr) 1"
+    ) | Set-Content $script -Encoding ascii
+    $addrHex = ([Convert]::ToUInt32($case.Addr, 16)).ToString('x8')
+    Check $case.Name @('rrun', $case.Entry, '--script', $script) ("${addrHex}\s+$($case.Want)\b")
+}
+
+# ADDX/SUBX share all three opmodes with the ordinary ADD/SUB Dn,<ea> form; bits 5-4 clear is the
+# extend form and the size comes from bits 7-6. 0xD145 = addx.w D5,D0, 0xD381 = addx.l D1,D1: both
+# were decoded as plain ADD, which loses the extend bit and (for 0xD145) the destination register.
+foreach ($case in @(
+    @{ Name = 'fbc0 addx.w D5,D0'; Entry = '0000fbc0'; Want = 'D0=aaaabaab'
+       Steps = @('set SR 0x2710', 'set D0 0xaaaaaaaa', 'set D5 0x00001000', 'step 1', 'regs') },
+    @{ Name = '21240 addx.l D1,D1'; Entry = '00021240'; Want = 'D1=00000003'
+       Steps = @('set SR 0x2710', 'set D1 0x00000001', 'step 1', 'regs') }))
+{
+    $script = "out\addx-$($case.Entry).steps"
+    $case.Steps | Set-Content $script -Encoding ascii
+    Check $case.Name @('rrun', $case.Entry, '--script', $script) $case.Want
+}
+
 # The strongest case: engine plane bytes vs the C decoder, 680 bytes.
 & $exe rcmp 0001ec42 --dump-mem 0x50000:0x2a8 > out\sms-planes.txt
 & $exe smsfile ref\fixtures\sms\UANT.rec > out\sms-ref.txt

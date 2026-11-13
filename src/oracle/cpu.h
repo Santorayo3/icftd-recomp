@@ -30,9 +30,10 @@ void oracle_regs_get(u32 *r);
 void oracle_regs_set(const u32 *r);
 
 /* Enters one of the engine's own routines once, at a frame boundary, exactly like the host's
- * `--call`: the frame gets the argument followed by EMU_EXIT_PC, so the run stops when the
- * routine returns. Used to reach a scene in both front ends without playing to it. */
-void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc);
+ * `--call`: the frame gets the argument followed by <retpc>, or EMU_EXIT_PC when <retpc> is 0, so
+ * the run stops when the routine returns unless a real return address was given. Used to reach a
+ * scene in both front ends without playing to it. */
+void oracle_call_at(u32 pc, u32 frame, u32 arg, long insns, u32 atPc, u32 retPc);
 
 /* Writes Musashi's 68000 per-opcode cycle table (64 KB, indexed by the opcode word) so the
  * translated build charges the same costs. Call after oracle_boot. 1 = written. */

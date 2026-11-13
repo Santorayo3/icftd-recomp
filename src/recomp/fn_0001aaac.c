@@ -580,13 +580,14 @@ L_1AB5C:
     rc_set_nzvc(c, t2, RC_W);
 
 L_1AB60:
-    /* 0001ab60   2  abcd D0,D0 */
+    /* 0001ab60   2  and.b D0,(A0) */
     c->pc = RC_ADDR(0x0001ab60u);
     rc_step(c, m, 12);
-    t0 = rc_d_get(c, 0, RC_B);
-    t1 = rc_d_get(c, 0, RC_B);
-    t2 = rc_bcd_add(c, t1, t0);
-    rc_d_set(c, 0, RC_B, t2);
+    t3 = c->a[0];
+    t1 = rc_rd8(c, m, t3);
+    t2 = t1 & rc_d_get(c, 0, RC_B);
+    rc_wr8(c, m, t3, t2);
+    rc_set_nzvc(c, t2, RC_B);
 
 L_1AB62:
     /* 0001ab62   2  move.l D5,D0 */
@@ -685,13 +686,14 @@ L_1AB82:
     rc_d_set(c, 0, RC_W, t2);
 
 L_1AB84:
-    /* 0001ab84   2  sbcd D0,D0 */
+    /* 0001ab84   2  or.b D0,(A0) */
     c->pc = RC_ADDR(0x0001ab84u);
     rc_step(c, m, 12);
-    t0 = rc_d_get(c, 0, RC_B);
-    t1 = rc_d_get(c, 0, RC_B);
-    t2 = rc_bcd_sub(c, t1, t0);
-    rc_d_set(c, 0, RC_B, t2);
+    t3 = c->a[0];
+    t1 = rc_rd8(c, m, t3);
+    t2 = t1 | rc_d_get(c, 0, RC_B);
+    rc_wr8(c, m, t3, t2);
+    rc_set_nzvc(c, t2, RC_B);
 
 L_1AB86:
     /* 0001ab86   2  addq.l #1,D5 */

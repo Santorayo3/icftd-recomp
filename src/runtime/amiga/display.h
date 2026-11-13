@@ -27,7 +27,8 @@ enum {
     EMU_BM_PLANES    = 8
 };
 
-enum { EMU_VP_COLORMAP = 4, EMU_VP_WIDTH = 0x18, EMU_VP_HEIGHT = 0x1A, EMU_VP_RASINFO = 0x24 };
+enum { EMU_VP_COLORMAP = 4, EMU_VP_WIDTH = 0x18, EMU_VP_HEIGHT = 0x1A, EMU_VP_MODES = 0x20,
+       EMU_VP_RASINFO = 0x24 };
 enum { EMU_RI_BITMAP = 4 };
 enum { EMU_CM_COUNT = 0x0F, EMU_CM_TABLE = 0x10 };
 
@@ -81,6 +82,21 @@ void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b);
 
 /* Converts the View's raster into the chunky framebuffer and refreshes the palette. */
 void rt_gfx_present(rt_machine *m, u32 view);
+/* The display registers a ViewPort asks graphics.library to program: what the OS turns
+ * ViewPort DWidth/DHeight/Modes and the RasInfo's BitMap depth into. MgCop writes them into the
+ * copper list and slots.c builds its colour-clock map from them, so both read one derivation. */
+typedef struct rt_view_regs
+{
+    int planes;                 /* BitMap depth, the number of bitplanes fetched   */
+    int hires;                  /* ViewPort Modes bit 15                          */
+    int words;                  /* bitplane words per line: (DWidth + 15) / 16    */
+    int vstart, vstop;          /* display lines [vstart, vstop)                  */
+    u16 bplcon0, ddfstrt, ddfstop, diwstrt, diwstop;
+} rt_view_regs;
+
+/* Fills `r` from ViewPort `vp` (0 = nothing loaded: the A500 defaults). */
+void rt_gfx_view_regs(rt_machine *m, u32 vp, rt_view_regs *r);
+
 /* 8254 counts spent in the planar->chunky loop, for a front end's --perf split (0 on a platform
  * without a PIT readout). */
 extern u32 rt_gfx_perf_conv;

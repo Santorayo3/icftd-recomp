@@ -4,6 +4,290 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+**Third divergence: the playfield did not stop where the copper says it does.**
+With the scroll smooth, the bottom of the flight screen showed a band of noise. It is the HUD - the
+canister count and the FUEL bar - which is a *second display region* in the same copper list:
+
+    entry 0   WAIT 1B01 FFFE                 ; playfield starts
+    entry 1   BPLCON0 0200, DIW 2C90..E0B0, DDF 0038..00C8, BPLCON1, BPL1MOD/BPL2MOD = 2
+    entries 3..19   ... 5 plane pointers 04F610 051980 053CF0 056060 0583D0
+    entries 20..51  32 colours
+    entry 52  WAIT 1D01 FFFE                 ; region 2
+    entry 54  WAIT CA01 FFFE                 ; row 0xCA = 202 -> the HUD
+    entry 56  5 plane pointers 08D0B0 08D500 090750 090BA0 090FF0 (its own bitmap)
+    entry 66  WAIT E201 FF00                 ; end
+
+`rt_gfx_present()` now splits the list into regions at its WAITs and converts each row with the
+plane set and the `BPLCON1` delay the copper has in force there, reading that region's bitmap from
+its own row 0 (the display row is not the bitmap row - feeding the display row into the second
+region read 158 rows into the panel, which is the noise that was visible). The DIW rectangle is
+applied as well: the list asks for lines 0x2C..0xE0 (180 rows, with the HUD in the last 22) and
+`0x90..0xB0` across, so the flight view sits inside a black border, while the map/room lists use
+`0x81..0xC1` and stay full width.
+
+Checked against the reference: rendering the HUD's five planes from a RAM dump reproduces the
+original's panel exactly (canister icon, "2", "FUEL" bar with its red gauge). `tools\gate.ps1` 4/4,
+RAM byte-identical to the oracle at frames 3100 and 3110.
+
+**Second divergence, same screen (found when the scroll became visible): the wrong buffer.**
+With the delays applied the picture scrolled, but once a second it jumped a tile and came back,
+and the plane sprite vanished for a frame. Cause: the engine double-buffers. `FUN_00011cdc` swaps
+the five plane pointers at `DAT_00028d7c` with `DAT_00028d90` (0x11d32) in the same vblank that
+patches `BPLCON1`, and the copper list is rebuilt from them; `rt_gfx_present()` was converting the
+*ViewPort's* BitMap, which is only one of the two buffers - so at every flip we showed the buffer
+the beam was not on, one flip stale. Measured: the list's `BPLxPT` group read `044378 0466E8 048A58
+04ADC8 04D138` while the ViewPort's planes were `04F4D0 051840 053BB0 055F20 058290`.
+
+The presenter now takes the plane pointers from the installed copper list - the group the engine
+patches, i.e. the first complete `BPL1PTH..BPLnPTL` block whose pointers all sit inside RAM - so it
+renders what the shifter reads. Measured on the recorded flight, frames 3100-3130, best-fit shift
+between consecutive presented frames:
+
+    before   3108->3109 shift +15 px, 3110->3111 content swap (84 % mismatch)   <- jump and back
+    after    -1 px every three frames, 0 % mismatch on the static frames, 6.9 % on the moving ones
+             (the 6.9 % is the sprite, which does not shift) - including the frames where the
+             buffer flips and the delay changes
+
+`tools\gate.ps1` 4/4, RAM still byte-identical to the oracle at frames 3100 and 3110, and the map
+after the crash (frame 4825) is unchanged.
+
+## The minigames ran frozen: BPLCON1 was never applied (2026-11-13)
+
+Reported as "the flight and hospital minigames run too slowly and the scrolling is very choppy".
+Measured first (RULE 0: machine state, not a picture), and the report split into two unrelated
+facts - one a real platform divergence, now fixed; one the engine's own pacing, still open.
+
+**What the engine does.** The flight and hospital scenes scroll horizontally *without touching the
+bitmap*. The frame interrupt `FUN_00011e92`/`FUN_00011cdc` (WGameVBI) decrements the fine-scroll
+accumulator `DAT_00028cd4` by `DAT_00028cdc` per scene tick, and patches the copper list it keeps
+at `DAT_0002a85a`:
+
+    0x11cf2  move.w DAT_00028cd4,D0 / lsl.w #4,D0 / or.w DAT_00028cd4,D0 / move.w D0,(A0)
+             ; A0 = list + 0x1E = the value of the `0102` (BPLCON1) entry
+
+so `PF1H = PF2H = (fine+1) & 15`. The coarse position (`DAT_0002a1a4`/`DAT_0002a1a6`, the camera in
+`DAT_0002a850`/`0x2a852 = col*16 + DAT_000297ee`) only moves when that accumulator wraps; the
+bitmap is only redrawn then (103 blits in one frame, against 15 per normal tick).
+
+**The divergence.** `rt_gfx_present()` converted the ViewPort bitmap with a straight 8-bit copy -
+no playfield delay at all. A register the whole scroll depends on was simply not implemented, so
+the picture stood still between coarse steps. Measured on the recorded flight
+(`out\flight-live.txt`, frames 3080-3260, 60-row band, best-fit shift per frame pair):
+
+    before   0 px of motion over 181 frames;  the band is byte-identical for 6+ frames at a time
+             and then changes discontinuously (best-fit shift 0, mismatch 20-53 %)
+    after    1 px per scene tick, every tick, mismatch 0 % (a pixel-exact shift), no jump at the
+             coarse redraw
+
+`conv_picture_scrolled()` now applies it the way the hardware does: data enters the shifter
+`PF1H`/`PF2H` colour clocks late (winuae `drawing.cpp`, `update_bplcon1` + `copybpl2` at
+`bplcon1_shift[p]`), so screen pixel x shows bit `x-d` of its playfield's plane row, with
+playfields alternating over the bitplanes (1,3,5 = playfield 1). Bytes in front of the row are what
+the fetch already has in the shifter, so a negative index reads the memory before the row. Both
+nibbles equal in this game, but the playfield split is implemented because that is the register's
+meaning. The first `0102` entry in the list is the one in force at the top of the frame; the engine
+writes a second one (`0x00FF`) for the panel region, and taking the last would hide the scroll.
+
+The cache that skips a conversion (`conv_same`) now includes the two delays - a frame that only
+changed BPLCON1 has an unchanged bitmap and would otherwise not be re-converted.
+
+**Nothing that works today changes.** Measured `d1`/`d2` at the screens this project has verified:
+frame 200 (intro) 0/0, 1000 0/0, 1650 (Load Screen) 0/0, 2000 0/0, 2300 0/0, 2890 (flight, not
+flying) 0/0, 3000 0/0, 4825 (map after the crash) 0/0. Only the scrolling minigames carry a
+non-zero delay, and those take the new path; everything else takes the untouched group loop.
+`tools\gate.ps1` 4/4, and RAM stays byte-identical to the oracle (frames 3100 and 3110 of the
+recorded flight, 0 of 2 097 152 bytes) - this is a presenter change, so it must not and does not
+touch machine state.
+
+**What is still open: the cadence, not the smoothness.** With the scroll visible again the engine's
+own pacing is measurable and is *not* a bus-accounting error:
+
+  * The scene tick `FUN_000107a6` runs **once per 3 vblanks** (32-33 per 100 frames) - 16.5 Hz.
+  * Per tick: ~21 000 instructions and ~87 000 blitter cycles (43 600 colour clocks, 0.61 of a
+    frame: five 320x200 plane copies at 2 clocks/word, `FUN_000116e6`, D=A restore), plus **two**
+    vblank handshakes it waits for (`DAT_00028ce0` set at 0x10968, `DAT_0002a54a` at 0x10982,
+    both cleared by the WGameVBI server at 0x11e88/0x11e8c).
+  * Host and oracle are in exact instruction lockstep here (identical counts and PCs at frames
+    2300/2320/2330/2340/2350/2360), and the cost model is Musashi's 68000 table walked through
+    UAE's slot map (CPU share 74.1 % at 5 planes) - so the emulated machine is not being charged
+    more than the hardware would be.
+
+The engine's structure forces at least two vblanks per tick; our work then adds a third. Whether
+the original also lands on three frames cannot be settled from our side - the oracle shares this
+platform model - so the next measurement needs the reference: two WinUAE savestates seconds apart
+inside the flight give (a) `DAT_000297ae` (actor slot count behind the O(n^2) scan in
+`FUN_000135da`, 30 here), (b) `DAT_0002a85a`'s BPLCON1 entry and (c) `DAT_0002a850`/`0x2a852`, i.e.
+pixels travelled per vblank. Tooling is in place: `tools\refstate.ps1` reads a `.uss`, and the
+program sits at `0xC52660`, so RAM address = `0xC00000 + image offset`.
+
+**The HUD: read from the engine's list filler.** `FUN_0001200c` writes the list in three blocks -
+the playfield's five plane pointers at `list+0x2A` from `DAT_0002a85e` (`DAT_00028d7c + 400`, i.e.
+the double-buffered set plus ten rows), the palette at `+0x52`, and the **HUD's five pointers at
+`list+0xE2`** from a *separate* fixed array `DAT_0002a88e`. The horizontal scroll never moves those
+pointers, which is why the panel sits still while the world slides.
+
+Two code faults kept the HUD off the screen, both in `rt_gfx_present()`:
+
+  * the region rows were recorded with `regVStart` still 0, because the DIW was read *after* the
+    region loop; the HUD's WAIT `0xCA` then became row 202 instead of `202 - 0x2C = 158`, i.e.
+    below a 200-row frame, so the playfield was painted over it. The DIW is now read first, in its
+    own pass, and the row is `vpos - vstart`;
+  * the sanity guard compared the window against `EMU_FB_MAX_H` (the buffer bound) instead of the
+    ViewPort's height, so a legitimate 180-row window was rejected.
+
+Measured after the fix, on the recorded flight: region 1 at row **158**, its 22 rows carrying the
+panel's data (`row 162..178`, 250-280 non-blank pixels per row), rows 180+ border black - which is
+the black bar the original shows under the bar, and the same window gives the black band on foot.
+Only the *vertical* part of the DIW is used: the `0x90..0xB0` horizontal pair does not mean "inset
+window" (the original fills the width) and applying it cropped the picture to a 160-pixel column,
+which is what made a previous build look like huge borders with the character off-screen.
+
+## A raster regression check in the gate (2026-11-13, after breaking the map screen)
+
+A DIW-window change made the map screen render as a few rows behind a huge black frame and still
+passed `tools\gate.ps1` 4/4, because the gate only checked translation. There is now a fifth step,
+`tools\present-check.ps1`, that measures the raster instead of looking at it:
+
+  * **coverage** - the fraction of non-border pixels for intro / map / flight frames; a blank screen
+    or an oversized border fails (`coverage < 0.90`, `< 0.85` for the flight, which has a HUD band),
+  * **motion** - two frames 300 000 instructions apart must differ by at least 50 sampled pixels,
+    which is what a stale framebuffer (a frozen picture with a live game behind it) fails.
+
+Frames come from the recorded sessions under `out\`; without them the step reports SKIP, so the gate
+still runs on a fresh clone. Current: intro 0.957, map 1.000, flight 0.958, motion 2740 pixels,
+gate 5/5.
+
+Still open from the same screen: the flight view's border/HUD geometry. The DIW registers must be
+read **by register** (0x08E/0x090), never by entry index - index 3/4 are DIWSTRT/DIWSTOP in the
+flight's list but something else in the map's, and reading them by index is what collapsed the map.
+The region split itself (playfield + HUD) works and is what makes the fuel/canister panel render.
+
+## The room after a flight crash: reproduced, and where the picture comes from (2026-11-12)
+**Reproduction, kept.** `ref\inputs\flight-crash-hospital-room.txt` (local: `/ref/` is gitignored)
+is a recorded playthrough - new game, Map -> Airfield -> "Take a Flight", walk to the plane, hold UP,
+crash into a rock - made with the host's new `--run --record`. Replay it on either front end with
+`--input ref\inputs\flight-crash-hospital-room.txt`. It reaches the crash at frame ~2900 and the room
+that follows, and it is the only reproduction of "the room is garbled after the flight" that does not
+need a human at the keyboard.
+
+**It is not a translation difference.** Replaying that input in the host and in the oracle gives
+byte-identical RAM - 0 of 2,097,152 bytes - at frames 2890 (flight), 2910 (crash), 2950 (teardown)
+and 3000 (room), with the same PC, and 0 custom-chip differences over all 3258 frame records (the
+only register noise is a dead Z flag on two frames). Whatever is wrong, both front ends do it, so it
+lives in the runtime's display model or in a shim, not in `src\recomp`.
+
+**What the numbers say.** The engine restores its own geometry correctly across the crash
+(`*DAT_00026612/0x2660e` 0x28 -> 0x2a at frame 2950, pointers back to `0x044270`/`0x04F428`). The
+presenter follows the View the game last loaded, and that View **alternates every frame** between the
+two engine buffers - but at frame 3000 buffer `0x044270` holds only 2,595 non-zero bytes while
+`0x04F428` holds 16,228, i.e. the room was drawn into one of them only. Every second presented frame
+therefore shows a buffer the room was never drawn into.
+
+**CONFIRMED (machine state, 2026-11-12 17:35).** The live plane pointers the copper leaves behind
+prove it: at frame 2890 (flight) the installed list programs `BPL1PT..BPL5PT = 0004F5F0 00051970
+00053CF0 00056070 000583F0` (the game's own list, `start 0x0A22A8`, 69 entries, BPLCON0 + DDF +
+BPLxPT + colours + a second group `0008E9C0…` for the panel). At frames 2950/3000/3200 the installed
+list is **the one our `MrgCop` built** (`start 0x5AB68`, 33 entries) and it carries **only COLORxx
+entries** - so the live `BPLxPT` registers are all zero and nothing ever re-points the display at the
+room, while our presenter falls back to the ViewPort bitmap and alternates between the engine's two
+buffers (one of which the room was never drawn into). The engine keeps redrawing the flight's status
+panel, which is why the clock in "Hilbers Field / ETA" keeps advancing on a screen that should have
+become a room.
+
+**Hand-off: the exact work.** `rt_gfx_mrg_cop` (display.c, just above `rt_gfx_present`) allocates
+`cprlist` = 10 bytes `{ Next, start, MaxCount }` plus a `start` array of `(colours + 1) * 4` bytes and
+fills it with one `(COLORxx, value)` entry per colour. It must instead fill, in this order, one 4-byte
+`(register, value)` entry per line of what the OS would program: BPLCON0, DDFSTRT, DDFSTOP, DIWSTRT,
+DIWSTOP, then `BPL1PTH/PTL .. BPLnPTH/PTL` (one entry per plane, high word then low word - the copper
+writes a 16-bit register at a time), then the `COLORxx` entries as now; `MaxCount` = the number of
+entries. Sources: depth and planes from the ViewPort's `RasInfo->BitMap` (`bm_depth`, `bm_plane`),
+the register values for BPLCON0/DDF/DIW from the ViewPort fields `slots.c` already derives them from
+(`EMU_VP_*` in display.h; `--slots` prints what it computed, so it can be diffed entry for entry).
+Verification, in this order: (1) replay `ref\inputs\flight-crash-hospital-room.txt` and read the live
+`BPLxPT` words out of the `--state` records (custom[] words 0xE0.. as in `EMU_CUSTOM_BPL*`) - they must
+name the room's planes at frames 2950/3000 instead of `000000`; (2) RAM must stay byte-identical to
+the oracle at 2890/2910/2950/3000 (it is today, and this change must not move it); (3) `--slots` at a
+fixed frame must print the same DDF/DIW/DMACON map as before, because `slots.c` parses that list;
+(4) `tools\gate.ps1` 4/4; (5) the screens that work today must not change - compare the presented
+picture at the same frames (intro ~200/1000, a room ~2000, the flight ~2890) before and after.
+
+Session tooling added for this work, all on the host and the oracle: `--record <file>` (frame-indexed
+input recording, replayable with `--input`), `--poke <frame>:<addr>=<val>[,...]` now applied by the
+*runtime* at a frame boundary (so it reaches code running inside one translated function),
+`--call <pc>:<frame>:<arg>[:<retpc>]` / `--callat <pc>:<insns>:<arg>[:<atpc>[:<retpc>]]` (a real
+return address instead of the program-end sentinel), `--slot <n>` on the oracle, and `set SR` in both
+fixture and `rrun` script registers. `/ref/` is gitignored, so the recording lives on disk only.
+
+**Tried and reverted**: resolving the presented planes from the installed list instead of the
+ViewPort (`rt_gfx_present`). It leaves the room case untouched (that list has no `BPLxPT`) and changes
+the flight's own picture (61,355 of 192,054 bytes at frame 2890), so it was backed out - the list has
+to be *made* correct in `MrgCop` first, and only then can the presenter prefer it.
+
+## The hospital escape minigame runs translated (2026-11-12, later session)
+"Escape Hospital" is menu entry 6 of `FUN_0000247a` (action char `'}'`); `FUN_00002cc8` case 6 jumps
+through vector slot 70 into `FUN_0001819a`, which loads `Hospital.tiny`, opens `Desert3:HOSP`, loads
+`tiles.dat` and runs the scene, the setup and the per-frame loop (`FUN_00018368`, `FUN_00018832`,
+`FUN_00019006`, `FUN_000189aa`, `FUN_00019e9c`, ...). It is now **translated end to end** - the
+interpreter is not reached anywhere in it - and machine-state identical to the oracle.
+
+Four divergences had to be closed to get there; each is a decoder or table bug, not a scene bug.
+A fifth was found while closing them and concerns the same instruction family.
+
+* **Compiler switch tables were not followed.** The idiom is `cmp #N,Dn / bcc out / asl.w #1,Dn /
+  move.w (d8,PC,Dn.w),Dn / jmp (d8,PC,Dn.w)`, the table holding signed 16-bit offsets from the `jmp`
+  extension-word address. The translator decoded the `jmp` as a constant and refused 18 functions at
+  "line f" - among them `FUN_00002cc8` (the menu dispatcher itself), `FUN_000189aa`, `FUN_00019006`
+  and `FUN_0001a03e`. `Emitter.DecodeFlow` now keeps the instructions of the current path and
+  `SwitchTargets()` reads the table, so the targets are emitted as blocks. The bound compare is
+  `0xB0BC` = `cmp.l #imm,Dn` (`Opk.Cmp` with an immediate source), **not** `CMPI` - accepting only
+  `CmpI` is what made the first attempt fail on `FUN_000135da` at `0x13AD2`.
+* **opmode 4 of the ADD/SUB group is not automatically ADDX/SUBX.** `add.b D0,(0xe,A0)` at `0x13AD0`
+  was decoded as ADDX and the byte add never happened. ADDX/SUBX require bits 5-4 = 00; otherwise
+  opmode 4 is ADD/SUB.B Dn,<ea>. Fixed in `Recomp/Decoder.cs` and in `Cpu68k.cs` (they must agree).
+* **The same bug in the AND and OR groups killed the sprite mask.** `Sms_Load`'s mask builder
+  `FUN_0001AAAC` runs `and.b D0,(A0)` at `0x1AB60` and `or.b D0,(A0)` at `0x1AB84`; both decoded as
+  ABCD/SBCD, so the 32-byte mask/plane buffer was never written and every consumer of it got no
+  mask at all. ABCD/SBCD need bits 5-4 = 00; opmode 4 is AND.B/OR.B Dn,<ea>,
+  opmode 5 is the word form. Both front ends fixed.
+* **ADDX/SUBX share all three opmodes, not just the byte one.** `0xD145` at `0xfbc0` is
+  `addx.w D5,D0` and `0xD381` at `0x21240` is `addx.l D1,D1`; both were decoded as plain ADD/SUB,
+  which drops the extend bit and - for `0xD145` - the destination register. The disambiguation
+  (bits 5-4 clear) applies to opmode 4/5/6, and the extend form's size comes from bits 7-6.
+* **`fn_table` ownership used the model's `size`.** `re/model/functions.csv` sums instruction bytes
+  and so excludes embedded switch data; a call landing past `size` found no owner (the gate's fixture
+  `0x7dca` failed on the computed-jump target `0x1F35E`). `RecompCommand.Span()` now takes the entry
+  to the last instruction's end, block discovery skips targets inside an already emitted span and
+  emits the ones no function covers.
+
+Hand-checked regressions for the opmode-4 shapes are in `tools\harness-check.ps1`
+(`0x1AB60`, `0x1AB84`, `0x13AD0`, `0x4870`) and for the extend forms too (`0xFBC0` = `addx.w`,
+`0x21240` = `addx.l`, both with X set through the harness's new `set SR`); the harness is 19/19 and
+`tools\gate.ps1` 4/4 (746 of
+750 functions emitted; what is still refused is the four line-F startup/supervisor stubs and block
+`0x1c1e`, unchanged and unrelated).
+
+**Parity, measured.** Inject the scene at a frame - host `--call 0x1C19A:200` (raw address), read its
+"calling ... (N insns, was at pc P)" line, then give the oracle `--callat 0x1C19A:N:0:P` - both with
+`--input` and `--state`:
+
+| run | stop | RAM | frame records |
+|---|---|---|---|
+| no input | both `0x1e000` after 12M insns | identical at 350 / 400 / 900 | PC, SR, A0-A7, custom chips identical for all 1237 |
+| with input (`out\tap.txt`, 142 entries) | both `0x1e31a` after 12M insns | identical at 700 / 900 / 1100 | identical for all 1221 |
+
+The remaining whole-RAM hash differences are dead stack scratch: at frames 44 / 128 / 300 / 1168 /
+1215 they are 1..16 bytes inside `0x17Fxxx` - 4 of the 5 below the stack pointer, e.g. `0x17FDE7`
+(host `00`, oracle `36`) - and the very same byte differs on a plain boot run with no injection. At
+frame 300 the 5 bytes at `0x17FEF4..0x17FEF9` do sit above SP, but they are a pushed-and-popped
+temporary: SP, PC, SR and every address register are identical there and the bytes from `0x17FEFA` on
+match again, so nothing live is involved.
+
+Open, pre-existing, not touched: D0 is `-1` where the oracle has `1` at frames 32..45 (PC inside
+`fn_0001d4fa`, 5 of the 1237 records of the no-input run), and identically so on a plain boot run with
+no injection and before any hospital code runs. It is stale - a later instruction overwrites it, and
+control flow, RAM and output are unaffected - but it is still a difference and the first place to look
+if that area is ever reviewed.
+
 ## The bus arbiter: stages 0 and 4 (2026-11-12, later session)
 `cpuStretch` is gone. The machine now has a real slot map and every consumer walks it.
 

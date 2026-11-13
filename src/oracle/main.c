@@ -149,8 +149,12 @@ int main(int argc, char **argv)
     int blitBytePtr = 0;
     int stateEvery = 1;
     int textLog = 0;
-    u32 callPc = 0, callFrame = 300u, callArg = 0u, callAtPc = 0u;
+    u32 callPc = 0, callFrame = 300u, callArg = 0u, callAtPc = 0u, callRetPc = 0u;
     long callInsns = 0;
+    int slot = 1, slotGiven = 0;
+    struct { u32 addr, val; } pokes[8];
+    int pokeCount = 0;
+    u32 pokeFrame = 0;
 
     /* Unbuffered: a run that is killed (see tools\emu-run.ps1) must still leave its log behind up to
      * the point where it stopped, otherwise a hang is indistinguishable from a crash. */
@@ -212,22 +216,50 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
         {
-            /* --call <pc>[:<frame>[:<arg>]] - enter an engine routine once, like the host does. */
+            /* --call <pc>[:<frame>[:<arg>[:<retpc>]]] - enter an engine routine once, like the host. */
             char *p = argv[++i];
             callPc = (u32)strtoul(p, &p, 0);
             callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
-            callArg = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 0u;
+            callArg = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
+            callRetPc = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
             continue;
         }
         if (strcmp(argv[i], "--callat") == 0 && i + 1 < argc)
         {
-            /* --callat <pc>:<insns>:<arg>[:<atpc>] - inject at an exact instruction count, and with
-             * <atpc> only at that PC, so it can match the host's dispatch-loop boundary. */
+            /* --callat <pc>:<insns>:<arg>[:<atpc>[:<retpc>]] - inject at an exact instruction count,
+             * and with <atpc> only at that PC, so it can match the host's dispatch-loop boundary. */
             char *p = argv[++i];
             callPc = (u32)strtoul(p, &p, 0);
             callInsns = (*p == ':') ? (long)strtoul(p + 1, &p, 0) : 0;
             callArg = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
-            callAtPc = (*p == ':') ? (u32)strtoul(p + 1, 0, 0) : 0u;
+            callAtPc = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
+            callRetPc = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 0u;
+            continue;
+        }
+        if (strcmp(argv[i], "--poke") == 0 && i + 1 < argc)
+        {
+            /* --poke <frame>:<addr>=<val>[,...] - the runtime writes these at that frame boundary,
+             * so the write also lands inside a scene that runs its setup in one translated call. */
+            char *p = argv[++i];
+            pokeFrame = (u32)strtoul(p, &p, 0);
+            while (*p == ':' || *p == ',') p++;
+            while (*p != 0 && pokeCount < 8)
+            {
+                u32 a = (u32)strtoul(p, &p, 0);
+                u32 v = 0;
+                if (*p == '=') v = (u32)strtoul(p + 1, &p, 0);
+                pokes[pokeCount].addr = a;
+                pokes[pokeCount].val = v;
+                pokeCount++;
+                while (*p == ',') p++;
+            }
+            continue;
+        }
+        if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
+        {
+            int n = (int)strtol(argv[++i], 0, 0);
+            slot = n < 1 ? 1 : (n > 4 ? 4 : n);
+            slotGiven = 1;
             continue;
         }
         /* --every is shared: "--dump <prefix> n --every k" already means "every k-th raster". */
@@ -322,6 +354,11 @@ int main(int argc, char **argv)
     m.blitBytePtr = blitBytePtr;
     m.busTable = busTable != 0;
     m.slotsAt = slotsAt;
+    if (slotGiven) m.saveSlot = slot;
+    {
+        int k;
+        for (k = 0; k < pokeCount; k++) rt_poke(&m, pokeFrame, pokes[k].addr, pokes[k].val);
+    }
     if (g_window) m.on_frame = on_frame;
     if (g_window || g_prefix[0] != 0) m.on_present = on_present;
 
@@ -351,7 +388,7 @@ int main(int argc, char **argv)
         s32 lvo = 0;
         int lib;
 
-        if (callPc != 0) oracle_call_at(callPc, callFrame, callArg, callInsns, callAtPc);
+        if (callPc != 0) oracle_call_at(callPc, callFrame, callArg, callInsns, callAtPc, callRetPc);
         if (statePrefix != 0)
         {
             if (!state_open(statePrefix, stateEvery, ramFrames)) { rt_shutdown(&m); return 1; }

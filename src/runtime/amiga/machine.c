@@ -458,86 +458,67 @@ static const char *lvo_name(s32 lvo)
 
 /* Bump allocator for AllocMem, above the image and below the stack. */
 /* --- the heap ----------------------------------------------------------------------------
- * AllocMem/FreeMem over the block below EMU_SYS_BASE. A bump pointer was enough while the
- * emulator only ran the intro, but the game frees its scene bitmaps and allocates the next
- * screen's: with nothing ever returned, the intro's own allocations (the mask bitmaps, the two
- * animation rasters) left the heap exhausted the moment the first menu tried to build a picture,
- * and every later AllocMem returned NULL.
+ * AllocMem/FreeMem over the block below EMU_SYS_BASE.
  *
- * So: a first-fit heap with headers. Free blocks sit on one address-ordered list, which is walked
- * to coalesce, so a freed neighbour is reusable. The models are as slow as they look, but a game
- * of this size makes a few hundred allocations in 10 seconds, not thousands per frame.
+ * The bookkeeping lives in the host, not in emulated RAM. exec keeps its MemChunk headers in chip
+ * RAM, so a program that writes a word past an allocation takes the allocator down with it - and
+ * this engine does write four bytes past one of its 800-byte line buffers (a 16-bit store of 0x030C
+ * at frame 2479 of ref\inputs\flight-crash-hospital-room.txt, 4 bytes past an AllocMem(800) block).
+ * With the header inside the address space that store changed the next block's size from 816 to
+ * 3075, the chain stopped there, and the 1.1 MB of free heap behind it became unreachable - so the
+ * hospital scene's AllocMem calls failed and the crash never reached the room. Emulated RAM is
+ * plain RAM here, exactly as the game sees it on the machine.
  *
- * Every header carries a magic word and the next-block walk stops at the first one that does not
- * match. That is not paranoia: the game does clear memory it owns, a wrong byte count reached
- * BltClear() once and swept 1 MB through this heap, and a header turned into garbage then made
- * the free-list walk spin forever inside the emulator (the frame budget never runs inside a native
- * loop, so the run looked hung). A corrupt chain now just ends the list. */
-typedef struct rt_block
-{
-    u32 magic;                       /* EMU_BLOCK_MAGIC while the header is intact */
-    u32 size;                        /* including this header, 8-byte aligned */
-    u32 used;                        /* 1 = handed out */
-    u32 pad;
-} rt_block;
-
-#define EMU_BLOCK_MAGIC 0x424C4B31u  /* 'BLK1' */
-#define EMU_BLOCK_HDR  ((u32)sizeof(rt_block))
+ * Blocks are 8-byte aligned, first fit, with forward/backward coalescing of neighbours: the rules
+ * exec's AllocMem/FreeMem follow for the sizes this game asks for.
+ */
 #define EMU_HEAP_BASE 0x00040000u
 #define EMU_HEAP_TOP  0x0017C000u     /* EMU_SYS_BASE: the exec structures live above */
-static rt_block *heapFirst;
-static int heapCorrupt;
+#define EMU_HEAP_CHUNKS 4096
+
+typedef struct rt_chunk
+{
+    u32 addr;                        /* first byte handed out, 8-aligned */
+    u32 size;                        /* bytes usable from addr          */
+    u32 used;                        /* 1 = handed out                  */
+} rt_chunk;
+
+static rt_chunk heapChunks[EMU_HEAP_CHUNKS];
+static int heapCount;                /* kept in address order */
 
 static void rt_heap_reset(void)
 {
-    heapCorrupt = 0;
-    heapFirst = (rt_block *)(rt_current->mem.base + EMU_HEAP_BASE);
-    heapFirst->magic = EMU_BLOCK_MAGIC;
-    heapFirst->size = EMU_HEAP_TOP - EMU_HEAP_BASE;
-    heapFirst->used = 0;
+    memset(heapChunks, 0, sizeof heapChunks);
+    heapChunks[0].addr = EMU_HEAP_BASE;
+    heapChunks[0].size = EMU_HEAP_TOP - EMU_HEAP_BASE;
+    heapChunks[0].used = 0;
+    heapCount = 1;
 }
 
-/* Next block in address order, or 0 when the list ends or a header has been overwritten. */
-static rt_block *heap_next(rt_block *b)
-{
-    u32 off;
-    rt_block *n;
-
-    if (b->magic != EMU_BLOCK_MAGIC || b->size < EMU_BLOCK_HDR)
-    {
-        if (!heapCorrupt++)
-            printf("emu: heap header at %06lX was overwritten (frame %lu) - list ends here\n",
-                   (unsigned long)((u8 *)b - rt_current->mem.base),
-                   (unsigned long)rt_current->frame);
-        return 0;
-    }
-    off = (u32)((u8 *)b - rt_current->mem.base) + b->size;
-    if (off + EMU_BLOCK_HDR > EMU_HEAP_TOP) return 0;
-    n = (rt_block *)(rt_current->mem.base + off);
-    return n->magic == EMU_BLOCK_MAGIC ? n : 0;
-}
-
-/* First fit. Splits when the tail is still big enough to be worth a header. */
 static u32 rt_alloc(u32 bytes)
 {
-    rt_block *b;
+    int i;
 
     bytes = (bytes + 7u) & ~7u;                       /* AllocMem rounds to 8 */
     if (bytes == 0) bytes = 8;
-    for (b = heapFirst; b != 0; b = heap_next(b))
+    for (i = 0; i < heapCount; i++)
     {
-        if (b->used || b->size < bytes + EMU_BLOCK_HDR) continue;
-        if (b->size >= bytes + EMU_BLOCK_HDR + 16u)
+        rt_chunk *c = &heapChunks[i];
+        if (c->used || c->size < bytes) continue;
+        if (c->size >= bytes + 8u && heapCount < EMU_HEAP_CHUNKS)
         {
-            rt_block *rest = (rt_block *)((u8 *)b + EMU_BLOCK_HDR + bytes);
-            rest->magic = EMU_BLOCK_MAGIC;
-            rest->size = b->size - EMU_BLOCK_HDR - bytes;
-            rest->used = 0;
-            b->size = EMU_BLOCK_HDR + bytes;
+            /* Split: the tail stays free as a chunk of its own, in address order. */
+            int k;
+            for (k = heapCount; k > i + 1; k--) heapChunks[k] = heapChunks[k - 1];
+            heapChunks[i + 1].addr = c->addr + bytes;
+            heapChunks[i + 1].size = c->size - bytes;
+            heapChunks[i + 1].used = 0;
+            c->size = bytes;
+            heapCount++;
         }
-        b->used = 1;
-        memset((u8 *)b + EMU_BLOCK_HDR, 0, b->size - EMU_BLOCK_HDR);
-        return (u32)((u8 *)b - rt_current->mem.base) + EMU_BLOCK_HDR;
+        c->used = 1;
+        memset(rt_current->mem.base + c->addr, 0, c->size);
+        return c->addr;
     }
     printf("emu: out of memory asking for %lu bytes (frame %lu)\n",
            (unsigned long)bytes, (unsigned long)rt_current->frame);
@@ -546,22 +527,26 @@ static u32 rt_alloc(u32 bytes)
 
 void rt_free(u32 addr)
 {
-    rt_block *b, *n;
+    int i, k;
 
-    if (addr < EMU_HEAP_BASE + EMU_BLOCK_HDR || addr >= EMU_HEAP_TOP) return;   /* not ours */
-    b = (rt_block *)(rt_current->mem.base + addr - EMU_BLOCK_HDR);
-    if (b->magic != EMU_BLOCK_MAGIC || !b->used) return;  /* corrupt or double free: ignore */
-    b->used = 0;
-    /* Coalesce forwards as far as the neighbours are free, then backwards once. */
-    while ((n = heap_next(b)) != 0 && !n->used)
-        b->size += n->size;
+    if (addr < EMU_HEAP_BASE || addr >= EMU_HEAP_TOP) return;   /* not ours */
+    for (i = 0; i < heapCount; i++)
+        if (heapChunks[i].addr == addr) break;
+    if (i == heapCount) return;                                 /* not a block we handed out */
+    if (!heapChunks[i].used) return;                            /* double free: ignore */
+    heapChunks[i].used = 0;
+    while (i + 1 < heapCount && !heapChunks[i + 1].used)
     {
-        rt_block *p = heapFirst;
-        while (p != 0 && heap_next(p) != b) p = heap_next(p);
-        if (p != 0 && !p->used)
-        {
-            while ((n = heap_next(p)) != 0 && !n->used) p->size += n->size;
-        }
+        heapChunks[i].size += heapChunks[i + 1].size;
+        for (k = i + 1; k + 1 < heapCount; k++) heapChunks[k] = heapChunks[k + 1];
+        heapCount--;
+    }
+    if (i > 0 && !heapChunks[i - 1].used &&
+        heapChunks[i - 1].addr + heapChunks[i - 1].size == heapChunks[i].addr)
+    {
+        heapChunks[i - 1].size += heapChunks[i].size;
+        for (k = i; k + 1 < heapCount; k++) heapChunks[k] = heapChunks[k + 1];
+        heapCount--;
     }
 }
 
@@ -1816,8 +1801,32 @@ void rt_delay_ticks(rt_machine *m, u32 ticks)
  * into that bitmap since the last flip becomes visible now. Presenting only on LoadView hid every
  * screen that is drawn once and then waits for input - the prompt was painted into the displayed
  * bitmap and never appeared. */
+/* --poke: up to eight words, written together at the first frame boundary at or after the frame
+ * the front end named. Doing it here rather than in the front end's dispatch loop is what makes it
+ * reach a scene that runs its whole setup inside one translated function. */
+void rt_poke(rt_machine *m, u32 frame, u32 addr, u32 val)
+{
+    if (!m->pokeWanted) { m->pokeWanted = 1; m->pokeFrame = frame; m->pokeCount = 0; }
+    if (m->pokeCount >= 8) return;
+    m->pokeAddr[m->pokeCount] = addr;
+    m->pokeVal[m->pokeCount] = val;
+    m->pokeCount++;
+}
+
 void rt_frame_present(rt_machine *m)
 {
+    if (m->pokeWanted && m->frame >= m->pokeFrame)
+    {
+        int k;
+        m->pokeWanted = 0;
+        for (k = 0; k < m->pokeCount; k++)
+        {
+            rt_write32(&m->mem, m->pokeAddr[k], m->pokeVal[k]);
+            printf("emu: poke %06lX = %08lX at frame %lu (%ld insns)\n",
+                   (unsigned long)m->pokeAddr[k], (unsigned long)m->pokeVal[k],
+                   (unsigned long)m->frame, (long)m->insns);
+        }
+    }
     if (m->frameLog != 0) rt_framelog(m);
     if (m->view != 0 && !m->inTick) rt_gfx_present(m, m->view);
 }
