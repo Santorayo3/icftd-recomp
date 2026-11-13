@@ -340,7 +340,15 @@ Static translation of `dshell`'s 750 functions (137,816 bytes) to C, in the N64R
 
 ### C - it is a port
 
-Front end, scaling, widescreen, then the mod seams above.
+Front end, scaling, widescreen, then the mod seams above. The played game opens on a port-made
+title screen (`src\host\title.c`, art from `assets\titlescreen.png`) and the Win32 window hides and
+confines the mouse pointer - both are ours, and neither is visible to the oracle or to a
+measurement run (see the sections on them in `docs\next-session.md`). The title's music is not ours:
+it holds the program before the intro's setup (`FUN_00009870`), calls the engine's own score entry
+`FUN_00009cf2(&"Overhead2.tiny", -1)` and unloads it again with `FUN_0000ec8a` when the player
+presses fire. Holding the program there needs a dispatch seam that the call boundary cannot give
+(`FUN_00009870` runs as a block inside a translated function), so `src\recomp\cpu.c` has
+`rc_breakPc` beside `rc_stopAt`: a PC the step budget hands back to the host before running it.
 
 ## MS-DOS specifics to respect from day one
 

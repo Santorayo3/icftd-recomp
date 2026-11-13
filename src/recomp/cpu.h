@@ -180,6 +180,12 @@ void rc_step(cpu_t *c, rt_machine *m, u32 cycles);
  * per instruction, also in the middle of a translated function: rc_step leaves the stream with
  * c->pc on the instruction that has not run, which is where the interpreter stops too. */
 extern long rc_stopAt;
+/* Front-end seam: leave the stream (c->pc on that instruction, which has not run) as soon as the
+ * instruction about to execute sits at this address (0 = never). The front end then owns the
+ * program for a while and re-enters at the same PC - the host's title screen holds the intro this
+ * way, at an instruction the dispatcher would otherwise run as a block inside a translated
+ * function, i.e. where no call boundary exists. */
+extern u32 rc_breakPc;
 /* Stop the dispatch (leaving c->pc at the next instruction) instead of handing control to
  * rc_interpreter: the host's own driver owns the seam between translated and interpreted code. */
 extern int rc_stopOnUnknown;

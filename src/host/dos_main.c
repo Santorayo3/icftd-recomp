@@ -35,15 +35,10 @@
 #include "../oracle/cpu.h"
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
+#include "title.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 4
-
-/* The 68000 register file, as oracle_regs_get/set order it: d0-d7, a0-a7, sr, pc. */
-#define REGS_D 0
-#define REGS_A 8
-#define REGS_SR 16
-#define REGS_PC 17
 
 static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
@@ -373,6 +368,11 @@ int main(int argc, char **argv)
     m.on_present = dos_present;
     plat_set_frame_hz(50);
 
+    /* The title screen is part of the played game. A scripted run (--frames, --call, --dump) is
+     * reproducing or inspecting the original, which has no title, so it starts where it starts; the
+     * title engages itself when the program is about to play its intro (see title.c). */
+    host_title_arm(frameLimit == 0 && g_callPc == 0 && g_dumpPath == 0);
+
     g_cpu = &c;
     oracle_boot(EMU_ENTRY, EMU_A4);
     /* After oracle_boot, which installs the dev tool's own hook: a CIA timer expiry is game code
@@ -407,6 +407,7 @@ int main(int argc, char **argv)
                    (unsigned long)g_callArg, (unsigned long)m.frame);
         }
         pc = m68k_get_reg(0, M68K_REG_PC);
+        if (host_title_check(&m, pc)) continue;
         if (g_trace && m.mem.bad != 0 && !badReported)
         {
             badReported = 1;

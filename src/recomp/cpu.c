@@ -32,6 +32,7 @@ void rc_tick(void)
 void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
 int rc_stopOnUnknown;
 long rc_stopAt;
+u32 rc_breakPc;
 
 /* Armed only while rc_call runs the stream, so rc_step can leave it in the middle of a function. */
 static jmp_buf rc_stopBuf;
@@ -62,6 +63,14 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
     if (rc_stopAt > 0 && m->insns >= rc_stopAt)
     {
         m->stop = 1;
+        if (rc_stopJump != 0) longjmp(*rc_stopJump, 1);
+        return;
+    }
+    /* The front end asked to be handed the program before this instruction runs (rc_breakPc): the
+     * stream is left with c->pc on it, exactly as rc_stopAt leaves it, and the front end re-enters
+     * there when it is done. */
+    if (rc_breakPc != 0 && c->pc == rc_breakPc)
+    {
         if (rc_stopJump != 0) longjmp(*rc_stopJump, 1);
         return;
     }

@@ -39,6 +39,7 @@
 #include "../oracle/cpu.h"
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
+#include "title.h"
 
 #define DEFAULT_IMAGE "export\\code\\dshell4k\\dshell.img"
 #define HS_BASE       EMU_IMAGE_BASE
@@ -47,12 +48,6 @@
 
 /* How many save slots the game exposes: saves\slot1 .. slot4. */
 #define MAX_SAVE_SLOTS 4
-
-/* The 68000 register file, as oracle_regs_get/set order it: d0-d7, a0-a7, sr, pc. */
-#define REGS_D 0
-#define REGS_A 8
-#define REGS_SR 16
-#define REGS_PC 17
 
 static void gather(cpu_t *c, rt_machine *m)
 {
@@ -618,6 +613,13 @@ int main(int argc, char **argv)
     }
     if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
 
+    /* The title screen is part of the played game, not of a measurement: a run with an input
+     * script, a state/raster dump, an injected entry or a poke is reproducing or inspecting the
+     * original, which has no title, and must start where the original starts. It engages itself
+     * when the program is about to play its intro (see title.c). */
+    host_title_arm(g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+                   dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0);
+
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
 
@@ -662,6 +664,7 @@ int main(int argc, char **argv)
                 printf("recomp:      returns into the program at %06lX\n", (unsigned long)g_callRet);
         }
         pc = m68k_get_reg(0, M68K_REG_PC);
+        if (host_title_check(&m, pc)) continue;
 
         if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
         {

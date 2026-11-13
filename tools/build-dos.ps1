@@ -37,6 +37,7 @@ $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')
 
 $sources = @(
     (Join-Path $hs 'dos_main.c'),
+    (Join-Path $hs 'title.c'),
     (Join-Path $or 'cpu.c'),
     (Join-Path $or 'state.c'),
     (Join-Path $or 'input.c'),

@@ -31,6 +31,7 @@ static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
 static s16           g_mouse_x, g_mouse_y;
 static u8            g_mouse_buttons;
+static int           g_cursorHidden;     /* ShowCursor(TRUE) calls owed to the desktop */
 
 /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
  * granularity cannot express the Amiga's 20 ms frame. */
@@ -53,6 +54,41 @@ static void frame_ticks_recalc(void)
     g_frame_ticks = g_qpcFreq * (__int64)g_frame_ms / 1000;
 }
 
+/* The game is keyboard-only, so while its window has the focus the pointer is hidden and confined
+ * to the picture: a cursor sitting on top of the graphics is a piece of desktop in the middle of a
+ * 1989 game, and one that can be dragged off the window makes the player find it again to click
+ * back in. Both are undone when the focus leaves, so the mouse is a normal mouse everywhere else.
+ *
+ * ShowCursor is a counter, not a flag, and other code in the process may have moved it: ask until
+ * the answer is negative (hidden) and remember how many calls that took, which is exactly the
+ * number to give back. The clip rectangle is in screen coordinates. */
+static void cursor_capture(int on)
+{
+    if (on)
+    {
+        RECT cr;
+
+        if (g_cursorHidden != 0) return;
+        if (GetClientRect(g_hwnd, &cr))
+        {
+            MapWindowPoints(g_hwnd, 0, (POINT *)&cr, 2);
+            ClipCursor(&cr);
+        }
+        for (;;)
+        {
+            int count = ShowCursor(FALSE);
+            g_cursorHidden++;
+            if (count < 0) break;
+        }
+    }
+    else
+    {
+        if (g_cursorHidden == 0) return;
+        ClipCursor(0);
+        while (g_cursorHidden > 0) { ShowCursor(TRUE); g_cursorHidden--; }
+    }
+}
+
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -62,6 +98,14 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_ERASEBKGND:
         return 1;
+    /* Focus decides who owns the pointer: the game hides and confines it while it is being played,
+     * and gives it back the moment the window is not the one being used. */
+    case WM_SETFOCUS:
+        cursor_capture(1);
+        return 0;
+    case WM_KILLFOCUS:
+        cursor_capture(0);
+        return 0;
     case WM_MOUSEMOVE:
         g_mouse_x = (s16)LOWORD(lp);
         g_mouse_y = (s16)HIWORD(lp);
@@ -196,6 +240,8 @@ u32 plat_init(const char *title)
     g_start_ms = 0;
     if (!make_window(title)) return 0;
     if (!make_dib()) return 0;
+    /* The window has the focus by now in the usual case; WM_SETFOCUS covers the rest. */
+    cursor_capture(1);
     /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
      * granularity cannot express the Amiga's 20 ms frame. */
     if (!QueryPerformanceFrequency((LARGE_INTEGER *)&g_qpcFreq)) g_qpcFreq = 0;
@@ -246,6 +292,7 @@ u32 plat_fullscreen(void)
 void plat_shutdown(void)
 {
     plat_audio_close();
+    cursor_capture(0);
     if (g_frame_dib) DeleteObject(g_frame_dib);
     if (g_frame_dc) DeleteDC(g_frame_dc);
     g_frame_dib = 0;

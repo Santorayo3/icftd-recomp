@@ -156,6 +156,7 @@ docs/                  architecture, plan, program model
 | `tools\gamepack.ps1` | pack assets for the shipped runtime (the data seam) |
 | `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD`) against `rt_os_call` |
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
+| `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
 
 ## Where to start reading
 

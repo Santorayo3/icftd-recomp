@@ -4,6 +4,69 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+## Two port features: a title screen, and the mouse pointer (2026-11-13)
+
+Both are code the original does not have, i.e. the sanctioned exception to RULE 0: there is nothing
+to diff them against, so they are written on their own terms and, above all, they must not disturb
+anything that *is* diffed.
+
+**The title screen.** `src\host\title.c` draws `assets\titlescreen.png` into the platform framebuffer
+and waits for /FIRE; escape or closing the window quits. Pressing fire starts the intro; the scene is
+the place the main menu (settings, save slots) will go.
+
+The art is converted, not loaded: `tools\mktitleart.ps1` turns the PNG into `src\host\title_art.h`
+(one byte per pixel plus its 256-entry palette), which is exactly the platform framebuffer's format,
+so no image decoder and no allocation is needed in either build. The PNG has to be 320x200 and
+8-bit indexed; the conversion is byte-exact (60 colours are used, 0 of 64 000 pixels differ from the
+source), which is why the tool has no quantiser - a still should not lose anything on the way in.
+
+**The title's music is the map screen's, played by the engine.** The score driver is game code (CIA
+timer A -> `FUN_0000f264` -> tempo `FUN_0000f646` + player `FUN_0000f286` + DMA/volume
+`FUN_0000f3f4`), so nothing host-side could play a `.tiny`; the engine has to run. It does not have
+to *draw* anything while it does, though, so the title holds the program where it is and lets the
+machine tick:
+
+    boot -> ... -> FUN_00009870 (the intro's setup, runtime 0xD870, reached at frame ~17)
+                                        ^ held here, before its first instruction runs
+      title: title_call FUN_00009cf2(&"Overhead2.tiny", -1)   load + start, loop for ever
+             (the same call the map's setup makes at FUN_0000bfca, plus its `= 100` into the music
+              block at DAT_00023c5e, so the title is exactly as loud as the map)
+             one frame = rt_time_run(EMU_CYCLES_PER_FRAME) + rt_cia_service + oracle_tick
+      fire:  title_call FUN_0000ec8a()                        stop + free the score
+             then the intro runs from its first instruction and loads MAINTITLE.tiny itself
+
+Both calls go through `title_call()`, which pushes the arguments and a return address onto the
+emulated stack and sets `REG_PC` - the same shape the front ends' `--call` uses. The unload is not
+optional: `FUN_0000e804` returns immediately when `DAT_00023c58` (a score is loaded) is set, so
+without it the intro would keep the map's song.
+
+`FUN_00009870` is reached as a block *inside* a translated function (the boot dispatcher runs it
+inline), so no call boundary exists to catch there. `src\recomp\cpu.c` therefore grew a second
+dispatch seam next to `rc_stopAt`: `rc_breakPc`, checked per instruction in `step_budget()` and
+jumping back out with `c->pc` still on the un-run instruction, so the host loop sees the PC and can
+decide. It is 0 unless the title is armed; the measurement paths never set it.
+
+The title runs only in the played game: `src\host\main.c` arms it only for `--run`/`--window` without
+an input script, a state/raster dump, `--call` or `--poke`, and `src\host\dos_main.c` only for
+`--frames == 0` without `--call`/`--dump`. A measurement therefore starts exactly where the original
+starts. `tools\gate.ps1` 5/5 afterwards, i.e. the raster and fixture steps see no difference.
+
+**The mouse pointer (Win32).** The game is keyboard-only, so `plat_win32.c` hides the pointer and
+confines it to the picture while its window has the focus, and gives both back on `WM_KILLFOCUS`, on
+`plat_shutdown` and therefore on exit: `ShowCursor` is a counter, so the hide loop runs until the
+answer is negative and remembers how many calls that took - exactly the number of `ShowCursor(TRUE)`
+calls owed. Measured with the game running: `GetCursorInfo` reports the cursor not showing, and
+`SetCursorPos(5,5)` lands on the client rect's top-left corner (237,260) instead of the desktop
+origin; after a forced `WM_KILLFOCUS` the cursor is shown again, the pointer moves freely and a
+`WM_SETFOCUS` hides it again.
+
+Verified end to end by capturing the live window (`PrintWindow`): the title art is on screen while
+the score plays (the captured audio is non-silent, and the machine's Paula state shows channels 0/1
+enabled with the length/period of a real module), one fire press shows the Cinemaware intro which
+then loads its own `MAINTITLE.tiny`, escape at the title exits without the intro ever running, and
+`--run --input <script>` boots straight into the game with the title never engaging. MS-DOS target
+builds too (`bin\dos\ICFTD.EXE`, 3159 KB).
+
 ## The hospital's scroll and its garbage band (2026-11-13, after the flight)
 
 Reported as "the hospital minigame has the same issue as the flight": the scroll stepped instead of
