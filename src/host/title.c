@@ -22,13 +22,16 @@
  * injected entry or a poke the run is reproducing or inspecting the original - which has no title -
  * and must start where the original starts.
  *
- * The digit keys are a debug menu: 1..6 start the fight, the flight, the fire game, the hospital
- * escape, the chicken race and the underground ant nest without playing to them, and the title
- * comes back when the scene ends. They are the engine's own scene entries (see g_scenes), called
- * the way FUN_00002cc8's dispatcher calls them - after FUN_0000EC8A frees the score, because
- * FUN_0000E804 refuses to load a new one while DAT_00023C58 is set. Nothing of the world loop is
- * faked: a scene entered this way gets no room, no location state and no post-scene bookkeeping,
- * which is exactly why the title returns to itself instead of to the game.
+ * The digit keys are a debug menu: 1..7 start the fight, the flight, the fire game, the hospital
+ * escape, the chicken race, the underground ant nest and the giant-ant fight without playing to
+ * them, and the title comes back when the scene ends. They are the engine's own scene entries (see
+ * g_scenes), called the way FUN_00002cc8's dispatcher calls them - after FUN_0000EC8A frees the
+ * score, because FUN_0000E804 refuses to load a new one while DAT_00023C58 is set. Nothing of the
+ * world loop is faked: a scene entered this way gets no room, no location state and no post-scene
+ * bookkeeping, which is exactly why the title returns to itself instead of to the game. The giant-
+ * ant fight is the one scene that *reads* that missing room state (which location, which room
+ * picture, the clock VBI that decodes the fire button), so its launch sets those three from the
+ * room it runs in - see TITLE_ANT_PC.
  */
 #include <stdio.h>
 #include <string.h>
@@ -75,6 +78,27 @@
 #define TITLE_UNDER_PC    0x0FFCAu  /* FUN_0000BFCA, the underground ant nest (model 0xBFCA) */
 #define TITLE_SWERVE_PC   0x30100u  /* DAT_0002C100: the truck x that makes him swerve */
 #define TITLE_SWERVE_END  0x30102u  /* DAT_0002C102, the window's other edge  */
+
+/* The giant-ant fight is FUN_00008C5C (0xCC5C), the chapter's own entry: it opens the BACKS bank,
+ * then Desert3:BIGANT, and runs FUN_00007934 as its per-update script. It is entered from a room
+ * and needs what the room leaves behind, none of which it sets itself:
+ *   DAT_00028A3A (word)  the location. FUN_00008c5c indexes the location table with it to pick the
+ *                        per-location sprite prefix ("Cone", "Mine", ... - the table at 0x22CF6);
+ *   DAT_00028B10 (byte)  the room byte FUN_000057ba turns into BACKS or BACKS1;
+ *   DAT_00028B3E         the resource name of the room's picture, "!B%02d" of that byte, which
+ *                        FUN_00005824 sprintf's before loading it and FUN_0000895e looks up again.
+ * Measured from the room that runs the chapter (docs\port-features.md): location 0x11 is the room
+ * whose record byte is 0x0C, i.e. "!B12", and its prefix is "Cone" - BACKS holds ConeSP1/SP2.
+ * The fire button is the world loop's: FUN_0000551C installs the clock VBI (FUN_000054CC) whose
+ * FUN_0000A500 is the only writer of DAT_00026898, the edge FUN_000086a0's shot reads. Without it
+ * the pistol in a title launch could be aimed but never fired. */
+#define TITLE_ANT_PC      0x0CC5Cu  /* FUN_00008C5C, the giant-ant fight      (model 0x8C5C) */
+#define TITLE_CLOCKVBI_PC 0x0951Cu  /* FUN_0000551C, installs the clock VBI   (model 0x551C) */
+#define TITLE_LOCATION_PC 0x2CA3Au  /* DAT_00028A3A, the location             (model 0x28A3A) */
+#define TITLE_ROOM_PC     0x2CB10u  /* DAT_00028B10, the room byte            (model 0x28B10) */
+#define TITLE_ROOM_NAME   0x2CB3Eu  /* DAT_00028B3E, "!B%02d" of that byte    (model 0x28B3E) */
+#define TITLE_ANT_LOC     0x0011u
+#define TITLE_ANT_ROOM    0x000Cu
 typedef struct title_scene
 {
     int         key;                     /* the digit that starts it (KEY_1 is "1") */
@@ -91,7 +115,8 @@ static const title_scene g_scenes[] =
     { KEY_3, "Fire Game",       0x0FE34u, 0, 0, 0 },
     { KEY_4, "Escape Hospital", 0x1C19Au, 0, 0, 0 },
     { KEY_5, "Chicken Race",    TITLE_CHICKEN_PC, 0, 0, 0 },
-    { KEY_6, "Underground",     TITLE_UNDER_PC, 0, 0, 0 }
+    { KEY_6, "Underground",     TITLE_UNDER_PC, 0, 0, 0 },
+    { KEY_7, "Giant Ant",       TITLE_ANT_PC, 0, 0, 0 }
 };
 
 #define TITLE_SCENE_COUNT ((int)(sizeof g_scenes / sizeof g_scenes[0]))
@@ -119,6 +144,7 @@ static int g_virtualKey = -1;            /* --titlekey: the choice to take, once
 static int g_scripted;                   /* --titlekey was given: the title ends after that */
 static int g_ticks;                      /* menu frames run since the title came up */
 static u32 g_popOnReturn;                /* argument bytes the injected call's caller would pop */
+static int g_clockVbi;                   /* the world loop's clock VBI is installed (once) */
 
 void host_title_arm(int on)
 {
@@ -295,6 +321,26 @@ int host_title_check(rt_machine *m, u32 pc)
              * before running it; a race entered from the title is the first one. */
             rt_write16(&m->mem, TITLE_SWERVE_PC, 0x0078u);
             rt_write16(&m->mem, TITLE_SWERVE_END, 0x0104u);
+        }
+        if (s->entry == TITLE_ANT_PC)
+        {
+            /* The room's own state, every launch. The clock VBI is the world loop's, installed
+             * once and left installed (the engine keeps it for the whole session); a second
+             * launch must not add a second server. */
+            const char *name = "!B12";
+            int i;
+
+            rt_write16(&m->mem, TITLE_LOCATION_PC, TITLE_ANT_LOC);
+            rt_write16(&m->mem, TITLE_ROOM_PC, TITLE_ANT_ROOM);
+            for (i = 0; name[i] != 0; i++)
+                rt_write8(&m->mem, TITLE_ROOM_NAME + (u32)i, (u32)(u8)name[i]);
+            rt_write8(&m->mem, TITLE_ROOM_NAME + (u32)i, 0);
+            if (!g_clockVbi)
+            {
+                g_clockVbi = 1;
+                title_call(m, TITLE_CLOCKVBI_PC, pc, 0, 0, 0);   /* returns here */
+                return 1;
+            }
         }
         title_call(m, s->entry, pc, s->nargs, s->arg0, s->arg1);
         printf("title: %s at frame %lu\n", s->name, (unsigned long)m->frame);

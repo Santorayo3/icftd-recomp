@@ -11,7 +11,7 @@
 #     rc_breakPc still armed the scene's return fell straight into the intro's setup instead of
 #     back into the title.
 #
-# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..6 = the scenes); it
+# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..7 = the scenes); it
 # also ends the run when the title comes back, because a scripted run has no keyboard. It takes the
 # choice after one menu frame, because that is what a real press does - and because key 0 is the
 # path where the first menu frame's CIA tick runs the score player (see the note on the mirror).
@@ -65,6 +65,13 @@ $cases = @(
     @{ key = 6; name = 'Underground';     insns = 12000000; rasters =  300; returns = $true
        start = 'title: Underground at frame \d+'
        opens = @('Desert1:UNDER') }
+    # The giant-ant fight is entered from a room, so its launch sets the three things the room would
+    # have left behind (location 0x11, room 0x0c, the picture name "!B12") and installs the world
+    # loop's clock VBI - without it the fire edge DAT_00026898 is never written and the pistol
+    # cannot shoot. It ends by itself (measured: the fight runs ~1400 frames and returns).
+    @{ key = 7; name = 'Giant Ant';       insns =  9000000; rasters = 1200; returns = $true
+       start = 'title: Giant Ant at frame \d+'
+       opens = @('Desert2:BACKS', 'Desert3:BIGANT', 'Desert3:sfx/ants', 'Desert3:sfx/gunshot') }
 )
 
 $fail = 0

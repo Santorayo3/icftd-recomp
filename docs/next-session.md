@@ -233,6 +233,63 @@ The survey had `0xBEDA..0xE03C` filed as the "journey / world renderer"; it is t
 renderer (the flight's is `0x10E48`/`0x11512`). The journey cutscene is `FUN_00006F58` (mode 0xc)
 and is still unentered. The survey's coverage union is updated accordingly.
 
+## The giant-ant fight runs, and the port marks where it aims (2026-11-14, this session)
+
+Reported as "the game doesn't show you where you're aiming in the giant-ant fight - show a
+crosshair". The mark is a port feature (the original has no aiming aid), but *where* it goes is the
+engine's own number, so finding it meant entering the fight first - a chapter the survey had filed
+as never run.
+
+**The fight.** `FUN_00008C5C` (runtime `0xCC5C`) is the chapter's entry: `FUN_0000895E` loads the
+BACKS bank, `Desert3:BIGANT` and the two samples (`sfx/ants`, `sfx/gunshot`), then
+`DAT_00021C50(0, FUN_00007934)` runs the fight, whose per-update script is `FUN_00007934`:
+
+* `FUN_00007DCA` - the ant's state machine (states `0..0xD`, the MovE record `ANAN`);
+* `FUN_0000823A` - draws the antennas of the current state and tests every live shot against them;
+* `FUN_000086A0` - fires: the muzzle flash, the shot's test point, the gunshot sample;
+* `FUN_000084E4` - moves the pistol with the stick and draws it.
+
+**What the room leaves behind, and the entry needs.** A room sets `0x28A3A` (location, which
+`FUN_00008C5C` turns into a per-location sprite prefix through the table at `0x22CF6`, e.g. "Cone")
+and `0x28B10` (the room byte `FUN_000057BA` turns into BACKS or BACKS1); `FUN_00005824` sprintf's
+that byte into `0x28B3E` as `"!B%02d"` - the resource name of the room's picture, which
+`FUN_0000895E` looks up again. With a cold boot all three are 0 and the scene opens the *empty*
+name and returns at once. **The fire button is the world loop's clock VBI:** `FUN_0000551C` installs
+`FUN_000054CC`, and its `FUN_0000A500` is the only writer of the fire edge `0x26898` that
+`FUN_000086A0` tests - without it the pistol aims but never shoots (measured: aim moved, `0x29CBE`
+stayed 0). So the preset is
+`--poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C`
+(location `0x11`, room `0x0C`, `"!B12"`, then `FUN_0000551C`, which returns *into* `FUN_00008C5C`
+and leaves `0x200` - the END sentinel - for the scene's own `rts`).
+
+**Parity, measured.** Host vs oracle, `--input` with two fires: 4028 frame records identical
+(registers, SR, PC, custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750
+differs in two dead stack bytes at `0x17FCBC`; 100 of the 4028 records have a differing RAM hash,
+all of them that artifact). The scene runs 4028 frames and returns `D0 = 0`. The location only
+carries two of the seven `ConeSP<n>.win` sprites BACKS could hold, so `ConeSP3..7` fail to open -
+`FUN_0000895E` stores the null and `FUN_00007934` skips it, which is the engine's own tolerance,
+not a missing file.
+
+**The crosshair.** `0x29AE0/0x29AE2` is the pistol's screen position; `FUN_000086A0` tests a shot at
+that pair `0x1B` left and `0x3A` up (`0x87B0`), stores it in `0x29AF2/0x29AFC`, and `FUN_0000823A`
+compares it with the antenna rectangles. The port draws `assets\crosshair.png` there, as a runtime
+overlay (`rt_crosshair_at`, pens 248/249, `tools\mkcrosshair.ps1` -> `crosshair_art.h`), so it can
+cost no machine state. The seam is `rc_entryHook` on `FUN_00007934` (the fight is live this frame)
+plus the frame boundary *before* the present (`host_frame` -> `crosshair_present`), which reads the
+aim words: `FUN_000084E4` moves the pistol after the shot is tested, so the boundary value is both
+what the pistol was last drawn at and what the next trigger pull will test.
+
+**Measured** (`tools\crosshair-check.ps1`): frame 2121 has the aim at `238,120` and the crosshair
+drawn at `211,62` (14/14 art pixels); the shot the engine stores on frame 2122 is `211,62` - the
+mark and the hit test are the same point. Frame 2095: aim `212,120`, mark `185,62`. The same run
+without the seam draws no crosshair and matches the armed run on all 3391 frame records.
+
+**The title starts it too (key 7).** `src\host\title.c` gained `{ KEY_7, "Giant Ant", 0xCC5C }`; its
+launch writes the three room words and installs the clock VBI once (a second launch must not add a
+second vblank server), then enters the chapter on the next pass through the hold point.
+`tools\title-check.ps1` has the case: BACKS/BIGANT/both samples open, >= 1200 rasters, and the fight
+ends by itself (~frame 1427), so the title comes back.
+
 ## The chicken race: a per-line palette and a per-region stride (2026-11-14)
 
 Reported as "implement the chicken minigame". The scene is the story's **chicken run**:

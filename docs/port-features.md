@@ -69,6 +69,7 @@ bin\win32\icftd-recomp.exe <reach it with> --state out\pf\<name>\s --ram <frames
 | **fight** (bar-room brawl) | `--input ref\inputs\fight.txt --call 0xF46C:1513` | 20 000 000 (3 432 records, 10 491 684) | 3430 (the win frame) | `FUN_0000B46C` → `0xF46C`; injected at frame 1513, 4 876 672 insns, `was at pc 0x23512` |
 | **chicken race** | `--input ref\inputs\chicken.txt --call 0x1FA3E:1513` | 20 000 000 (1 787 records, 5 954 188); the win path returns at frame 1673 | 1560, 1600, 1630, 1660 | `FUN_0001BA3E` → `0x1FA3E`; PC at 1560–1630 is `0x1FB20` (`FUN_0001ba3e`), at 1660/1673 `0x201D4` (`FUN_0001c1c6`) |
 | **underground ant nest** (UNDER) | `--input ref\inputs\under.txt --call 0xFFCA:1513` | 20 000 000 (2 335 records, 12 523 955); returns at frame 2334, idle at 2100 | 1750, 1950, 2150 | `FUN_0000BFCA` → `0xFFCA`; PCs `0x155DA` (`FUN_00011512`), `0x11D1C` (`FUN_0000dc74`), `0x1220E` (`FUN_0000e03c`) |
+| **giant-ant fight** (the pistol) | `--poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C` | 14 000 000 (3 391 records, 13 999 993); the fight is up from frame ~1700 | 2095 (aim 212,120), 2121 (aim 238,120 — the mark the next shot uses), 2122 (that shot stored) | `FUN_00008C5C` → `0xCC5C`, the chapter's entry, which runs `FUN_00007934` per update; the injection enters `FUN_0000551C` first (the clock VBI) and returns *into* `0xCC5C`, which is why the argument is `0x200` (the END sentinel the scene's own `rts` returns to) |
 
 Things the table does not say, because they are not what a preset needs:
 
@@ -92,6 +93,18 @@ Things the table does not say, because they are not what a preset needs:
   frames chosen the same way — one where the screen is up, one at the transition, one after it.
 * The **brake path** of the chicken race (frames 1620/1700 in `next-session.md`) is *unconfirmed
   here*: the recorded input on disk is the win script, and the brake script was not kept.
+* **The giant-ant fight is entered from a room, and the room's state is what the preset pokes.** Its
+  setup (`FUN_00008C5C` → `FUN_0000895E`) reads the location (`0x28A3A`, which picks the
+  per-location sprite prefix from the table at `0x22CF6`) and looks a resource name up in the BACKS
+  bank that `FUN_00005824` sprintf's into `0x28B3E` from the room byte (`0x28B10`). Without them it
+  asks for the empty name, gets nothing and returns before the scene starts. The fight also needs the
+  world loop's clock VBI: `FUN_0000A500` (its vblank server) is the *only* writer of `0x26898`, the
+  fire edge `FUN_000086A0` tests, so a run without `FUN_0000551C` can aim but never shoot. The title's
+  key 7 does the same three writes and the same install (see `src\host\title.c`).
+* **A `--call` can chain into another routine.** `--call <pc>:<frame>:<arg>:<retpc>` pushes `<arg>`
+  and then `<retpc>`; a routine that takes no arguments returns into `<retpc>` and leaves `<arg>` on
+  the stack, where the *next* routine's `rts` finds it. `0x951C:1000:0x200:0xCC5C` is exactly that:
+  install the clock VBI, continue at the fight, stop at the END sentinel.
 
 ## "Done" for a port feature
 
@@ -153,9 +166,49 @@ four lines at y 144..172 (baseline 150, 7 pixels apart); the menu's own default 
 pointer never reaches a line is byte-identical to the plain run; a hover run first differs at frame
 974, the first pass after the pointer moved (970).
 
+## The giant-ant fight's crosshair
+
+In the ant-invasion chapter's fight (`FUN_00007934`) the player aims a pistol with the stick and
+shoots the antennas off a giant ant, and the original shows no mark at all — the aim is invisible
+until the shot lands. The port draws `assets\crosshair.png` at the point the engine's own hit test
+reads. Like the pointer it is the runtime overlay (`rt_crosshair_at`, `display.c`), 9x9 with its
+centre pixel on the mark, drawn after the frame is composed, so it costs the machine nothing.
+
+The mark is not a guess about pixels; it is the engine's own number:
+
+| word | meaning | who writes it |
+|---|---|---|
+| `0x29AE0`/`0x29AE2` (word) | the pistol's screen position — its aim | `FUN_00007934` initialises it to `0xA0,0x78`, `FUN_000084E4` moves it with the stick and clamps it |
+| `0x29AF2`/`0x29AFC` (3 words) | a shot's test point | `FUN_000086A0` at `0x87B0`: the aim `−0x1B` left, `−0x3A` up |
+| `0x29CA8`/`0x29CAA` | the antennas still up | `FUN_0000823A`, which compares each shot point with the antenna sprites' rectangles |
+
+Two attachments, both already in the front end:
+
+| hook | what it does |
+|---|---|
+| `rc_entryHook` on `FUN_00007934` | the fight updated this frame (`g_antFrame`) |
+| the **frame boundary** (`host_frame`, before the vblank's present) | reads the aim words, places the crosshair at them `−0x1B`/`−0x3A` |
+
+The frame boundary is the right half of the seam, not the update: `FUN_000084E4` moves the pistol
+*after* `FUN_000086A0` has tested the shot, so the value at the boundary is both the position the
+pistol was last drawn at and the one the next trigger pull will use. Ten frames without an update
+hides the mark (`ANT_IDLE_FRAMES`).
+
+Measured with `tools\crosshair-check.ps1`, machine state first: on frame 2121 the aim is `238,120`
+and the crosshair is drawn at `211,62`; the shot the engine stores on the next frame is `211,62` —
+the mark the player aimed with is exactly the point the hit test used. At frame 2095 the aim is
+`212,120` and the mark `185,62`, so it follows the stick. The same run without the seam draws no
+crosshair and agrees with the armed run on all 3391 frame records.
+
+The fight itself had never been entered before this feature; it is now a scene preset, and its
+parity was measured the usual way: 4028 frame records identical to the oracle (registers, SR, PC,
+custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 differs in two dead
+stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook, so the
+crosshair is inert there — the same gap the pointer has.
+
 ## The dev loop
 
 `tools\gate.ps1 -Quick` while working — it skips both builds and runs the checks (interpreter
-fixtures, translated vs interpreted, presenter, title, map cursor). Run the full `tools\gate.ps1`
-once before handing off: it also builds the exporter and the oracle, and it is the definition of
-green.
+fixtures, translated vs interpreted, presenter, title, map cursor, room pointer, fight crosshair). Run
+the full `tools\gate.ps1` once before handing off: it also builds the exporter and the oracle, and it
+is the definition of green.

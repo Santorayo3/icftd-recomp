@@ -16,8 +16,8 @@ blocks outside the model. There is no "missing feature" in the sense of a scene 
 written — a scene is present exactly when its function runs and the runtime can carry out what it
 programs. **What is not proven is behaviour**: of 750 functions, **513 (68 %) have executed** in the
 12 recorded/injected sessions below; **237 (10 266 of 35 323 model instructions = 29.1 %) have never
-run once**. Two of the never-run clusters are whole features — the ant-invasion chapter with the gun
-and the evidence dialogue, and the **journey cutscene** — and one measured divergence (§6.1, the
+run once**. Two of the never-run clusters are whole features — the ant-invasion chapter's evidence
+dialogue, and the **journey cutscene** — and one measured divergence (§6.1, the
 pause button) means a feature that *does* run in the original cannot be triggered in the port at
 all. The bar-room **fight** was a third never-run cluster: it was recorded as blocked by the disks
 (§6.4), which turned out to be our own directory reader losing hash-chain entries, and behind that a
@@ -27,12 +27,16 @@ handlers.
 
 Verified against the original (machine state, not pictures): **intro/logo/desert, load screen, save,
 situation map, a location room, the flight, the underground ant nest, the hospital escape, the
-fight, the chicken race**. Runs and renders, but
+fight, the chicken race, the giant-ant fight**. Runs and renders, but
 has never been compared with the reference: **phone, fire game, win ending**. Never entered: **ant
-chapter, evidence dialogue, look-around menu, sleep/clock/shop-hours, pause, journey cutscene**.
+chapter's evidence dialogue, look-around menu, sleep/clock/shop-hours, pause, journey cutscene**.
 
 Update 2026-11-14: the **underground ant nest (UNDER, `FUN_0000BFCA`)** moved from "never entered"
 to verified — it is the tunnel game Take a Flight continues into, not the journey cutscene (§3).
+
+Update 2026-11-14 (later): the **giant-ant fight (`FUN_00008C5C`/`FUN_00007934`)** — the gun chapter,
+`0x7934–0x92FE` — is now entered and verified, and the port marks where it aims (§3, and
+`docs\port-features.md`, "The giant-ant fight's crosshair").
 
 ## 1. What "implemented" means in this project
 
@@ -103,7 +107,9 @@ screenshot.
 | hospital escape | translated end to end, 1237 frame records identical; `present-check` hospital coverage 0.900, no stale rows | **done** |
 | fight (bar-room brawl) | `--call 0xF46C:1513` + `ref\inputs\fight.txt`: 3432 frame records identical (PC/SR/registers/custom on every one; 76 differ only in dead stack bytes), RAM byte-identical at the win frame 3430, opponent's bar drained to 0 and `DAT_0002991e = 1`; `present-check` fight coverage 0.973 + both health bars | **done** |
 | chicken race | `--call 0x1FA3E:1513` + `ref\inputs\chicken-win.txt` (won) and the brake script: 335 and 351 frame records identical (PC/SR/registers/custom on every one), RAM byte-identical at 1560/1600/1630/1660 and 1620/1700; the two paths reach `DAT_0002bcd4 = 1` (he swerved) and `DAT_0002bcce = 60` (braked); `present-check` chicken coverage 0.974 over the list's 216-row DIW window, the 13 per-line palette bands, the dual-playfield horizon strip with both of its ranges (4119 px of playfield 1's tans, 2601 px of playfield 2's), the filled road surface (13 774 px of its pen-28 grey) and the cockpit picture (including the rows below 200) | **done** |
-| title screen, OSD, save slots, mouse capture, the title's digit keys (1..6) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| giant-ant fight (the pistol, and its antennas) | `--poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C` (the room's location/room/picture name, then the clock VBI, returning into `FUN_00008C5C`): 4028 frame records identical to the oracle (`--callat 0x951C:4876672:0x200:0x23512:0xCC5C`), RAM byte-identical at 1900/2100/2300/2500 (1750 differs in 2 dead-stack bytes at `0x17FCBC`), the aim moves with the stick and a fire stores its test point (`0x29AF2/0x29AFC` = aim `−0x1B`/`−0x3A`); the scene returns `D0 = 0` at frame 4028 | **done** |
+| title screen, OSD, save slots, mouse capture, the title's digit keys (1..7) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| the giant-ant fight's crosshair | port feature: `crosshair-check` — on frame 2121 the aim is `238,120` and the mark is drawn at `211,62`, which is exactly the shot point the engine stores on frame 2122 (`0x29AF2/0x29AFC`); the mark follows the stick (frame 2095: aim `212,120` → mark `185,62`); the same run without the seam draws no crosshair and matches the armed run on all 3391 frame records | **done** |
 | the situation map's cursor, driven by the mouse | port feature: `mouse-check` — the cursor is pinned under the pointer (hot spot `0x11`/`0x12`), the picture scrolls at the window's edge, a held stick wins, and a pointer run's frame records are identical to a plain run's up to the map's first update (`next-session.md`) | **done** |
 | the room screens' pointer, and a text menu line selected by hovering | port feature: `pointer-check` — the arrow is drawn only on a location view (never on the map, which has the game's cursor); hovering line 1 + click stores the same menu entry/action as Up ×4 (0/2), line 4 the same as Down ×2 (3/4); a pointer away from the text leaves the run byte-identical, a hover run first differs at the first pass after the pointer moved | **done** |
 | the left mouse button as /FIRE (whole game, next to the space bar) | port feature: `mouse-check` — the recording's decisive fire press fed as a click leaves the run byte-identical for all 2399 frame records; without any fire it diverges at frame 1060. The original's pause button (the same button, CIA-A PRA bit 6) stays unwired | **done** |
@@ -146,6 +152,7 @@ Twelve sessions were run; each line is one command:
 | save injected | `30M --input out\tap.txt --call 0x1442A:1000` | 322 | 1140 |
 | ending injected | `30M --poke 1000:0x26D68=0x10000 --call 0xE4D6:1000` | 230 | 3608 |
 | fight injected | `20M --call 0xF46C:1513 --input ref\inputs\fight.txt` | 233 | 3432 |
+| giant-ant fight injected | `16M --poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C` | 235 | 2989 |
 
 **Union: 567 of 750 functions (76 %), 621 distinct entry addresses including the blocks.**
 **183 functions (6 698 of 35 323 model instructions = 19.0 %) never executed.**
@@ -158,11 +165,18 @@ wrappers the road fill reaches for the first time. The **underground ant nest**
 functions (2 516 instructions) and the orphan block `0x1BA1A`** — the tunnel renderer and its
 helpers. The twelve-session baseline was 513 / 10 266.
 
+Update 2026-11-14 (later): the **giant-ant fight** (row above, `--cover out\ant\cov-ant.txt`) adds
+**10 model functions (1 262 instructions)** — `FUN_00008C5C` and the nine the fight's script
+reaches (`0x7934`, `0x7DCA`, `0x823A`, `0x843E`, `0x84E4`, `0x86A0`, `0x895E`, `0x8AB4`, `0x8AF0`)
+— and the orphan block `0x1F4F6`. That is **577 of 750 functions (76.9 %)** run and **173
+functions / 5 436 of 35 323 model instructions (15.4 %)** never executed. What is still unrun of
+the chapter is the evidence dialogue (`0x9100..0x92FE`).
+
 The clusters, named by what their own code and strings say:
 
 | cluster | addresses | why it never ran |
 |---|---|---|
-| **ant invasion / gun / evidence** | `0x7934–0x92FE` — 17 functions, 1676 insns (`AntGoBy`, `Anten1..7.win`, `Anten1blast`, "My gun went dry", "Arsenal", "Show new evidence", "Want ant info") | a whole chapter of the game; the recorded playthrough never got there |
+| **ant invasion / gun / evidence** | `0x7934–0x92FE` — 17 functions, 1676 insns (`AntGoBy`, `Anten1..7.win`, `Anten1blast`, "My gun went dry", "Arsenal", "Show new evidence", "Want ant info") | **the fight (`0x7934`/`0x8C5C`) runs and is verified 2026-11-14 (§3)**; what is still unrun is the evidence dialogue (`0x9100..0x92FE`) and the arsenal prompt, which the recorded playthrough never reached |
 | **fight internals** | `0xB27C`, `0xB2A0`, `0xB2C4` — the "your punch was blocked" sound handlers | the fight runs, but a recorded input that gets blocked never produced a block; holding the button instead of bursting keeps the opponent in its block pose for ever |
 | ~~journey / world renderer~~ | `0xBEDA–0xE03C` — 26 functions, 2627 insns (`Overhead2.tiny`, tile chain `c390/c75e/ca5e`, HUD `d5e8`, raw blitter `e03c`) | **not a journey cutscene: this is the underground ant nest's renderer**, run and verified 2026-11-14 (§3); the journey cutscene itself is `FUN_00006F58` (mode 0xc), still unentered |
 | **audio score player's voice handlers** | `0xF0AC`, `0xF0DE`, `0xF56C`, `0xF814` (982 B), `0xFBEA` and their thunks — 25 functions, 511 insns | the player dispatches to a handler by instrument type; none of the scores in any recorded session used these five types (the `o.rff` breakage is in this area, see §6.3) |
@@ -301,14 +315,15 @@ the original's speed on a 486DX2-66 and needs 1.6x for 100 % (`next-session.md`)
 2. **Settle §6.3 with the reference** (WinUAE breakpoints at the two `INSTS` scan sites around
    `0xc52660+0xe8fa`/`+0xe91a` and at the player's `jsr (0,A4)` at `+0xf41e`). It is one measurement
    and it decides whether the lost music tick is "the original does this too".
-3. **Play the two remaining unentered features with a script**: the ant chapter (`0x7934`) and the
-   journey (`0xBFCA`). Each needs a recorded input from the real game (or a `--poke` of the
-   location/mode that selects it) and then the usual oracle-vs-translation state comparison at the
-   frame boundaries it touches. (The fight, `0xF46C`, is done — see §3 and §6.4, which also closed
-   the `CMPM` bug it exposed; the three punch-blocked handlers `0xB27C`/`0xB2A0`/`0xB2C4` still want
-   an input that gets blocked. The chicken race, `0x1BA3E`, is done as well: both its outcomes were
-   driven and are byte-identical, and it is what the presenter's per-line palette and per-region
-   stride were written for.)
+3. **Play the remaining unentered features with a script**: the ant chapter's evidence dialogue
+   (`0x9100..0x92FE`) and the journey (`0xBFCA`). Each needs a recorded input from the real game (or
+   a `--poke` of the location/mode that selects it) and then the usual oracle-vs-translation state
+   comparison at the frame boundaries it touches. (The fight, `0xF46C`, is done — see §3 and §6.4,
+   which also closed the `CMPM` bug it exposed; the three punch-blocked handlers
+   `0xB27C`/`0xB2A0`/`0xB2C4` still want an input that gets blocked. The chicken race, `0x1BA3E`, is
+   done as well: both its outcomes were driven and are byte-identical, and it is what the presenter's
+   per-line palette and per-region stride were written for. The giant-ant fight, `0x8C5C`/`0x7934`,
+   is done too — see §3 and `next-session.md`, 2026-11-14 "this session".)
 4. **Coverage as a habit**: keep `--cover` in every recorded playthrough and diff the lists. The
    list is the definition of "not yet reached"; a scene that runs without adding functions is not a
    new scene.

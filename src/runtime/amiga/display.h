@@ -126,6 +126,13 @@ void rt_osd_icon(rt_machine *m, u32 frames);
 void rt_pointer_at(s16 x, s16 y);
 void rt_pointer_hidden(void);
 
+/* The port's aiming crosshair: drawn on top of the presented picture like the pointer, showing
+ * the point a shot is tested at (the giant-ant fight). x/y are framebuffer coordinates and are the
+ * crosshair's centre - the pixel the shot is tested at. Hidden while nothing calls
+ * rt_crosshair_at, so a measurement run never shows it. */
+void rt_crosshair_at(s16 x, s16 y);
+void rt_crosshair_hidden(void);
+
 const u8 *rt_gfx_framebuffer(void);
 const u8 *rt_gfx_palette(void);
 int  rt_gfx_width(void);

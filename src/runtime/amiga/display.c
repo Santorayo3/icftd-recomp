@@ -12,6 +12,7 @@
 
 #include "osd_icon.h"
 #include "pointer_art.h"
+#include "crosshair_art.h"
 
 static rt_gfx_state *gfx;                /* the one machine's graphics state */
 
@@ -1796,6 +1797,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
 #define OSD_PEN_TEXT  255              /* #00FF00 */
 #define OSD_PEN_ICON  240              /* 240..245: the save icon's colours */
 #define OSD_PEN_PTR   246              /* 246..247: the pointer's outline and fill */
+#define OSD_PEN_CRS   248              /* 248..254: the crosshair's colours */
 #define OSD_TEXT_MAX  40
 
 static void osd_colour(u32 index, u32 r, u32 g, u32 b)
@@ -1830,6 +1832,18 @@ void rt_pointer_at(s16 x, s16 y)
 void rt_pointer_hidden(void)
 {
     gfx->ptrUp = 0;
+}
+
+void rt_crosshair_at(s16 x, s16 y)
+{
+    gfx->crsX = x;
+    gfx->crsY = y;
+    gfx->crsUp = 1;
+}
+
+void rt_crosshair_hidden(void)
+{
+    gfx->crsUp = 0;
 }
 
 static void osd_draw_text(rt_machine *m)
@@ -1887,15 +1901,32 @@ static void osd_draw_pointer(rt_machine *m)
         }
 }
 
+/* The aiming crosshair: its centre pixel is the point it marks, so the picture is placed half its
+ * size up and left of it. */
+static void osd_draw_crosshair(rt_machine *m)
+{
+    int x0 = gfx->crsX - CRS_W / 2, y0 = gfx->crsY - CRS_H / 2;
+    int row, col;
+
+    for (row = 0; row < CRS_H; row++)
+        for (col = 0; col < CRS_W; col++)
+        {
+            u8 v = g_crosshair[row * CRS_W + col];
+            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, x0 + col, y0 + row,
+                             (u8)(OSD_PEN_CRS + v - 1));
+        }
+}
+
 static void osd_draw(rt_machine *m)
 {
     static int wasUp;
     int textUp = gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
     int iconUp = (s32)(gfx->osdIconUntil - m->frame) > 0;
     int ptrUp = gfx->ptrUp != 0;
+    int crsUp = gfx->crsUp != 0;
     int i;
 
-    if (!textUp && !iconUp && !ptrUp)
+    if (!textUp && !iconUp && !ptrUp && !crsUp)
     {
         /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
          * to rebuild the picture to clear those pixels. */
@@ -1911,9 +1942,13 @@ static void osd_draw(rt_machine *m)
     for (i = 0; i < PTR_COLOURS; i++)
         osd_colour((u32)OSD_PEN_PTR + (u32)i, g_pointerPal[i * 3], g_pointerPal[i * 3 + 1],
                    g_pointerPal[i * 3 + 2]);
+    for (i = 0; i < CRS_COLOURS; i++)
+        osd_colour((u32)OSD_PEN_CRS + (u32)i, g_crosshairPal[i * 3], g_crosshairPal[i * 3 + 1],
+                   g_crosshairPal[i * 3 + 2]);
     if (textUp) osd_draw_text(m);
     if (iconUp) osd_draw_icon(m);
     if (ptrUp) osd_draw_pointer(m);
+    if (crsUp) osd_draw_crosshair(m);
 }
 
 const u8 *rt_gfx_framebuffer(void) { return gfx != 0 ? gfx->fb : 0; }

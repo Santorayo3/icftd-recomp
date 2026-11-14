@@ -122,11 +122,16 @@ static void host_crash_note(rt_machine *m, cpu_t *c)
     plat_crash_state(text);
 }
 
+/* The port's per-screen seams, defined with their attachment points further down: the fight's
+ * aiming crosshair is placed at the frame boundary, before the vblank composes the frame. */
+static void crosshair_present(rt_machine *m);
+
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
  * the registers comes back. */
 static void host_frame(cpu_t *c, rt_machine *m)
 {
+    crosshair_present(m);              /* composed by the present inside oracle_tick */
     scatter(c, m);
     oracle_tick(m);
     gather(c, m);
@@ -347,7 +352,8 @@ static const u16 g_joyDirs[16] =
  * screen is gone, and the next one starts with the game's own cursor placement again. */
 #define MAP_IDLE_FRAMES 30
 
-static int  g_ptrArm;                  /* the pointer seam may run (a played game, or --mouse) */
+static int  g_portArm;                 /* the port's per-screen seams may run (a played game,
+                                        * or --mouse): the pointer, and the fight's crosshair */
 static int  g_ptrKnown;                /* a pointer position is available */
 static int  g_ptrActive;               /* the pointer owns the map cursor */
 static int  g_hoverOwn;                /* the pointer owns the menu line under it */
@@ -622,7 +628,7 @@ static void pointer_present(rt_machine *m)
 {
     int room, menu, map, show;
 
-    if (!g_ptrArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
+    if (!g_portArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
     room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
     map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
@@ -638,13 +644,58 @@ static void pointer_present(rt_machine *m)
     else if (g_hoverLog && !show) s_ptrShown = 0;
 }
 
-/* rc_entryHook: everything the pointer needs is reached from inside the translated stream (the
- * scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the seam. */
+/* --- the aiming crosshair of the giant-ant fight (a port feature) ----------------------------
+ * The fight is FUN_00007934: it runs once per update while the chapter is up, moves the pistol
+ * with the stick (FUN_000084e4), fires (FUN_000086a0) and draws the ant's antennas and tests the
+ * shots against them (FUN_0000823a). The aim is the word pair 0x29AE0/0x29AE2 - the pistol's
+ * position on screen - and the point a shot is tested at is that pair 0x1b left and 0x3a up:
+ * FUN_000086a0 stores it in 0x29AF2/0x29AFC at 0x87b0, and FUN_0000823a loops over the antennas
+ * comparing it with their screen rectangles. The original draws no aiming aid, so the port marks
+ * that point with its own picture.
+ *
+ * The seam is two halves, both through rc_entryHook and the frame boundary:
+ *   FUN_00007934's entry   the fight is running in this frame (g_antFrame);
+ *   the frame boundary     the aim words are read and the crosshair placed, *before* the vblank's
+ *                          present composes the overlay - so the mark is the point the engine will
+ *                          read on the next trigger pull, which is also the position the pistol
+ *                          was last drawn at.
+ * Nothing here runs in a measurement: the hook and the overlay are armed only when the game is
+ * being played (or with --mouse, the headless form of it) and the crosshair itself is drawn on
+ * top of the presented picture, never into the machine's memory. */
+#define ANT_SCENE_PC   0x00007934u /* FUN_00007934: one update of the giant-ant fight */
+#define ANT_AIM_X      0x00029AE0u /* word, the pistol's screen x */
+#define ANT_AIM_Y      0x00029AE2u /* ... and y */
+#define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim */
+#define ANT_SHOT_DY    (-0x3A)
+/* FUN_00007934 runs every update; this many frames without it means the fight is over (or is
+ * holding a panel that waits for the button), and the mark has nothing left to show. */
+#define ANT_IDLE_FRAMES 10
+
+static u32 g_antFrame;             /* last frame the giant-ant fight updated */
+
+static void crosshair_present(rt_machine *m)
+{
+    s16 aimX, aimY;
+
+    if (!g_portArm || g_antFrame == 0 || m->frame - g_antFrame > ANT_IDLE_FRAMES)
+    {
+        rt_crosshair_hidden();
+        return;
+    }
+    aimX = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_X));
+    aimY = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_Y));
+    rt_crosshair_at((s16)(aimX + ANT_SHOT_DX), (s16)(aimY + ANT_SHOT_DY));
+}
+
+/* rc_entryHook: everything the port's per-screen seams need is reached from inside the translated
+ * stream (the scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the
+ * seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
+    if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
@@ -657,7 +708,7 @@ static void host_input(rt_machine *m)
     if (in.down[KEY_ESCAPE]) m->stop = 1;
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
-    if (g_ptrArm)
+    if (g_portArm)
     {
         /* A scripted stick (--input) counts like a held direction key: the pointer yields to it. */
         if (g_ptrScriptCount > 0) pointer_script_tick(m);
@@ -717,7 +768,7 @@ static void host_input(rt_machine *m)
  * at the frame boundary for the run to mean anything (it is a dev seam, like --input). */
 static void host_pointer_frame(rt_machine *m)
 {
-    if (!g_ptrArm) return;
+    if (!g_portArm) return;
     if (g_ptrScriptCount > 0) pointer_script_tick(m);
     /* A scripted click is /FIRE, the same level the platform's button is; the script's own fire
      * level is put back when the button is released, so the two compose. */
@@ -1107,12 +1158,12 @@ int main(int argc, char **argv)
                     dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
                    (titleKey >= 0 && inputPath == 0 && statePrefix == 0 &&
                     g_callPc == 0 && g_pokeCount == 0));
-    /* The pointer that drives the map cursor is a port feature, so it follows the same rule: it
-     * runs in a played game (and for a --mouse test run), never in a measurement, where the
-     * machine state has to be the original's. */
-    g_ptrArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+    /* The pointer that drives the map cursor, and the fight's aiming crosshair, are port features,
+     * so they follow the same rule: they run in a played game (and for a --mouse test run), never
+     * in a measurement, where the machine state has to be the original's. */
+    g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                 dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
-    if (g_ptrArm) rc_entryHook = host_entry;
+    if (g_portArm) rc_entryHook = host_entry;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
