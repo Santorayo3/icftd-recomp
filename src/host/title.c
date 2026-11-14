@@ -22,13 +22,13 @@
  * injected entry or a poke the run is reproducing or inspecting the original - which has no title -
  * and must start where the original starts.
  *
- * The digit keys are a debug menu: 1..4 start the fight, the flight, the fire game and the hospital
- * escape without playing to them, and the title comes back when the scene ends. They are the
- * engine's own scene entries (see g_scenes), called the way FUN_00002cc8's dispatcher calls them -
- * after FUN_0000EC8A frees the score, because FUN_0000E804 refuses to load a new one while
- * DAT_00023C58 is set. Nothing of the world loop is faked: a scene entered this way gets no room,
- * no location state and no post-scene bookkeeping, which is exactly why the title returns to itself
- * instead of to the game.
+ * The digit keys are a debug menu: 1..5 start the fight, the flight, the fire game, the hospital
+ * escape and the chicken race without playing to them, and the title comes back when the scene
+ * ends. They are the engine's own scene entries (see g_scenes), called the way FUN_00002cc8's
+ * dispatcher calls them - after FUN_0000EC8A frees the score, because FUN_0000E804 refuses to load
+ * a new one while DAT_00023C58 is set. Nothing of the world loop is faked: a scene entered this way
+ * gets no room, no location state and no post-scene bookkeeping, which is exactly why the title
+ * returns to itself instead of to the game.
  */
 #include <stdio.h>
 #include <string.h>
@@ -58,7 +58,16 @@
  * (0x2F72), the fire game is mode 0xb (0x2EBA), the hospital escape is mode 6 through vector slot
  * 70 (0x2EF8). None of them needs the room the dispatcher tears down first: each loads its own
  * banks, programs its own screen and returns to its caller - measured from this very hold point,
- * see tools\title-check.ps1. */
+ * see tools\title-check.ps1.
+ *
+ * The chicken race is FUN_0001BA3E itself (0x1FA3E), the scene FUN_0001CC2E runs once its two
+ * narration pages are over. Its caller also sets the swerve window from the encounter count
+ * (`0x2C100 = 0x78 + 10*n`, `0x2C102 = 0x104 - 10*n`) before calling it; a race entered from the
+ * title has no encounter behind it, so the title writes the first one's window - without it the
+ * "Ice swerved off the road" branch can never be taken and the race has no win. */
+#define TITLE_CHICKEN_PC  0x1FA3Eu  /* FUN_0001BA3E, the road/chicken scene   (model 0xBA3E) */
+#define TITLE_SWERVE_PC   0x30100u  /* DAT_0002C100: the truck x that makes him swerve */
+#define TITLE_SWERVE_END  0x30102u  /* DAT_0002C102, the window's other edge  */
 typedef struct title_scene
 {
     int         key;                     /* the digit that starts it (KEY_1 is "1") */
@@ -73,7 +82,8 @@ static const title_scene g_scenes[] =
     { KEY_1, "Fight",           0x0F46Cu, 0, 0, 0 },
     { KEY_2, "Take a Flight",   0x147A6u, 1, 6, 0 },   /* 6 = the dispatcher's own argument */
     { KEY_3, "Fire Game",       0x0FE34u, 0, 0, 0 },
-    { KEY_4, "Escape Hospital", 0x1C19Au, 0, 0, 0 }
+    { KEY_4, "Escape Hospital", 0x1C19Au, 0, 0, 0 },
+    { KEY_5, "Chicken Race",    TITLE_CHICKEN_PC, 0, 0, 0 }
 };
 
 #define TITLE_SCENE_COUNT ((int)(sizeof g_scenes / sizeof g_scenes[0]))
@@ -270,6 +280,13 @@ int host_title_check(rt_machine *m, u32 pc)
          * hands the program back here when it does - a translated stream runs on through an rts
          * (`rc_ret` only sets rc_returned), so without the break the program would simply continue
          * into the intro's setup and the title would never come back. */
+        if (s->entry == TITLE_CHICKEN_PC)
+        {
+            /* The race's caller (FUN_0001CC2E) sets the swerve window from the encounter count
+             * before running it; a race entered from the title is the first one. */
+            rt_write16(&m->mem, TITLE_SWERVE_PC, 0x0078u);
+            rt_write16(&m->mem, TITLE_SWERVE_END, 0x0104u);
+        }
         title_call(m, s->entry, pc, s->nargs, s->arg0, s->arg1);
         printf("title: %s at frame %lu\n", s->name, (unsigned long)m->frame);
         g_state = TITLE_UNLOAD;

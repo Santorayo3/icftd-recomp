@@ -416,6 +416,17 @@ void rt_gfx_area_end(rt_machine *m, u32 rp)
                     xs[nx++] = xa + (s32)(((long)(y - ya) * (xb - xa)) / (yb - ya));
             }
         }
+        /* The crossings arrive in polygon order, so they have to be sorted before they can be
+         * paired left to right - the same thing graphics.library's TAD does with its edge list.
+         * Without the sort a polygon whose edges cross the scanline right-to-left fills nothing:
+         * the chicken race's road only ever painted its bottom six rows. */
+        for (i = 1; i < nx; i++)
+        {
+            s32 v = xs[i];
+            int k = i - 1;
+            while (k >= 0 && xs[k] > v) { xs[k + 1] = xs[k]; k--; }
+            xs[k + 1] = v;
+        }
         for (i = 0; i + 1 < nx; i += 2)
         {
             s32 x;
@@ -426,6 +437,7 @@ void rt_gfx_area_end(rt_machine *m, u32 rp)
             for (x = xa; x <= xb; x++) plot(m, bm, (int)x, (int)y, pen_of(m, rp));
         }
     }
+    if (m->progress) printf("     AreaEnd %d point(s), rows %d..%d\n", n, (int)minY, (int)maxY);
     gfx->areaCount = 0;
 }
 
@@ -957,15 +969,68 @@ static void conv_picture(rt_machine *m, int w, int h, int bpr, int np, const u32
  * One copper list can program more than one screen region: the flight builds a playfield and, below
  * it, a HUD strip with its own five plane pointers (the fuel/canister panel). A presenter that
  * converts one plane set for the whole frame paints the playfield over the HUD's rows, which is
- * what showed up as garbage at the bottom of the flight screen. */
-#define EMU_MAX_REGIONS 4
+ * what showed up as garbage at the bottom of the flight screen.
+ *
+ * The copper also programs the picture line by line, and two things follow from that which a
+ * whole-frame presenter gets wrong:
+ *
+ *   - the plane pointers are only reloaded where the list names them, so each line's row offset is
+ *     counted from the WAIT that loaded them, and the stride is the DDF window plus the modulo in
+ *     force (the chicken race's list is 46 bytes: DDFSTRT 0x28, DDFSTOP 0xD8, mod 0 - which is the
+ *     bytes/row its own drawing bitmap at 0x2BCF0 names, not the 42 of the ViewPort bitmap). The
+ *     odd-numbered planes use BPL1MOD and the even-numbered ones BPL2MOD, so a picture can give
+ *     its two playfields different strides: the chicken race's horizon strip runs its three
+ *     playfield-1 planes 98 bytes a line and its two playfield-2 planes 80;
+ *   - every COLORxx write takes effect from its line on. The chicken race changes COLOR12/13/14
+ *     thirteen times down the screen for the sunset bands, after a completely different palette for
+ *     the mountain strip above, so "the last colour in the list" flattens the whole picture to the
+ *     border's black.
+ *
+ * A segment is therefore closed at every WAIT: the plane set, delays, strides and BPLCON0 in force,
+ * and the colours latched at that line. BPLCON0 matters as much as the colours: a list that sets
+ * DBLPF interleaves two playfields (odd planes in front of even ones, the odd ones taking colours
+ * 8..15) and one that clears the plane count turns the picture off, and the chicken race's list
+ * does both - its horizon strip is a dual-playfield picture and its last three rows have no planes
+ * at all. */
+#define EMU_MAX_REGIONS 32
+#define EMU_PAL_SLOTS   240         /* picture slots; 240..255 are the OSD's */
+#define EMU_BP_UNKNOWN  0xFF        /* the list never wrote BPLCON0: keep the bitmap's depth */
 typedef struct
 {
-    int row;                    /* first display row this region covers (0-based) */
-    int n;                      /* plane count in force here */
+    int row;                    /* first display row this segment covers (0-based) */
+    int n;                      /* plane pointers this segment names (0 = inherited) */
     u32 planes[8];
     int d1, d2;                 /* BPLCON1 playfield delays in force here */
+    int stride;                 /* bytes an odd-numbered plane's pointer advances per line */
+    int stride2;                /* ... and an even-numbered one (BPL2MOD) */
+    u8  dblpf;                  /* BPLCON0 DBLPF: odd planes are a second playfield in front */
+    u8  pf2pri;                 /* BPLCON2 PF2PRI: playfield 2 in front of playfield 1 */
+    u8  bp;                     /* BPLCON0 plane count, or EMU_BP_UNKNOWN */
+    u16 pal[32];                /* COLORxx latched at this line, 0x0RGB */
+    u8  slot[32];               /* framebuffer index for each pen (per-line palettes) */
 } rt_region;
+
+/* The colour registers keep their value from frame to frame, exactly like the hardware: a list that
+ * writes a colour half way down the screen leaves the rows above it in the colour the previous
+ * frame ended with. */
+static u16 g_latch[32];
+
+/* Per-line palettes need the framebuffer's indices to name a colour per line, so colours are
+ * interned: one slot per distinct 12-bit value, and each segment keeps a pen -> slot map. A screen
+ * with one palette keeps the identity map and the fast conversion paths below. */
+static u16 g_slotCol[EMU_PAL_SLOTS];
+static int g_slotCount;
+
+static int pal_slot(u16 col)
+{
+    int i;
+
+    for (i = 0; i < g_slotCount; i++)
+        if (g_slotCol[i] == col) return i;
+    if (g_slotCount >= EMU_PAL_SLOTS) return 0;
+    g_slotCol[g_slotCount] = col;
+    return g_slotCount++;
+}
 
 /* A plane-pointer group read out of a copper list is usable when every pointer is in RAM and the
  * rows it needs fit there. */
@@ -983,15 +1048,58 @@ static int list_planes_ok(rt_machine *m, const u32 *pl, int n, int bpr, int h)
     return 1;
 }
 
+/* A display line reads each plane with the bytes the DDF window fetches plus that plane's modulo.
+ * The custom chip set keeps the two apart - BPL1MOD for the odd-numbered planes (1, 3, 5) and
+ * BPL2MOD for the even-numbered ones - which is what lets a picture interleave two playfields with
+ * different row widths. */
+static void region_strides(rt_region *rg, int fetch, int mod1, int mod2, int bpr)
+{
+    int s1 = fetch > 0 ? fetch + mod1 : bpr;
+    int s2 = fetch > 0 ? fetch + mod2 : bpr;
+
+    if (s1 <= 0) s1 = bpr;
+    if (s2 <= 0) s2 = s1;
+    rg->stride = s1;
+    rg->stride2 = s2;
+}
+
+/* The visible window the installed list programs, as DIWSTOP.vpos - DIWSTRT.vpos: the hardware
+ * shows exactly those lines and nothing else, whatever DHeight the game told the OS. Returns 0
+ * when the list programs no sane window. */
+static int list_window(rt_machine *m, int *vstart)
+{
+    u32 list = gfx->cprList;
+    u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
+    int entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
+    int e, vs = -1, ve = -1;
+
+    for (e = 0; start != 0 && e < entries && e < 256; e++)
+    {
+        u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
+        u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
+        if (reg == 0x08Eu && vs < 0) vs = (int)((val >> 8) & 0xFFu);
+        else if (reg == 0x090u && ve < 0) ve = (int)((val >> 8) & 0xFFu);
+    }
+    if (vs < 0 || ve < 0 || ve <= vs) return 0;
+    *vstart = vs;
+    return ve - vs;
+}
+
 void rt_gfx_present(rt_machine *m, u32 view)
 {
-    u32 vp, cm, ri, bm, table, bplcon0 = 0;
+    u32 vp, cm, ri, bm, table;
     u32 listPlanes[8];
+    u16 palLatch[32];
     int bpr, rows, depth, w, h, x, y, p, count, entries, d1 = 0, d2 = 0;
     int planesSeen = 0;
     static rt_region regions[EMU_MAX_REGIONS];
-    int regionCount = 0, regRow = 0, regVStart = 0;
+    int regionCount = 0, regRow = 0, regVStart = 0, regVStop = 0;
     static int s_progTiles;
+    int ddfS = 0, ddfE = 0, mod = 0, mod2 = 0;  /* what the strides are derived from */
+    int bp = EMU_BP_UNKNOWN, dblpf = 0, pf2pri = 0;   /* BPLCON0/BPLCON2 in force */
+    int palMulti = 0;                   /* a palette per line: pixels are palette slots */
+    int segSimple = 1;                  /* every visible segment programs the same picture */
+    int listColours = 0;                /* colours the list itself carried */
 
     if (view == 0 || gfx == 0 || gfx->fb == 0) return;
     /* LoadView installs the view's copper list, and the copper keeps running whatever list was
@@ -1022,6 +1130,23 @@ void rt_gfx_present(rt_machine *m, u32 view)
      * visible area comes from the ViewPort the game built - 320x200 - not from the bitmap. */
     w = (int)rt_read16(&m->mem, vp + EMU_VP_WIDTH);
     h = (int)rt_read16(&m->mem, vp + EMU_VP_HEIGHT);
+    /* ... except that the window the copper list programs is part of the screen too: the engine
+     * uses it beyond what its ViewPort asks for. The chicken race's list asks for lines
+     * 0x1D..0xF5, 216 rows, while its ViewPort says 200, and its cockpit picture fills rows
+     * 176..215 - presenting DHeight's 200 rows cut the bottom 16 off the dashboard. A window
+     * *shorter* than the ViewPort (the hospital room's 180 rows in a 200-row screen) keeps the
+     * ViewPort's height: the rows below DIWSTOP are the border there, which is what the screen
+     * shows. Sanity: the window must be at least three quarters of the screen the game built and
+     * must fit the bitmap the list names. */
+    {
+        int vs = 0, win = list_window(m, &vs);
+        if (win > 0 && win >= (h * 3) / 4 && win <= rows && win <= EMU_FB_MAX_H)
+        {
+            regVStart = vs;
+            regVStop = vs + win;
+            if (win > h) h = win;
+        }
+    }
     if (w <= 0 || w > bpr * 8) w = bpr * 8;
     if (w > EMU_FB_MAX_W) w = EMU_FB_MAX_W;
     if (h <= 0 || h > rows) h = rows;
@@ -1056,46 +1181,31 @@ void rt_gfx_present(rt_machine *m, u32 view)
     {
         u32 list = gfx->cprList;
         u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
-        u32 diwStart = 0;
-        u32 diwStop = 0xFFFFu;
-        int haveDiw = 0;
         int e;
         entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
-        /* DIWSTRT/DIWSTOP first, by register (the entry index differs per list): they are the
-         * frame's origin and end, and the region rows below are `vpos - vstart`, so they cannot be
-         * read after the regions are recorded (that put the HUD's WAIT 0xCA at row 202 instead of
-         * 158 and hid it behind the bottom of the frame).
-         *
+        /* DIWSTRT/DIWSTOP were read before the clamps above: they are the frame's origin and end,
+         * and the region rows below are `vpos - vstart`, so the origin is already in regVStart.
          * Only the vertical part is used. The engine's 0x90..0xB0 horizontal pair does not mean
          * "inset window" - the original fills the width - and applying it cropped the picture to a
          * 160-pixel column. */
-        if (start != 0)
-        {
-            int e2;
-            for (e2 = 0; e2 < entries && e2 < 256; e2++)
-            {
-                u32 r2 = rt_read16(&m->mem, start + (u32)e2 * 4u);
-                u32 v2 = rt_read16(&m->mem, start + (u32)e2 * 4u + 2u);
-                if (r2 == 0x08Eu && !haveDiw) { diwStart = v2; haveDiw = 1; }
-                else if (r2 == 0x090u && diwStop == 0xFFFFu) diwStop = v2;
-            }
-            if (haveDiw && diwStop != 0xFFFFu)
-            {
-                int vs = (int)((diwStart >> 8) & 0xFFu), ve = (int)((diwStop >> 8) & 0xFFu);
-                if (ve > vs && ve - vs >= (h * 3) / 4)
-                {
-                    regVStart = vs;
-                    if (ve - vs < h) h = ve - vs;
-                }
-            }
-        }
-
+        for (p = 0; p < 32; p++) palLatch[p] = g_latch[p];
         for (e = 0; start != 0 && e < entries && e < 256; e++)
         {
             u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
             u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
             int idx;
-            if (reg == 0x100u) bplcon0 = val;        /* BPLCON0: hires and the plane count */
+            if (reg == 0x100u)
+            {
+                /* BPLCON0: the plane count the shifter takes (0 turns the playfield off) and
+                 * DBLPF, which interleaves two playfields instead of showing one deep one. */
+                bp = (u8)((val >> 12) & 7u);
+                dblpf = (u8)((val & 0x400u) != 0);
+            }
+            /* BPLCON2 bit 6 (PF2PRI): which of the two playfields is in front. Clear means
+             * playfield 1 wins, which is what the chicken race's horizon strip needs: its
+             * playfield 2 covers every pixel (sky and a far ridge), so with playfield 2 in front
+             * the tan range its three playfield-1 planes carry never appeared at all. */
+            if (reg == 0x104u) pf2pri = (u8)((val & 0x40u) != 0);
             /* BPLCON1: PF1H (bits 3-0), PF2H (bits 7-4) - winuae drawing.cpp, update_bplcon1.
              * Per display region: the engine writes a different value for the panel below the
              * playfield, so the delay belongs to the region, not to the frame. */
@@ -1104,25 +1214,46 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 d1 = (int)(val & 0x0Fu);
                 d2 = (int)((val >> 4) & 0x0Fu);
             }
+            /* The fetch window and the modulos: a line advances a plane's pointer by the bytes the
+             * DDF window makes the shifter fetch plus that plane's modulo, so these are what a
+             * region's rows are read with. The engine's own drawing bitmap agrees: the chicken
+             * race draws at 46 bytes/row (0x2E at 0x2BCF0), and 0x28..0xD8 with mod 0 is exactly
+             * 46. */
+            if (reg == 0x092u) ddfS = (int)val;
+            if (reg == 0x094u) ddfE = (int)val;
+            if (reg == 0x108u) mod = (int)(s16)val;
+            if (reg == 0x10Au) mod2 = (int)(s16)val;
             /* A WAIT ends the current display region and starts the next one at its line. The
              * flight screen is built this way: the playfield from line 0x1B, then a HUD region at
              * line 0xCA with its own five plane pointers (the fuel/canister panel). Rendering the
-             * playfield's planes over those rows is what put garbage at the bottom of the frame. */
-            if ((reg & 1u) != 0 && (reg & 0x8000u) != 0 && e + 1 < entries)
+             * playfield's planes over those rows is what put garbage at the bottom of the frame.
+             * The segment carries the colours latched at that line as well (see above).
+             *
+             * A copper instruction is a WAIT when bit 0 of its first word is set (src\amiga\
+             * copper.c, same rule); bit 15 is *not* part of the opcode - it is bit 7 of the
+             * vertical position, so testing it only ever caught WAITs below line 128, which is
+             * why the chicken race's thirteen sunset-band WAITs were invisible. */
+            if ((reg & 1u) != 0 && !(reg == 0xFFFFu && val == 0xFFFEu) && e + 1 < entries)
             {
-                if (planesSeen > 0 && regionCount < EMU_MAX_REGIONS)
+                if (regionCount < EMU_MAX_REGIONS)
                 {
                     rt_region *rg = &regions[regionCount++];
-                    int q2;
+                    int q2, fetch = 0;
+
+                    if (ddfE > ddfS) fetch = (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2;
+                    region_strides(rg, fetch, mod, mod2, bpr);
                     rg->row = regRow < 0 ? 0 : regRow;
                     rg->n = planesSeen;
                     for (q2 = 0; q2 < 8; q2++) rg->planes[q2] = listPlanes[q2];
                     rg->d1 = d1;
                     rg->d2 = d2;
+                    rg->dblpf = dblpf;
+                    rg->pf2pri = pf2pri;
+                    rg->bp = bp;
+                    for (q2 = 0; q2 < 32; q2++) rg->pal[q2] = palLatch[q2];
                 }
                 regRow = (int)((reg >> 8) & 0xFFu) - regVStart;
                 planesSeen = 0;
-                for (p = 0; p < 8; p++) listPlanes[p] = 0;
                 continue;
             }
             if (reg >= 0x0E0u && reg <= 0x0FEu)
@@ -1130,11 +1261,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 int k2 = (int)((reg - 0x0E0u) >> 2);
                 if (k2 < 8)
                 {
-                    if ((reg & 2u) == 0)
-                    {
-                        listPlanes[k2] = (u32)val << 16;
-                        if (k2 == 0) planesSeen = 0;
-                    }
+                    /* The pointers are latched, not reset by a WAIT: a region that names none keeps
+                     * the set in force (the sunset bands only change colours). */
+                    if ((reg & 2u) == 0) listPlanes[k2] = (u32)val << 16;
                     else
                     {
                         listPlanes[k2] |= (u32)val;
@@ -1144,21 +1273,31 @@ void rt_gfx_present(rt_machine *m, u32 view)
             }
             if (reg < 0x180u || reg > 0x1BEu || (reg & 1u) != 0) continue;
             idx = (int)((reg - 0x180u) >> 1);
+            palLatch[idx] = (u16)(val & 0x0FFFu);
             gfx->pal[idx * 3 + 0] = (u8)(((val >> 8) & 0xF) * 17);
             gfx->pal[idx * 3 + 1] = (u8)(((val >> 4) & 0xF) * 17);
             gfx->pal[idx * 3 + 2] = (u8)((val & 0xF) * 17);
             if (idx + 1 > count) count = idx + 1;
         }
-        if (planesSeen > 0 && regionCount < EMU_MAX_REGIONS)
+        if (regionCount < EMU_MAX_REGIONS)
         {
             rt_region *rg = &regions[regionCount++];
-            int q2;
+            int q2, fetch = 0;
+
+            if (ddfE > ddfS) fetch = (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2;
+            region_strides(rg, fetch, mod, mod2, bpr);
             rg->row = regRow < 0 ? 0 : regRow;
             rg->n = planesSeen;
             for (q2 = 0; q2 < 8; q2++) rg->planes[q2] = listPlanes[q2];
             rg->d1 = d1;
             rg->d2 = d2;
+            rg->dblpf = dblpf;
+            rg->pf2pri = pf2pri;
+            rg->bp = bp;
+            for (q2 = 0; q2 < 32; q2++) rg->pal[q2] = palLatch[q2];
         }
+        for (p = 0; p < 32; p++) g_latch[p] = palLatch[p];
+        listColours = count;
     }
     if (count == 0 && cm != 0)
     {
@@ -1208,6 +1347,38 @@ void rt_gfx_present(rt_machine *m, u32 view)
         gfx->palCount = count;
     }
 
+    /* Does the list hold more than one palette down the frame? Compare the colours of the segments
+     * that actually cover visible rows: a segment that covers none (the list's first WAIT is above
+     * DIWSTRT, or two WAITs land on the same line) says nothing about the picture. */
+    {
+        int i, prev = -1, first = -1;
+
+        for (i = 0; i < regionCount; i++)
+        {
+            int r0 = regions[i].row;
+            int r1 = i + 1 < regionCount ? regions[i + 1].row : h;
+
+            if (r0 >= h || r1 <= r0) continue;
+            if (prev >= 0 && memcmp(regions[i].pal, regions[prev].pal, sizeof regions[i].pal) != 0)
+                palMulti = 1;
+            prev = i;
+            /* A list with many WAITs that restate the same picture is still one picture: the fast
+             * whole-frame conversion applies unless the segment changes the planes, the stride or
+             * the playfield delays. */
+            if (first < 0) first = i;
+            else if (regions[i].n != regions[first].n ||
+                     regions[i].stride != regions[first].stride ||
+                     regions[i].stride2 != regions[first].stride2 ||
+                     regions[i].dblpf != regions[first].dblpf ||
+                     regions[i].pf2pri != regions[first].pf2pri ||
+                     regions[i].bp != regions[first].bp ||
+                     regions[i].d1 != regions[first].d1 ||
+                     regions[i].d2 != regions[first].d2 ||
+                     memcmp(regions[i].planes, regions[first].planes, sizeof regions[i].planes) != 0)
+                segSimple = 0;
+        }
+    }
+
     /* The narration panel (FUN_000007F4) stages its five colours at 0x21F50 and raises a "panel
      * open" flag at 0x21F5A, but the engine's intro fade keeps rewriting the live table (0x298D2)
      * every frame and finishes on black - so the panel would be drawn in a palette that has
@@ -1222,7 +1393,72 @@ void rt_gfx_present(rt_machine *m, u32 view)
             gfx->pal[k * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
             gfx->pal[k * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
             gfx->pal[k * 3 + 2] = (u8)((v & 0xF) * 17);
+            if (palMulti)
+            {
+                int i;
+                for (i = 0; i < regionCount; i++) regions[i].pal[k] = (u16)(v & 0x0FFFu);
+            }
         }
+    }
+
+    if (palMulti)
+    {
+        /* Per-line palettes: intern every colour once and give each segment a pen -> slot map, so
+         * one 8-bit framebuffer can carry the whole screen. This is the case the chicken race's
+         * sunset bands need: thirteen COLOR12/13/14 writes down the screen, over a mountain strip
+         * and a road strip with palettes of their own. */
+        int i, k;
+
+        if (cm != 0)
+        {
+            int cmCount = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
+            u32 cmTable = rt_read32(&m->mem, cm + EMU_CM_TABLE);
+
+            if (cmTable != 0 && cmCount > 0 && cmCount <= 32)
+            {
+                for (i = 0; i < regionCount; i++)
+                    for (k = listColours; k < cmCount; k++)
+                        regions[i].pal[k] = (u16)(rt_read16(&m->mem, cmTable + (u32)k * 2u) & 0x0FFFu);
+            }
+        }
+        g_slotCount = 0;
+        for (i = 0; i < regionCount; i++)
+            for (k = 0; k < 32; k++)
+                regions[i].slot[k] = (u8)pal_slot(regions[i].pal[k]);
+        for (k = 0; k < EMU_PAL_SLOTS; k++)
+        {
+            u8 r = 0, g = 0, b = 0;
+            if (k < g_slotCount)
+            {
+                u16 v = g_slotCol[k];
+                r = (u8)(((v >> 8) & 0xF) * 17);
+                g = (u8)(((v >> 4) & 0xF) * 17);
+                b = (u8)((v & 0xF) * 17);
+            }
+            gfx->pal[k * 3 + 0] = r;
+            gfx->pal[k * 3 + 1] = g;
+            gfx->pal[k * 3 + 2] = b;
+        }
+        gfx->palCount = g_slotCount;
+    }
+
+    /* --progress: the segment table the presenter derived from the installed list. "Why is this
+     * band the wrong colour" is answered here - row, plane count, strides, BPLCON0 and first plane
+     * per segment, plus whether a per-line palette is in force. */
+    if (m->progress && m->frame >= m->progressFrom && (gfx->frames % 8u) == 0u)
+    {
+        int i;
+        printf("emu: segments %d (palMulti %d segSimple %d vstart %d vstop %d fetch %d mod %d/%d):",
+               regionCount, palMulti, segSimple, regVStart, regVStop,
+               ddfE > ddfS ? (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2 : bpr, mod, mod2);
+        for (i = 0; i < regionCount; i++)
+            printf(" [%d r%d n%d s%d/%d %s%s b%02X p%06lX c%03X]", i, regions[i].row, regions[i].n,
+                   regions[i].stride, regions[i].stride2,
+                   regions[i].dblpf ? "dual" : "flat",
+                   regions[i].dblpf ? (regions[i].pf2pri ? ",pf2" : ",pf1") : "",
+                   (unsigned)regions[i].bp,
+                   (unsigned long)regions[i].planes[0], regions[i].pal[0]);
+        printf("\n");
     }
 
     /* Planar -> chunky. This is the one loop that runs over the whole screen every frame - and it
@@ -1232,37 +1468,90 @@ void rt_gfx_present(rt_machine *m, u32 view)
         int np = depth < 8 ? depth : 8;
         u32 planes[8];
         int didRows = 0;
+        /* Rows below DIWSTOP are border, exactly as on the hardware: a window shorter than the
+         * screen the game built (the hospital room's 180 rows in a 200-row screen) must not show
+         * the plane data that happens to start there. */
+        int visH = h;
+        if (regVStop > regVStart && regVStop - regVStart < visH) visH = regVStop - regVStart;
         nib_tables();
         for (p = 0; p < 8; p++) planes[p] = 0;
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
-        /* More than one display region in the list: each one is a plane set and a delay of its
-         * own, and each starts its bitmap at its own first row. */
-        if (regionCount > 1)
+        /* More than one display segment in the list, or a palette per line: each row is converted
+         * with the plane set, stride, delay and palette the copper has in force at its line. */
+        if (!segSimple || palMulti)
         {
             int y0;
             int x0 = 0, x1 = w;
             for (y0 = 0; y0 < h; y0++)
             {
-                int r = 0;
+                int r = 0, rp = 0;
                 u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
                 int dd1, dd2;
-                int ry;
+                int ry, stride1, stride2, npUse, dbl, front2;
+                const u8 *slot = 0;
+
+                if (y0 >= visH)
+                {
+                    u8 bc = (palMulti && regionCount > 0) ? regions[regionCount - 1].slot[0] : 0;
+                    for (x = 0; x < w; x++) row[x] = bc;
+                    for (; x < (int)EMU_FB_MAX_W; x++) row[x] = 0;
+                    continue;
+                }
                 while (r + 1 < regionCount && regions[r + 1].row <= y0) r++;
-                dd1 = regions[r].d1;
-                dd2 = regions[r].d2;
-                ry = y0 - regions[r].row;      /* the region's own row, not the display row */
+                /* The plane pointers are latched: a segment that only changes colours keeps the
+                 * set in force, and its rows continue from the row that set was loaded at. */
+                rp = r;
+                while (rp > 0 && regions[rp].n == 0) rp--;
+                dd1 = regions[rp].d1;
+                dd2 = regions[rp].d2;
+                stride1 = regions[rp].stride > 0 ? regions[rp].stride : bpr;
+                stride2 = regions[rp].stride2 > 0 ? regions[rp].stride2 : stride1;
+                ry = y0 - regions[rp].row;      /* the row of the plane set, not the segment's */
+                if (regions[rp].n == 0)
+                {
+                    for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
+                    stride1 = stride2 = bpr;
+                    ry = y0;
+                }
+                else
+                {
+                    for (p = 0; p < np; p++) planes[p] = regions[rp].planes[p];
+                }
+                /* BPLCON0 of the segment in force: how many planes the shifter takes (zero turns
+                 * the playfield off, which is how the list blanks the rows below the cockpit) and
+                 * whether the two playfields are interleaved instead of one deep picture. */
+                npUse = np;
+                if (regions[r].bp != EMU_BP_UNKNOWN && regions[r].bp < npUse) npUse = regions[r].bp;
+                dbl = regions[r].dblpf;
+                front2 = regions[r].pf2pri;
+                if (palMulti) slot = regions[r].slot;
                 for (x = 0; x < x0; x++) row[x] = 0;
                 for (; x < x1; x++)
                 {
-                    int idx = 0;
+                    int idx = 0, pf1 = 0, pf2 = 0;
                     int sx = x - x0;
-                    for (p = 0; p < np; p++)
+                    for (p = 0; p < npUse; p++)
                     {
                         int s = sx - (((p & 1) != 0) ? dd2 : dd1);
-                        u32 byte = plane_row_byte(m, regions[r].planes[p], bpr, ry, s >> 3);
-                        if (((byte >> (7 - (s & 7))) & 1u) != 0) idx |= 1 << p;
+                        u32 byte = plane_row_byte(m, planes[p],
+                                                  ((p & 1) != 0) ? stride2 : stride1, ry, s >> 3);
+                        if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
+                        if (dbl)
+                        {
+                            /* DBLPF: the odd-numbered planes carry playfield 2 and the even ones
+                             * playfield 1; playfield 2 takes colours 8..15 (8+0 is the
+                             * transparent one, so its first pen is COLOR09). Which of the two is
+                             * in front is BPLCON2's PF2PRI, and a pixel where the front playfield
+                             * is transparent shows the one behind it. */
+                            if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
+                            else pf2 |= 1 << (p >> 1);
+                        }
+                        else idx |= 1 << p;
                     }
-                    row[x] = (u8)idx;
+                    if (dbl)
+                        idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
+                                     : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
+                    row[x] = slot != 0 ? slot[idx] : (u8)idx;
                 }
                 for (; x < w; x++) row[x] = 0;
             }
@@ -1284,26 +1573,32 @@ void rt_gfx_present(rt_machine *m, u32 view)
          * list that names no plane pointer leaves the ViewPort's planes. */
         if (!didRows && regionCount > 0)
         {
+            int r0 = 0, rp;
             int k3;
-            for (k3 = 0; k3 < np && k3 < 8; k3++)
-                if (regions[0].planes[k3] != 0) planes[k3] = regions[0].planes[k3];
-            d1 = regions[0].d1;
-            d2 = regions[0].d2;
+
+            while (r0 + 1 < regionCount && regions[r0 + 1].row <= 0) r0++;
+            rp = r0;
+            while (rp > 0 && regions[rp].n == 0) rp--;
+            if (regions[rp].n > 0)
+                for (k3 = 0; k3 < np && k3 < 8; k3++)
+                    if (regions[rp].planes[k3] != 0) planes[k3] = regions[rp].planes[k3];
+            d1 = regions[rp].d1;
+            d2 = regions[rp].d2;
         }
-        if (!didRows && !conv_same(m, bm, w, h, bpr, np, planes, d1, d2))
+        if (!didRows && !conv_same(m, bm, w, visH, bpr, np, planes, d1, d2))
         {
-            if (d1 != 0 || d2 != 0) conv_picture_scrolled(m, w, h, bpr, np, planes, d1, d2);
-            else conv_picture(m, w, h, bpr, np, planes);
-            conv_saved(m, bm, w, h, bpr, np, planes, d1, d2);
+            if (d1 != 0 || d2 != 0) conv_picture_scrolled(m, w, visH, bpr, np, planes, d1, d2);
+            else conv_picture(m, w, visH, bpr, np, planes);
+            conv_saved(m, bm, w, visH, bpr, np, planes, d1, d2);
         }
         /* Everything outside the window the list programs is border, which is pen 0 (COLOR00):
          * below DIWSTOP, and right of the ViewPort's width. Only the row loop above knows about
          * the window, so without this a screen shorter than the 200-row buffer keeps the previous
          * screen's pixels there (the hospital's 180-row view showed the desert). */
-        if (!didRows && (h < EMU_FB_MAX_H || w < EMU_FB_MAX_W))
+        if (!didRows && (visH < EMU_FB_MAX_H || w < EMU_FB_MAX_W))
         {
-            for (y = h; y < EMU_FB_MAX_H; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W, 0, (size_t)w);
-            for (y = 0; y < h; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W + w, 0, (size_t)(EMU_FB_MAX_W - w));
+            for (y = visH; y < EMU_FB_MAX_H; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W, 0, (size_t)w);
+            for (y = 0; y < visH; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W + w, 0, (size_t)(EMU_FB_MAX_W - w));
         }
         if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }

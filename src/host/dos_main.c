@@ -19,7 +19,7 @@
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
- *   --titlekey <n>       take a title screen menu choice (0 the game, 1..4 the minigames)
+ *   --titlekey <n>       take a title screen menu choice (0 the game, 1..5 the minigames)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -236,22 +236,34 @@ static void dos_present(rt_machine *m)
     const u8 *pal = rt_gfx_palette();
     u8 *dst = plat_framebuffer();
     int w = rt_gfx_width(), h = rt_gfx_height();
-    int x, y, cw;
+    int x, y;
     u32 t0 = g_perf ? plat_ticks_ms() : 0;
 
     if (fb == 0 || pal == 0 || dst == 0) return;
     if (w > SCREEN_W) w = SCREEN_W;
-    if (h > SCREEN_H) h = SCREEN_H;
     plat_set_palette(0, PAL_ENTRIES, pal);
-    /* The picture is a 320x200 chunky raster; anything smaller sits in the top left corner. */
-    for (y = 0; y < h; y++)
+    if (h > SCREEN_H)
     {
-        cw = w;
-        memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
-        for (x = cw; x < SCREEN_W; x++) dst[(u32)y * SCREEN_W + x] = 0;
+        /* The raster is the size of the window the copper list programs, which can be taller than
+         * the 320x200 mode (the chicken race's list asks for 216 rows). Sample it down instead of
+         * losing its bottom rows. */
+        for (y = 0; y < SCREEN_H; y++)
+        {
+            int sy = (y * h) / SCREEN_H;
+            if (sy >= h) sy = h - 1;
+            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)sy * EMU_FB_MAX_W, (size_t)w);
+        }
     }
-    for (y = h; y < SCREEN_H; y++)
-        memset(dst + (u32)y * SCREEN_W, 0, SCREEN_W);
+    else
+    {
+        /* Anything smaller sits in the top left corner, as before. */
+        for (y = 0; y < h; y++)
+            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
+        for (y = h; y < SCREEN_H; y++)
+            memset(dst + (u32)y * SCREEN_W, 0, SCREEN_W);
+    }
+    for (y = 0; y < SCREEN_H; y++)
+        for (x = w; x < SCREEN_W; x++) dst[(u32)y * SCREEN_W + x] = 0;
     plat_present();
     if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
     (void)m;

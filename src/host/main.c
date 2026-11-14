@@ -21,7 +21,7 @@
  * headless and only reports machine state. `--call` enters one of the engine's own routines at a
  * frame boundary, with the program-end sentinel as its return address.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
- * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..4 the minigames) so a
+ * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..5 the minigames) so a
  * scripted run can start a scene from the title; it is a dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
@@ -421,10 +421,25 @@ static void host_present(rt_machine *m)
     }
     if (!g_window) return;
     dst = plat_framebuffer();
-    cw = w < SCREEN_W ? w : SCREEN_W;
     plat_set_palette(0, 256, pal);
-    for (y = 0; y < SCREEN_H && y < h; y++)
-        memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+    cw = w < SCREEN_W ? w : SCREEN_W;
+    if (h > SCREEN_H)
+    {
+        /* The raster is the size of the window the copper list programs, which can be taller than
+         * the 320x200 DIB (the chicken race's list asks for 216 rows). Sample it down instead of
+         * leaving its bottom rows - the cockpit - out of the window. */
+        for (y = 0; y < SCREEN_H; y++)
+        {
+            int sy = (y * h) / SCREEN_H;
+            if (sy >= h) sy = h - 1;
+            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)sy * EMU_FB_MAX_W, (size_t)cw);
+        }
+    }
+    else
+    {
+        for (y = 0; y < SCREEN_H && y < h; y++)
+            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+    }
     plat_present();
     (void)m;
 }
@@ -587,7 +602,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
         {
-            /* <n>: 0 starts the game from the title, 1..4 start the debug scenes. A dev seam like
+            /* <n>: 0 starts the game from the title, 1..5 start the debug scenes. A dev seam like
              * --call, but through the title's own menu - see src\host\title.c. */
             titleKey = (int)strtol(argv[++i], 0, 0);
             if (titleKey < 0) titleKey = 0;

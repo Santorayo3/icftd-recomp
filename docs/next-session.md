@@ -7,6 +7,167 @@ is a difference from the original, never a symptom, and that holds for every kin
 What of the original is implemented, proven and never run — measured, not guessed (feature
 inventory, `--cover` matrix, open divergences): `docs/implementation-survey.md`.
 
+## The chicken race: a per-line palette and a per-region stride (2026-11-14)
+
+Reported as "implement the chicken minigame". The scene is the story's **chicken run**:
+`FUN_0001CC2E` (the hotspot action handler) prints "Ice and the Hellcats came out of nowhere...",
+"were only turning around. Any minute now they would be coming for me...", sets the swerve window
+from the encounter count (`0x2C100 = 0x78 + 10*n`, `0x2C102 = 0x104 - 10*n`) and runs
+**`FUN_0001BA3E`** (runtime `0x1FA3E`), the race itself. That loads `Desert3:CHICK` and the
+`carcrash`/`tankidle`/`skid` samples, installs its own copper list through the View's `LOFCprList`
+(the hospital's trick, `FUN_0001BE80`), adds a `CarVBI` server (`IntVects` slot 5), draws the road
+with Area fills into its own 46-byte-per-row bitmap and blits the oncoming car. Holding the stick up
+accelerates, left/right steer the truck into the window the Hellcat has to swerve into
+(`0x2C100..0x2C102`), and holding fire brakes. It ends with `FUN_0001CD94`'s narration pages - "The
+tires on Ice's car screamed as he swerved off the road" (he swerved) or "I hit the brakes at the last
+second..." (you did) - each waiting for a fire press.
+
+**Reproduced** with `--call 0x1FA3E:1513` on both front ends (the scene needs no room, like the
+fight), driven by an input script: accelerate from frame 1516, steer left at 1622, fire at 1670 for
+the page. Win path: the program returns at frame 1673; brake path (`fire` from 1600, another press
+for the page): frame 1753. **Parity**: 335 frame records (win) and 351 (brake) identical in
+PC/SR/registers/custom file, and the full RAM byte-identical at the sampled frames
+(1560/1600/1630/1660 and 1620/1700). The two sessions put 28 entries of the scene's cluster
+(`0x1BA3E..0x1D2C6`, including the animation helpers `0x1D00A`/`0x1D1DA`/`0x1D2C6`) into the
+covered union; `FUN_0001CC2E` itself is still only reached by the story, because it needs the room's
+`move_node` for its narration pages.
+
+### The divergence was the presenter, and it was three faults in one function
+
+The scene ran and put a picture on the machine from the first try, but the picture was not the
+scene: black sky, brown bands, a sheared road. Machine state was already identical, so all of it was
+`rt_gfx_present()`:
+
+1. **A WAIT was recognised by bit 15 of the first instruction word.** That bit is bit 7 of the
+   vertical position - `src\amiga\copper.c` tests bit 0, which is the whole opcode - so only WAITs
+   below line 128 counted. The flight's HUD (`0xCA`) and the hospital's second region (`0xE5`)
+   happened to be exactly the ones that work, and the chicken's thirteen sunset-band WAITs
+   (`0x5E..0xC5`) were invisible.
+2. **The plane pointers were reset at every WAIT**, and a region's first row was the WAIT's own line.
+   The hardware *latches* them: a WAIT that only writes colours keeps the set in force, and the rows
+   continue from the WAIT that loaded those pointers. The sunset bands are exactly that - same
+   planes, new colours.
+3. **One palette and one stride for the whole frame.** Every COLORxx write now takes effect from its
+   line (`regions[].pal`, latched across frames like the registers themselves: `g_latch`), and
+   colours are interned into framebuffer slots (0..239 are the picture, 240..255 stay the OSD's) so
+   one 8-bit buffer can carry several palettes down the screen. The stride is the DDF window plus
+   BPL1MOD: `0x28..0xD8` with mod 0 is 46 bytes, which is the bytes/row the scene's *own* drawing
+   bitmap at `0x2BCF0` names (`0x2E`), and the road strip is 80 = 46 + `0x22` - not the ViewPort
+   bitmap's 42.
+
+A list whose segments all program the same picture (every MrgCop screen) keeps the identity map and
+the fast conversion path: `segSimple`/`palMulti` decide. The five scenes verified before this change
+render **pixel-identical** before/after (intro, map, flight, hospital, fight - measured with `--shot`
+at the frames `present-check` uses); only the chicken's 59 168 pixels changed.
+
+**Measured on the chicken** (frame 1567, `--call 0x1FA3E:1513` + `ref\inputs\chicken.txt`):
+coverage 0.510 -> 0.962, the sunset rows carry the list's own COLOR00 sequence (13 bars alternating
+`AA6644`/`AA6600`), the dashboard picture of region D is intact, and the sky is region A's `0x009D`
+blue. A rebuild of the frame from RAM alone (copper list + planes + latched palettes, independent
+PowerShell) matches the presenter exactly on the static regions - rows 0..19 and 180..199 - and
+differs only where the engine redraws the road strip within the frame, which is also where the
+double buffer flips (`0x4F340` vs `0x441E8` plane sets inside one frame).
+
+Note for anyone re-measuring: at the end of the scene `FUN_0001BF26` restores the ViewPort's previous
+copper list, so a `--call` run entered from the intro ends on **the intro's picture**, not on the
+scene's - measured: the installed list at frame 1778 is the MrgCop one (`0x5A668`, 48 entries, the
+intro's own bitmap and palette), not the scene's (`0xC2810`, 187 entries). That is the original's own
+behaviour (in the game the room's view comes back), not a fault; a shot taken past the scene's end
+measures the screen the scene was entered from.
+
+### The title starts it too (key 5)
+
+`src\host\title.c` gained `{ KEY_5, "Chicken Race", 0x1FA3E }`. The one thing the scene cannot do for
+itself is the swerve window, so the title writes what `FUN_0001CC2E` would (`0x2C100 = 0x78`,
+`0x2C102 = 0x104`, the first encounter) before it calls the entry - without it the "he swerved"
+branch can never be taken. `tools\title-check.ps1` checks the scene's own data (`Desert3:CHICK`,
+`carcrash`, `tankidle`), 1200+ rasters and no fault; it is not a returning scene without a fire
+press, so the return path stays the fight's check.
+
+`--progress` now prints the segment table the presenter derived from the installed list (row, plane
+count, both strides, BPLCON0 and first plane pointer per segment), and `tools\present-check.ps1` has a
+**chicken** case: coverage >= 0.90, at least two distinct colours across the sunset rows (a flat
+palette fails) and the dashboard's pixels present. Measured: the old presenter scores 0.510 with one
+colour, the new one 0.974 with two.
+
+### Three more faults, found by reading the list instead of the picture (2026-11-14, later)
+
+Reported as "there are some visual glitches" against a reference still, with the instruction to find
+the reason in the code. The list at frame 1606 (`0xC2810`, 258 entries) names four picture slots and
+they are *not* four instances of the same thing:
+
+| rows | segment | what the list programs |
+|---|---|---|
+| 0..37 | mountain strip | 4 planes at `0xBB320`, palette `009D EEE CCC AAA A85 999 888 666 975 555 444 333 875 222 111 000` |
+| 38..62 | horizon strip | 5 planes at `0xBEF00`, **BPLCON0 `0x5600` - DBLPF set**, `BPL1MOD 0x34`, `BPL2MOD 0x22` |
+| 63..174 | the road, drawn by the engine | 5 planes at `0x4F340`, BPLCON0 `0x5200`, mod 0, 32 colours |
+| 176..212 | cockpit | 5 planes at `0xB7188`, then BPLCON0 `0x0200` (no planes) for the last rows |
+
+Against that, the presenter had three more divergences, all in the same function:
+
+4. **It presented DHeight instead of the window the list programs.** `DIWSTRT 0x1D..DIWSTOP 0xF5` is
+   216 rows while the scene's ViewPort still says 200, and the cockpit picture fills rows 176..215 -
+   so the bottom 16 rows of the dashboard were cut off. `list_window()` now reads the pair before the
+   clamps and lets the window *grow* the raster (the hospital room's 180-row window inside a 200-row
+   screen keeps the screen's height: its rows below DIWSTOP are border, and `visH` paints them as
+   pen 0 instead of leaking the plane data that starts there - that is what the `present-check`
+   hospital case measures).
+5. **BPL2MOD was not read at all.** The custom chip set gives the odd-numbered planes BPL1MOD and the
+   even-numbered ones BPL2MOD, so one picture can give its two playfields different strides; the
+   horizon strip does (98 and 80 in the frames where the engine sets `0x34`/`0x22`). `rt_region` now
+   keeps `stride`/`stride2` and a row reads plane *p* with `(p & 1) ? stride2 : stride`.
+6. **BPLCON0 was parsed for its plane count only, and not even that was used.** Two bits matter:
+   `DBLPF` interleaves two playfields (planes 1/3/5 in colours 0..7 behind planes 2/4 in colours
+   8..15, playfield 2 in front, `BPLCON2 0x0024` has PF2PRI clear, so playfield 2 wins), and a plane
+   count of zero turns the playfield off - which is how the list blanks the rows under the cockpit.
+   The horizon strip is the dual-playfield case: 7456 of its 8000 pixels changed, and it is now drawn
+   in exactly the three colours its own segment programs (`0x966`, `0x09D`, `0x757`) instead of the
+   twenty a five-plane index hash produced out of other segments' palettes.
+
+Measured after the change: the chicken presents **320x216** (was 320x200), coverage 0.974, rows 0..37
+and 63..199 byte-identical to the previous build, and only the horizon strip and the 16 recovered
+cockpit rows differ. The other five scenes present exactly the same raster as before (intro 0.957,
+map 1.000, flight 0.884, hospital 0.900, fight 0.973 - the same numbers to three decimals).
+`present-check`'s chicken case now also pins the raster height (216), the strip's colour set and the
+cockpit rows below 200, so each of the four faults fails on its own. Machine state is untouched by
+all of it: the RAM dump at frames 1566/1570/1572 is byte-identical to the build before these three
+changes (`0` differing bytes of 2 097 152).
+
+The *window* is port plumbing, so it is handled on its own terms: `plat_framebuffer()` is a fixed
+320x200 DIB (and the DOS target is a fixed VGA mode), so `host_present`/`dos_present` sample a taller
+raster down over the 200 rows instead of leaving the bottom of the cockpit out of the window. The
+headless `--shot`/`--dump` raster keeps the list's true size (320x216), which is what the checks read.
+
+### Two more: the Area fill and the dual-playfield priority (2026-11-14, later still)
+
+Reported as "the road should be grey, ours is invisible or the colour of the ground" and "there
+should be two layers of mountains, ours shows one". Both were still differences, not missing art.
+
+7. **`AreaEnd` paired its scanline crossings in polygon order.** `FUN_0001C4D2` fills the road twice
+   per frame: `SetAPen(rp, 0x1C)` at `0x1C6FE`, then `AreaMove`/`AreaDraw`x4/`AreaEnd` with the
+   polygon `(184,1) (0,40) (0,111) (367,111) (367,105)`, then `SetAPen(rp, 0x1E)` and the 4-pixel
+   marker that becomes the centre line. On every row between 41 and 105 that polygon's edges are
+   crossed right-to-left, so the crossings came out as {358, 0} and the `xa..xb` fill loop ran
+   backwards and painted nothing - only the bottom six rows, where the order happens to be
+   left-to-right, appeared: 2209 of the road's ~27 000 pixels. graphics.library's TAD sorts its edge
+   crossings before pairing them; `rt_gfx_area_end` now does the same. The surface is pen 28, whose
+   colour the thirteen raster bars program to `444`/`445` grey - so the road was invisible *because*
+   it was never filled, not because its colour was wrong.
+8. **Dual playfield had its two playfields the wrong way round.** `BPLCON2` is `0x0024` in the
+   scene's list: bit 6 (`PF2PRI`) is clear, i.e. playfield 1 has priority. The horizon strip's
+   playfield 2 covers every one of its 8000 pixels (measured from the planes: 320 of 320 columns,
+   rows 0..24), so putting playfield 2 in front hid the tan range its three playfield-1 planes carry
+   - one mountain layer where the original shows two. The composition now reads `PF2PRI` per
+   segment: with the bit clear the front playfield is 1, and a transparent pixel there shows
+   playfield 2 (`8 + pen`).
+
+Measured after both: the road region (rows 100..160) is 13 774 pixels of pen-28 grey against the
+ground's `AA6644`/`AA6600`, the horizon strip carries 4119 pixels of playfield 1's tans and 2601 of
+playfield 2's ridge and sky, and each fill call writes 27 225 pixels instead of 2209. `present-check`
+grew the matching assertions (both ranges present, road grey count), so each fault fails on its own.
+The oracle links the same `src\runtime`, so its RAM stays byte-identical - the parity test cannot see
+either fault, which is why both are measured on the composed picture instead.
+
 ## The title menu starts the minigames (2026-11-13, later session)
 
 The title screen now starts the four minigames directly: **1** Fight, **2** Take a Flight,

@@ -1387,7 +1387,6 @@ u32 rt_os_call(rt_machine *m, u32 sp, u32 a0, u32 a1, u32 d0, u32 d1, int lib, s
             result = 0;
             break;
         case -264:                               /* AreaEnd(rp) */
-            if (m->progress) printf("     AreaEnd %d point(s)\n", m->gfx.areaCount);
             rt_gfx_area_end(m, arg32(sp, 0));
             result = 0;
             break;

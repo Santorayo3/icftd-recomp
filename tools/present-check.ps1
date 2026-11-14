@@ -172,6 +172,118 @@ if (Test-Path 'ref\inputs\fight.txt') {
     Write-Output 'present: fight   SKIP (no ref\inputs\fight.txt)'
 }
 
+# The chicken race is the one screen whose copper list holds more than one palette down its rows:
+# a mountain strip at the top, a dual-playfield horizon strip under it, thirteen COLOR00/12/13/14
+# writes for the sunset bands, then the engine's own bitmap with the road and the dashboard picture
+# under it. A presenter that keeps one palette for the frame (the last COLORxx in the list) paints
+# the whole picture in the border's black; one that keeps the ViewPort bitmap's bytes/row shears the
+# road (the list's DDFSTRT/DDFSTOP make 46 bytes per line, which is what the scene's own drawing
+# bitmap at 0x2BCF0 says, not the 42 of the ViewPort's); one that reads DHeight instead of the
+# list's DIW window stops at row 200 and cuts the bottom of the cockpit; and one that ignores
+# BPLCON0's DBLPF bit folds the horizon strip's two playfields into a single five-plane index and
+# paints it in colours that segment never programs. All four are checked here:
+#
+#   - the picture must cover the screen (coverage),
+#   - it must be 216 rows tall (DIWSTRT 0x1D .. DIWSTOP 0xF5), not the ViewPort's 200,
+#   - the sunset bands must carry *different* colours (only a per-line palette can),
+#   - the horizon strip must use only its segment's own colours, and show both of its ranges
+#     (playfield 1's tans in front of playfield 2's ridge, which needs BPLCON2's PF2PRI),
+#   - the road surface must be filled (AreaEnd's crossings have to be sorted before they are
+#     paired, or the polygon fills as a sliver and the road reads as the ground),
+#   - and the cockpit must be there, including below row 200.
+if (Test-Path 'ref\inputs\chicken.txt') {
+    $ch = $null
+    try {
+        $ch = Shot 'ref\inputs\chicken.txt' 5500000 'chicken' @('--call', '0x1FA3E:1513')
+        $cov = Coverage $ch
+        $bands = @(70, 90, 120, 145) | ForEach-Object {
+            $y = $_
+            $counts = @{}
+            for ($x = 0; $x -lt $ch.Width; $x++) {
+                $c = $ch.GetPixel($x, $y)
+                $k = '{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B
+                $counts[$k] = 1 + $counts[$k]
+            }
+            ($counts.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Name
+        }
+        $distinct = ($bands | Select-Object -Unique).Count
+        $dash = Band $ch 178 199
+        $cockpitBottom = Band $ch 200 212
+        # The horizon strip (rows 38..62) is a dual-playfield picture: three playfield-1 planes in
+        # colours 0..7 of the segment's palette and two playfield-2 planes in colours 8..15, with
+        # playfield 2 in front. Its colours are therefore exactly the eleven the list programs for
+        # that segment - anything else means the odd planes were folded into one five-plane index.
+        $stripPalette = @('0099DD', '554433', '775544', '996644', 'AA6633', 'BB7755', 'CC8855',
+                          'EE9977', '000000', '996666', '775577')
+        $strangers = @{}
+        for ($y = 40; $y -le 60; $y++) {
+            for ($x = 0; $x -lt $ch.Width; $x++) {
+                $c = $ch.GetPixel($x, $y)
+                $k = '{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B
+                if ($stripPalette -notcontains $k) { $strangers[$k] = 1 }
+            }
+        }
+        # Two ranges, one behind the other: playfield 1's seven tans (the range in front, BPLCON2's
+        # PF2PRI is clear) and playfield 2's colours (the ridge and sky behind it). Only a presenter
+        # that honours the priority bit shows both; with playfield 2 always in front the tans - which
+        # cover a third of the strip - never reach the screen.
+        $tanPx = 0
+        $backPx = 0
+        $tans = @('554433', '775544', '996644', 'AA6633', 'BB7755', 'CC8855', 'EE9977')
+        $backs = @('996666', '775577', '0099DD')
+        for ($y = 40; $y -le 60; $y++) {
+            for ($x = 0; $x -lt $ch.Width; $x++) {
+                $c = $ch.GetPixel($x, $y)
+                $k = '{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B
+                if ($tans -contains $k) { $tanPx++ }
+                elseif ($backs -contains $k) { $backPx++ }
+            }
+        }
+        # The road surface is an AreaEnd fill in pen 28 (and its centre line in pen 30), whose colours
+        # are what the thirteen raster bars program: COLOR28/30 alternate 444/445 and so on down the
+        # screen. The fill used to pair its scanline crossings in polygon order instead of sorted, so
+        # only the bottom rows of the road were painted and the surface read as the ground's brown.
+        $roadGrey = 0
+        for ($y = 100; $y -le 160; $y++) {
+            for ($x = 0; $x -lt $ch.Width; $x++) {
+                $c = $ch.GetPixel($x, $y)
+                $k = '{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B
+                if ($k -eq '444444' -or $k -eq '444455') { $roadGrey++ }
+            }
+        }
+        if ($cov -lt 0.90) {
+            Write-Output ("present: chicken FAIL - coverage {0:N3} < 0.90 (blank or sheared screen)" -f $cov)
+            $fail++
+        } elseif ($ch.Height -ne 216) {
+            Write-Output ("present: chicken FAIL - the raster is {0} rows; the list's DIW window (0x1D..0xF5) is 216" -f $ch.Height)
+            $fail++
+        } elseif ($distinct -lt 2) {
+            Write-Output ("present: chicken FAIL - the sunset bands all carry the same colour ({0}) - the frame's palette is flat" -f ($bands -join ' '))
+            $fail++
+        } elseif ($strangers.Count -gt 0) {
+            Write-Output ("present: chicken FAIL - the horizon strip carries colours its segment never programs ({0}) - dual playfield folded into one index" -f (($strangers.Keys | Sort-Object) -join ' '))
+            $fail++
+        } elseif ($tanPx -lt 200 -or $backPx -lt 200) {
+            Write-Output ("present: chicken FAIL - the horizon strip shows one range only ({0} px of playfield 1's tans, {1} px of playfield 2's colours)" -f $tanPx, $backPx)
+            $fail++
+        } elseif ($roadGrey -lt 2000) {
+            Write-Output ("present: chicken FAIL - the road surface is not filled ({0} px of its pen-28 grey in rows 100..160) - AreaEnd paired its crossings unsorted" -f $roadGrey)
+            $fail++
+        } elseif ($dash -lt 2000) {
+            Write-Output ("present: chicken FAIL - the dashboard picture is missing ({0} non-border pixel(s) in rows 178..199)" -f $dash)
+            $fail++
+        } elseif ($cockpitBottom -lt 1000) {
+            Write-Output ("present: chicken FAIL - rows 200..212 are empty ({0} px) - the cockpit below the ViewPort's 200 rows was cut" -f $cockpitBottom)
+            $fail++
+        } else {
+            Write-Output ("present: chicken ok   - {0} rows, coverage {1:N3}, bands {2} ({3} distinct), horizon tans {4}/{5} px, road {6} px, dashboard {7} px, cockpit below row 200 {8} px" -f $ch.Height, $cov, ($bands -join ' '), $distinct, $tanPx, $backPx, $roadGrey, $dash, $cockpitBottom)
+        }
+    } catch { Write-Output "present: chicken FAIL - $_"; $fail++ }
+    finally { if ($ch) { $ch.Dispose() } }
+} else {
+    Write-Output 'present: chicken SKIP (no ref\inputs\chicken.txt)'
+}
+
 if ($fail -ne 0) { Write-Output "present: $fail check(s) failed"; exit 1 }
 Write-Output 'present: all checks passed'
 exit 0

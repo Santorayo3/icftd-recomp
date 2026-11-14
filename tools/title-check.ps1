@@ -11,7 +11,7 @@
 #     rc_breakPc still armed the scene's return fell straight into the intro's setup instead of
 #     back into the title.
 #
-# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..4 = the scenes); it
+# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..5 = the scenes); it
 # also ends the run when the title comes back, because a scripted run has no keyboard. It takes the
 # choice after one menu frame, because that is what a real press does - and because key 0 is the
 # path where the first menu frame's CIA tick runs the score player (see the note on the mirror).
@@ -50,7 +50,14 @@ $cases = @(
        opens = @('Desert2:PEOPLE', 'Desert3:FIRE', 'Desert3:sfx/fire') },
     @{ key = 4; name = 'Escape Hospital'; insns =  4000000; rasters =  250; returns = $false
        start = 'title: Escape Hospital at frame \d+'
-       opens = @('Desert3:HOSP', 'screeeems') }
+       opens = @('Desert3:HOSP', 'screeeems') },
+    # The chicken race is the one scene that ends by itself but cannot come back without a fire
+    # press: its closing narration waits for the button (FUN_0001CF48), and a scripted title run
+    # has no keyboard. It is checked up to the point where the road, the dashboard and the sunset
+    # bands are on the machine (the presenter's per-line palette), which is what the scene is.
+    @{ key = 5; name = 'Chicken Race';    insns =  8000000; rasters = 1200; returns = $false
+       start = 'title: Chicken Race at frame \d+'
+       opens = @('Desert3:CHICK', 'carcrash', 'tankidle') }
 )
 
 $fail = 0

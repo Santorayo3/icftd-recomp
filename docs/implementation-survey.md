@@ -26,7 +26,7 @@ verified — 17 of its 20 functions, the three it does not reach being the punch
 handlers.
 
 Verified against the original (machine state, not pictures): **intro/logo/desert, load screen, save,
-situation map, a location room, the flight, the hospital escape, the fight**. Runs and renders, but
+situation map, a location room, the flight, the hospital escape, the fight, the chicken race**. Runs and renders, but
 has never been compared with the reference: **phone, fire game, win ending**. Never entered: **ant
 chapter, evidence dialogue, look-around menu, sleep/clock/shop-hours, pause, journey cutscene**.
 
@@ -65,6 +65,7 @@ Read from the engine itself: the action menu `FUN_0000247a`, the mode dispatcher
 | fight | `FUN_0000b46c` + `FUN_0000a74e` | bar-room brawl, `Fight.tiny`, `Desert3:FIGHT` |
 | second fight/flight cutscene | `FUN_00006f58` (mode 0xc) | `Desert2:sfx` sample + MovE scene |
 | escape hospital | `FUN_0001819a` … | `Hospital.tiny`, `Desert3:HOSP`, scroll |
+| chicken race | `FUN_0001cc2e` → `FUN_0001ba3e` | the Hellcats' chicken run: `Desert3:CHICK`, road Area fills, swerve window `0x2C100..0x2C102`, win/brake narration |
 | ant invasion / gun / evidence | `FUN_00007934`, `FUN_00007dca`, `FUN_0000823a`, `FUN_000086a0`, `FUN_0000895e`, `FUN_000091fe`, `FUN_000092fe` | ant attack cutscene, shooting, "Your gun went dry", arsenal, evidence interrogation |
 | endings (`!WIN` / `!LOS`) | `FUN_0000a4d6` → `FUN_0000a44a` | epilogue text over the desert |
 | clock / sleep / shop hours | `FUN_0000551c` → ClockVBI `FUN_000054cc`, `FUN_00008f54` | "June %d, 1951", "Sleep for %d hours", "Sorry, %s is closed" |
@@ -90,7 +91,8 @@ screenshot.
 | flight | 1562 frame records identical; frames 3100/3110 RAM identical; HUD region reproduced from RAM | **done** |
 | hospital escape | translated end to end, 1237 frame records identical; `present-check` hospital coverage 0.900, no stale rows | **done** |
 | fight (bar-room brawl) | `--call 0xF46C:1513` + `ref\inputs\fight.txt`: 3432 frame records identical (PC/SR/registers/custom on every one; 76 differ only in dead stack bytes), RAM byte-identical at the win frame 3430, opponent's bar drained to 0 and `DAT_0002991e = 1`; `present-check` fight coverage 0.973 + both health bars | **done** |
-| title screen, OSD, save slots, mouse capture, the title's digit keys | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| chicken race | `--call 0x1FA3E:1513` + `ref\inputs\chicken-win.txt` (won) and the brake script: 335 and 351 frame records identical (PC/SR/registers/custom on every one), RAM byte-identical at 1560/1600/1630/1660 and 1620/1700; the two paths reach `DAT_0002bcd4 = 1` (he swerved) and `DAT_0002bcce = 60` (braked); `present-check` chicken coverage 0.974 over the list's 216-row DIW window, the 13 per-line palette bands, the dual-playfield horizon strip with both of its ranges (4119 px of playfield 1's tans, 2601 px of playfield 2's), the filled road surface (13 774 px of its pen-28 grey) and the cockpit picture (including the rows below 200) | **done** |
+| title screen, OSD, save slots, mouse capture, the title's digit keys (1..5) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
 
 Everything else is unverified or never entered.
 
@@ -150,6 +152,11 @@ The clusters, named by what their own code and strings say:
 | **situation-map animation** | `0x451A` (`DES4:ANI`, `XMARK`) | the map was shown, its X-mark animation was not |
 | **library wrappers never called** | `os_graphics_Area*`, `FillArea` path, `InitArea`, `CloseFont`, `os_dos_Delay`, `os_dos_Seek`, `os_dos_Lock`, `os_dos_Read`, `os_dos_Write`, `os_exec_Alert`, … | those code paths were not reached (not missing shims; §6.5) |
 | **Workbench branch of cstart** | `0x20D02`, `0x21964/72/7e` | dead on a CLI-launched game — correctly never taken |
+
+Left this table on 2026-11-14: the **chicken race** (`0x1BA3E–0x1D2C6`, 25 functions plus the three
+animation helpers `0x1D00A`/`0x1D1DA`/`0x1D2C6` that sit in the "hospital internals" band) - 28
+entry addresses, two sessions, see `next-session.md`. `FUN_0001CC2E` (the hotspot handler that wraps
+the race in its narration) is still unexecuted: it needs the room's `move_node`.
 
 The complete list of 254 addresses is Appendix A; their names, sizes, instruction counts and the
 string each one references are in `out\survey\never-executed.csv` and
@@ -235,9 +242,29 @@ list built by `MrgCop` or by the engine's own template, `BPLCON1` fine scroll, D
 two display regions with their own plane sets. The presenter handles all of that (plus up to 8
 planes, per-region delays, border outside DIW, palette fading) and **the game writes no hardware
 sprite register at all** (`$DFF1xx` appears nowhere in the image), so sprite hardware is not a gap.
-What it does *not* do: per-line palette (it takes the last `COLORxx` in the list, so a mid-frame
-palette ramp would flatten), HAM/EHB, interlace. No screen seen so far needs them; if one turns up,
-it is a real gap.
+
+Line-by-line programming is supported since the chicken race needed it (2026-11-14): a WAIT starts a
+segment, the plane pointers, BPL1MOD and BPL2MOD are latched (a WAIT that only writes colours keeps
+the plane set), each plane's line stride is the DDF window plus its own modulo (BPL1MOD for the
+odd-numbered planes, BPL2MOD for the even-numbered ones), `BPLCON0` is honoured per segment (plane
+count - zero turns the playfield off - and `DBLPF`, which splits the planes into playfield 1 in
+colours 0..7 and playfield 2 in colours 8..15), `BPLCON2`'s `PF2PRI` decides which of the two is in
+front, and each `COLORxx` write takes effect from its line on - the scene changes
+`COLOR00/12/13/14` thirteen times down the screen for its sunset bands, over a mountain strip, a
+dual-playfield horizon strip and a road strip with palettes of their own. Colours are interned into
+240 framebuffer slots for that (240..255 belong to the OSD), and a screen whose segments all program
+the same picture keeps the single-palette fast path, so the verified scenes are pixel-identical. The
+raster is the window the list programs, not the ViewPort's `DHeight`: the chicken's list asks for
+216 rows (lines `0x1D..0xF5`) while its ViewPort says 200, and the bottom 16 rows of its cockpit
+picture are inside that window. Rows outside a *shorter* window are border, as on the hardware.
+
+The graphics.library shims draw what the engine asks for, and `AreaEnd` sorts its scanline crossings
+before pairing them the way the library's TAD does - the chicken race's road polygon crosses a line
+right-to-left on most of its rows, and pairing unsorted crossings filled it as a sliver (2 209 of
+~27 000 pixels), which read as "the road has the colour of the ground".
+
+What it does *not* do: HAM/EHB and interlace. No screen seen so far needs them; if one turns up, it
+is a real gap.
 
 ### 6.8 The DOS target is a performance item, not a completeness item
 
@@ -257,7 +284,9 @@ the original's speed on a 486DX2-66 and needs 1.6x for 100 % (`next-session.md`)
    location/mode that selects it) and then the usual oracle-vs-translation state comparison at the
    frame boundaries it touches. (The fight, `0xF46C`, is done — see §3 and §6.4, which also closed
    the `CMPM` bug it exposed; the three punch-blocked handlers `0xB27C`/`0xB2A0`/`0xB2C4` still want
-   an input that gets blocked.)
+   an input that gets blocked. The chicken race, `0x1BA3E`, is done as well: both its outcomes were
+   driven and are byte-identical, and it is what the presenter's per-line palette and per-region
+   stride were written for.)
 4. **Coverage as a habit**: keep `--cover` in every recorded playthrough and diff the lists. The
    list is the definition of "not yet reached"; a scene that runs without adding functions is not a
    new scene.
