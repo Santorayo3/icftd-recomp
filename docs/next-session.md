@@ -4,6 +4,160 @@ Hand-off as of 2026-11-11 (Phase B, session 3). Read this, then **RULE 0** and t
 the top of the repo memory (`.github/copilot-instructions.md`, `docs/recomp-architecture.md`) - a bug
 is a difference from the original, never a symptom, and that holds for every kind of bug.
 
+What of the original is implemented, proven and never run — measured, not guessed (feature
+inventory, `--cover` matrix, open divergences): `docs/implementation-survey.md`.
+
+## The title menu starts the minigames (2026-11-13, later session)
+
+The title screen now starts the four minigames directly: **1** Fight, **2** Take a Flight,
+**3** Fire Game, **4** Escape Hospital, and fire (or **0**) the game as before. Each key is the
+engine's own scene entry, the one `FUN_00002cc8`'s dispatcher calls once its action is picked:
+
+| key | scene | entry (runtime) | argument |
+|---|---|---|---|
+| 1 | Fight | `0xF46C` = `FUN_0000B46C` (mode 3, `jsr` slot 46 at `0x2E3E`) | – |
+| 2 | Take a Flight | `0x147A6` = `FUN_000107A6` (mode 9, pushed at `0x2F72`) | `6` |
+| 3 | Fire Game | `0xFE34` = `FUN_0000BE34` (mode 0xb, `0x2EBA`) | – |
+| 4 | Escape Hospital | `0x1C19A` = `FUN_0001819A` (mode 6, vector slot 70, `0x2EF8`) | – |
+
+The title walks each launch as the same calls the dispatcher makes, and every step comes back to
+the hold pc: free the score (`FUN_0000EC8A`), then enter the scene with the hold pc as its return
+address. When the scene returns, the title reloads the map's score and shows the art again. The
+score swap is not cosmetic - `FUN_0000E804` returns immediately while `DAT_00023C58` (a score is
+loaded) is set, so without the free the scene would silently play the map's song and write its
+volume into that song's block.
+
+Three real bugs were found by the round trip; all are fixed, and all were in the port code, not in
+the translation:
+
+* **An injected call's arguments were never popped.** The engine's callers pop what they push
+  (`addq.w #4,SP` after the `jsr`; `lea (0x10,SP),SP` at `0x98FC`), but a call injected from the
+  host has no caller left to do it. After the score load's two arguments the routine that resumes
+  at the hold pc - the intro's setup - ran with the stack 8 bytes low, and its own `unlk/rts` at
+  `0x990A` returned into `&"Overhead2.tiny"` (`0x27B84`). Measured: pressing fire on the shipped
+  title ran the intro and then executed data around `0x27B84`, ending at pc 0 after 6.5M
+  instructions. `title_call` now records how many argument bytes it pushed and `host_title_check`
+  adds them back the moment the routine returns.
+* **A translated stream runs on through an `rts`** (`rc_ret` only sets `rc_returned`; the host
+  dispatcher re-reads the pc), so clearing `rc_breakPc` on launch made the scene's return fall
+  straight into the intro's setup instead of back into the title. The break now stays armed for as
+  long as the title owns the program, and only the "start the game" path (which *wants* the intro)
+  clears it.
+* **The front end's register mirror undid the pop.** Each front end keeps a `cpu_t` copy of the
+  register file (`g_cpu`) that `host_cia` scatters into the core when the music driver's CIA tick
+  runs; a register write made from the title reaches the core only, so the first tick after the
+  pop put the stale stack pointer - and the two score arguments - back. Reproduced by playing:
+  the title up for any number of frames, key pressed, intro ends, and `FUN_00009870`'s `rts` then
+  returned into `&"Overhead2.tiny"`; the window closed at frame ~2100 of the intro with pc 0.
+  `host_regs_sync()` is now defined by each front end and called after every register write in
+  `title.c`. This is also why `tools\title-check.ps1` did not catch it at first: `--titlekey` took
+  the choice before the first menu frame, so no CIA tick ever ran - it now takes the choice after
+  one menu frame, as a real key press does, and the check fails without the sync.
+
+**Measured.** `tools\title-check.ps1` (in `tools\gate.ps1` as its own step) boots each key with
+`--titlekey <n>` - key 0 included, which is the intro-then-load-screen path the mirror bug broke -
+and requires the scene's own data, the rasters it draws (1500 for the fight, 200-350 for the rest,
+1800 for the intro) and no stack, RAM or "left the image" fault. The fight is the one scene that
+ends on its own without input: key 1 starts it at frame 23 and it returns to the title at frame
+1894 - 1871 frames, exactly the 1871 the oracle runs when the same entry is injected at the hold pc
+(`--callat 0xF46C:1:0:0xD870` returns at frame 1888 from frame 17). The host and the oracle also
+agree on the same fight injected at frame 168: both return at frame 2069 after 6 770 989
+instructions, and the two state dumps differ only in the dead-stack bytes already documented
+above. In the window, with a real `VK_0`/`VK_1` posted to the game's own window, the title takes
+the key, the scene runs, and key 0 plays the intro through to the "Lizard Breath has been awaiting
+your return" load screen.
+
+Known limits, by construction: a scene entered this way has no room, no location state and no
+post-scene bookkeeping, so the flight flies with idle object slots and hangs in its own
+`while(true)` when it ends, and the fire game and the hospital wait for a keyboard that has
+nothing to do with the room they were entered from. `Make a Call` and the situation map are *not*
+keys: the phone comes up with a black palette from this point, and `FUN_00008E56` dereferences the
+room's `move_node` (`+0x2C`), so a null node is an immediate crash. Both are one table line away
+once they work. The keys are armed only for a played game (`--titlekey` is the scripted exception,
+a dev seam like `--call`), so every measurement path still starts where the original starts.
+
+## The fight minigame runs: a lost hash chain and a reversed CMPM (2026-11-13, later session)
+
+Reported as "implement the fighting mini game". It was written off as blocked by the disks (§6.4 of
+the survey: `hurt2` and `stab1` "have no directory entry"). That was our own reader, and behind it
+sat a translation bug the fight was the first scene to execute.
+
+**Reproduction.** `--call 0xF46C:1513` (image `0xB46C`, the bar's action, engine slot 41) enters
+`FUN_0000b46c`, which loads `Fight.tiny`, the `DES4` score, then `FUN_0000b31c`'s five samples from
+`Desert3:sfx` - `hurt1`, `hurt2`, `stab1`, `stab2`, `wooosh` (`0xb3ec`..`0xb404` in the disassembly,
+the strings at `0xb3e6`). The log said:
+
+    emu: open "hurt1" -> export\disk3\sfx\hurt1 (2916 bytes)
+    emu: Open("hurt2",1005) failed: no disk holds sfx\hurt2
+
+**Divergence 1 — the exporter lost hash-chain entries (`src\assetExport\AmigaFs.cs`).** A
+directory's buckets point at the first entry of a chain and the entry continues it through a
+longword at the **end** of its 512-byte header block, offset `0x1F0`; `0x1F4` is the parent
+directory, `0x1F8` the data-block-table extension, `0x1FC` the entry type (`-3` file, `2`
+directory). `ReadDir` walked the chain from `0x1A0` (always 0) and read `byteSize` from `0x140`
+(always 0), so every collision-linked file vanished and was recovered as an "orphan" into the disk
+root. Read out of the raw image: `ants`(922)→`jet`(956), `dthatstheguy`(932)→`hurt2`(954),
+`exp`(946)→`stab1`(972), `CHICK`(893)→`WANI`(914), all with parent `881` (`sfx`) or `880` (root).
+After the fix `list` shows them under `sfx` with their real sizes, and **no** entry is an orphan on
+any of the three disks. Re-extracting moves exactly three files (`hurt2`, `jet`, `stab1`) from
+`export\disk3\` into `export\disk3\sfx\` - 78 files before and after, the other 75 byte-identical.
+
+**Divergence 2 — CMPM's operands were reversed, in the interpreter *and* the emitter.** With the
+samples loading, the first host/oracle difference was at frame 1660: same PC (`0x231B6`), same SR,
+`D0 = -1` in the translated build against `+1` in the original. Instruction tracing put the branch
+at `0x208FE`, inside `FUN_000208e8` - the engine's `strcmp`:
+
+    000208e8  move.w #0x7fff,D0            ; (0x208ee is the second entry: move.w (0xc,A7),D0)
+    000208f6  movea.l (4,A7),A0 / movea.l (8,A7),A1
+    000208fe  cmpm.b (A1)+,(A0)+
+    00020900  bne 0x2090e
+    0002090e  bls 0x20914 / moveq #1,D0 ... 0x20914 moveq #-1,D0
+
+CMPM names its **destination** in bits 11-9 and its **source** in bits 2-0 (`0xB109` =
+`cmpm.b (A1)+,(A0)+`), and its flags are destination - source - that is what makes `bls` send the
+smaller destination to `moveq #-1`. Both our interpreter (`Cpu68k.GroupB`) and the emitter read the
+operand in bits 11-9 as the source, the way CMP does, so every comparison came out negated. The two
+agreeing is why the fixture differential never saw it: it compares the translated function against
+*our* interpreter, and both were wrong together. Fixed in both (and in the emitted mnemonic text, so
+the generated comments now read like Ghidra's), functions regenerated - `0x208FE` is the only CMPM
+in the image, so `fn_000208e8.c` is the only generated file that changed. This also closes the
+"`D0` is `-1` where the oracle has `1` at frames 32..45" note that had been open since 2026-11-12.
+Hand-checked regressions in `tools\harness-check.ps1` (`strcmp "a","b" = -1`, `"b","a" = +1`), and
+two fixtures (`ref\fixtures\000208e8-strcmp-{lt,gt}.json`) so the translator is held to them too.
+
+**The fight itself, measured.** `ref\inputs\fight.txt` drives it: fire + joystick word `0x0003` in
+6-frame bursts from frame 1700. `0x0003` is what the engine's own decode (`FUN_00011bf0`) reads as
+the vertical axis, i.e. pose 5 with the button held; the 6-frame burst is the shortest that reaches
+that pose's hit frame (2) while the opponent is still mid-attack, and the opponent's pose is what
+decides whether a punch lands (`FUN_0000ae16`: pose 4 hits anything but a block pose 3/1, pose 5
+anything but 2). Measured on the way: opponent damage counter `0x29e30` 0 → 32, its bar
+(`0x29e38` + 99, drawn at `0xBE`) 118 → 0 by frame 3400, opponent pose 8 (down), and the win flag
+`DAT_0002991e = 1` at frame 3430, after which the scene returns to the program-end sentinel. Holding
+the button instead of bursting puts the opponent in a permanent block (pose 2) and the fight can
+never end - the block/miss handlers `0xB27C`/`0xB2A0`/`0xB2C4` never run, which is why the coverage
+matrix counts 17 of the fight's 20 functions and not all 20.
+
+**Parity.** With that input, host and oracle produce 3432 frame records: PC, SR, all sixteen
+registers, the custom-chip file and the instruction count are identical on **every** record. 76
+records differ in the RAM hash and nothing else, and every differing byte sits below the stack
+pointer (`0x17Fxxx`, 1-10 bytes per frame) - the dead-scratch class already documented here; before
+the CMPM fix 33 of those records also carried a differing register (two of them a differing PC as
+well). RAM at the win frame (3430) and at frame 3000 is byte-identical, 0 of 2 097 152 bytes.
+
+**Nothing that worked before changed.** The 60M recorded playthrough still matches: 19451 records,
+PC/SR/instruction count/custom chips identical on all of them, and the RAM-hash differences are again
+only inside `0x17Fxxx` - 20 sampled frames put every differing byte below SP and none in the engine's
+data area, while frames 100/1000/2890/3000/5000 are byte-identical (as they were). `tools\gate.ps1`
+5/5.
+
+**New gate check.** `tools\present-check.ps1` gained the fight: it enters the scene at frame 1513
+and requires coverage >= 0.90 **plus** at least 1500 non-border pixels in rows 0..12 and 1500 in rows
+188..199 - the two health bars are the only thing in those bands and they are their own display
+region, so a dropped region, a border outside DIW or the wrong buffer fails even when the arena
+covers the screen. Measured: coverage 0.973, bars 3735/3544, 542 pixels of motion 300 000
+instructions apart. It reports SKIP when `ref\inputs\fight.txt` is absent, like the other recorded
+sessions.
+
 ## Two port features: a title screen, and the mouse pointer (2026-11-13)
 
 Both are code the original does not have, i.e. the sanctioned exception to RULE 0: there is nothing

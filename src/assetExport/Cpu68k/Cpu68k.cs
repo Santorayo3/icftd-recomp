@@ -1461,12 +1461,12 @@ public sealed class Cpu68k
             case 6:
             {
                 int size = 1 << (opmode - 4);
-                if (mode == 1) // CMPM (An)+,(An)+
-                {
-                    uint src = Mem.Read(A[reg], size);
-                    A[reg] += (uint)size;
-                    uint dst = Mem.Read(A[ea], size);
+                if (mode == 1) // CMPM (Ay)+,(Ax)+ : bits 11-9 name the destination Ax,
+                {              // bits 2-0 the source Ay (the flags are Ax - Ay, as Musashi's)
+                    uint src = Mem.Read(A[ea], size);
                     A[ea] += (uint)size;
+                    uint dst = Mem.Read(A[reg], size);
+                    A[reg] += (uint)size;
                     FlagsSub(dst, src, 0, dst - src, size, setX: false);
                     return;
                 }

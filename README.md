@@ -24,7 +24,7 @@ have — save slots, OSD, the present/window backend, host input, our tooling. F
 | phase | what it is | state |
 |---|---|---|
 | **A — run the original** | The real `dshell` image executing on the vendored Musashi 68000 core plus our own Amiga OS shims. This is the **oracle** (`src\oracle` + `src\runtime`): it is how we learn what the program actually does, and where the fixtures come from. A tool — the shipped game links no 68000 core. | **Done, frozen.** Boots, plays the intro, runs the game loop: 30M instructions reach frame 5823 with a raster presented every frame, 0 dropped blit writes. OS surface measured every run: **49 library calls used, 45 kinds implemented, 4 answered with 0** (`OpenDiskFont`, three IEEE single-precision ops). |
-| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Started.** `recomp` emits 726 of 750 functions (102,920 of 121,362 bytes) plus 21 blocks of code the model does not cover; the other 24 are reported with the construct that is missing. The differential is green: **235 of 244 fixtures verified, 9 skipped, 0 failed**. |
+| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Started.** `recomp` emits 746 of 750 functions (120,982 of 121,362 bytes) plus 47 blocks of code the model does not cover; the other 4 are reported with the construct that is missing. The differential is green: **241 of 260 fixtures verified, 19 skipped, 0 failed**. |
 
 ## How correctness is decided
 
@@ -79,6 +79,10 @@ Flags worth knowing: `--progress` (counters every million steps), `--lvo` (libra
 `--dump <prefix> [n]` (BMP per presented raster), `--state <prefix> [--every n] [--ram <frames>]`
 (canonical machine-state dump per frame boundary) and `--input <script>` (frame-indexed input:
 `<frame> <fire> <joy0> [<joy1>]`). `tools\state-diff.ps1 -A -B` compares two dumps.
+
+The translated build takes the same measurement flags, plus `--cover <file>`: one line per function
+that ran (`<entry> <calls>`, and `<pc> <instructions>` for code the core executed), which is how
+"what never ran" is a list instead of a guess (`docs\implementation-survey.md`).
 
 ## The MS-DOS build
 
@@ -157,10 +161,13 @@ docs/                  architecture, plan, program model
 | `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD`) against `rt_os_call` |
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
+| `tools\title-check.ps1` | the title's digit keys start the minigames (scene data, rasters, and the return to the title) |
 
 ## Where to start reading
 
 * `docs/next-session.md` — **what is being built right now** and in what order
+* `docs/implementation-survey.md` — **what of the game is implemented, proven and never run**: the
+  feature inventory, the `--cover` coverage matrix and the open divergences
 * `docs/recomp-architecture.md` — the architecture, the phase plan, and the binding acceptance
   tests (machine state, never images)
 * `docs/model.md` — the exported program model (`re/model/*.csv`), the field map, the annotation

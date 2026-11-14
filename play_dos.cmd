@@ -17,7 +17,7 @@ rem Extra arguments go to the game, e.g.   play_dos.cmd --frames 600 --perf
 setlocal
 cd /d "%~dp0"
 
-if not defined ICFTD_CYCLES set "ICFTD_CYCLES=max"
+if not defined ICFTD_CYCLES set "ICFTD_CYCLES=100000"
 set "GAME=%~dp0bin\dos\game"
 set "CONF=%~dp0bin\dos\play.conf"
 

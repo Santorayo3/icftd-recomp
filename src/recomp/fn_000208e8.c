@@ -78,14 +78,14 @@ L_208FA:
     c->a[1] = t0;
 
 L_208FE:
-    /* 000208fe   2  cmpm.b (A0)+,(A1)+ */
+    /* 000208fe   2  cmpm.b (A1)+,(A0)+ */
     c->pc = RC_ADDR(0x000208feu);
     rc_step(c, m, 12);
     t0 = rc_rd8(c, m, c->a[0]);
     c->a[0] += 1u;
     t1 = rc_rd8(c, m, c->a[1]);
     c->a[1] += 1u;
-    rc_cmp(c, RC_B, t1, t0);
+    rc_cmp(c, RC_B, t0, t1);
 
 L_20900:
     /* 00020900   2  bne 0002090e */

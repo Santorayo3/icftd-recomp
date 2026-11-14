@@ -56,6 +56,28 @@ foreach ($case in @(
     Check $case.Name @('rrun', $case.Entry, '--script', $script) $case.Want
 }
 
+# CMPM names its destination in bits 11-9 and its source in bits 2-0, and its flags are
+# destination - source. FUN_000208e8 is the engine's strcmp: at 0x2090e `bls` sends *smaller*
+# destinations to `moveq #-1`, so reading the operands the way CMP does (bits 11-9 as the source)
+# inverts every comparison of every string the engine looks up by name.
+foreach ($case in @(
+    @{ Name = '208e8 strcmp "a","b" = -1'; Dest = '61'; Src = '62'; Want = 'D0=ffffffff' },
+    @{ Name = '208e8 strcmp "b","a" = +1'; Dest = '62'; Src = '61'; Want = 'D0=00000001' }))
+{
+    $script = "out\cmpm-$($case.Dest)$($case.Src).steps"
+    @(
+        'set A7 0x30080'
+        "patch 0x30000 $($case.Dest)00"
+        "patch 0x30010 $($case.Src)00"
+        'patch 0x30084 00030000'
+        'patch 0x30088 00030010'
+        'until 0x2090e'
+        'step 2'
+        'regs'
+    ) | Set-Content $script -Encoding ascii
+    Check $case.Name @('rrun', '000208e8', '--script', $script) $case.Want
+}
+
 # The strongest case: engine plane bytes vs the C decoder, 680 bytes.
 & $exe rcmp 0001ec42 --dump-mem 0x50000:0x2a8 > out\sms-planes.txt
 & $exe smsfile ref\fixtures\sms\UANT.rec > out\sms-ref.txt

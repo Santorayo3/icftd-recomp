@@ -25,15 +25,22 @@ run. To force a re-export, run `bin\win32\icftd.exe --convert`.
 
 ## Files the directories do not list
 
-Disk 3 carries four files whose header blocks and data chains are complete but
-which no directory chain reaches: `WANI` (183 016 bytes), `hurt2`, `jet` and
-`stab1`. Disk 1 is the same for its `devs/` and `l/` directories. The game still
-opens them by name — the flight routine `FUN_000107a6` asks for `Desert3:WANI`,
-and without it the engine shows "Unresolvable file read/write error! The game is
-unplayable." and waits forever.
+Nothing is hidden any more, but `WANI` (183 016 bytes), `hurt2`, `jet`, `stab1` and disk 1's `devs/`
+and `l/` entries used to be reported as *unlisted*: `ICFTD.AmigaExport.exe list <adf>` printed them
+as `(orphan)` and the extractor dropped them into the disk root. The directory always listed them —
+an OFS bucket points at the first file of a hash chain and each entry continues the chain through a
+longword at offset `0x1F0` of its 512-byte header block, which the reader was looking for at
+`0x1A0` (always zero). Every file whose name collided with an earlier one in the same bucket was cut
+off and then "recovered" as an orphan: `dthatstheguy`→`hurt2`, `exp`→`stab1`, `ants`→`jet`,
+`CHICK`→`WANI`, with the parent directory in `0x1F4` (`sfx` or the root).
 
-`tools\extract.ps1` therefore recovers every header block no directory reaches
-(`AmigaFs.ReadOrphans`): files are placed in the root, recovered directories keep
-their own names. `ICFTD.AmigaExport.exe list <adf>` marks them `(orphan)`, so the
-recovery is visible rather than silent.
+That mattered: the engine opens these by name, `Desert3:WANI` from the flight routine
+`FUN_000107a6` and `Desert3:sfx/hurt2`/`stab1` from the fight's sample loader, so a file in the
+wrong directory is a file the game cannot find — the flight showed "Unresolvable file read/write
+error! The game is unplayable." and the bar-room fight silently never started. `list` now reports no
+orphan on any of the three disks, and the files are where the directory says they are.
+
+`AmigaFs.ReadRoot` still recovers a header block that no bucket reaches (marked `(orphan)` by
+`list`), because an unreferenced header with a complete data chain is still file content the game
+may open by name. On these three images there is nothing left to recover.
 

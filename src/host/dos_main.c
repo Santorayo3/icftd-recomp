@@ -19,6 +19,7 @@
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
+ *   --titlekey <n>       take a title screen menu choice (0 the game, 1..4 the minigames)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -181,6 +182,14 @@ static const u16 g_joyDirs[16] =
 static u32 g_callPc, g_callFrame, g_callArg;
 static int g_called;
 
+/* The title injects calls, and pops their arguments, on the machine's register file while no
+ * translated code is running; dos_cia scatters the mirror above into the core, so it must be
+ * brought up to date or the handler's frame would undo those writes. */
+void host_regs_sync(rt_machine *m)
+{
+    if (g_cpu != 0) gather(g_cpu, m);
+}
+
 static void dos_input(rt_machine *m)
 {
     input_state in;
@@ -257,6 +266,7 @@ int main(int argc, char **argv)
     const char *dataDir = 0;
     u32 frameLimit = 0;
     int slot = 1;
+    int titleKey = -1;              /* --titlekey: take this title screen menu choice */
     int i, rc = 0;
     int traced = 0, badReported = 0, tickLog = 0;
     long traceFrom = 0, traceTo = 0;
@@ -292,6 +302,12 @@ int main(int argc, char **argv)
             g_callPc = (u32)strtoul(p, &p, 0);
             g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
             if (*p == ':') g_callArg = (u32)strtoul(p + 1, 0, 0);
+            continue;
+        }
+        if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
+        {
+            titleKey = (int)strtol(argv[++i], 0, 0);
+            if (titleKey < 0) titleKey = 0;
             continue;
         }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
@@ -370,8 +386,10 @@ int main(int argc, char **argv)
 
     /* The title screen is part of the played game. A scripted run (--frames, --call, --dump) is
      * reproducing or inspecting the original, which has no title, so it starts where it starts; the
-     * title engages itself when the program is about to play its intro (see title.c). */
-    host_title_arm(frameLimit == 0 && g_callPc == 0 && g_dumpPath == 0);
+     * title engages itself when the program is about to play its intro (see title.c). --titlekey is
+     * the exception: it asks for the title's own menu, so it arms the title in a scripted run too. */
+    host_title_key(titleKey);
+    host_title_arm((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0);
 
     g_cpu = &c;
     oracle_boot(EMU_ENTRY, EMU_A4);

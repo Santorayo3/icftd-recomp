@@ -177,6 +177,11 @@ static void kbd_scancode(u8 sc)
         case 0x50: key = KEY_DOWN;   break;
         case 0x4B: key = KEY_LEFT;   break;
         case 0x4D: key = KEY_RIGHT;  break;
+        /* The digit row, 0x02 ('1') .. 0x0A ('9') and 0x0B ('0'). */
+        case 0x02: case 0x03: case 0x04: case 0x05: case 0x06:
+        case 0x07: case 0x08: case 0x09: case 0x0A:
+            key = KEY_1 + (sc - 0x02); break;
+        case 0x0B: key = KEY_0;      break;
         default: break;
         }
     }

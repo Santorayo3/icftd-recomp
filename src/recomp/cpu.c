@@ -595,6 +595,11 @@ static void rc_stream(cpu_t *c, rt_machine *m)
         }
         if (fn != 0)
         {
+            if (rc_coverHook != 0)
+            {
+                const rc_entry *own = rc_containing(c->pc);
+                if (own != 0) rc_coverHook((unsigned)(own - rc_functions));
+            }
             rc_returned = 0;
             fn(c, m);
             /* A harness replay runs one function: it ends with that function's own rts. */

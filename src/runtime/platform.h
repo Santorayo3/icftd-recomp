@@ -23,6 +23,18 @@ enum {
     KEY_F3,
     KEY_F4,
     KEY_F5,
+    KEY_0,                              /* the digit row: the title screen's menu keys. KEY_1..KEY_9
+                                         * must stay in order - both platform layers index them as
+                                         * KEY_0 + digit. */
+    KEY_1,
+    KEY_2,
+    KEY_3,
+    KEY_4,
+    KEY_5,
+    KEY_6,
+    KEY_7,
+    KEY_8,
+    KEY_9,
     KEY_COUNT
 };
 

@@ -314,6 +314,9 @@ void oracle_regs_set(const u32 *r) { oracle_restore_regs(r); }
  * each one is a program bug the machine is surviving, not something to print per frame. */
 static int noCodeLogged;
 
+/* See cpu.h: installed by the host's `--cover` only. */
+void (*oracle_coverHook)(u32 pc) = 0;
+
 int oracle_step(rt_machine *m);
 
 /* Runs one handler to its rts. Returns 0 when the handler never returned. */
@@ -336,6 +339,7 @@ static int oracle_run_handler(rt_machine *m, u32 code, u32 data)
                    (unsigned long)code, (unsigned long)m->frame);
             return 0;
         }
+        if (oracle_coverHook != 0) oracle_coverHook(m68k_get_reg(0, M68K_REG_PC));
         if (!oracle_step(m)) return 0;
     }
     return 1;

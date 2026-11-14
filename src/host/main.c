@@ -13,13 +13,16 @@
  *                [--input <script>] [--data <dir>] [--progress] [--blitlog] [--base <addr>]
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
- *                [--dump <prefix> [n]] [--dumpfrom <frame>]
+ *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
+ *                [--titlekey <n>]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
  * arrows are the joystick, F1..F4 pick a save slot and F5 cycles them); without it the build runs
  * headless and only reports machine state. `--call` enters one of the engine's own routines at a
  * frame boundary, with the program-end sentinel as its return address.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
+ * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..4 the minigames) so a
+ * scripted run can start a scene from the title; it is a dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
  * (`--dumpfrom` starts the sequence at an emulated frame, for a scene reached deep into a run).
@@ -135,6 +138,14 @@ static void host_cia(rt_machine *m, u32 code)
     gather(g_cpu, m);
 }
 
+/* The title injects calls, and pops their arguments, on the machine's register file while no
+ * translated code is running; host_cia scatters the mirror above into the core, so it must be
+ * brought up to date or the handler's frame would undo those writes. */
+void host_regs_sync(rt_machine *m)
+{
+    if (g_cpu != 0) gather(g_cpu, m);
+}
+
 /* --- the window ----------------------------------------------------------------------------
  * Same contract as the oracle's: keyboard once per emulated frame (the menus spin on /FIRE without
  * drawing, so input cannot wait for a present) and a 50 Hz clock. */
@@ -196,6 +207,73 @@ static void interp_report(void)
           g_isPc[best] = p; g_isInsns[best] = n; }
         printf("  %06lX  %lu\n", (unsigned long)g_isPc[i], (unsigned long)g_isInsns[i]);
     }
+}
+
+/* Which translated functions a run actually executes: `--cover <file>` writes one line per
+ * function that ran, keyed by its entry address, plus the pcs the core had to interpret. Without
+ * it, "what has never been exercised" is a guess; with it, a recorded playthrough becomes a list.
+ * The table is sorted and `rc_containing` hands back its element, so the index is O(1). */
+#define HOST_COVER_FUNCS 2048
+#define HOST_COVER_EXTRA 32
+static const char *coverPath;
+static u32 g_covHits[HOST_COVER_FUNCS];
+static u32 g_covExtraPc[HOST_COVER_EXTRA];
+static u32 g_covExtraHits[HOST_COVER_EXTRA];
+static int g_covExtraCount;
+
+static void cover_hit(unsigned index)
+{
+    if (index < HOST_COVER_FUNCS) g_covHits[index]++;
+}
+
+/* Interpreted instructions (the refused functions, and every interrupt handler, which both front
+ * ends run on the 68000 core) are keyed by the pc the core is at; the owning function is found
+ * through the translated table so both sides of the measurement share one list. */
+static void cover_note(u32 pc)
+{
+    const rc_entry *e;
+    int i;
+
+    if (coverPath == 0) return;
+    e = rc_containing(pc);
+    if (e != 0)
+    {
+        unsigned idx = (unsigned)(e - rc_functions);
+        if (idx < HOST_COVER_FUNCS) { g_covHits[idx]++; return; }
+    }
+    for (i = 0; i < g_covExtraCount; i++)
+        if (g_covExtraPc[i] == pc) { g_covExtraHits[i]++; return; }
+    if (g_covExtraCount < HOST_COVER_EXTRA)
+    {
+        g_covExtraPc[g_covExtraCount] = pc;
+        g_covExtraHits[g_covExtraCount] = 1;
+        g_covExtraCount++;
+    }
+}
+
+static void cover_report(void)
+{
+    FILE *f;
+    unsigned i;
+    int n = 0, k;
+
+    if (coverPath == 0) return;
+    f = fopen(coverPath, "w");
+    if (f == 0) { printf("recomp: cannot write %s\n", coverPath); return; }
+    fprintf(f, "# entry calls\n");
+    for (i = 0; i < rc_functionCount && i < HOST_COVER_FUNCS; i++)
+        if (g_covHits[i] != 0)
+        {
+            fprintf(f, "%08lX %lu\n", (unsigned long)rc_functions[i].addr,
+                    (unsigned long)g_covHits[i]);
+            n++;
+        }
+    for (k = 0; k < g_covExtraCount; k++)
+        fprintf(f, "%08lX %lu interpreted\n", (unsigned long)g_covExtraPc[k],
+                (unsigned long)g_covExtraHits[k]);
+    fclose(f);
+    printf("recomp: coverage: %d of %u translated function(s) ran -> %s\n", n,
+           rc_functionCount, coverPath);
 }
 
 /* JOY0DAT for the sixteen key combinations, indexed up|down<<1|left<<2|right<<3.
@@ -388,6 +466,7 @@ int main(int argc, char **argv)
     int slotsCheck = 0;
     u32 slotsAt = 0;
     const char *busTablePath = 0;
+    int titleKey = -1;                     /* --titlekey: take this menu choice on the title */
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -412,6 +491,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
+        if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--dump") == 0 && i + 1 < argc)
         {
@@ -504,6 +584,14 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--stopat") == 0 && i + 1 < argc)
         {
             rc_stopAt = strtol(argv[++i], 0, 0); insns = rc_stopAt; continue;
+        }
+        if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
+        {
+            /* <n>: 0 starts the game from the title, 1..4 start the debug scenes. A dev seam like
+             * --call, but through the title's own menu - see src\host\title.c. */
+            titleKey = (int)strtol(argv[++i], 0, 0);
+            if (titleKey < 0) titleKey = 0;
+            continue;
         }
         if (argv[i][0] == '-') { printf("recomp: unknown option %s\n", argv[i]); return 2; }
         if (strchr(argv[i], '\\') || strchr(argv[i], '/') || strchr(argv[i], '.')) image = argv[i];
@@ -616,9 +704,13 @@ int main(int argc, char **argv)
     /* The title screen is part of the played game, not of a measurement: a run with an input
      * script, a state/raster dump, an injected entry or a poke is reproducing or inspecting the
      * original, which has no title, and must start where the original starts. It engages itself
-     * when the program is about to play its intro (see title.c). */
-    host_title_arm(g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
-                   dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0);
+     * when the program is about to play its intro (see title.c). --titlekey is the exception: it
+     * asks for the title's own menu, so it arms the title even headless and with a capture. */
+    host_title_key(titleKey);
+    host_title_arm((g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+                    dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
+                   (titleKey >= 0 && inputPath == 0 && statePrefix == 0 &&
+                    g_callPc == 0 && g_pokeCount == 0));
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
@@ -633,6 +725,7 @@ int main(int argc, char **argv)
     rc_frame_hook = host_frame;
     rc_stopOnUnknown = 1;
     rc_abort = 0;                                      /* the game's loops are supposed to spin */
+    if (coverPath != 0) { rc_coverHook = cover_hit; oracle_coverHook = cover_note; }
     g_cpu = &c;
     m.on_cia = host_cia;
     gather(&c, &m);
@@ -680,6 +773,7 @@ int main(int argc, char **argv)
         }
         interpreted++;
         interp_note(pc, !g_isActive);
+        cover_note(pc);
         while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
         {
             u32 cost = oracle_instruction_cost(&m, pc);
@@ -703,6 +797,7 @@ int main(int argc, char **argv)
     printf("recomp: %lu translated entry(ies), %lu interpreted instruction(s)\n",
            (unsigned long)translated, (unsigned long)interpreted);
     interp_report();
+    cover_report();
     if (ring) oracle_ring_print(&m);
     printf("regs:");
     for (i = 0; i < 8; i++) printf(" D%d=%08lX", i, (unsigned long)m68k_get_reg(0, M68K_REG_D0 + i));

@@ -20,6 +20,12 @@ internal sealed class AmigaFs(Adf adf)
     const int RootBlock = 880;
     const int THeader = 2;
     const int TData = 8;
+    /* Header block fields the directory reader needs. The hash-table buckets point at the first
+     * entry of a chain and each entry continues it through fhb_Next, which sits at the end of the
+     * 512-byte block:  0x1F0 next in the bucket, 0x1F4 parent directory, 0x1F8 data block table
+     * extension, 0x1FC entry type (-3 file, 2 directory). */
+    const int HdrNext = 0x1F0;
+    const int HdrByteSize = 0x144;
 
     readonly Adf a = adf;
     public bool Ffs => a.Ffs;
@@ -31,10 +37,10 @@ internal sealed class AmigaFs(Adf adf)
     public AmigaEntry ReadRoot()
     {
         var e = ReadDir(RootBlock, "");
-        /* Disk 3's directory does not link WANI, hurt2, jet and stab1, yet the game opens
-         * Desert3:WANI by name (the flight routine, FUN_000107A6) - their header blocks and data
-         * chains are complete on the disk, only the directory entry is gone. Recover every header
-         * block no directory reaches, so the data set is as complete as the disk actually is. */
+        /* A header block no bucket chain reaches is not part of the volume - but the disk images
+         * that were written by a tool which lost a chain still carry complete files, and the game
+         * opens them by name. Recover them (marked Orphan, so the recovery is visible), rather
+         * than shipping a data set the disks do not actually lack. */
         foreach (var orphan in ReadOrphans())
         {
             orphan.Orphan = true;
@@ -61,7 +67,7 @@ internal sealed class AmigaFs(Adf adf)
                 if (dir.Children.Count > 0) { dir.Orphan = true; found.Add(dir); }
                 continue;
             }
-            int size = a.I32(o + 324);
+            int size = a.I32(o + HdrByteSize);
             if (size <= 0) continue;
             var e = new AmigaEntry { Name = name, Block = b, FirstData = firstData, Size = size };
             if (ReadFile(e).Length != size) continue;       /* incomplete: not a usable file */
@@ -97,9 +103,9 @@ internal sealed class AmigaFs(Adf adf)
                 else
                     e.Children.Add(new AmigaEntry
                     {
-                        Name = n, Block = b, FirstData = firstData, Size = a.I32(bo + 320)
+                        Name = n, Block = b, FirstData = firstData, Size = a.I32(bo + HdrByteSize)
                     });
-                b = a.I32(bo + 416);
+                b = a.I32(bo + HdrNext);
             }
         }
         return e;

@@ -26,6 +26,11 @@ void oracle_tick(rt_machine *m);
 void oracle_run_icr(rt_machine *m, u32 code, u32 data);
 /* The last executed PCs, oldest first. */
 void oracle_ring_print(rt_machine *m);
+/* Measurement seam for the host's `--cover`: called with the pc of every instruction an interrupt
+ * handler executes. Those handlers run on this core in both front ends, so without this hook the
+ * work they do (the vblank servers and the music tick) is missing from a coverage list. Null
+ * unless a development front end installs it. */
+extern void (*oracle_coverHook)(u32 pc);
 /* The register file transfer in both directions (d0-d7, a0-a7, sr, pc), indexed by these. */
 enum { REGS_D = 0, REGS_A = 8, REGS_SR = 16, REGS_PC = 17 };
 void oracle_regs_get(u32 *r);

@@ -127,6 +127,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_F3)     g_keys[KEY_F3] = 1;
         if (wp == VK_F4)     g_keys[KEY_F4] = 1;
         if (wp == VK_F5)     g_keys[KEY_F5] = 1;
+        if (wp >= '0' && wp <= '9') g_keys[KEY_0 + (int)(wp - '0')] = 1;
         return 0;
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
@@ -141,6 +142,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_F3)     g_keys[KEY_F3] = 0;
         if (wp == VK_F4)     g_keys[KEY_F4] = 0;
         if (wp == VK_F5)     g_keys[KEY_F5] = 0;
+        if (wp >= '0' && wp <= '9') g_keys[KEY_0 + (int)(wp - '0')] = 0;
         return 0;
     }
     return DefWindowProc(h, msg, wp, lp);

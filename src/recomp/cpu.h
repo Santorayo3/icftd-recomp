@@ -155,6 +155,10 @@ extern int  (*rc_stub_host)(cpu_t *c, rt_machine *m, int lib, s32 lvo);
 /* Development flag: a library call no shim handles answers 0 instead of stopping the run. That is
  * what the interpreter does with allowOsStubs, so a fixture replay can compare against it. */
 extern int  rc_allow_unmodelled;
+/* Measurement seam for `--cover`: called once per dispatched function with that function's index
+ * in rc_functions[]. Null unless the development host installs it, so the shipped build pays
+ * nothing. */
+extern void (*rc_coverHook)(unsigned index);
 /* Development harness: a translated function that never returns (a busy-wait no fixture releases)
  * is aborted from the memory accessors, which every real loop performs. Null in the shipped build. */
 extern jmp_buf *rc_abort;

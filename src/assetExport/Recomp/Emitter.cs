@@ -629,11 +629,13 @@ public sealed class Emitter
                 c.Line($"rc_cmp(c, {Sz(i.Size)}, {TV}, {Imm(i.Imm)});");
                 break;
             case Opk.CmpM:
+                /* Bits 11-9 name the destination Ax, bits 2-0 the source Ay, and the flags are
+                 * Ax - Ay: the emitter must not treat i.Reg as the source the way CMP does. */
                 c.Line($"{TV} = rc_rd{i.Size * 8}(c, m, c->a[{i.Reg}]);");
                 c.Line($"c->a[{i.Reg}] += {i.Size}u;");
                 c.Line($"{TC} = rc_rd{i.Size * 8}(c, m, c->a[{i.Src!.Reg}]);");
                 c.Line($"c->a[{i.Src.Reg}] += {i.Size}u;");
-                c.Line($"rc_cmp(c, {Sz(i.Size)}, {TC}, {TV});");
+                c.Line($"rc_cmp(c, {Sz(i.Size)}, {TV}, {TC});");
                 break;
             case Opk.Tst:
                 ReadTo(c, i.Dst!, i.Size, TV);
@@ -1120,7 +1122,7 @@ public sealed class Emitter
             case Opk.Cmp: return $"cmp{size} {Ea(i.Src!)},D{i.Reg}";
             case Opk.CmpA: return $"cmpa{size} {Ea(i.Src!)},A{i.Reg}";
             case Opk.CmpI: return $"cmpi{size} #{i.Imm:x},{Ea(i.Dst!)}";
-            case Opk.CmpM: return $"cmpm{size} (A{i.Reg})+,(A{i.Src!.Reg})+";
+            case Opk.CmpM: return $"cmpm{size} (A{i.Src!.Reg})+,(A{i.Reg})+";
             case Opk.Tst: return $"tst{size} {Ea(i.Dst!)}";
             case Opk.Clr: return $"clr{size} {Ea(i.Dst!)}";
             case Opk.Neg: return $"neg{size} {Ea(i.Dst!)}";
