@@ -119,6 +119,13 @@ void rt_gfx_screen_touched(rt_machine *m, int first, int last);
 void rt_osd_text(rt_machine *m, const char *text, u32 frames);
 void rt_osd_icon(rt_machine *m, u32 frames);
 
+/* The port's pointer: the arrow a room screen shows under the mouse. It is drawn on top of the
+ * presented picture, like the OSD, and is hidden while nothing calls rt_pointer_at (the DOS
+ * build has no pointer, and a measurement run never sets one). x/y are framebuffer coordinates;
+ * the arrow's tip is its top left pixel, the point a hover is tested at. */
+void rt_pointer_at(s16 x, s16 y);
+void rt_pointer_hidden(void);
+
 const u8 *rt_gfx_framebuffer(void);
 const u8 *rt_gfx_palette(void);
 int  rt_gfx_width(void);

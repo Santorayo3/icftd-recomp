@@ -123,6 +123,49 @@ oracle, which has no pointer): a played session replayed through `--input` repro
 except the cursor's pointer moves. The DOS build leaves `mouse_present` 0 and `mouse_left` 0, so
 both seams are inert there until the DOS mouse driver is wired up.
 
+## The room screens show the pointer, and a menu line is selected by hovering (2026-11-14, later)
+
+The second half of the port's pointer work, and the same rule: port code, written on its own terms,
+inert in every measurement. The room screen right after the intro and the YES/NO load screen shows
+the port's arrow under the mouse, and its text menu - three lines of narration, then "Go to Map",
+"Answer the Door", ... - is chosen by hovering a line. A click is still /FIRE, so hovering and
+clicking is the whole interaction.
+
+**Where it attaches.** `rc_entryHook` twice per screen, and once per menu pass:
+
+| pc | what the hook does |
+|---|---|
+| `FUN_00005eac` / `FUN_00005824` | a location view was drawn/updated: `g_roomFrame = m->frame`, so the arrow is shown on room screens (the intro, flight and minigames never call these). |
+| `FUN_00004d76` | one line of a text menu was queued (`text, x, y, pen, count`). The line is filed with its screen rectangle, its width from `rt_gfx_text_length` on the menu's own RastPort/font, and **the menu entry it belongs to** - the caller's loop counter, so wrapping repeats the entry and skipped entries leave gaps. |
+| `FUN_0001d1da` | the menu flips its two bitmaps at the end of a pass. The flip's return address says which menu it is (`0x29D2` action list, `0x2C62` Look ...), and the pointer's line is written into that menu's selection local. |
+
+The selection is a **stack local**, so the hook has to know the frame: `FUN_0000247a` does
+`link.w A5,-0x9a` and keeps the selection at `A5-6` and the entry loop at `A5-2`;
+`FUN_00002b7c` does `link.w A5,-0x0c`, selection `A5-4`, loop `A5-8`. The flip is called with the
+caller's A5 still in `c->a[5]`, so `rt_write16(A5-6, entry)` is exactly the store a Down press leads
+to, one pass later. The highlighted pen is *not* usable for this: the "Answer the Door" (`=`),
+external (`@`) entries blink pen 8 whether selected or not.
+
+The arrow itself is presentation only: `rt_pointer_at`/`rt_pointer_hidden` in the runtime overlay
+(pens 246/247, drawn after the frame is composed; `src\runtime\amiga\pointer_art.h` from
+`tools\mkpointer.ps1`), 17x18 with its tip at the top left - the map cursor's shape and size. It is
+hidden on the map, where the game draws its own cursor, and in the DOS build, which reports no
+pointer at all.
+
+**Measured** (`tools\pointer-check.ps1`, machine state only): the room menu is up at frames
+~960..1060 of `ref\inputs\flight-crash-hospital-room.txt`, four lines at y 144..172 (baselines 150,
+157, 164, 171, the font's 7 rows). The menu's own default is entry 2, action 7 (the blinking
+"Answer the Door"); Up x4 gives 0/2 ("Go to Map"), Down x2 gives 3/4. Hovering line 1 and clicking
+gives 0/2 - the stored `DAT_000269da`/`DAT_000269d6` pair is the same the stick produces - and line
+4 gives 3/4. A `--mouse` run whose pointer never reaches a line is **byte-identical to the plain
+run, frame record for frame record**; a hover run first differs at frame 974, the first pass after
+the pointer moved (970). The arrow's pixels were also checked once against the art at the pointer
+position (78/78 non-transparent pixels black/white) in a `--dump` of the menu frames.
+
+The YES/NO load prompt is a different mechanism (`FUN_000101e4` reads the raw axis and redraws its
+two labels; there is no text-line list), so it stays keyboard-only. The arrow is not shown there
+either - it is a room-screen feature.
+
 ## The underground ant nest ("UNDER") runs (2026-11-14, later still)
 
 Reported as "implement and verify the UNDER minigame": the underground game in the tunnels where

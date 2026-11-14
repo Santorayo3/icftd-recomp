@@ -17,11 +17,14 @@
                                 minigames from the title; skipped without that binary)
       7. map pointer           (tools\mouse-check.ps1 - the port's pointer control of the
                                 situation map's cursor; skipped without its recorded session)
+      8. room pointer          (tools\pointer-check.ps1 - the pointer shown on a room screen, and
+                                a text menu line selected by hovering; skipped without its
+                                recorded session)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-7 cover the port's
-    own surfaces - the presenter, the title menu and the map cursor - which have no counterpart in
-    the original to diff against; they can only fail on their own terms.
+    capture or reference-image test can prove a translated function. Steps 5-8 cover the port's
+    own surfaces - the presenter, the title menu, the map cursor and the room pointer - which have
+    no counterpart in the original to diff against; they can only fail on their own terms.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
@@ -80,6 +83,7 @@ Step 'translated vs interpreted (fixtures)' { powershell -NoProfile -ExecutionPo
 Step 'presentation (raster)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\present-check.ps1 }
 Step 'title menu (scenes)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\title-check.ps1 }
 Step 'map pointer (cursor)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\mouse-check.ps1 }
+Step 'room pointer (hover)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String

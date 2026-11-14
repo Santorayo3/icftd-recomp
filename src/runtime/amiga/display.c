@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "osd_icon.h"
+#include "pointer_art.h"
 
 static rt_gfx_state *gfx;                /* the one machine's graphics state */
 
@@ -1794,6 +1795,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
 #define OSD_PAD       2
 #define OSD_PEN_TEXT  255              /* #00FF00 */
 #define OSD_PEN_ICON  240              /* 240..245: the save icon's colours */
+#define OSD_PEN_PTR   246              /* 246..247: the pointer's outline and fill */
 #define OSD_TEXT_MAX  40
 
 static void osd_colour(u32 index, u32 r, u32 g, u32 b)
@@ -1816,6 +1818,18 @@ void rt_osd_text(rt_machine *m, const char *text, u32 frames)
 void rt_osd_icon(rt_machine *m, u32 frames)
 {
     gfx->osdIconUntil = m->frame + frames;
+}
+
+void rt_pointer_at(s16 x, s16 y)
+{
+    gfx->ptrX = x;
+    gfx->ptrY = y;
+    gfx->ptrUp = 1;
+}
+
+void rt_pointer_hidden(void)
+{
+    gfx->ptrUp = 0;
 }
 
 static void osd_draw_text(rt_machine *m)
@@ -1860,14 +1874,28 @@ static void osd_draw_icon(rt_machine *m)
         }
 }
 
+static void osd_draw_pointer(rt_machine *m)
+{
+    int row, col;
+
+    for (row = 0; row < PTR_H; row++)
+        for (col = 0; col < PTR_W; col++)
+        {
+            u8 v = g_pointer[row * PTR_W + col];
+            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, gfx->ptrX + col, gfx->ptrY + row,
+                             (u8)(OSD_PEN_PTR + v - 1));
+        }
+}
+
 static void osd_draw(rt_machine *m)
 {
     static int wasUp;
     int textUp = gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
     int iconUp = (s32)(gfx->osdIconUntil - m->frame) > 0;
+    int ptrUp = gfx->ptrUp != 0;
     int i;
 
-    if (!textUp && !iconUp)
+    if (!textUp && !iconUp && !ptrUp)
     {
         /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
          * to rebuild the picture to clear those pixels. */
@@ -1880,8 +1908,12 @@ static void osd_draw(rt_machine *m)
     for (i = 0; i < OSD_ICON_COLOURS; i++)
         osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],
                    g_osdIconPal[i * 3 + 2]);
+    for (i = 0; i < PTR_COLOURS; i++)
+        osd_colour((u32)OSD_PEN_PTR + (u32)i, g_pointerPal[i * 3], g_pointerPal[i * 3 + 1],
+                   g_pointerPal[i * 3 + 2]);
     if (textUp) osd_draw_text(m);
     if (iconUp) osd_draw_icon(m);
+    if (ptrUp) osd_draw_pointer(m);
 }
 
 const u8 *rt_gfx_framebuffer(void) { return gfx != 0 ? gfx->fb : 0; }

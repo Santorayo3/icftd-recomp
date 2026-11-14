@@ -1,8 +1,9 @@
 # Port features — where to attach, how to reach a screen, and what "done" means
 
 A *port feature* is code the original game does not have: save slots, the OSD, the title screen,
-the situation map's mouse cursor, the window/present backend, host input plumbing, our own tooling.
-There is nothing to diff it against, so RULE 0 (`.github/copilot-instructions.md`) cannot decide it —
+the situation map's mouse cursor (and the room screens' pointer), the window/present backend, host
+input plumbing, our own tooling. There is nothing to diff it against, so RULE 0
+(`.github/copilot-instructions.md`) cannot decide it —
 but RULE 0 still governs everything the original *does* have, and a port feature may not disturb it.
 This page is what a session reads *before* writing one: where a feature attaches, the trap that has
 cost the most time, how to reach each screen without playing to it, and the definition of done.
@@ -15,7 +16,7 @@ Everything below is measured, not remembered, unless it says otherwise.
 |---|---|---|
 | **Platform input** | `input_state` (`src\runtime\platform.h`), filled by `plat_win32.c` (and left `0` — pointer and buttons — in `plat_dos.c`) | the feature is an input the game never had: a pointer, a button, a key. Add the field to the struct, set it in the platform layer, and let the front end read it. Never read the OS inside game-side code. |
 | **Frame boundary** | `rt_machine::on_frame` (`src\runtime\amiga\machine.h`), installed by the front end (`m.on_frame = host_input`) | the work is once per emulated frame and does not care *which* game function is running: sampling the pointer, overlaying the OSD, pacing. |
-| **Per-screen code** | `rc_entryHook` (`src\recomp\cpu.c`, null by default in `src\recomp\hooks.c`) | the work has to happen at a known point *inside* the game's own code — one per update of a script, one per scene loop — and the frame boundary is too coarse. The map's cursor is the worked example (`host_entry` in `src\host\main.c`). |
+| **Per-screen code** | `rc_entryHook` (`src\recomp\cpu.c`, null by default in `src\recomp\hooks.c`) | the work has to happen at a known point *inside* the game's own code — one per update of a script, one per scene loop — and the frame boundary is too coarse. The map's cursor (`host_entry` in `src\host\main.c`) and the room screens' pointer/hover (`line_record`, `menu_flip` there) are the worked examples. |
 | **Engine service** | `rt_os_call` shims (`src\runtime\amiga\machine.c`) | the engine already makes the library call and the runtime answers it: fix or extend the shim. Never special-case the engine's callers — the call census (`--lvo`) is the checklist. |
 | **Forcing a test state** | `--poke <frame>:<addr>=<val>[,…]`, `--call <pc>:<frame>[:<arg>[:<retpc>]]`, `--mouse <file>` (host; the oracle has its own `--callat`) | you need a screen or a value without playing to it. These are *test* seams: a feature is never implemented through them, and a real fix is never gated behind one. |
 
@@ -75,6 +76,10 @@ Things the table does not say, because they are not what a preset needs:
   script is a **SKIP**, not a failure. `out\` is gitignored too: `flight-live.txt` and
   `hospital-live.txt` are *played* sessions, so they can only be re-made by hand with
   `--run --record`.
+* **A room's action menu** is up at frames ~960..1060 of `flight-crash-hospital-room.txt`: four
+  lines at y 144..172 (x 19.., font 7 rows, baselines 150/157/164/171), the game's own default the
+  blinking "Answer the Door" (entry 2), and the fire at 1060 commits the choice. `--hoverlog` prints
+  every line the pointer seam records, with its entry and rectangle.
 * **The oracle needs the injection point, not just the pc.** The host injects at its dispatch-loop
   boundary (after the translated function in progress), the oracle's `--callat` before the *next*
   instruction — so the *oracle* command is `--callat 0xFFCA:4876672:0:0x23512` for UNDER, fight and
@@ -112,6 +117,41 @@ hold, and none of them is a picture:
 `--ram` dump (1), proves a pointer run is identical to the plain run until the map starts (2), and
 proves the click is the same `/FIRE` as the key over all 2399 frame records, with no press producing
 a divergence at exactly frame 1060 (1 and 3). Copy its shape rather than inventing a fourth.
+`tools\pointer-check.ps1` adds the second shape: a hover has to select the same menu entry the stick
+selects (the menu's stored index and action code), and a pointer that never reaches a line has to
+leave the run byte-identical, frame record for frame record.
+
+## The room screens' pointer, and a menu line under it
+
+The situation map shows its own cursor (game art). The port also shows a pointer on every room
+screen, and hovering a line of a room's text menu selects it — "Go to Map", "Answer the Door", the
+evidence questions, … The arrow is the runtime overlay (`rt_pointer_at`, `display.c`), 17x18 with
+its tip at the top left (the map sprite's shape and size), so it costs no machine state at all.
+
+Reaching it goes through `rc_entryHook` three times:
+
+| hook | what it is |
+|---|---|
+| `FUN_00005eac` / `FUN_00005824` | draw/update a location view: the screen is a room, so the arrow is shown (`g_roomFrame`). The intro, the flight and the minigames never call them. |
+| `FUN_00004d76(text, x, y, pen, count)` | draws one line of a text menu. The line is recorded with its screen rectangle and the menu entry it belongs to — the caller's loop counter, so a wrapped line repeats its entry and skipped entries leave gaps. |
+| `FUN_0001d1da` | flips the menu's two bitmaps at the end of a pass; the pointer's line is written into the menu's selection here. |
+
+Both text menus keep their selection in a **stack local**, not a global, and add the stick to it
+once per pass: `FUN_0000247a` (`link.w A5,-0x9a`) has the selection at `A5-6` and the entry loop
+counter at `A5-2`; `FUN_00002b7c` (`link.w A5,-0x0c`) has them at `A5-4` and `A5-8`. The flip's
+return address on the stack names which menu is running (`0x29D2` / `0x2C62`), so the pointer writes
+the right local in the right frame. That is what a Down press does, without the per-pass ramp.
+
+The highlighted pen cannot be used to find the selection: "Answer the Door" and the door/external
+entries blink pen 8 whether selected or not (the `=`/`@` branches of `FUN_0000247a`). Reading the
+stack local is exact; guessing from pixels is not.
+
+Measured with `tools\pointer-check.ps1`: the room after the intro and the YES/NO load screen draws
+four lines at y 144..172 (baseline 150, 7 pixels apart); the menu's own default is entry 2, action 7
+("Answer the Door"), Up ×4 is 0/2 ("Go to Map"), Down ×2 is 3/4. Hovering line 1 and clicking gives
+0/2 — the same entry and action the Up presses give — and line 4 gives 3/4. A `--mouse` run whose
+pointer never reaches a line is byte-identical to the plain run; a hover run first differs at frame
+974, the first pass after the pointer moved (970).
 
 ## The dev loop
 

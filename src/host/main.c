@@ -14,16 +14,20 @@
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
- *                [--titlekey <n>] [--mouse <file>]
+ *                [--titlekey <n>] [--mouse <file>] [--hoverlog]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space or the left
- * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, and
- * the mouse moves the situation map's cursor); without it the build runs headless and only reports
- * machine state. `--call` enters one of the engine's own routines at a frame boundary, with the
- * program-end sentinel as its return address.
- * `--mouse` feeds the situation map's cursor the positions a platform pointer would report
- * ("<frame> <x> <y> [<button>]"), so the port's pointer control can be measured without a mouse
- * (it is a dev seam like --input; in a played game the platform pointer drives the same state).
+ * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
+ * mouse moves the situation map's cursor, and on a room screen it is the pointer a menu line is
+ * selected with); without it the build runs headless and only reports machine state. `--call`
+ * enters one of the engine's own routines at a frame boundary, with the program-end sentinel as its
+ * return address.
+ * `--mouse` feeds the pointer the positions a platform pointer would report
+ * ("<frame> <x> <y> [<button>]"), so the port's pointer control - the map's cursor and a room
+ * menu's hover - can be measured without a mouse (it is a dev seam like --input; in a played game
+ * the platform pointer drives the same state).
+ * `--hoverlog` prints every text menu line the pointer seam records and the entry a hover picks,
+ * so a scripted run says which line is where instead of leaving it to a screenshot.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..6 the minigames) so a
  * scripted run can start a scene from the title; it is a dev seam like `--call`.
@@ -346,6 +350,7 @@ static const u16 g_joyDirs[16] =
 static int  g_ptrArm;                  /* the pointer seam may run (a played game, or --mouse) */
 static int  g_ptrKnown;                /* a pointer position is available */
 static int  g_ptrActive;               /* the pointer owns the map cursor */
+static int  g_hoverOwn;                /* the pointer owns the menu line under it */
 static s16  g_ptrX, g_ptrY;            /* framebuffer coordinates */
 
 /* --mouse <file>: "<frame> <x> <y> [<button>]" per line, the pointer's positions and left-button
@@ -395,6 +400,7 @@ static void pointer_script_tick(rt_machine *m)
         g_ptrButton = g_ptrScript[g_ptrScriptPos].button;
         g_ptrKnown = 1;
         g_ptrActive = 1;
+        g_hoverOwn = 1;
         g_ptrScriptPos++;
     }
 }
@@ -405,10 +411,16 @@ static void pointer_script_tick(rt_machine *m)
  * it, on the current location. */
 static void pointer_input(const input_state *in, int stickHeld)
 {
-    if (!in->mouse_present) { g_ptrKnown = 0; g_ptrActive = 0; return; }
-    g_ptrKnown = 1;
-    if (stickHeld) g_ptrActive = 0;
-    else if (in->mouse_moved) { g_ptrX = in->mouse_x; g_ptrY = in->mouse_y; g_ptrActive = 1; }
+    if (!in->mouse_present) { g_ptrKnown = 0; g_ptrActive = 0; g_hoverOwn = 0; return; }
+    if (stickHeld) { g_ptrActive = 0; g_hoverOwn = 0; }
+    else if (in->mouse_moved)
+    {
+        g_ptrX = in->mouse_x;
+        g_ptrY = in->mouse_y;
+        g_ptrKnown = 1;                /* the position is only trusted once it was reported */
+        g_ptrActive = 1;
+        g_hoverOwn = 1;                /* a menu line under it is selected from now on */
+    }
 }
 
 /* Runs at FUN_00003B1E's entry, i.e. once per map update, right before the cursor is moved. */
@@ -458,12 +470,182 @@ static void map_pointer(rt_machine *m)
     }
 }
 
-/* rc_entryHook: the map's script is reached from inside the translated stream (the scene runner's
- * `jsr (A0)`), so this is where its update becomes visible to the host. */
+/* --- the pointer on a room screen, and the menu line under it (port features) ----------------
+ * The original has no mouse at all: a room is walked and its action list ("Go to Map", "Answer the
+ * Door", ...) is chosen with the stick. The port shows the situation map's arrow under the mouse on
+ * every room screen, and a line of a text menu under it is selected by hovering over it.
+ *
+ * Three seams do it, all through rc_entryHook (the front end only sees the translated stream):
+ *
+ *   FUN_00005eac / FUN_00005824  draw and update a location view, so "this is a room screen" -
+ *                                the arrow is shown there and nowhere else (the intro, the flight
+ *                                and the minigames never call them);
+ *   FUN_00004d76                 draws one line of a text menu (text, x, y, pen, count). Each line
+ *                                is recorded with its screen rectangle and the menu entry it
+ *                                belongs to - the caller's loop counter, so wrapped lines and
+ *                                hidden entries keep the right number;
+ *   FUN_0001d1da                 flips the menu's two bitmaps at the end of a draw pass. That is
+ *                                where the pointer's choice becomes the engine's own selection.
+ *
+ * Neither menu keeps its selection in a global: FUN_0000247a (the action list) and FUN_00002b7c
+ * (Look North/South/East/West) hold it in a stack local and add the stick to it once per pass.
+ * The pointer therefore writes that local, in the frame of the menu its return address names, at
+ * the flip - exactly what a Down press does, without the per-pass ramp. The highlighted pen cannot
+ * be used to find the selection: "Answer the Door" and the door/external entries blink their pen
+ * between passes whether they are selected or not.
+ *
+ * Nothing here runs in a measurement: rc_entryHook is installed only when the pointer is armed
+ * (a played game or --mouse), and the arrow itself is drawn on top of the presented picture, never
+ * into the machine's memory. */
+#define ROOM_DRAW_PC     0x00005EACu   /* FUN_00005eac: the location picture and its actors */
+#define ROOM_UPDATE_PC   0x00005824u   /* FUN_00005824: the room view's per-frame update */
+#define TEXT_LINE_PC     0x00004D76u   /* FUN_00004d76(text, x, y, pen, count) */
+#define MENU_FLIP_PC     0x0001D1DAu   /* FUN_0001d1da: the menu's bitmap flip */
+#define MENU_ACTION_PC   0x0000247Au   /* FUN_0000247a: the action list */
+#define MENU_ACTION_END  0x00002B0Eu
+#define MENU_LOOK_PC     0x00002B7Cu   /* FUN_00002b7c: Look North/South/... */
+#define MENU_LOOK_END    0x00002C92u
+#define MENU_ACTION_FLIP 0x000029D2u   /* the flip's return address inside FUN_0000247a */
+#define MENU_LOOK_FLIP   0x00002C62u   /* ... and inside FUN_00002b7c */
+#define TEXT_LINE_RET    0x00004F40u   /* the text draw's return address inside FUN_00004f0a */
+#define TEXT_RASTPORT    0x0002656Au   /* DAT_0002656a: the engine's animation RastPort */
+
+/* The selection and the entry loop counter, read from each menu's own frame:
+ *   FUN_0000247a  link.w A5,-0x9a:  selection (local_a) at -0x6,  entry (local_6) at -0x2
+ *   FUN_00002b7c  link.w A5,-0x0c:  selection (local_8) at -0x4,  entry (local_c) at -0x8
+ * A drawn line is filed under the entry its loop counter held, so the pointer writes a value the
+ * menu's own array indexes (the hidden entries are simply never drawn, and a wrapped line repeats
+ * its entry). */
+
+#define HOST_LINE_MAX 24
+typedef struct
+{
+    s16 x0, x1, top, h;            /* the line's screen rectangle */
+    s16 entry;                     /* the menu entry that drew it */
+    u8  menu;                      /* 1 = action list, 2 = Look ... */
+} host_text_line;
+
+static host_text_line g_line[HOST_LINE_MAX];
+static int g_lineCount;
+static u32 g_roomFrame;            /* last frame a location view was drawn or updated */
+static u32 g_menuFrame;            /* last frame a text menu flipped */
+static int g_hoverLog;             /* --hoverlog: the lines recorded and what the pointer picks */
+static int s_ptrShown;             /* --hoverlog: the last reported pointer visibility */
+
+/* One line of a text menu was queued for drawing: remember where it is and which entry it is. */
+static void line_record(cpu_t *c, rt_machine *m)
+{
+    u32 sp = c->a[7], frame = c->a[5], ret, caller, text, count, rp, font;
+    s16 menu = 0, entry = 0, x, y, h = 7, base = 6;
+    s32 w;
+
+    if (rt_read32(&m->mem, sp) != RC_ADDR(TEXT_LINE_RET)) return;   /* not FUN_00004f0a's draw */
+    ret = rt_read32(&m->mem, frame + 4);        /* where FUN_00004f0a was called from */
+    caller = rt_read32(&m->mem, frame);         /* ... and the menu's own frame */
+    if (ret >= RC_ADDR(MENU_ACTION_PC) && ret < RC_ADDR(MENU_ACTION_END))
+    {
+        menu = 1;
+        entry = (s16)rt_read16(&m->mem, caller - 2);   /* local_6, the entry loop counter */
+    }
+    else if (ret >= RC_ADDR(MENU_LOOK_PC) && ret < RC_ADDR(MENU_LOOK_END))
+    {
+        menu = 2;
+        entry = (s16)rt_read16(&m->mem, caller - 8);
+    }
+    else return;                                /* narration, panel text: not a chooser */
+
+    text  = rt_read32(&m->mem, sp + 4);
+    x     = (s16)rt_read16(&m->mem, sp + 8);
+    y     = (s16)rt_read16(&m->mem, sp + 10);
+    count = rt_read32(&m->mem, sp + 14);
+    rp    = rt_read32(&m->mem, RC_ADDR(TEXT_RASTPORT));
+    font  = rp != 0 ? rt_read32(&m->mem, rp + EMU_RP_FONT) : 0;
+    if (font != 0)
+    {
+        h = (s16)rt_read16(&m->mem, font + EMU_TF_Y_SIZE);
+        base = (s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
+    }
+    if (h <= 0) h = 7;
+    w = rt_gfx_text_length(m, rp, text, count);
+    if (g_lineCount < HOST_LINE_MAX)
+    {
+        g_line[g_lineCount].menu = (u8)menu;
+        g_line[g_lineCount].entry = entry;
+        g_line[g_lineCount].x0 = x;
+        g_line[g_lineCount].x1 = (s16)(x + w);
+        g_line[g_lineCount].top = (s16)(y - base);
+        g_line[g_lineCount].h = h;
+        g_lineCount++;
+    }
+    if (g_hoverLog)
+        printf("recomp: line menu %d entry %d at %d..%d x %d..%d (frame %lu)\n", (int)menu,
+               (int)entry, (int)x, (int)(x + w), (int)(y - base), (int)(y - base + h),
+               (unsigned long)m->frame);
+}
+
+/* A menu draw pass ends here: the pointer's line, if it is over one, becomes the selection. */
+static void menu_flip(cpu_t *c, rt_machine *m)
+{
+    u32 ret = rt_read32(&m->mem, c->a[7]);
+    int menu = ret == RC_ADDR(MENU_ACTION_FLIP) ? 1
+             : ret == RC_ADDR(MENU_LOOK_FLIP) ? 2 : 0;
+    int i, hover = -1;
+
+    if (menu != 0)
+    {
+        g_menuFrame = m->frame;
+        if (g_hoverOwn && g_ptrKnown &&
+            (g_mapFrame == 0 || m->frame - g_mapFrame > MAP_IDLE_FRAMES))
+        {
+            for (i = 0; i < g_lineCount; i++)
+                if (g_line[i].menu == (u8)menu &&
+                    g_ptrX >= g_line[i].x0 - 1 && g_ptrX <= g_line[i].x1 + 1 &&
+                    g_ptrY >= g_line[i].top && g_ptrY < g_line[i].top + g_line[i].h)
+                    hover = i;
+            if (hover >= 0)
+            {
+                u32 at = c->a[5] - (menu == 1 ? 6u : 4u);
+                s16 was = (s16)rt_read16(&m->mem, at);
+                rt_write16(&m->mem, at, (u16)g_line[hover].entry);
+                if (g_hoverLog && was != g_line[hover].entry)
+                    printf("recomp: hover %d,%d -> entry %d of menu %d (was %d) at frame %lu\n",
+                           (int)g_ptrX, (int)g_ptrY, (int)g_line[hover].entry, menu, (int)was,
+                           (unsigned long)m->frame);
+            }
+        }
+    }
+    g_lineCount = 0;
+}
+
+/* The arrow is a room-screen feature; the map draws its own cursor, so it stays hidden there. */
+static void pointer_present(rt_machine *m)
+{
+    int room, menu, map, show;
+
+    if (!g_ptrArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
+    room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
+    menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
+    map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
+    show = (room || menu) && !map;
+    if (show) rt_pointer_at(g_ptrX, g_ptrY);
+    else rt_pointer_hidden();
+    if (g_hoverLog && show && s_ptrShown != 1)
+    {
+        s_ptrShown = 1;
+        printf("recomp: pointer shown at %d,%d on a room screen (frame %lu)\n", (int)g_ptrX,
+               (int)g_ptrY, (unsigned long)m->frame);
+    }
+    else if (g_hoverLog && !show) s_ptrShown = 0;
+}
+
+/* rc_entryHook: everything the pointer needs is reached from inside the translated stream (the
+ * scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
-    (void)c;
-    if (pc == RC_ADDR(MAP_SCRIPT_PC)) map_pointer(m);
+    if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
+    if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
+    if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
+    if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
 static void host_input(rt_machine *m)
@@ -483,6 +665,7 @@ static void host_input(rt_machine *m)
         /* Only the map's script consumes the pointer state: anywhere else it owns nothing, so
          * the next screen starts with the game's own placement until the pointer moves again. */
         if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
+        pointer_present(m);
     }
     if (input_active())
     {
@@ -539,8 +722,9 @@ static void host_pointer_frame(rt_machine *m)
     /* A scripted click is /FIRE, the same level the platform's button is; the script's own fire
      * level is put back when the button is released, so the two compose. */
     m->fireDown = (u8)((g_ptrButton || input_fire()) ? 1u : 0u);
-    if (m->joy0 != 0) g_ptrActive = 0;      /* a scripted stick wins, like a held direction key */
+    if (m->joy0 != 0) { g_ptrActive = 0; g_hoverOwn = 0; }   /* a scripted stick wins */
     if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
+    pointer_present(m);
 }
 
 /* Writes the presented raster as a 24-bit BMP (bottom-up); --shot makes screen content testable. */
@@ -697,6 +881,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
+        if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }

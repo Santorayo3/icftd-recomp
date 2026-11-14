@@ -143,7 +143,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu and the map's pointer control |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu, the map's pointer control and the room pointer's hover |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
@@ -164,6 +164,7 @@ docs/                  architecture, plan, program model
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
 | `tools\title-check.ps1` | the title's digit keys start the minigames (scene data, rasters, and the return to the title) |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
+| `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |
 
 ## Where to start reading
 

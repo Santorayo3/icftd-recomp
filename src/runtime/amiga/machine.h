@@ -55,6 +55,8 @@ typedef struct rt_gfx_state{
     char osdText[40];             /* overlay line in the top left corner, "" when idle */
     u32  osdTextUntil;            /* m->frame the line disappears on */
     u32  osdIconUntil;            /* m->frame the save icon disappears on */
+    s16  ptrX, ptrY;              /* the port's pointer arrow, framebuffer coordinates */
+    u8   ptrUp;                   /* 1 while the pointer is drawn */
 } rt_gfx_state;
 /* The exec structures we hand the game: the Process that FindTask returns and its CLI record.
  * Reserved above the AllocMem heap and below the stack - the image's BSS reaches 0x31598, so

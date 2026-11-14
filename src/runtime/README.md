@@ -13,7 +13,8 @@ amiga/memory.c   24-bit big-endian address space
 amiga/machine.c  the library shims (exec, dos, graphics, intuition, ciaa, input, ...), the heap,
                  the exec structures (Process/CLI, lists, message ports) and the call census
 amiga/blitter.c  the chipset blitter (BLTCON0/1, pointers, modulos, BLTSIZE), immediate mode
-amiga/display.c  graphics.library's planar model over a chunky framebuffer + the present
+amiga/display.c  graphics.library's planar model over a chunky framebuffer + the present,
+                 including the port's on-screen display and pointer overlays
 amiga/audio.c    Paula (4 DMA channels, AUDxLC/LEN/PER/VOL, DMACON) mixed to the host device,
                  and the CIA-A/B timer A interrupts that run the engine's own music driver
 ```
