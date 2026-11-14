@@ -32,3 +32,10 @@ Corollaries, learned the hard way:
 Exception, and the only one: a bug in code that has **no counterpart in the original** — save
 slots, the OSD, window/present backend, host input plumbing, our own tooling. There is nothing to
 diff there, so implement it correctly on its own terms — but still never by papering over a symptom.
+
+**Scope of RULE 0.** RULE 0 in full applies to the re-implementation — everything the original also
+has, i.e. everything that can be diffed against it. *Port features* are the code the original does
+not have (save slots, the OSD, the title screen, the map's pointer control, host input plumbing, our
+tooling); they follow the definition of done in
+[`docs/port-features.md`](../docs/port-features.md) instead of a parity diff, and they too may never
+be justified by a symptom or hidden behind an opt-in flag.

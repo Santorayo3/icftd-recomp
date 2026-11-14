@@ -23,4 +23,9 @@ void input_apply(rt_machine *m);
 
 int  input_active(void);
 
+/* The fire level the script holds right now (0 before its first entry, and 0 without a script).
+ * A host seam that adds another /FIRE source to m->fireDown needs it to put the script's own
+ * level back when its own source is released. */
+int  input_fire(void);
+
 #endif

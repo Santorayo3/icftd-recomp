@@ -17,7 +17,8 @@ close the gap. A change that only makes the symptom go away is rejected, even wh
 and a real fix never stays behind an opt-in flag. The one exception is code the original does not
 have — save slots, OSD, the present/window backend, host input, our tooling. Full text:
 [`.github/copilot-instructions.md`](.github/copilot-instructions.md) and the top of
-[`docs/recomp-architecture.md`](docs/recomp-architecture.md).
+[`docs/recomp-architecture.md`](docs/recomp-architecture.md); what a feature on that side has to show
+instead is [`docs/port-features.md`](docs/port-features.md).
 
 ## The two phases
 
@@ -68,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File tools\gate.ps1
 ```powershell
 tools\build-oracle.ps1
 bin\win32\icftd-oracle.exe export\code\dshell4k\dshell.img 0x4000 --run
-#   space = fire, esc or close = quit; runs at the Amiga's 50 Hz
+#   space or left mouse = fire, esc or close = quit; runs at the Amiga's 50 Hz
 
 # batch / scripted runs - always bounded, so a stuck model cannot hang the terminal
 powershell -ExecutionPolicy Bypass -File tools\oracle-run.ps1 -Insns 30000000 -Progress
@@ -142,7 +143,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu and the map's pointer control |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
@@ -162,10 +163,14 @@ docs/                  architecture, plan, program model
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
 | `tools\title-check.ps1` | the title's digit keys start the minigames (scene data, rasters, and the return to the title) |
+| `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
 
 ## Where to start reading
 
 * `docs/next-session.md` — **what is being built right now** and in what order
+* `docs/port-features.md` — **read this before adding a port feature**: the five attachment points,
+  the one trap that costs the most time, the scene presets (how to reach each screen headlessly) and
+  what "done" means for code that has no counterpart in the original
 * `docs/implementation-survey.md` — **what of the game is implemented, proven and never run**: the
   feature inventory, the `--cover` coverage matrix and the open divergences
 * `docs/recomp-architecture.md` — the architecture, the phase plan, and the binding acceptance

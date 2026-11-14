@@ -31,6 +31,11 @@ static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
 static s16           g_mouse_x, g_mouse_y;
 static u8            g_mouse_buttons;
+static u32           g_mouse_motion;      /* WM_MOUSEMOVE messages seen, for "did it move" */
+static u32           g_mouse_motion_seen; /* ... and the count the last plat_pump reported */
+static u32           g_mouse_clicks;      /* WM_LBUTTONDOWN messages seen, for the press edge */
+static u32           g_mouse_clicks_seen; /* ... and the count the last plat_pump reported */
+static int           g_pic_x, g_pic_y, g_pic_w, g_pic_h;  /* fullscreen: where the picture is */
 static int           g_cursorHidden;     /* ShowCursor(TRUE) calls owed to the desktop */
 
 /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
@@ -109,8 +114,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOUSEMOVE:
         g_mouse_x = (s16)LOWORD(lp);
         g_mouse_y = (s16)HIWORD(lp);
+        g_mouse_motion++;
         return 0;
-    case WM_LBUTTONDOWN: g_mouse_buttons |= 1; return 0;
+    case WM_LBUTTONDOWN: g_mouse_buttons |= 1; g_mouse_clicks++; return 0;
     case WM_LBUTTONUP:   g_mouse_buttons &= (u8)~1; return 0;
     case WM_RBUTTONDOWN: g_mouse_buttons |= 2; return 0;
     case WM_RBUTTONUP:   g_mouse_buttons &= (u8)~2; return 0;
@@ -393,6 +399,7 @@ void plat_present(void)
         }
         x = (cw - w) / 2;
         y = (ch - h) / 2;
+        g_pic_x = x; g_pic_y = y; g_pic_w = w; g_pic_h = h;
         SetStretchBltMode(g_frame_dc, COLORONCOLOR);
         StretchBlt(g_frame_dc, x, y, w, h, g_memdc, 0, 0, SCREEN_W, SCREEN_H, SRCCOPY);
         BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
@@ -572,6 +579,27 @@ u32 plat_emulated_ms(void)
 u32 plat_free_base_kb(void) { return 0; }
 u32 plat_base_total_kb(void) { return 0; }
 
+/* Client point -> framebuffer pixel. Windowed the client is exactly the 320x200 DIB, so the
+ * point is used as it is; fullscreen the picture is a 4:3 rectangle centred in the window, so the
+ * pointer has to be mapped into it. It is clamped: a pointer on the black bars then reads as the
+ * nearest picture edge, which is what a map cursor pushed past its travel window needs (that is
+ * the "scroll this way" input). */
+static void mouse_to_fb(s16 *x, s16 *y)
+{
+    long fx = *x, fy = *y;
+
+    if (g_fullscreen && g_pic_w > 0 && g_pic_h > 0) {
+        fx = ((fx - g_pic_x) * SCREEN_W) / g_pic_w;
+        fy = ((fy - g_pic_y) * SCREEN_H) / g_pic_h;
+    }
+    if (fx < 0) fx = 0;
+    if (fy < 0) fy = 0;
+    if (fx > SCREEN_W - 1) fx = SCREEN_W - 1;
+    if (fy > SCREEN_H - 1) fy = SCREEN_H - 1;
+    *x = (s16)fx;
+    *y = (s16)fy;
+}
+
 u32 plat_pump(input_state *in)
 {
     MSG msg;
@@ -591,8 +619,14 @@ u32 plat_pump(input_state *in)
     }
     in->mouse_x = g_mouse_x;
     in->mouse_y = g_mouse_y;
+    mouse_to_fb(&in->mouse_x, &in->mouse_y);
     in->mouse_left = (u8)(g_mouse_buttons & 1);
     in->mouse_right = (u8)(g_mouse_buttons & 2);
+    in->mouse_left_pressed = (u8)(g_mouse_clicks != g_mouse_clicks_seen);
+    g_mouse_clicks_seen = g_mouse_clicks;
+    in->mouse_present = 1;
+    in->mouse_moved = (u8)(g_mouse_motion != g_mouse_motion_seen);
+    g_mouse_motion_seen = g_mouse_motion;
     return (u32)(!g_quit);
 }
 

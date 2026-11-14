@@ -8,9 +8,15 @@
 # replacement that Open Watcom ships (binw\dos32a.exe, stub32a.exe), so the executable runs
 # unchanged under MS-DOS, DOSBox and Windows' NTVDM.
 #
-#   powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1 [-WatcomHome <dir>]
+#   powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1 [-WatcomHome <dir>] [-Full]
+#
+# Incremental like build-host.ps1: an object is recompiled only when it is missing or older than
+# its source or any header under the source trees, and the link is skipped when nothing changed.
+# Its object directory is its own (bin\dos\obj), so the -bt=dos objects never mix with the Windows
+# ones; -Full wipes it and compiles everything.
 param(
-    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" })
+    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" }),
+    [switch]$Full
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -66,10 +72,6 @@ $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullNam
 # on).  One object directory per source group: src\oracle\cpu.c and src\recomp\cpu.c are two
 # different files with one name.
 $objDir = Join-Path $outDir 'obj'
-if (Test-Path $objDir) { Remove-Item $objDir -Recurse -Force }
-foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
-    New-Item -ItemType Directory -Force -Path (Join-Path $objDir $g) | Out-Null
-}
 
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
 # -4s: i486 code, stack calling convention (consistent across every object).  DOS has no
@@ -81,19 +83,34 @@ $common = @('-bt=dos', '-q', '-4s', '-ox', '-zp8', '-zq', '-za99', '-c', '-dRC_B
             '-i=..\..\..\..\src\runtime', '-i=..\..\..\..\src\runtime\amiga',
             '-i=..\..\..\..\src\recomp', '-i=..\..\..\..\src\oracle',
             '-i=..\..\..\..\third_party\musashi')
+# -l=dos32a binds the DOS/32A stub: the executable is an LE image with the extender attached, so it
+# runs like any DOS program.
+$link = @('-bt=dos', '-l=dos32a', '-q', '-fe=..\ICFTD.EXE')
 
-function Group-Of([string]$path) {
+$groupOf = {
+    param([string]$path)
     if ($path -like '*\src\oracle\*') { return 'oracle' }
     if ($path -like '*\src\recomp\*') { return 'recomp' }
     if ($path -like '*\third_party\*') { return 'core' }
     return 'rt'
 }
+$objectOf = {
+    param([string]$path)
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($path) + '.obj'
+    return Join-Path (Join-Path $objDir (& $groupOf $path)) $name
+}
+
+. (Join-Path $PSScriptRoot 'build-common.ps1')
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$plan = Select-StaleSources -ObjDir $objDir -Sources $sources -ObjectOf $objectOf -Full:$Full `
+    -HeaderRoots @($rt, $rc, $or, $hs, $mus) -Stamp (($common + $link) -join ' ')
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
+$code = 0
 try {
     foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
-        $rel = @($sources | Where-Object { (Group-Of $_) -eq $g } | ForEach-Object { '..\..\..\..\' + $_.Substring($root.Length + 1) })
+        $rel = @($plan.Stale | Where-Object { (& $groupOf $_) -eq $g } | ForEach-Object { '..\..\..\..\' + $_.Substring($root.Length + 1) })
         if ($rel.Count -eq 0) { continue }
         Push-Location (Join-Path $objDir $g)
         try {
@@ -106,20 +123,30 @@ try {
         }
         finally { Pop-Location }
     }
-    $objs = @(Get-ChildItem $objDir -Recurse -Filter *.obj |
-              ForEach-Object { $_.Directory.Name + '\' + $_.Name })
-    Push-Location $objDir
-    try {
-        # -l=dos32a binds the DOS/32A stub: the executable is an LE image with the extender
-        # attached, so it runs like any DOS program.
-        & $wcl '-bt=dos' '-l=dos32a' '-q' '-fe=..\ICFTD.EXE' @objs 2>&1 | Out-Host
-        $code = $LASTEXITCODE
+    # Sorted, because the link list used to come from directory enumeration (alphabetical) and the
+    # linker lays objects out in the order they are given: this keeps the binary identical to a
+    # build made before the object directory was kept between runs.
+    $objs = @($plan.Objects | ForEach-Object { $_.Substring($objDir.Length + 1) } | Sort-Object)
+    $relink = Test-BuildNeeded -Plan $plan -Output $out
+    if ($relink) {
+        Push-Location $objDir
+        try {
+            & $wcl @link @objs 2>&1 | Out-Host
+            $code = $LASTEXITCODE
+        }
+        finally { Pop-Location }
     }
-    finally { Pop-Location }
+    if ($code -eq 0) {
+        Clear-BuildErrors -ObjDir $objDir
+        Set-BuildStamp -ObjDir $objDir -Stamp (($common + $link) -join ' ')
+    }
 }
 finally {
     $ErrorActionPreference = $prevEap
 }
+$sw.Stop()
 if ($code -ne 0) { throw "link failed ($code)" }
 $size = (Get-Item $out).Length
-Write-Host "-> $out ($($sources.Count) source file(s), $($objs.Count) object(s), $([Math]::Round($size / 1KB)) KB)"
+Write-Host ("-> $out ($($sources.Count) source file(s), $($objs.Count) object(s), " +
+            "$($plan.Stale.Count) compiled$(if (-not $relink) { ', link skipped' }), " +
+            "$([Math]::Round($size / 1KB)) KB, $([Math]::Round($sw.Elapsed.TotalSeconds, 1)) s)")

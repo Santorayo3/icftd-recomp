@@ -20,6 +20,11 @@ static int  g_pos;                  /* last applied entry */
 
 int input_active(void) { return g_count > 0; }
 
+int input_fire(void)
+{
+    return (g_count > 0 && g_pos > 0) ? (int)g_list[g_pos - 1].fire : 0;
+}
+
 int input_load(const char *path)
 {
     FILE *f = fopen(path, "r");

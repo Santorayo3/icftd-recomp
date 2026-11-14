@@ -7,6 +7,122 @@ is a difference from the original, never a symptom, and that holds for every kin
 What of the original is implemented, proven and never run — measured, not guessed (feature
 inventory, `--cover` matrix, open divergences): `docs/implementation-survey.md`.
 
+Before writing a port feature (code the original does not have — save slots, OSD, title, the map's
+pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
+presets and what "done" means without an oracle to diff against.
+
+## Infrastructure: incremental builds, and one page for port features (2026-11-14)
+
+Two changes, no product behaviour touched, both aimed at making the next feature session cheaper.
+
+**The three build scripts are incremental.** `tools\build-host.ps1`, `tools\build-recomp.ps1` and
+`tools\build-dos.ps1` keep their object directory (`bin\win32\recomp-obj-host`, `bin\win32\recomp-obj`,
+`bin\dos\obj`) instead of deleting it, and compile only the sources whose `.obj` is missing or older
+than the source or than **any** header under `src\runtime`, `src\recomp`, `src\oracle`, `src\host`
+(and `third_party\musashi`). Coarse on purpose: a header change recompiles everything, which is safe
+and cheaper than a missed rebuild — there is no depfile system. The decision lives in one helper,
+`tools\build-common.ps1`. The link is skipped when nothing changed, and the link list is built from
+the source list (sorted, i.e. the order the old wildcard produced), so a deleted source takes its
+object with it and the binary is the same one the old scripts produced. The compiler command line is
+stamped into the object directory, so a different `-Base`/`-bt` never reuses another configuration's
+objects. `-Full` restores the old clean behaviour; `gate.ps1` calls the scripts unchanged.
+
+Measured on this machine (same tree, same flags):
+
+| build | clean (`-Full`) | no-op | one source edited | one header touched |
+|---|---|---|---|---|
+| `bin\win32\icftd-recomp.exe` | 21.0 s | 1.1–1.4 s | 1.7 s (1 object) | 21.3 s (816 objects) |
+| `bin\win32\recomp-check.exe` | 19.1 s | 1.3 s | — | — |
+| `bin\dos\ICFTD.EXE` | 20.8 s | 1.4 s | — | — |
+
+The binaries are unchanged: `-Full` reproduces the pre-change build byte for byte (the host and
+`recomp-check` differ from it in the PE `TimeDateStamp` only, the DOS/32A image in nothing at all),
+a probe line added to one `.c` recompiled exactly that object and changed the link, and touching
+`src\runtime\platform.h` recompiled all 816 objects back to the same binary. `tools\gate.ps1` 7/7.
+
+**One page for the "no counterpart in the original" side:** `docs/port-features.md` collects what a
+feature session used to re-discover — the five attachment points (`input_state`, `on_frame`,
+`rc_entryHook`, `rt_os_call`, the `--poke`/`--call`/`--mouse` test seams), the trap that a `pc ==`
+test in the front end's loop is inert because scenes run inside `rc_stream`, a scene-preset table
+(map, a room, the flight, hospital, fight, chicken, UNDER — reach, instruction count, frames worth
+dumping, entry/PC, all re-run and measured), and the definition of done for features (machine-state
+claim or bit-for-bit equivalence with the key it replaces; a measurement run must not change; the
+seam is inert unless the game is played). `tools\mouse-check.ps1` is the worked example;
+`.github\copilot-instructions.md` now says which rule applies to which code.
+
+## The situation map's cursor follows the mouse (2026-11-14, the map pointer)
+
+A port feature (the original has no mouse control at all), written on its own terms because there
+is nothing to diff it against - and, like the title screen, it must not disturb anything that *is*
+diffed.
+
+**The screen.** The situation map is the MovE scene `FUN_000043B8` opens (`DES4:ANI`, scene
+`!MAP` in the record table at `0x4488`) and `FUN_0001D2C6` runs: that runner calls the scene's
+script **`FUN_00003B1E`** once per update, and the script is where the cursor lives —
+
+| word | meaning | who writes it |
+|---|---|---|
+| `0x28A54`/`0x28A58` (long) | cursor **screen** position | `FUN_00003B1E` += speed, `FUN_00003610` places it |
+| `0x28A4C`/`0x28A50` (long) | map picture offset (≤ 0, clamped by `FUN_000035D2`: x −0x13F, y `0x28A5C`) | `FUN_00003B1E`/`FUN_000035D2` |
+| `0x28A48` (word) | the travel window's bottom row (0xC4; 0xB0 in the 0xF mode) | `FUN_00003692`, `FUN_0000451A` |
+| `0x26892`/`0x26894` (word) | the decoded stick, ±1, read by `ClockVBI`→`FUN_0000A500` | `FUN_0000A500` |
+| `0x26830`/`0x26834` (long) | the stick's speed accumulator (+= axis, 0 when idle) | `FUN_00003B1E` |
+| `0x28A42` (word) | the destination under the cursor (39 = none) | `FUN_00003B1E` |
+
+The cursor's window is `0x19..0x136` × `0x19..0x28A48`, its sprite hot spot (the arrow's tip) is
+`0x11`/`0x12` up-left of it, and the destination test uses `cursor − picture offset`, so the cursor
+is in screen coordinates and the offset scrolls the picture under it.
+
+**The seam.** `src\host\main.c` pins the cursor under the pointer (`pointer + hot spot`) at every
+`FUN_00003B1E` entry, and while the pointer is pushed past the window the cursor stays on the edge
+it hit while the picture scrolls (6 px per update, clamped by `FUN_000035D2`'s limits). When it is
+back inside, the cursor follows again. A held stick wins: a direction key - or a scripted stick -
+takes the cursor back, and a pointer that has not moved since the map opened leaves the cursor on
+the current destination.
+
+`FUN_00003B1E` is reached from inside the translated stream (the runner's `jsr (A0)`), which never
+returns to the front end's own loop, so the trigger is a new seam next to `--cover`:
+`rc_entryHook` (`src\recomp\cpu.c`, null by default - the shipped build and every measurement pay
+one load and a test). Two things it must not do, and does not: it runs only while that script is
+the function being called, and only when the front end armed it - `--run` in the played game (no
+input script, no capture, no `--call`/`--poke`), or `--mouse`. `--mouse <file>` is the dev seam
+that feeds pointer positions and clicks (`<frame> <x> <y> [<button>]`) headless, the same state
+the platform reports.
+
+The engine's own scroll could not be reused: between two map updates (the script runs every ~3-4
+vblanks) the vblank reads the idle stick and `FUN_00003B1E` zeroes the accumulator, so a
+pointer-held axis can only ever add ±1 per update. The seam therefore applies the scroll itself,
+with the same clamps.
+
+**Measured** (`tools\mouse-check.ps1`, machine state only): without a pointer the cursor stays the
+game's `178,119` and the picture at `−153,−121`; with the pointer at `160,100` the cursor reads
+`177,118`, at `40,40` it reads `57,58` and the destination under it changes; held at the right
+edge it clamps to `310,168` and the picture scrolls past `−170`; a held stick moves the cursor
+while the pointer sits at `40,40`; and the frame records of a pointer run and a plain run are
+byte-identical up to frame 1205 - the first frame that differs (1206) is the map's first update
+with the pointer active.
+
+### The left mouse button is /FIRE (whole game)
+
+`m->fireDown` (what CIA-A PRA bit 7 returns) is now `space OR left button` in both front ends
+(`src\host\main.c`, `src\oracle\main.c`), and the title screen accepts a click where it accepts
+fire (`src\host\title.c`, via the new `input_state.mouse_left_pressed` edge). So the map is
+point-and-click, every "press fire" dialogue advances, and the menus take a click - no other key
+changes. The pause that the original reads from the *same* button (CIA-A PRA bit 6 into
+`0x24A88`) stays unwired, as the survey records, so a click never pauses anything.
+
+Measured the same way, and it is the strongest form of the claim: the recorded session's decisive
+fire press (frame 1060, the one that commits the menu entry and leads to the map) is *removed*
+from the key script and fed as a scripted click instead (`--mouse`'s optional fourth column) - and
+the run is **byte-identical, frame record for frame record, over all 2399 frames** ("first
+differing frame −1"). With the press removed and no click, the runs diverge at exactly frame 1060.
+`--record` therefore records a click as fire and replays it through `--input` like any other.
+
+`--mouse` is not recorded by `--record` (the recording format is fire + stick, shared with the
+oracle, which has no pointer): a played session replayed through `--input` reproduces everything
+except the cursor's pointer moves. The DOS build leaves `mouse_present` 0 and `mouse_left` 0, so
+both seams are inert there until the DOS mouse driver is wired up.
+
 ## The underground ant nest ("UNDER") runs (2026-11-14, later still)
 
 Reported as "implement and verify the UNDER minigame": the underground game in the tunnels where

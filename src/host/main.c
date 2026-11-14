@@ -14,12 +14,16 @@
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
- *                [--titlekey <n>]
+ *                [--titlekey <n>] [--mouse <file>]
  *
- * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space is /FIRE,
- * arrows are the joystick, F1..F4 pick a save slot and F5 cycles them); without it the build runs
- * headless and only reports machine state. `--call` enters one of the engine's own routines at a
- * frame boundary, with the program-end sentinel as its return address.
+ * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space or the left
+ * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, and
+ * the mouse moves the situation map's cursor); without it the build runs headless and only reports
+ * machine state. `--call` enters one of the engine's own routines at a frame boundary, with the
+ * program-end sentinel as its return address.
+ * `--mouse` feeds the situation map's cursor the positions a platform pointer would report
+ * ("<frame> <x> <y> [<button>]"), so the port's pointer control can be measured without a mouse
+ * (it is a dev seam like --input; in a played game the platform pointer drives the same state).
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..6 the minigames) so a
  * scripted run can start a scene from the title; it is a dev seam like `--call`.
@@ -297,6 +301,171 @@ static const u16 g_joyDirs[16] =
     0x0000u, 0x0100u, 0x0001u, 0x0000u      /* left+right    +left         +right        all four  */
 };
 
+/* --- the situation map's cursor and the pointer (a port feature) -----------------------------
+ * The original is joystick-only: the map scene's per-frame script FUN_00003B1E moves the cursor
+ * with the stick. FUN_0001D2C6 runs a MovE scene by calling the scene's script function once a
+ * frame, and the map's is FUN_00003B1E, so its entry is where the cursor state is about to be
+ * consumed - after the vblank that read the stick (ClockVBI -> FUN_0000A500), before the cursor,
+ * the map scroll and the destination test run.
+ *
+ * What the script does with the inputs (0x26892/0x26894 are the decoded axes, +/-1):
+ *   0x26830/0x26834 += axis        (so a held direction accelerates: 1, 2, 3 ... px per update)
+ *   0x28A54/0x28A58 += that speed  (the cursor's screen position)
+ *   past the travel window 0x19..0x136 x 0x19..0x28A48 the cursor is clamped and the map origin
+ *   0x28A4C/0x28A50 moves instead - i.e. the map scrolls (FUN_000035D2 keeps it on the picture);
+ *   the map position under the cursor's hot spot 0x11/0x12 then picks the destination.
+ *
+ * The pointer drives that same state absolutely: the cursor is pinned under it (hot spot added)
+ * every update, and while the pointer is pushed past the travel window the cursor stays on the
+ * edge it hit while the picture scrolls under it. That scroll rate is this seam's own - the
+ * engine's accumulator cannot carry it (see map_pointer).
+ * Only those words are written, and only while the map's script is the one being called, so no
+ * other screen and no headless/scripted measurement (where this is not armed at all) can see it. */
+#define MAP_SCRIPT_PC  0x00003B1Eu
+#define MAP_CUR_MIN    0x19        /* the travel window, from FUN_00003B1E */
+#define MAP_CUR_MAXX   0x136
+#define MAP_HOT_X      0x11        /* the cursor sprite's hot spot: its tip, from FUN_00003B1E */
+#define MAP_HOT_Y      0x12
+#define MAP_SCROLL     6           /* picture pixels per update at the window's edge: the stick's
+                                    * own ramp runs 1..14, and the pointer has no hold to ramp
+                                    * with - reversing at the other edge must take effect at once */
+#define MAP_MAX_Y      0x00028A48u /* word, the window's bottom row (0xC4, 0xB0 in the 0xF mode) */
+#define MAP_ORG_X      0x00028A4Cu /* long, map picture offset <= 0 ... */
+#define MAP_ORG_Y      0x00028A50u
+#define MAP_ORG_MINY   0x00028A5Cu /* ... and the bottom limit FUN_000035D2 clamps to */
+#define MAP_ORG_MAXX   0x13F       /* the same clamp, x: -0x13F (FUN_000035D2) */
+#define MAP_CUR_X      0x00028A54u /* long, cursor screen x/y */
+#define MAP_CUR_Y      0x00028A58u
+#define MAP_AXIS_X     0x00026892u /* word, the decoded stick, +1 right / -1 left */
+#define MAP_AXIS_Y     0x00026894u /* ... +1 down / -1 up */
+/* The map's script runs every few vblanks (its loop flips buffers and waits), so "the map is not
+ * on screen" cannot be decided on one frame: this many frames without a script call means the
+ * screen is gone, and the next one starts with the game's own cursor placement again. */
+#define MAP_IDLE_FRAMES 30
+
+static int  g_ptrArm;                  /* the pointer seam may run (a played game, or --mouse) */
+static int  g_ptrKnown;                /* a pointer position is available */
+static int  g_ptrActive;               /* the pointer owns the map cursor */
+static s16  g_ptrX, g_ptrY;            /* framebuffer coordinates */
+
+/* --mouse <file>: "<frame> <x> <y> [<button>]" per line, the pointer's positions and left-button
+ * state as the platform would report them. A dev seam like --input: the same state, so the feature
+ * can be measured headless (no platform has to be driven and no human has to be at the mouse). */
+#define HOST_MOUSE_MAX 256
+static struct { u32 frame; s16 x, y; u8 button; } g_ptrScript[HOST_MOUSE_MAX];
+static int g_ptrScriptCount, g_ptrScriptPos;
+static u8  g_ptrButton;                /* the script's left button, held until it changes */
+static u32 g_mapFrame;                 /* last frame in which the map's script ran */
+
+static void pointer_script_load(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    char line[160];
+
+    if (f == 0) { printf("recomp: cannot read %s\n", path); return; }
+    while (fgets(line, sizeof line, f) != 0 && g_ptrScriptCount < HOST_MOUSE_MAX)
+    {
+        char *p = line;
+        u32 fr;
+        long x, y, b = 0;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || *p == '\r' || *p == 0) continue;
+        fr = (u32)strtoul(p, &p, 0);
+        x = strtol(p, &p, 0);
+        y = strtol(p, &p, 0);
+        b = strtol(p, &p, 0);
+        g_ptrScript[g_ptrScriptCount].frame = fr;
+        g_ptrScript[g_ptrScriptCount].x = (s16)x;
+        g_ptrScript[g_ptrScriptCount].y = (s16)y;
+        g_ptrScript[g_ptrScriptCount].button = (u8)(b != 0);
+        g_ptrScriptCount++;
+    }
+    fclose(f);
+    printf("recomp: pointer script %s, %d position(s)\n", path, g_ptrScriptCount);
+}
+
+/* Applies the scripted pointer positions that are due - the script holds the last one, like a
+ * pointer that stays where it was put (and the button with it). */
+static void pointer_script_tick(rt_machine *m)
+{
+    while (g_ptrScriptPos < g_ptrScriptCount && g_ptrScript[g_ptrScriptPos].frame <= m->frame)
+    {
+        g_ptrX = g_ptrScript[g_ptrScriptPos].x;
+        g_ptrY = g_ptrScript[g_ptrScriptPos].y;
+        g_ptrButton = g_ptrScript[g_ptrScriptPos].button;
+        g_ptrKnown = 1;
+        g_ptrActive = 1;
+        g_ptrScriptPos++;
+    }
+}
+
+/* The keyboard wins while a direction is held, the pointer wins when it moves: either one can be
+ * used on the same screen without the other fighting it (the same rule the platform's own pad
+ * follows). A pointer that has not moved since the map opened leaves the cursor where the game put
+ * it, on the current location. */
+static void pointer_input(const input_state *in, int stickHeld)
+{
+    if (!in->mouse_present) { g_ptrKnown = 0; g_ptrActive = 0; return; }
+    g_ptrKnown = 1;
+    if (stickHeld) g_ptrActive = 0;
+    else if (in->mouse_moved) { g_ptrX = in->mouse_x; g_ptrY = in->mouse_y; g_ptrActive = 1; }
+}
+
+/* Runs at FUN_00003B1E's entry, i.e. once per map update, right before the cursor is moved. */
+static void map_pointer(rt_machine *m)
+{
+    s32 x, y, maxY, ox, oy, sx = 0, sy = 0;
+
+    g_mapFrame = m->frame;
+    if (!g_ptrKnown || !g_ptrActive) return;
+
+    maxY = (s16)rt_read16(&m->mem, RC_ADDR(MAP_MAX_Y));
+    x = (s32)g_ptrX + MAP_HOT_X;
+    y = (s32)g_ptrY + MAP_HOT_Y;
+    /* Pushed past the travel window: the cursor stops at the edge it hit and the picture moves
+     * under it. Back inside, it just follows the pointer again. */
+    if (x < MAP_CUR_MIN)       { sx = -MAP_SCROLL; x = MAP_CUR_MIN; }
+    else if (x > MAP_CUR_MAXX) { sx =  MAP_SCROLL; x = MAP_CUR_MAXX; }
+    if (y < MAP_CUR_MIN)       { sy = -MAP_SCROLL; y = MAP_CUR_MIN; }
+    else if (y > maxY)         { sy =  MAP_SCROLL; y = maxY; }
+
+    /* The cursor itself is in screen coordinates (the map picture's offset is 0x28A4C/0x28A50, and
+     * FUN_00003B1E converts with cursor - offset when it tests a location). The stick is left idle:
+     * this update's movement is the pointer's, not a held direction's. */
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_X), (u32)x);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_Y), (u32)y);
+
+    /* The scrolling is this seam's own: the engine's accumulator is reset by every vblank between
+     * two map updates (it reads the stick as idle there), so with the pointer it can only ever add
+     * +/-1 per update. The clamps are FUN_000035D2's, applied here so the cursor and the picture
+     * never disagree. */
+    if (sx != 0)
+    {
+        ox = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_X)) - sx;
+        if (ox < -MAP_ORG_MAXX) ox = -MAP_ORG_MAXX;
+        if (ox > 0) ox = 0;
+        rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), (u32)ox);
+    }
+    if (sy != 0)
+    {
+        oy = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_Y)) - sy;
+        if (oy < (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_MINY)))
+            oy = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_MINY));
+        if (oy > 0) oy = 0;
+        rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), (u32)oy);
+    }
+}
+
+/* rc_entryHook: the map's script is reached from inside the translated stream (the scene runner's
+ * `jsr (A0)`), so this is where its update becomes visible to the host. */
+static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
+{
+    (void)c;
+    if (pc == RC_ADDR(MAP_SCRIPT_PC)) map_pointer(m);
+}
+
 static void host_input(rt_machine *m)
 {
     input_state in;
@@ -304,6 +473,17 @@ static void host_input(rt_machine *m)
 
     if (!plat_pump(&in)) m->stop = 1;
     if (in.down[KEY_ESCAPE]) m->stop = 1;
+    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
+                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
+    if (g_ptrArm)
+    {
+        /* A scripted stick (--input) counts like a held direction key: the pointer yields to it. */
+        if (g_ptrScriptCount > 0) pointer_script_tick(m);
+        else pointer_input(&in, joy != 0 || m->joy0 != 0);
+        /* Only the map's script consumes the pointer state: anywhere else it owns nothing, so
+         * the next screen starts with the game's own placement until the pointer moves again. */
+        if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
+    }
     if (input_active())
     {
         /* A frame-indexed script owns fire and the joystick; the keyboard only quits. */
@@ -330,9 +510,7 @@ static void host_input(rt_machine *m)
             printf("recomp: %s (frame %lu)\n", msg, (unsigned long)m->frame);
         }
     }
-    m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
-    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
-                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
+    m->fireDown = (u8)((in.down[KEY_FIRE] || in.mouse_left || g_ptrButton) ? 1u : 0u);
     m->joy0 = joy;
     if (g_record != 0 && ((int)m->fireDown != g_recFire || joy != g_recJoy))
     {
@@ -350,6 +528,19 @@ static void host_input(rt_machine *m)
                (unsigned long)m->frame);
     }
     plat_frame_sync();
+}
+
+/* --mouse without a window: no platform to pump, but the scripted pointer still has to be applied
+ * at the frame boundary for the run to mean anything (it is a dev seam, like --input). */
+static void host_pointer_frame(rt_machine *m)
+{
+    if (!g_ptrArm) return;
+    if (g_ptrScriptCount > 0) pointer_script_tick(m);
+    /* A scripted click is /FIRE, the same level the platform's button is; the script's own fire
+     * level is put back when the button is released, so the two compose. */
+    m->fireDown = (u8)((g_ptrButton || input_fire()) ? 1u : 0u);
+    if (m->joy0 != 0) g_ptrActive = 0;      /* a scripted stick wins, like a held direction key */
+    if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
 }
 
 /* Writes the presented raster as a 24-bit BMP (bottom-up); --shot makes screen content testable. */
@@ -463,6 +654,7 @@ int main(int argc, char **argv)
     int textLog = 0;
     long speedPercent = 100;
     const char *inputPath = 0;
+    const char *mousePath = 0;
     const char *recordPath = 0;
     long insns = 40000000L;
     u32 base = HS_BASE;
@@ -563,6 +755,7 @@ int main(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { inputPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--mouse") == 0 && i + 1 < argc) { mousePath = argv[++i]; continue; }
         if (strcmp(argv[i], "--record") == 0 && i + 1 < argc) { recordPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) { stateEvery = (int)strtol(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
@@ -652,6 +845,7 @@ int main(int argc, char **argv)
         rt_osd_text(&m, msg, EMU_OSD_FRAMES);
     }
     if (inputPath != 0 && !input_load(inputPath)) { rt_shutdown(&m); return 1; }
+    if (mousePath != 0) pointer_script_load(mousePath);
     if (recordPath != 0)
     {
         g_record = fopen(recordPath, "w");
@@ -705,6 +899,8 @@ int main(int argc, char **argv)
             printf("recomp: %ld%% speed (%lu Hz)\n", speedPercent,
                    (unsigned long)(50 * speedPercent / 100));
     }
+    else if (mousePath != 0)
+        m.on_frame = host_pointer_frame;   /* headless --mouse: only the scripted pointer */
     if (audioDump != 0)
     {
         /* Mix without a device: the run's audio is checked (and can be heard) offline. */
@@ -726,6 +922,12 @@ int main(int argc, char **argv)
                     dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
                    (titleKey >= 0 && inputPath == 0 && statePrefix == 0 &&
                     g_callPc == 0 && g_pokeCount == 0));
+    /* The pointer that drives the map cursor is a port feature, so it follows the same rule: it
+     * runs in a played game (and for a --mouse test run), never in a measurement, where the
+     * machine state has to be the original's. */
+    g_ptrArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+                dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
+    if (g_ptrArm) rc_entryHook = host_entry;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);

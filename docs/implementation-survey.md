@@ -46,6 +46,11 @@ original is "implemented" when:
 
 Gap (3) is where this survey lives. Gaps (1) and (2) are small and named in §6.
 
+What this survey does *not* decide is port features — the code the original does not have (save
+slots, the OSD, the title screen, the map's pointer, host input, our tooling). They have nothing to
+diff against, so they follow the definition of done in
+[`port-features.md`](port-features.md) instead of the parity rule used below.
+
 ## 2. What the original game consists of
 
 Read from the engine itself: the action menu `FUN_0000247a`, the mode dispatcher `FUN_00002cc8`
@@ -99,6 +104,8 @@ screenshot.
 | fight (bar-room brawl) | `--call 0xF46C:1513` + `ref\inputs\fight.txt`: 3432 frame records identical (PC/SR/registers/custom on every one; 76 differ only in dead stack bytes), RAM byte-identical at the win frame 3430, opponent's bar drained to 0 and `DAT_0002991e = 1`; `present-check` fight coverage 0.973 + both health bars | **done** |
 | chicken race | `--call 0x1FA3E:1513` + `ref\inputs\chicken-win.txt` (won) and the brake script: 335 and 351 frame records identical (PC/SR/registers/custom on every one), RAM byte-identical at 1560/1600/1630/1660 and 1620/1700; the two paths reach `DAT_0002bcd4 = 1` (he swerved) and `DAT_0002bcce = 60` (braked); `present-check` chicken coverage 0.974 over the list's 216-row DIW window, the 13 per-line palette bands, the dual-playfield horizon strip with both of its ranges (4119 px of playfield 1's tans, 2601 px of playfield 2's), the filled road surface (13 774 px of its pen-28 grey) and the cockpit picture (including the rows below 200) | **done** |
 | title screen, OSD, save slots, mouse capture, the title's digit keys (1..6) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| the situation map's cursor, driven by the mouse | port feature: `mouse-check` — the cursor is pinned under the pointer (hot spot `0x11`/`0x12`), the picture scrolls at the window's edge, a held stick wins, and a pointer run's frame records are identical to a plain run's up to the map's first update (`next-session.md`) | **done** |
+| the left mouse button as /FIRE (whole game, next to the space bar) | port feature: `mouse-check` — the recording's decisive fire press fed as a click leaves the run byte-identical for all 2399 frame records; without any fire it diverges at frame 1060. The original's pause button (the same button, CIA-A PRA bit 6) stays unwired | **done** |
 
 Everything else is unverified or never entered.
 

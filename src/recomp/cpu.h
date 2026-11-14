@@ -159,6 +159,11 @@ extern int  rc_allow_unmodelled;
  * in rc_functions[]. Null unless the development host installs it, so the shipped build pays
  * nothing. */
 extern void (*rc_coverHook)(unsigned index);
+/* Called once per dispatched function entry, before its body runs, with `pc` as dispatched. The
+ * dispatch loop runs function after function inside C, so this - not the front end's own loop - is
+ * where a screen's per-frame code becomes visible. Null unless a front end installs it (the map's
+ * pointer control), so the shipped build and every measurement pay one load and a test. */
+extern void (*rc_entryHook)(cpu_t *c, rt_machine *m, u32 pc);
 /* Development harness: a translated function that never returns (a busy-wait no fixture releases)
  * is aborted from the memory accessors, which every real loop performs. Null in the shipped build. */
 extern jmp_buf *rc_abort;

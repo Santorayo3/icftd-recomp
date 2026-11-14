@@ -218,7 +218,8 @@ static int title_play(rt_machine *m)
         plat_present();                  /* a still, redrawn so an uncovered window repaints */
         if (!plat_pump(&in)) { pick = TITLE_PICK_QUIT; break; }        /* the window was closed */
         if (in.down[KEY_ESCAPE]) { pick = TITLE_PICK_QUIT; break; }
-        if (in.pressed[KEY_FIRE] || in.pressed[KEY_0]) pick = TITLE_PICK_INTRO;
+        if (in.pressed[KEY_FIRE] || in.pressed[KEY_0] || in.mouse_left_pressed)
+            pick = TITLE_PICK_INTRO;
         for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
             if (in.pressed[g_scenes[i].key]) pick = TITLE_PICK_SCENE + i;
         if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */

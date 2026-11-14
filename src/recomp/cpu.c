@@ -595,6 +595,7 @@ static void rc_stream(cpu_t *c, rt_machine *m)
         }
         if (fn != 0)
         {
+            if (rc_entryHook != 0) rc_entryHook(c, m, c->pc);
             if (rc_coverHook != 0)
             {
                 const rc_entry *own = rc_containing(c->pc);

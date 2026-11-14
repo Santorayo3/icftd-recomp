@@ -45,6 +45,9 @@ typedef struct {
     s16 mouse_y;
     u8  mouse_left;
     u8  mouse_right;
+    u8  mouse_left_pressed;/* 1 for the frame the left button went down */
+    u8  mouse_present;     /* 1 = the pointer has an absolute position (mouse_x/y are live) */
+    u8  mouse_moved;       /* 1 = it moved since the previous plat_pump */
 } input_state;
 
 /* Returns non-zero on success.  The core draws into plat_framebuffer(). */

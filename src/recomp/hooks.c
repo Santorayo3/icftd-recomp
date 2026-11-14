@@ -6,6 +6,7 @@ void (*rc_interpreter)(cpu_t *c, rt_machine *m, u32 addr) = 0;
 int  (*rc_stub_host)(cpu_t *c, rt_machine *m, int lib, s32 lvo) = 0;
 int  rc_allow_unmodelled = 0;
 void (*rc_coverHook)(unsigned index) = 0;
+void (*rc_entryHook)(cpu_t *c, rt_machine *m, u32 pc) = 0;
 jmp_buf *rc_abort = 0;
 unsigned long rc_ops = 0;
 unsigned long rc_opsLimit = 0;

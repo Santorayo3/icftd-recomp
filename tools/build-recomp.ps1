@@ -5,15 +5,21 @@
 # and prints the same canonical dump `rcmp --dump` prints, so tools\recomp-fixtures.ps1 can diff
 # them (registers + every touched memory byte).
 #
-#   powershell -ExecutionPolicy Bypass -File tools\build-recomp.ps1 [-WatcomHome <dir>] [-Base 0]
+#   powershell -ExecutionPolicy Bypass -File tools\build-recomp.ps1 [-WatcomHome <dir>] [-Base 0] [-Full]
 #
 # -Base is the address the image is loaded at, and it only changes RC_BASE (src\recomp\cpu.h): the
 # fixture replay runs the base-0 image, so it is the default; the game build passes 0x4000.
+#
+# Incremental like build-host.ps1: an object is recompiled only when it is missing or older than
+# its source or any header under the source trees, and the link is skipped when nothing changed.
+# The RC_BASE/value set is stamped into the object directory, so a different -Base never reuses
+# objects built for another one; -Full wipes the directory and compiles everything.
 param(
     [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" }),
     [string]$Base = '0',
     [string]$Exe = 'recomp-check.exe',
-    [string]$ObjDir = 'recomp-obj'
+    [string]$ObjDir = 'recomp-obj',
+    [switch]$Full
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -49,33 +55,60 @@ $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullNam
 
 # Hundreds of sources do not fit in one command line, so compile in batches into an object
 # directory and link once. Watcom splits unquoted arguments on spaces, and the repository path has
-# spaces, so the compiler runs from the object directory and sees only relative paths.
+# spaces, so the compiler runs from the object directory and sees only relative paths. The file
+# names are unique across the two trees (fn_<addr>.c plus a handful of known files), so one flat
+# directory is enough here.
 $objDir = Join-Path $root "bin\win32\$ObjDir"
-if (Test-Path $objDir) { Remove-Item $objDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $objDir | Out-Null
 
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
-$rel = @($sources | ForEach-Object { '..\..\..\' + $_.Substring($root.Length + 1) })
 $common = @('-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99', '-c', "-dRC_BASE=$Base",
             '-i=..\..\..\src\runtime', '-i=..\..\..\src\runtime\amiga', '-i=..\..\..\src\recomp')
+$link = @('-bt=nt', '-q', "-fe=..\$Exe")
+
+$objectOf = {
+    param([string]$path)
+    return Join-Path $objDir ([System.IO.Path]::GetFileNameWithoutExtension($path) + '.obj')
+}
+
+. (Join-Path $PSScriptRoot 'build-common.ps1')
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$plan = Select-StaleSources -ObjDir $objDir -Sources $sources -ObjectOf $objectOf -Full:$Full `
+    -HeaderRoots @((Join-Path $root 'src\runtime'), (Join-Path $root 'src\recomp'),
+                   (Join-Path $root 'src\oracle'), (Join-Path $root 'src\host')) `
+    -Stamp (($common + $link) -join ' ')
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
+$code = 0
 Push-Location $objDir
 try {
+    $stale = @($plan.Stale | ForEach-Object { '..\..\..\' + $_.Substring($root.Length + 1) })
     $batch = 40
-    for ($i = 0; $i -lt $rel.Count; $i += $batch) {
-        $last = [Math]::Min($i + $batch - 1, $rel.Count - 1)
-        & $wcl @common @($rel[$i..$last]) 2>&1 | Out-Host
+    for ($i = 0; $i -lt $stale.Count; $i += $batch) {
+        $last = [Math]::Min($i + $batch - 1, $stale.Count - 1)
+        & $wcl @common @($stale[$i..$last]) 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEap; throw "compile failed (batch at $i)" }
     }
-    $objs = @(Get-ChildItem $objDir -Filter *.obj | ForEach-Object { $_.Name })
-    & $wcl '-bt=nt' '-q' "-fe=..\$Exe" @objs 2>&1 | Out-Host
-    $code = $LASTEXITCODE
+    # Sorted, because the link list used to come from directory enumeration (alphabetical) and the
+    # linker lays objects out in the order they are given: this keeps the binary identical to a
+    # build made before the object directory was kept between runs.
+    $objs = @($plan.Objects | ForEach-Object { $_.Substring($objDir.Length + 1) } | Sort-Object)
+    $relink = Test-BuildNeeded -Plan $plan -Output $out
+    if ($relink) {
+        & $wcl @link @objs 2>&1 | Out-Host
+        $code = $LASTEXITCODE
+    }
+    if ($code -eq 0) {
+        Clear-BuildErrors -ObjDir $objDir
+        Set-BuildStamp -ObjDir $objDir -Stamp (($common + $link) -join ' ')
+    }
 }
 finally {
     Pop-Location
     $ErrorActionPreference = $prevEap
 }
+$sw.Stop()
 if ($code -ne 0) { throw "link failed ($code)" }
-Write-Host "-> $out ($($sources.Count) source file(s), $($objs.Count) object(s))"
+Write-Host ("-> $out ($($sources.Count) source file(s), $($objs.Count) object(s), " +
+            "$($plan.Stale.Count) compiled$(if (-not $relink) { ', link skipped' }), " +
+            "$([Math]::Round($sw.Elapsed.TotalSeconds, 1)) s)")

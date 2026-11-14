@@ -8,9 +8,14 @@
 # docs\next-session.md, "The load address"). The fixture replay (tools\build-recomp.ps1) keeps
 # RC_BASE 0.
 #
-#   powershell -ExecutionPolicy Bypass -File tools\build-host.ps1 [-WatcomHome <dir>]
+# Incremental: only sources whose .obj is missing or older than the source or any header under
+# src\runtime, src\recomp, src\oracle, src\host (or third_party\musashi) are compiled, and the link
+# is skipped when nothing changed. -Full restores the clean build (wipe the objects, compile all).
+#
+#   powershell -ExecutionPolicy Bypass -File tools\build-host.ps1 [-WatcomHome <dir>] [-Full]
 param(
-    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" })
+    [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" }),
+    [switch]$Full
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -65,29 +70,38 @@ $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullNam
 # src\oracle\cpu.c and src\recomp\cpu.c are two different files with one name: an object file is
 # named after the source, so each group gets its own directory or one would overwrite the other.
 $objDir = Join-Path $root 'bin\win32\recomp-obj-host'
-if (Test-Path $objDir) { Remove-Item $objDir -Recurse -Force }
-foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
-    New-Item -ItemType Directory -Force -Path (Join-Path $objDir $g) | Out-Null
-}
 
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
 $common = @('-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99', '-c', '-dRC_BASE=0x4000',
             '-i=..\..\..\..\src\runtime', '-i=..\..\..\..\src\runtime\amiga',
             '-i=..\..\..\..\src\recomp', '-i=..\..\..\..\src\oracle',
             '-i=..\..\..\..\third_party\musashi')
+$link = @('-bt=nt', '-q', '-fe=..\icftd-recomp.exe')
 
-function Group-Of([string]$path) {
+$groupOf = {
+    param([string]$path)
     if ($path -like '*\src\oracle\*') { return 'oracle' }
     if ($path -like '*\src\recomp\*') { return 'recomp' }
     if ($path -like '*\third_party\*') { return 'core' }
     return 'rt'
 }
+$objectOf = {
+    param([string]$path)
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($path) + '.obj'
+    return Join-Path (Join-Path $objDir (& $groupOf $path)) $name
+}
+
+. (Join-Path $PSScriptRoot 'build-common.ps1')
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$plan = Select-StaleSources -ObjDir $objDir -Sources $sources -ObjectOf $objectOf -Full:$Full `
+    -HeaderRoots @($rt, $rc, $or, $hs, $mus) -Stamp (($common + $link) -join ' ')
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
+$code = 0
 try {
     foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
-        $rel = @($sources | Where-Object { (Group-Of $_) -eq $g } | ForEach-Object { '..\..\..\..\' + $_.Substring($root.Length + 1) })
+        $rel = @($plan.Stale | Where-Object { (& $groupOf $_) -eq $g } | ForEach-Object { '..\..\..\..\' + $_.Substring($root.Length + 1) })
         if ($rel.Count -eq 0) { continue }
         Push-Location (Join-Path $objDir $g)
         try {
@@ -100,17 +114,29 @@ try {
         }
         finally { Pop-Location }
     }
-    $objs = @(Get-ChildItem $objDir -Recurse -Filter *.obj |
-              ForEach-Object { $_.Directory.Name + '\' + $_.Name })
-    Push-Location $objDir
-    try {
-        & $wcl '-bt=nt' '-q' '-fe=..\icftd-recomp.exe' @objs 2>&1 | Out-Host
-        $code = $LASTEXITCODE
+    # Sorted, because the link list used to come from directory enumeration (alphabetical) and the
+    # linker lays objects out in the order they are given: this keeps the binary identical to a
+    # build made before the object directory was kept between runs.
+    $objs = @($plan.Objects | ForEach-Object { $_.Substring($objDir.Length + 1) } | Sort-Object)
+    $relink = Test-BuildNeeded -Plan $plan -Output $out
+    if ($relink) {
+        Push-Location $objDir
+        try {
+            & $wcl @link @objs 2>&1 | Out-Host
+            $code = $LASTEXITCODE
+        }
+        finally { Pop-Location }
     }
-    finally { Pop-Location }
+    if ($code -eq 0) {
+        Clear-BuildErrors -ObjDir $objDir
+        Set-BuildStamp -ObjDir $objDir -Stamp (($common + $link) -join ' ')
+    }
 }
 finally {
     $ErrorActionPreference = $prevEap
 }
+$sw.Stop()
 if ($code -ne 0) { throw "link failed ($code)" }
-Write-Host "-> $out ($($sources.Count) source file(s), $($objs.Count) object(s))"
+Write-Host ("-> $out ($($sources.Count) source file(s), $($objs.Count) object(s), " +
+            "$($plan.Stale.Count) compiled$(if (-not $relink) { ', link skipped' }), " +
+            "$([Math]::Round($sw.Elapsed.TotalSeconds, 1)) s)")

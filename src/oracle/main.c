@@ -79,7 +79,7 @@ static void on_frame(rt_machine *m)
 
     if (!plat_pump(&in)) m->stop = 1;
     if (in.down[KEY_ESCAPE]) m->stop = 1;
-    m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
+    m->fireDown = (u8)((in.down[KEY_FIRE] || in.mouse_left) ? 1u : 0u);
     if (m->fireDown != g_fireShown)
     {
         g_fireShown = m->fireDown;
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
                "                    [--state <prefix> [--every <n>] [--ram <frame[,frame...]>]]\n"
                "                    [--input <script>] [--base <addr>] [--entry <addr>] [--a4 <addr>]\n"
                "                    [--audiodump <file>] [--bustable <file>] [--slots]\n"
-               "  --run    open the window and play until it is closed (space = fire, esc = quit)\n"
+               "  --run    open the window and play until it is closed (space or left mouse = fire, esc = quit)\n"
                "  --state  canonical machine-state dump per frame (registers, custom regs, RAM hash)\n"
                "  --ram    also write the full RAM image at these frames (<prefix>.<frame>.ram)\n"
                "  --input  frame-indexed input script: \"<frame> <fire> <joy0> [<joy1>]\"\n"
@@ -288,7 +288,7 @@ int main(int argc, char **argv)
     if (runForever)
     {
         insns = 2000000000L;                 /* ended by the window, not by a budget */
-        printf("emu: window mode - space = fire, esc or close = quit\n");
+        printf("emu: window mode - space or left mouse = fire, esc or close = quit\n");
     }
     /* The settings file, written with its defaults when this is the first start. */
     rt_config_ensure();

@@ -15,11 +15,13 @@
                                 gate cannot see; needs bin\win32\icftd-recomp.exe from build-host)
       6. title menu            (tools\title-check.ps1 - the port's own digit keys start the
                                 minigames from the title; skipped without that binary)
+      7. map pointer           (tools\mouse-check.ps1 - the port's pointer control of the
+                                situation map's cursor; skipped without its recorded session)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5 and 6 cover the port's
-    own surfaces - the presenter and the title menu - which have no counterpart in the original to
-    diff against; they can only fail on their own terms.
+    capture or reference-image test can prove a translated function. Steps 5-7 cover the port's
+    own surfaces - the presenter, the title menu and the map cursor - which have no counterpart in
+    the original to diff against; they can only fail on their own terms.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
@@ -77,6 +79,7 @@ Step 'interpreter fixtures' { powershell -NoProfile -ExecutionPolicy Bypass -Fil
 Step 'translated vs interpreted (fixtures)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\recomp-fixtures.ps1 }
 Step 'presentation (raster)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\present-check.ps1 }
 Step 'title menu (scenes)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\title-check.ps1 }
+Step 'map pointer (cursor)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\mouse-check.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String

@@ -1203,6 +1203,11 @@ u32 plat_pump(input_state *in)
     in->mouse_y = 0;
     in->mouse_left = 0;
     in->mouse_right = 0;
+    in->mouse_left_pressed = 0;
+    /* DOS has no pointer device in this port: the map's pointer seam stays inert (the Windows
+     * front end is where it was implemented; porting it means reading the DOS mouse driver). */
+    in->mouse_present = 0;
+    in->mouse_moved = 0;
     return 1;
 }
 

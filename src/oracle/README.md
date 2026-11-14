@@ -32,7 +32,7 @@ never exits, and a bad shim can spin in a native loop that no instruction budget
 
 ```
 bin\win32\icftd-oracle.exe export\code\dshell4k\dshell.img 0x4000 30000000 --progress
-#   --run       window, 50 Hz, space = fire, esc = quit
+#   --run       window, 50 Hz, space or left mouse = fire, esc = quit
 #   --progress  counters every million steps        --trace  disassemble each step
 #   --watch pc  report a PC with the PC ring        --dump <prefix> [n] [--every k]  BMP per raster
 #   --doslog    log dos Open/Read/Seek/Close        --dfflog  log the first chipset writes
