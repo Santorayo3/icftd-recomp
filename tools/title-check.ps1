@@ -11,7 +11,7 @@
 #     rc_breakPc still armed the scene's return fell straight into the intro's setup instead of
 #     back into the title.
 #
-# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..5 = the scenes); it
+# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..6 = the scenes); it
 # also ends the run when the title comes back, because a scripted run has no keyboard. It takes the
 # choice after one menu frame, because that is what a real press does - and because key 0 is the
 # path where the first menu frame's CIA tick runs the score player (see the note on the mirror).
@@ -58,6 +58,13 @@ $cases = @(
     @{ key = 5; name = 'Chicken Race';    insns =  8000000; rasters = 1200; returns = $false
        start = 'title: Chicken Race at frame \d+'
        opens = @('Desert3:CHICK', 'carcrash', 'tankidle') }
+    # The underground ant nest: FUN_0000BFCA opens Desert1:UNDER and spends ~150 frames loading
+    # Tilz.pic and the first tunnel map before its loop starts, so the run must be long enough for
+    # the scene to paint, not just to open the bank. It does come back on its own: with no input
+    # the eight timed steps run out (measured: the scene returns to the title at frame ~670).
+    @{ key = 6; name = 'Underground';     insns = 12000000; rasters =  300; returns = $true
+       start = 'title: Underground at frame \d+'
+       opens = @('Desert1:UNDER') }
 )
 
 $fail = 0

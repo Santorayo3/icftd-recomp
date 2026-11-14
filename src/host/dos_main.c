@@ -19,7 +19,7 @@
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
- *   --titlekey <n>       take a title screen menu choice (0 the game, 1..5 the minigames)
+ *   --titlekey <n>       take a title screen menu choice (0 the game, 1..6 the minigames)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>

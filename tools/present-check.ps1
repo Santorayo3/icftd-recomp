@@ -284,6 +284,60 @@ if (Test-Path 'ref\inputs\chicken.txt') {
     Write-Output 'present: chicken SKIP (no ref\inputs\chicken.txt)'
 }
 
+# The underground ant nest (UNDER, FUN_0000BFCA) builds its own copper list from the template at
+# 0x24EB2 and patches the five plane pointers into the scrolled 216-row bitmap every frame
+# (FUN_00017F34/FUN_00017CE). The list windows rows 0x2C..0xE0 (180 lines) inside the ViewPort's
+# 200-row raster, and its playfield is 5 planes with BPL1MOD 2 against the tilz.pic palette
+# (AA1111/BB2222/771111 walls on black). The checks are the ones this screen can lose:
+#   - the raster must stay 320x200 with the tunnel in rows 0..179 (coverage and non-border pixels),
+#   - rows 180..199 must be the border, not the screen that was up before (the window is 180 rows),
+#   - the tunnel must be the scene's own red palette, not a stale picture from the intro.
+if (Test-Path 'ref\inputs\under.txt') {
+    $un = $null
+    try {
+        $un = Shot 'ref\inputs\under.txt' 8000000 'under' @('--call', '0xFFCA:1513')
+        $cov = Coverage $un
+        $tunnel = Band $un 0 179
+        $below = 0
+        $ref = $un.GetPixel(0, 185).ToArgb()
+        for ($y = 180; $y -lt $un.Height; $y += 2) {
+            for ($x = 0; $x -lt $un.Width; $x += 4) {
+                if ($un.GetPixel($x, $y).ToArgb() -ne $ref) { $below++ }
+            }
+        }
+        $reds = @('AA1111', 'BB2222', '771111', 'CC0000')
+        $wallPx = 0
+        for ($y = 0; $y -le 179; $y += 2) {
+            for ($x = 0; $x -lt $un.Width; $x += 2) {
+                $c = $un.GetPixel($x, $y)
+                $k = '{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B
+                if ($reds -contains $k) { $wallPx++ }
+            }
+        }
+        if ($un.Height -ne 200) {
+            Write-Output ("present: under   FAIL - the raster is {0} rows; the ViewPort's screen is 200" -f $un.Height)
+            $fail++
+        } elseif ($cov -lt 0.25) {
+            Write-Output ("present: under   FAIL - coverage {0:N3} < 0.25 (blank screen or a collapsed window)" -f $cov)
+            $fail++
+        } elseif ($tunnel -lt 15000) {
+            Write-Output ("present: under   FAIL - only {0} non-border pixel(s) in rows 0..179 (the tunnel is missing)" -f $tunnel)
+            $fail++
+        } elseif ($below -ne 0) {
+            Write-Output ("present: under   FAIL - {0} pixel(s) below the list's 180-row window are not the border (stale picture)" -f $below)
+            $fail++
+        } elseif ($wallPx -lt 3000) {
+            Write-Output ("present: under   FAIL - only {0} pixel(s) of the tile palette's reds (a stale palette or the wrong bitmap)" -f $wallPx)
+            $fail++
+        } else {
+            Write-Output ("present: under   ok   - 320x200, coverage {0:N3}, tunnel {1} px, wall reds {2} px, border below row 180 clean" -f $cov, $tunnel, $wallPx)
+        }
+    } catch { Write-Output "present: under   FAIL - $_"; $fail++ }
+    finally { if ($un) { $un.Dispose() } }
+} else {
+    Write-Output 'present: under   SKIP (no ref\inputs\under.txt)'
+}
+
 if ($fail -ne 0) { Write-Output "present: $fail check(s) failed"; exit 1 }
 Write-Output 'present: all checks passed'
 exit 0

@@ -26,9 +26,13 @@ verified — 17 of its 20 functions, the three it does not reach being the punch
 handlers.
 
 Verified against the original (machine state, not pictures): **intro/logo/desert, load screen, save,
-situation map, a location room, the flight, the hospital escape, the fight, the chicken race**. Runs and renders, but
+situation map, a location room, the flight, the underground ant nest, the hospital escape, the
+fight, the chicken race**. Runs and renders, but
 has never been compared with the reference: **phone, fire game, win ending**. Never entered: **ant
 chapter, evidence dialogue, look-around menu, sleep/clock/shop-hours, pause, journey cutscene**.
+
+Update 2026-11-14: the **underground ant nest (UNDER, `FUN_0000BFCA`)** moved from "never entered"
+to verified — it is the tunnel game Take a Flight continues into, not the journey cutscene (§3).
 
 ## 1. What "implemented" means in this project
 
@@ -61,6 +65,7 @@ Read from the engine itself: the action menu `FUN_0000247a`, the mode dispatcher
 | make a call | `FUN_000064e2` | phone book (`PHONE.DAT`), keypad, calls |
 | situation map | `FUN_00008e56`, `FUN_0000451a`, `FUN_00005824` | travel between locations |
 | take a flight | `FUN_000107a6` | plane, world scroll, HUD (fuel/canisters), crash |
+| underground ant nest (UNDER) | `FUN_0000bfca`, the flight's continuation when `DAT_0002A552` is set | the tunnel game: `Desert1:UNDER` maps, ants and the queen, flamethrower, eight timed steps |
 | fire game | `FUN_0000be34` + `FUN_0000b528` | fire spreading, extinguisher |
 | fight | `FUN_0000b46c` + `FUN_0000a74e` | bar-room brawl, `Fight.tiny`, `Desert3:FIGHT` |
 | second fight/flight cutscene | `FUN_00006f58` (mode 0xc) | `Desert2:sfx` sample + MovE scene |
@@ -89,10 +94,11 @@ screenshot.
 | situation map | `present-check` map coverage 1.000, motion check; frame 4825 identical | **done** |
 | a room (after the flight crash) | RAM byte-identical to the oracle at 2890/2910/2950/3000; presenter rebuilt from RAM matches the copper list | **done** |
 | flight | 1562 frame records identical; frames 3100/3110 RAM identical; HUD region reproduced from RAM | **done** |
+| underground ant nest (UNDER) | `--call 0xFFCA:1513` + `ref\inputs\under.txt` (oracle `--callat 0xFFCA:4876672:0:0x23512`): 0 differing frame records 1513..2334 (PC/SR/registers/custom), RAM byte-identical at 1750/1950/2150 (1850 differs in 11 dead-stack bytes), the scene returns at 2334 after 12 525 972 instructions both sides; idle returns at 2100; `present-check` under: 320x200, 180-row window, tunnel reds 5812 px, border below clean | **done** |
 | hospital escape | translated end to end, 1237 frame records identical; `present-check` hospital coverage 0.900, no stale rows | **done** |
 | fight (bar-room brawl) | `--call 0xF46C:1513` + `ref\inputs\fight.txt`: 3432 frame records identical (PC/SR/registers/custom on every one; 76 differ only in dead stack bytes), RAM byte-identical at the win frame 3430, opponent's bar drained to 0 and `DAT_0002991e = 1`; `present-check` fight coverage 0.973 + both health bars | **done** |
 | chicken race | `--call 0x1FA3E:1513` + `ref\inputs\chicken-win.txt` (won) and the brake script: 335 and 351 frame records identical (PC/SR/registers/custom on every one), RAM byte-identical at 1560/1600/1630/1660 and 1620/1700; the two paths reach `DAT_0002bcd4 = 1` (he swerved) and `DAT_0002bcce = 60` (braked); `present-check` chicken coverage 0.974 over the list's 216-row DIW window, the 13 per-line palette bands, the dual-playfield horizon strip with both of its ranges (4119 px of playfield 1's tans, 2601 px of playfield 2's), the filled road surface (13 774 px of its pen-28 grey) and the cockpit picture (including the rows below 200) | **done** |
-| title screen, OSD, save slots, mouse capture, the title's digit keys (1..5) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| title screen, OSD, save slots, mouse capture, the title's digit keys (1..6) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
 
 Everything else is unverified or never entered.
 
@@ -133,8 +139,16 @@ Twelve sessions were run; each line is one command:
 | ending injected | `30M --poke 1000:0x26D68=0x10000 --call 0xE4D6:1000` | 230 | 3608 |
 | fight injected | `20M --call 0xF46C:1513 --input ref\inputs\fight.txt` | 233 | 3432 |
 
-**Union: 513 of 750 functions (68 %), 566 distinct entry addresses including the 47 blocks.**
-**237 functions (10 266 of 35 323 model instructions = 29.1 %) never executed.**
+**Union: 567 of 750 functions (76 %), 621 distinct entry addresses including the blocks.**
+**183 functions (6 698 of 35 323 model instructions = 19.0 %) never executed.**
+
+Update 2026-11-14: two later sessions are folded into these figures. The **chicken race**
+(`--call 0x1FA3E:1513` + `ref\inputs\chicken.txt`, `--cover out\survey\cov\chicken-race.txt`) adds
+**29 model functions (1 052 instructions)** — its scene plus the `Area*`/`InitArea`/`InitTmpRas`
+wrappers the road fill reaches for the first time. The **underground ant nest**
+(`--call 0xFFCA:1513` + `ref\inputs\under.txt`, `--cover out\survey\cov\under.txt`) adds **25 model
+functions (2 516 instructions) and the orphan block `0x1BA1A`** — the tunnel renderer and its
+helpers. The twelve-session baseline was 513 / 10 266.
 
 The clusters, named by what their own code and strings say:
 
@@ -142,7 +156,7 @@ The clusters, named by what their own code and strings say:
 |---|---|---|
 | **ant invasion / gun / evidence** | `0x7934–0x92FE` — 17 functions, 1676 insns (`AntGoBy`, `Anten1..7.win`, `Anten1blast`, "My gun went dry", "Arsenal", "Show new evidence", "Want ant info") | a whole chapter of the game; the recorded playthrough never got there |
 | **fight internals** | `0xB27C`, `0xB2A0`, `0xB2C4` — the "your punch was blocked" sound handlers | the fight runs, but a recorded input that gets blocked never produced a block; holding the button instead of bursting keeps the opponent in its block pose for ever |
-| **journey / world renderer** | `0xBEDA–0xE03C` — 26 functions, 2627 insns (`Overhead2.tiny`, tile chain `c390/c75e/ca5e`, HUD `d5e8`, raw blitter `e03c`) | the map→airfield travel cutscene was never played |
+| ~~journey / world renderer~~ | `0xBEDA–0xE03C` — 26 functions, 2627 insns (`Overhead2.tiny`, tile chain `c390/c75e/ca5e`, HUD `d5e8`, raw blitter `e03c`) | **not a journey cutscene: this is the underground ant nest's renderer**, run and verified 2026-11-14 (§3); the journey cutscene itself is `FUN_00006F58` (mode 0xc), still unentered |
 | **audio score player's voice handlers** | `0xF0AC`, `0xF0DE`, `0xF56C`, `0xF814` (982 B), `0xFBEA` and their thunks — 25 functions, 511 insns | the player dispatches to a handler by instrument type; none of the scores in any recorded session used these five types (the `o.rff` breakage is in this area, see §6.3) |
 | **flight internals** | `0x113A0`, `0x11B90` and two more in `0x106AC–0x11F00` — 4 functions, 165 insns | reached only by flight situations the recorded input never produced |
 | **hospital internals** | `0x1B000–0x1CA00` — 29 functions, 1155 insns | the escape minigame never got past its first rooms in the recorded input |
@@ -158,9 +172,9 @@ animation helpers `0x1D00A`/`0x1D1DA`/`0x1D2C6` that sit in the "hospital intern
 entry addresses, two sessions, see `next-session.md`. `FUN_0001CC2E` (the hotspot handler that wraps
 the race in its narration) is still unexecuted: it needs the room's `move_node`.
 
-The complete list of 254 addresses is Appendix A; their names, sizes, instruction counts and the
-string each one references are in `out\survey\never-executed.csv` and
-`never-executed-with-strings.txt`.
+The complete list of 254 pre-fight addresses is Appendix A; their names, sizes, instruction counts
+and the string each one references are in `out\survey\never-executed.csv` and
+`never-executed-with-strings.txt`. After the fight, chicken and UNDER sessions, 183 remain.
 
 ## 6. Real divergences and gaps (each one sentence, as RULE 0 requires)
 
@@ -307,16 +321,19 @@ the original's speed on a 486DX2-66 and needs 1.6x for 100 % (`next-session.md`)
 * The survey artifacts are under `out\survey\` (gitignored): `cov\*.txt` per run,
   `never-executed.csv/.txt`, `never-addresses.txt`, the logs, and screenshots of phone/fire/ending.
 
-## Appendix A — the 237 functions that never executed
+## Appendix A — the pre-fight never-executed functions (254 addresses)
 
 Generated from the twelve sessions above, `--cover` union minus `re\model\functions.csv`. Image
 addresses (add the load base 0x4000 for a runtime PC). Sizes/instruction counts and the string each
 function references are in `out\survey\never-executed.csv` and `never-executed-with-strings.txt`.
 
-*(The addresses below are the pre-fight list, kept so the session's delta is visible: the fight
+*(The addresses below are the pre-fight list, kept so each session's delta stays visible: the fight
 removed `A74E AAB6 AC30 AE16 AFBA B048 B126 B12E B224 B22C B234 B258 B2E8 B314 B31C B41E B46C`
-— 17 functions, 969 instructions — and left the three block/miss handlers `B27C B2A0 B2C4`. Re-run
-the matrix, not this text.)*
+— 17 functions, 969 instructions — and left the three block/miss handlers `B27C B2A0 B2C4`; the
+chicken race removed 29 functions (1 052 instructions); the UNDER session removed 25 functions
+(2 516 instructions) — `BEDA BFCA C176 C1AC C310 C390 C75E CA5E D2AE D376 D51E D5E8 DB2C DBC6 DC74
+DD20 DDF2 DEC4 DF34 DF88 E014 E03C 180AE 18176 1B926` — and the block `1BA1A`. That leaves 183
+functions. Re-run the matrix, not this text.)*
 
 ```
 2410 2B7C 2CC4 3398 33D8 451A 4642 475C
@@ -371,6 +388,14 @@ bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 60000000 --data expor
 # the fight (injected at the bar's action, engine slot 41)
 bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 20000000 --data export `
     --call 0xF46C:1513 --input ref\inputs\fight.txt --cover out\survey\cov\fight.txt
+
+# the chicken race (the scene FUN_0001CC2E runs)
+bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 6000000 --data export `
+    --call 0x1FA3E:1513 --input ref\inputs\chicken.txt --cover out\survey\cov\chicken-race.txt
+
+# the underground ant nest (the flight's continuation)
+bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 14000000 --data export `
+    --call 0xFFCA:1513 --input ref\inputs\under.txt --cover out\survey\cov\under.txt
 
 # the union, minus the model
 #   (any script: read every out\survey\cov\*.txt, subtract RC_BASE 0x4000, compare with

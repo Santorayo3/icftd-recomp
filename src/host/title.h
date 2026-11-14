@@ -10,7 +10,7 @@
 void host_title_arm(int on);
 
 /* --titlekey <n>: take one menu choice as soon as the title is up, so a scripted run can start a
- * scene from the title (the same class of dev seam as --call). 0 = the intro, 1..5 = a scene,
+ * scene from the title (the same class of dev seam as --call). 0 = the intro, 1..6 = a scene,
  * -1 (the default) = no choice. */
 void host_title_key(int n);
 

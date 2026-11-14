@@ -21,7 +21,7 @@
  * headless and only reports machine state. `--call` enters one of the engine's own routines at a
  * frame boundary, with the program-end sentinel as its return address.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
- * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..5 the minigames) so a
+ * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..6 the minigames) so a
  * scripted run can start a scene from the title; it is a dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
@@ -602,7 +602,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
         {
-            /* <n>: 0 starts the game from the title, 1..5 start the debug scenes. A dev seam like
+            /* <n>: 0 starts the game from the title, 1..6 start the debug scenes. A dev seam like
              * --call, but through the title's own menu - see src\host\title.c. */
             titleKey = (int)strtol(argv[++i], 0, 0);
             if (titleKey < 0) titleKey = 0;

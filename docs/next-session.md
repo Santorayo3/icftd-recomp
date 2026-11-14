@@ -7,6 +7,73 @@ is a difference from the original, never a symptom, and that holds for every kin
 What of the original is implemented, proven and never run — measured, not guessed (feature
 inventory, `--cover` matrix, open divergences): `docs/implementation-survey.md`.
 
+## The underground ant nest ("UNDER") runs (2026-11-14, later still)
+
+Reported as "implement and verify the UNDER minigame": the underground game in the tunnels where
+the ants and the queen are killed. It is **`FUN_0000BFCA`** (runtime `0xFFCA`), the continuation of
+**Take a Flight**: `FUN_000107A6` calls it at `0x10AE4` once the flight sets `DAT_0002A552` (the
+plane landed). It is self-contained and was already translated; entering it is all the port needs.
+
+**What it does** (read from the code, then measured):
+
+* opens `Desert1:UNDER` — six tunnel maps (`Mz1A.til`..`Mz3B.til`), the `UANT`/`UFLM`/`UHRO`
+  sprite banks and `Tilz.pic` (608x216, five planes);
+* loads `Tilz.pic` through `FUN_0001B62E` with the third argument `g_palWant` (`0x29CD8`), the
+  same SMS-picture loader the flight uses for `tiles.pic`, so the 32-colour tunnel palette is
+  applied by the engine's own palette publisher (both pictures share it: `0842 0B52 0C64 ...`);
+* builds a **57-entry copper list** from the template at `0x24EB2` and installs it on the second
+  boot view (`0x5A738`) with `LoadView` (`FUN_00017F34`); the VBI it adds (`FUN_00018108`) patches
+  the five plane pointers into the scrolled bitmap every frame (`FUN_00017CE`) and copies
+  `g_palWant` into `COLOR00..COLOR31`;
+* runs until `DAT_0002A170` reaches 8, calling `FUN_0000C390` (player, tile collision, exits),
+  `FUN_0000C75E` (flame), `FUN_0000CA5E` (ants/timer), `FUN_0000C310` (clock), `FUN_0000D5E8`
+  (sprites), `FUN_0000BEDA` (HUD strip) and `FUN_0000D376` (tiles), then returns `1`.
+
+**Reproduction and the injection boundary.** `--call 0xFFCA:1513` on the host. On the oracle use
+**`--callat 0xFFCA:4876672:0:0x23512`**, not `--call`: the host injects at its dispatch-loop
+boundary (after the translated function in progress), the oracle's `--call` injects before the *next
+instruction*. Without the matching point the two enter with different stack/register context and the
+run diverges at frame 1514 (`pc 0xDA90` vs `0x2422E`), even though the frame-1513 records are
+identical. With it:
+
+| session | evidence |
+|---|---|
+| idle | **0 differing records** (PC/SR/registers/custom) frames 1513..1819; RAM byte-identical at 1520/1560/1600/1700 |
+| `ref\inputs\under.txt` | **0 differing records** frames 1513..2334; RAM byte-identical at 1750/1950/2150 (frame 1850: 11 dead-stack bytes at `0x17FDD*`, the known artifact); both return at frame 2334, 12 525 972 instructions, 2700 rasters |
+
+The scene ends by itself: idle, the eight timed steps run out and it returns at frame 2100
+(`D0 = 1`, 10 513 651 instructions); with the input script `DAT_0002A170` is 8 at the final
+boundary and it returns at 2334. The player position (`0x29ED0/0x29ED2`) walks (48,884) ->
+(184,917) under the script, so movement, tile collision and the timer are exercised, not just the
+setup. The `--cover` run adds **25 model functions + the orphan block `0x1BA1A`** that no earlier
+session executed (2 516 model instructions).
+
+### The picture is the scene's own list, and the presenter already handles it
+
+The list has four segments: `WAIT 0x1B01` -> `BPLCON0 0x0200` (off, above the window),
+`WAIT 0x1D01` -> `BPLCON0 0x5200` (five planes), `WAIT 0xE501` -> `BPLCON0 0x0200` (off, below the
+window). DIW is `0x2C90..0xE0B0`, i.e. **rows 44..224 = 180 visible rows** inside the ViewPort's
+200-row raster; the plane pointers point `0x280` (16 rows of 40 bytes) into the bitmap and
+BPL1MOD/BPL2MOD are 2, so the tunnel scrolls by moving the list's pointers. Measured at frame 1750:
+320x200, painted rows 0..179, 23 651 lit pixels, the `tilz.pic` palette (`AA1111/BB2222/771111`
+walls on black), rows 180..199 border. `tools\present-check.ps1` now has an **under** case
+(320x200, coverage >= 0.25, >= 15 000 tunnel pixels, >= 3000 wall-reds, the border below row 180
+clean); measured 0.365 / 23 648 / 5812.
+
+### The title starts it too (key 6)
+
+`src\host\title.c` gained `{ KEY_6, "Underground", 0xFFCA }`, and the engine entry needs nothing
+else: the boot's two screen bitmaps (at frame 20 `DAT_00026612/0x2660E` are already the 320x216,
+5-plane buffers) and the second view are what the scene patches, and it loads its pack, picture and
+palette itself. `tools\title-check.ps1` has a key-6 case: `Desert1:UNDER` opens, >= 300 rasters, no
+stack/RAM/PC fault, and the scene's eight timed steps end by themselves, so the title comes back
+(measured: return at frame ~671, the map score starts under the title a second time, the run stops
+on the hold pc `0xD870`).
+
+The survey had `0xBEDA..0xE03C` filed as the "journey / world renderer"; it is this scene's
+renderer (the flight's is `0x10E48`/`0x11512`). The journey cutscene is `FUN_00006F58` (mode 0xc)
+and is still unentered. The survey's coverage union is updated accordingly.
+
 ## The chicken race: a per-line palette and a per-region stride (2026-11-14)
 
 Reported as "implement the chicken minigame". The scene is the story's **chicken run**:
