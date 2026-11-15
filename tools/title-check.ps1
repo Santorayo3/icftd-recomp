@@ -1,8 +1,15 @@
-# The title screen's digit keys: each one must start its minigame from the title's hold point.
+# The title screen's keys: each one must start its scene from the title's hold point, and Escape
+# must restart the whole game (a fresh boot back to this menu).
 #
 # This is port code with no counterpart in the original, so there is no state to diff it against.
 # What is checked is that the title's own launch sequence reaches the engine's scene entry, that
 # the scene loads its data and draws, and that a scene which ends by itself comes back to the title.
+# The three endings do not come back: their per-frame callback always answers 0, so the check looks
+# for the word the key writes and the engine's own OPEN load instead.
+#
+# The Escape cases use --esc <frame>, a test seam that presses the key inside the run. A restart is
+# a fresh boot on the same front end: the title's score starts a second time, the frame count starts
+# over, and the run ends on the title's hold point (the scripted menu takes the "no such key" quit).
 # It is a regression check for the two things that broke while the feature was written:
 #   - an injected call's arguments are never popped in a caller that no longer exists, so the
 #     routine that resumes at the hold point returns into the first argument: the intro's
@@ -11,10 +18,11 @@
 #     rc_breakPc still armed the scene's return fell straight into the intro's setup instead of
 #     back into the title.
 #
-# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..7 = the scenes); it
-# also ends the run when the title comes back, because a scripted run has no keyboard. It takes the
-# choice after one menu frame, because that is what a real press does - and because key 0 is the
-# path where the first menu frame's CIA tick runs the score player (see the note on the mirror).
+# --titlekey <n> is the dev seam that presses the key (0 = start the game, 1..7 = the scenes,
+# 8..10 = the three endings); it also ends the run when the title comes back, because a scripted run
+# has no keyboard. It takes the choice after one menu frame, because that is what a real press does -
+# and because key 0 is the path where the first menu frame's CIA tick runs the score player (see the
+# note on the mirror).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\title-check.ps1
 param(
@@ -72,12 +80,46 @@ $cases = @(
     @{ key = 7; name = 'Giant Ant';       insns =  9000000; rasters = 1200; returns = $true
        start = 'title: Giant Ant at frame \d+'
        opens = @('Desert2:BACKS', 'Desert3:BIGANT', 'Desert3:sfx/ants', 'Desert3:sfx/gunshot') }
+    # The three endings: W, C and T on the menu (keys 8..10 for this seam) write DAT_00022D68 and
+    # enter FUN_0000A4D6, the world loop's dispatcher. Its per-frame callback always answers 0, so
+    # an ending never returns and the title does not come back - the run must show the flag and the
+    # engine's own OPEN load instead.
+    @{ key = 8; name = 'Win Ending';      insns =  9000000; rasters =  300; returns = $false
+       start = 'title: Win Ending at frame \d+'
+       opens = @('Desert1:OPEN')
+       ending = 1 },
+    @{ key = 9; name = 'Nest Collapse';   insns =  9000000; rasters =  300; returns = $false
+       start = 'title: Nest Collapse at frame \d+'
+       opens = @('Desert1:OPEN')
+       ending = 2 },
+    @{ key = 10; name = 'Time Ran Out';   insns =  9000000; rasters =  300; returns = $false
+       start = 'title: Time Ran Out at frame \d+'
+       opens = @('Desert1:OPEN')
+       ending = 3 }
+    # Escape restarts the whole game (a port feature). Three starting points: an ending, the game's
+    # own intro, and a minigame. The restart is a fresh boot, so the title's score starts a second
+    # time and the run ends on the hold point with the frame count reset.
+    @{ key = 8; name = 'Win Ending + Esc'; insns = 12000000; rasters = 1; returns = $false
+       start = 'title: Win Ending at frame \d+'
+       opens = @('Desert1:OPEN')
+       ending = 1
+       esc = 60; restart = $true },
+    @{ key = 0; name = 'Game + Esc';       insns = 12000000; rasters = 1; returns = $false
+       start = 'title: starting the game \(frame \d+\)'
+       opens = @('voice1', 'Desert1:OPEN', 'Desert1:sfx/o.rff')
+       esc = 200; restart = $true },
+    @{ key = 1; name = 'Fight + Esc';      insns = 12000000; rasters = 1; returns = $false
+       start = 'title: Fight at frame \d+'
+       opens = @('Desert3:FIGHT')
+       esc = 60; restart = $true }
 )
 
 $fail = 0
 foreach ($c in $cases) {
-    $log = Join-Path $LogDir ("key{0}.txt" -f $c.key)
-    $out = & $Exe $Image $c.insns --titlekey $c.key --data $DataDir 2>&1 | Out-String
+    $log = Join-Path $LogDir ("key{0}{1}.txt" -f $c.key, $(if ($c.ContainsKey('restart')) { '-esc' } else { '' }))
+    $runArgs = @($Image, $c.insns, '--titlekey', $c.key, '--data', $DataDir)
+    if ($c.ContainsKey('esc')) { $runArgs += @('--esc', $c.esc) }
+    $out = & $Exe @runArgs 2>&1 | Out-String
     Set-Content -Path $log -Value $out
     $problems = @()
 
@@ -90,6 +132,20 @@ foreach ($c in $cases) {
     foreach ($o in $c.opens) {
         if ($out -notmatch ('open "{0}"' -f [regex]::Escape($o))) {
             $problems += ("the scene never loaded {0}" -f $o)
+        }
+    }
+    if ($c.ContainsKey('ending')) {
+        if ($out -notmatch ('title: ending {0}' -f $c.ending)) {
+            $problems += ("the key did not write DAT_00022D68 = {0}" -f $c.ending)
+        }
+    }
+    if ($c.ContainsKey('restart')) {
+        if ($out -notmatch 'escape at frame \d+') { $problems += 'the escape seam never fired' }
+        if ($out -notmatch 'restarting the game') { $problems += 'escape did not restart the game' }
+        $again = ([regex]::Matches($out, 'title: the map screen''s score starts under the title')).Count
+        if ($again -lt 2) { $problems += 'the title did not come back after the restart' }
+        if ($out -notmatch 'stopped at 0xd870') {
+            $problems += 'the restart did not end on the title''s hold point'
         }
     }
     if ($out -match '(\d+) raster\(s\) presented') {

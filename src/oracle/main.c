@@ -97,15 +97,26 @@ static void on_present(rt_machine *m)
 
     if (g_window)
     {
+        u32 stride = plat_set_framebuffer_size((u32)w, (u32)h);
         u8 *dst = plat_framebuffer();
-        int y, cw = w < SCREEN_W ? w : SCREEN_W;
+        int y;
 
-        plat_set_palette(0, 256, pal);
-        for (y = 0; y < SCREEN_H; y++)
+        if (stride != 0)
         {
-            if (y >= h) break;
-            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+            /* The picture is the screen the copper list programs, shown at its own size. */
+            for (y = 0; y < h; y++)
+                memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
         }
+        else
+        {   /* A fixed video mode: fit the picture into it. */
+            int cw = w < SCREEN_W ? w : SCREEN_W;
+            for (y = 0; y < SCREEN_H; y++)
+            {
+                if (y >= h) break;
+                memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+            }
+        }
+        plat_set_palette(0, 256, pal);
         plat_present();
     }
     if (g_prefix[0] != 0 && g_shotIndex < g_shots)

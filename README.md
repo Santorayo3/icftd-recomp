@@ -162,7 +162,7 @@ docs/                  architecture, plan, program model
 | `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD`) against `rt_os_call` |
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
-| `tools\title-check.ps1` | the title's digit keys start the minigames (scene data, rasters, and the return to the title) |
+| `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title) |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
 | `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |
 | `tools\crosshair-check.ps1` | the giant-ant fight's crosshair: its centre is the point the engine's shot test reads (the aim `−0x1b`/`−0x3a`, the value `FUN_000086A0` stores for `FUN_0000823A`), it follows the stick, and a measurement run draws none |

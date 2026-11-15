@@ -182,6 +182,10 @@ static void kbd_scancode(u8 sc)
         case 0x07: case 0x08: case 0x09: case 0x0A:
             key = KEY_1 + (sc - 0x02); break;
         case 0x0B: key = KEY_0;      break;
+        /* The title screen's ending keys. */
+        case 0x11: key = KEY_W;      break;
+        case 0x2E: key = KEY_C;      break;
+        case 0x14: key = KEY_T;      break;
         default: break;
         }
     }
@@ -319,6 +323,16 @@ u8 *plat_framebuffer(void)
     /* Mode 13h is linear 320x200x256, exactly the runtime's chunky layout, so the screen *is* the
      * framebuffer: a staging buffer plus a 64 KB copy per present bought nothing. */
     return (u8 *)(u32)VGA_MEMORY;
+}
+
+/* Mode 13h is a fixed 320x200: it has no room for the screen a scene programs when that screen is
+ * larger (the chicken race's narration page is 368x216 across the overscan). Answering 0 tells the
+ * front end to fit the picture into the mode; the Win32 build, whose window follows the picture,
+ * answers with the stride instead. */
+u32 plat_set_framebuffer_size(u32 w, u32 h)
+{
+    (void)w; (void)h;
+    return 0;
 }
 
 void plat_present(void)

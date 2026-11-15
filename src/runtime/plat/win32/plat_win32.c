@@ -1,5 +1,5 @@
-/* Win32 platform layer: one fixed 320x200 8-bit DIB section, one logical palette,
- * BitBlt to the window, 50 Hz pacing, keyboard and mouse.
+/* Win32 platform layer: one 8-bit DIB section the size of the picture the core presents, one
+ * logical palette, BitBlt to the window, 50 Hz pacing, keyboard and mouse.
  *
  * Built with: wcl386 -bt=nt -5s -ox -i=..\core ..\core\main.c ..\core\gfx.c plat_win32.c
  */
@@ -25,6 +25,7 @@ static HBITMAP       g_frame_dib;
 static u32          *g_frame_bits;
 static int           g_frame_w, g_frame_h;
 static HPALETTE      g_pal;
+static int           g_fb_w = SCREEN_W, g_fb_h = SCREEN_H;  /* the DIB, i.e. this frame's picture */
 static int           g_quit;
 static u32           g_fullscreen;
 static u32           g_start_ms;
@@ -69,24 +70,31 @@ static void frame_ticks_recalc(void)
  * ShowCursor is a counter, not a flag, and other code in the process may have moved it: ask until
  * the answer is negative (hidden) and remember how many calls that took, which is exactly the
  * number to give back. The clip rectangle is in screen coordinates. */
+static void cursor_clip(void)
+{
+    RECT cr;
+
+    if (g_cursorHidden == 0) return;
+    if (GetClientRect(g_hwnd, &cr))
+    {
+        MapWindowPoints(g_hwnd, 0, (POINT *)&cr, 2);
+        ClipCursor(&cr);
+    }
+}
+
 static void cursor_capture(int on)
 {
     if (on)
     {
-        RECT cr;
-
         if (g_cursorHidden != 0) return;
-        if (GetClientRect(g_hwnd, &cr))
-        {
-            MapWindowPoints(g_hwnd, 0, (POINT *)&cr, 2);
-            ClipCursor(&cr);
-        }
+        cursor_clip();
         for (;;)
         {
             int count = ShowCursor(FALSE);
             g_cursorHidden++;
             if (count < 0) break;
         }
+        cursor_clip();
     }
     else
     {
@@ -136,6 +144,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_F4)     g_keys[KEY_F4] = 1;
         if (wp == VK_F5)     g_keys[KEY_F5] = 1;
         if (wp >= '0' && wp <= '9') g_keys[KEY_0 + (int)(wp - '0')] = 1;
+        if (wp == 'W')       g_keys[KEY_W] = 1;
+        if (wp == 'C')       g_keys[KEY_C] = 1;
+        if (wp == 'T')       g_keys[KEY_T] = 1;
         return 0;
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
@@ -151,6 +162,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_F4)     g_keys[KEY_F4] = 0;
         if (wp == VK_F5)     g_keys[KEY_F5] = 0;
         if (wp >= '0' && wp <= '9') g_keys[KEY_0 + (int)(wp - '0')] = 0;
+        if (wp == 'W')       g_keys[KEY_W] = 0;
+        if (wp == 'C')       g_keys[KEY_C] = 0;
+        if (wp == 'T')       g_keys[KEY_T] = 0;
         return 0;
     }
     return DefWindowProc(h, msg, wp, lp);
@@ -179,7 +193,7 @@ static int make_window(const char *title)
         h = GetSystemMetrics(SM_CYSCREEN);
     } else {
         r.left = 0; r.top = 0;
-        r.right = SCREEN_W; r.bottom = SCREEN_H;
+        r.right = g_fb_w; r.bottom = g_fb_h;
         AdjustWindowRect(&r, style, FALSE);
         w = r.right - r.left;
         h = r.bottom - r.top;
@@ -193,63 +207,71 @@ static int make_window(const char *title)
     return 1;
 }
 
-static int make_dib(void)
+/* (Re)creates the DIB the core draws into, at exactly the size of the picture it presents. A DIB
+ * row is padded to a longword, so the stride - not the width - is what the core copies row by row;
+ * plat_set_framebuffer_size returns it. */
+static int make_dib(int w, int h)
 {
     BITMAPINFO *bi;
     HDC screen;
-    unsigned int i;
+    HBITMAP dib;
     void *bits = 0;
-    int ok;
 
     bi = (BITMAPINFO *)malloc(sizeof(BITMAPINFOHEADER) + PAL_ENTRIES * sizeof(RGBQUAD));
     if (!bi) return 0;
     memset(bi, 0, sizeof(BITMAPINFOHEADER) + PAL_ENTRIES * sizeof(RGBQUAD));
     bi->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi->bmiHeader.biWidth = SCREEN_W;
-    bi->bmiHeader.biHeight = -SCREEN_H;          /* top-down rows */
+    bi->bmiHeader.biWidth = w;
+    bi->bmiHeader.biHeight = -h;                 /* top-down rows */
     bi->bmiHeader.biPlanes = 1;
     bi->bmiHeader.biBitCount = 8;
     bi->bmiHeader.biCompression = BI_RGB;
-    for (i = 0; i < PAL_ENTRIES; i++) {
-        bi->bmiColors[i].rgbRed = 0;
-        bi->bmiColors[i].rgbGreen = 0;
-        bi->bmiColors[i].rgbBlue = 0;
-        bi->bmiColors[i].rgbReserved = 0;
+
+    if (!g_memdc) {
+        screen = GetDC(g_hwnd);
+        g_memdc = CreateCompatibleDC(screen);
+        ReleaseDC(g_hwnd, screen);
+        if (!g_memdc) { free(bi); return 0; }
     }
 
-    screen = GetDC(g_hwnd);
-    g_memdc = CreateCompatibleDC(screen);
-    ReleaseDC(g_hwnd, screen);
-
-    g_dib = CreateDIBSection(g_memdc, bi, DIB_RGB_COLORS, &bits, 0, 0);
+    dib = CreateDIBSection(g_memdc, bi, DIB_RGB_COLORS, &bits, 0, 0);
     free(bi);
-    if (!g_dib) return 0;
+    if (!dib) return 0;
+    SelectObject(g_memdc, dib);              /* the previous bitmap is deselected by this */
+    if (g_dib) DeleteObject(g_dib);
+    g_dib = dib;
     g_bits = (u8 *)bits;
-    SelectObject(g_memdc, g_dib);
+    g_fb_w = w;
+    g_fb_h = h;
+    return 1;
+}
 
-    {
-        LOGPALETTE *lp = (LOGPALETTE *)malloc(sizeof(LOGPALETTE) + PAL_ENTRIES * sizeof(PALETTEENTRY));
-        if (!lp) return 0;
-        lp->palVersion = 0x300;
-        lp->palNumEntries = PAL_ENTRIES;
-        for (i = 0; i < PAL_ENTRIES; i++) {
-            lp->palPalEntry[i].peRed = 0;
-            lp->palPalEntry[i].peGreen = 0;
-            lp->palPalEntry[i].peBlue = 0;
-            lp->palPalEntry[i].peFlags = 0;
-        }
-        g_pal = CreatePalette(lp);
-        free(lp);
+static int make_palette(void)
+{
+    LOGPALETTE *lp;
+    unsigned int i;
+
+    lp = (LOGPALETTE *)malloc(sizeof(LOGPALETTE) + PAL_ENTRIES * sizeof(PALETTEENTRY));
+    if (!lp) return 0;
+    lp->palVersion = 0x300;
+    lp->palNumEntries = PAL_ENTRIES;
+    for (i = 0; i < PAL_ENTRIES; i++) {
+        lp->palPalEntry[i].peRed = 0;
+        lp->palPalEntry[i].peGreen = 0;
+        lp->palPalEntry[i].peBlue = 0;
+        lp->palPalEntry[i].peFlags = 0;
     }
-    ok = g_pal != 0;
-    return ok;
+    g_pal = CreatePalette(lp);
+    free(lp);
+    return g_pal != 0;
 }
 
 u32 plat_init(const char *title)
 {
     g_start_ms = 0;
     if (!make_window(title)) return 0;
-    if (!make_dib()) return 0;
+    if (!make_dib(g_fb_w, g_fb_h)) return 0;
+    if (!make_palette()) return 0;
     /* The window has the focus by now in the usual case; WM_SETFOCUS covers the rest. */
     cursor_capture(1);
     /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
@@ -285,8 +307,10 @@ const char *plat_default_ini(void)
            "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
            "\r\n"
            "[VIDEO]\r\n"
-           "; false = window at the original 320x200; true = fullscreen, the 4:3 picture scaled up\r\n"
-           ";            to fit with the border art either side.\r\n"
+           "; false = window the size of the screen, one emulated pixel per desktop pixel\r\n"
+           ";            (320x200, and the scene's own overscan size where it uses one);\r\n"
+           "; true = fullscreen, the whole 4:3 picture scaled up to fit with the border art\r\n"
+           ";            either side.\r\n"
            "fullscreen=true\r\n"
            "\r\n"
            "[AUDIO]\r\n"
@@ -320,6 +344,33 @@ void plat_shutdown(void)
 u8 *plat_framebuffer(void)
 {
     return g_bits;
+}
+
+/* The picture is the screen the copper list programs, so the DIB takes its size. Windowed the
+ * window follows it: the chicken race's narration page is 368 columns across (its text is laid out
+ * over the overscan) and squeezing that into a 320-pixel window drops every eighth column, which
+ * is exactly what turned its letters into noise. Fullscreen needs nothing here - plat_present
+ * scales the whole DIB into the 4:3 area. */
+u32 plat_set_framebuffer_size(u32 w, u32 h)
+{
+    int nw = (int)w, nh = (int)h;
+    RECT r;
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+    if (nw <= 0 || nh <= 0 || nw > 1024 || nh > 1024) return 0;
+    if (nw != g_fb_w || nh != g_fb_h) {
+        if (!make_dib(nw, nh)) return 0;
+        if (!g_fullscreen) {
+            r.left = 0; r.top = 0;
+            r.right = nw; r.bottom = nh;
+            AdjustWindowRect(&r, style, FALSE);
+            SetWindowPos(g_hwnd, 0, 0, 0, r.right - r.left, r.bottom - r.top,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        cursor_clip();
+    }
+    /* A DIB row is padded to a longword: that, not the width, is the row the core copies. */
+    return (u32)((nw + 3) & ~3);
 }
 
 /* Fullscreen composes into its own screen-sized buffer: a FillRect followed by a StretchBlt on the
@@ -407,12 +458,12 @@ void plat_present(void)
         y = (ch - h) / 2;
         g_pic_x = x; g_pic_y = y; g_pic_w = w; g_pic_h = h;
         SetStretchBltMode(g_frame_dc, COLORONCOLOR);
-        StretchBlt(g_frame_dc, x, y, w, h, g_memdc, 0, 0, SCREEN_W, SCREEN_H, SRCCOPY);
+        StretchBlt(g_frame_dc, x, y, w, h, g_memdc, 0, 0, g_fb_w, g_fb_h, SRCCOPY);
         BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
     } else {
         SelectPalette(dc, g_pal, FALSE);
         RealizePalette(dc);
-        BitBlt(dc, 0, 0, SCREEN_W, SCREEN_H, g_memdc, 0, 0, SRCCOPY);
+        BitBlt(dc, 0, 0, g_fb_w, g_fb_h, g_memdc, 0, 0, SRCCOPY);
     }
     ReleaseDC(g_hwnd, dc);
 }
@@ -585,23 +636,23 @@ u32 plat_emulated_ms(void)
 u32 plat_free_base_kb(void) { return 0; }
 u32 plat_base_total_kb(void) { return 0; }
 
-/* Client point -> framebuffer pixel. Windowed the client is exactly the 320x200 DIB, so the
- * point is used as it is; fullscreen the picture is a 4:3 rectangle centred in the window, so the
- * pointer has to be mapped into it. It is clamped: a pointer on the border art then reads as the
- * nearest picture edge, which is what a map cursor pushed past its travel window needs (that is
- * the "scroll this way" input). */
+/* Client point -> framebuffer pixel. Windowed the client is exactly the picture, so the point is
+ * used as it is; fullscreen the picture is a 4:3 rectangle centred in the window, so the pointer
+ * has to be mapped into it. It is clamped: a pointer on the border art then reads as the nearest
+ * picture edge, which is what a map cursor pushed past its travel window needs (that is the
+ * "scroll this way" input). */
 static void mouse_to_fb(s16 *x, s16 *y)
 {
     long fx = *x, fy = *y;
 
     if (g_fullscreen && g_pic_w > 0 && g_pic_h > 0) {
-        fx = ((fx - g_pic_x) * SCREEN_W) / g_pic_w;
-        fy = ((fy - g_pic_y) * SCREEN_H) / g_pic_h;
+        fx = ((fx - g_pic_x) * g_fb_w) / g_pic_w;
+        fy = ((fy - g_pic_y) * g_fb_h) / g_pic_h;
     }
     if (fx < 0) fx = 0;
     if (fy < 0) fy = 0;
-    if (fx > SCREEN_W - 1) fx = SCREEN_W - 1;
-    if (fy > SCREEN_H - 1) fy = SCREEN_H - 1;
+    if (fx > g_fb_w - 1) fx = g_fb_w - 1;
+    if (fy > g_fb_h - 1) fy = g_fb_h - 1;
     *x = (s16)fx;
     *y = (s16)fy;
 }

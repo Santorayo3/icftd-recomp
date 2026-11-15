@@ -1681,6 +1681,9 @@ int rt_init(rt_machine *m)
 void rt_shutdown(rt_machine *m)
 {
     rt_audio_close(m);
+    /* The framebuffer is allocated by rt_gfx_reset, not by rt_mem_init, so a front end that
+     * starts the game again in the same process (the title's Escape restart) would leak it. */
+    if (m->gfx.fb != 0) { plat_free(m->gfx.fb); m->gfx.fb = 0; }
     rt_mem_free(&m->mem);
     if (rt_current == m) rt_current = 0;
 }

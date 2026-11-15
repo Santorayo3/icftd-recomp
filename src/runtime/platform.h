@@ -35,6 +35,10 @@ enum {
     KEY_7,
     KEY_8,
     KEY_9,
+    KEY_W,                              /* the title screen's three ending keys (they do nothing in
+                                         * the game itself: no scene decodes a letter) */
+    KEY_C,
+    KEY_T,
     KEY_COUNT
 };
 
@@ -72,6 +76,17 @@ void plat_shutdown(void);
 
 u8  *plat_framebuffer(void);
 void plat_present(void);
+
+/* Says what the picture of this frame is: `w` x `h` 8-bit palette indices in the framebuffer
+ * plat_framebuffer() points at, exactly as large as the screen the copper list programs - 320x200
+ * normally, 368x216 while the chicken race shows its narration page, whose text is laid out across
+ * the overscan. The pointer plat_framebuffer() returns may move, so take it *after* this call.
+ *
+ * Returns the row stride in bytes (a platform may pad a row to its own alignment), or 0 when the
+ * video mode is fixed (DOS: VGA mode 13h) - the core then has to fit the picture into the mode it
+ * has. Windowed, the window takes the picture's size, one emulated pixel per desktop pixel;
+ * fullscreen, the whole picture is scaled into the 4:3 area, so no column or row is ever dropped. */
+u32  plat_set_framebuffer_size(u32 w, u32 h);
 
 /* rgb holds count*3 bytes, each 0..255, for palette entries first..first+count-1. */
 void plat_set_palette(u32 first, u32 count, const u8 *rgb);

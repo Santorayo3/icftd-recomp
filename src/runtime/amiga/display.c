@@ -574,9 +574,20 @@ void rt_gfx_line(rt_machine *m, u32 rp, s32 x, s32 y)
     rt_write16(&m->mem, rp + EMU_RP_CPY, (u16)y);
 }
 
-/* Draws one character of the port's font and returns its advance. */
-static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baseline, u8 fg, u8 bg,
-                     u8 mode)
+/* One glyph as the TextFont describes it. put_glyph (planar BitMap) and rt_font_text_draw
+ * (chunky buffer) both lay a glyph out through this, so the two cannot disagree. */
+typedef struct glyph_layout
+{
+    u32 data;                   /* CharData base, 0 = nothing to draw */
+    int modulo;                 /* bytes between rows */
+    u32 bits;                   /* bit offset of the glyph's left edge in its row */
+    int w, h;                   /* the glyph's rectangle */
+    int kern;                   /* how far the kern shifts the glyph right */
+    int top;                    /* first row, relative to the cursor's baseline */
+    int advance;                /* kern + space: what the cursor moves by */
+} glyph_layout;
+
+static void glyph_layout_of(rt_machine *m, u32 font, int ch, int baseline, glyph_layout *g)
 {
     int ySize = (int)rt_read16(&m->mem, font + EMU_TF_Y_SIZE);
     int lo    = (int)rt_read8(&m->mem, font + EMU_TF_LO_CHAR);
@@ -590,33 +601,47 @@ static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baselin
     int xSize = (int)rt_read16(&m->mem, font + EMU_TF_X_SIZE);
     int i = (ch >= lo && ch <= hi) ? ch - lo : -1;
     int j = i >= 0 ? i : 0;
-    u32 bits = i >= 0 ? (u32)rt_read16(&m->mem, loc + (u32)i * 4u) : 0u;   /* bit offset in row */
-    int  w   = i >= 0 ? (int)rt_read16(&m->mem, loc + (u32)i * 4u + 2u) : 0;  /* glyph width */
-    int top  = (int)baseline - base;                             /* cp_y is the baseline */
-    int kernX = kern != 0 ? (int)(s16)rt_read16(&m->mem, kern + (u32)j * 2u) : 0;
-    int adv   = (space != 0 && i >= 0) ? (int)rt_read16(&m->mem, space + (u32)j * 2u) : xSize;
+
+    g->data  = i >= 0 ? data : 0;
+    g->modulo = mod;
+    g->bits  = (i >= 0 && loc != 0) ? (u32)rt_read16(&m->mem, loc + (u32)i * 4u) : 0u;
+    g->w     = (i >= 0 && loc != 0) ? (int)rt_read16(&m->mem, loc + (u32)i * 4u + 2u) : 0;
+    g->h     = ySize;
+    g->kern  = kern != 0 ? (int)(s16)rt_read16(&m->mem, kern + (u32)j * 2u) : 0;
+    g->top   = baseline - base;                                  /* cp_y is the baseline */
+    g->advance = g->kern +
+                 ((space != 0 && i >= 0) ? (int)rt_read16(&m->mem, space + (u32)j * 2u) : xSize);
+}
+
+/* Draws one character of the port's font and returns its advance. */
+static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baseline, u8 fg, u8 bg,
+                     u8 mode)
+{
+    glyph_layout g;
     int row, col;
 
-    x += kernX;                 /* the kern shifts the glyph, then CharSpace advances past it */
-    if (i >= 0 && data != 0 && mod > 0 && loc != 0)
+    glyph_layout_of(m, font, ch, (int)baseline, &g);
+    x += g.kern;                /* the kern shifts the glyph, then CharSpace advances past it */
+    if (g.data != 0 && g.modulo > 0 && g.w > 0)
     {
-        for (row = 0; row < ySize; row++)
-            for (col = 0; col < w; col++)
+        for (row = 0; row < g.h; row++)
+            for (col = 0; col < g.w; col++)
             {
-                u32 bit = bits + (u32)col;
-                u8 byte = (u8)rt_read8(&m->mem, data + (u32)row * (u32)mod + (bit >> 3));
+                u32 bit = g.bits + (u32)col;
+                u8 byte = (u8)rt_read8(&m->mem, g.data + (u32)row * (u32)g.modulo + (bit >> 3));
                 int on = (byte >> (7 - (bit & 7u))) & 1;
+
                 if (mode == 1)                       /* JAM2: the background shows through */
                 {
-                    plot(m, bm, (int)(x + col), top + row, on ? fg : bg);
+                    plot(m, bm, (int)(x + col), g.top + row, on ? fg : bg);
                 }
                 else if (on)                         /* JAM1 */
                 {
-                    plot(m, bm, (int)(x + col), top + row, fg);
+                    plot(m, bm, (int)(x + col), g.top + row, fg);
                 }
             }
     }
-    return (s32)kernX + adv;
+    return (s32)g.advance;
 }
 
 u32 rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count)
@@ -678,6 +703,95 @@ s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
         if (kern != 0) n += (s32)(s16)rt_read16(&m->mem, kern + (u32)j * 2u);
     }
     return n;
+}
+
+/* --- the game's font, into any chunky buffer ------------------------------------------------
+ * The title menu is host code drawing into the platform framebuffer, not a game BitMap, so the
+ * glyphs have to land in a plain one-byte-per-pixel buffer. The font is still the engine's own
+ * (m->osdFont, the TextFont OpenDiskFont built from fonts\newnem.font); without one the built-in
+ * stand-in keeps the same geometry. */
+
+int rt_font_height(rt_machine *m)
+{
+    u32 font = m->osdFont;
+    int y;
+
+    if (font == 0) return FONT_H;
+    y = (int)rt_read16(&m->mem, font + EMU_TF_Y_SIZE);
+    return y > 0 ? y : FONT_H;
+}
+
+s32 rt_font_text_width(rt_machine *m, const char *text)
+{
+    u32 font = m->osdFont;
+    s32 n = 0;
+
+    if (text == 0) return 0;
+    if (font == 0) return (s32)strlen(text) * FONT_ADVANCE;
+    for (; *text != 0; text++)
+    {
+        glyph_layout g;
+
+        glyph_layout_of(m, font, (u8)*text, 0, &g);
+        n += g.advance;
+    }
+    return n;
+}
+
+s32 rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
+                      int x, int top, const char *text, u8 pen)
+{
+    u32 font = m->osdFont;
+    s32 start = x;
+
+    if (dst == 0 || text == 0) return 0;
+    for (; *text != 0; text++)
+    {
+        int ch = (u8)*text;
+
+        if (font != 0)
+        {
+            glyph_layout g;
+            int base = (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
+            int row, col;
+
+            glyph_layout_of(m, font, ch, top + base, &g);
+            if (g.data != 0 && g.modulo > 0 && g.w > 0)
+                for (row = 0; row < g.h; row++)
+                    for (col = 0; col < g.w; col++)
+                    {
+                        u32 bit = g.bits + (u32)col;
+                        u8 byte = (u8)rt_read8(&m->mem, g.data + (u32)row * (u32)g.modulo +
+                                               (bit >> 3));
+
+                        if (((byte >> (7 - (bit & 7u))) & 1) != 0)
+                        {
+                            int px = (int)(x + g.kern) + col, py = g.top + row;
+
+                            if (px >= 0 && py >= 0 && px < w && py < h)
+                                dst[(u32)py * stride + (u32)px] = pen;
+                        }
+                    }
+            x += g.advance;
+        }
+        else
+        {   /* no font open: the stand-in keeps the geometry, not the typeface */
+            const u8 *g = glyph_for_char(ch);
+            int row, col;
+
+            for (row = 0; row < FONT_H; row++)
+                for (col = 0; col < FONT_W; col++)
+                    if ((g[row] & (1u << (FONT_W - 1 - col))) != 0)
+                    {
+                        int px = x + col, py = top + row;
+
+                        if (px >= 0 && py >= 0 && px < w && py < h)
+                            dst[(u32)py * stride + (u32)px] = pen;
+                    }
+            x += FONT_ADVANCE;
+        }
+    }
+    return x - start;
 }
 
 /* --- palette ------------------------------------------------------------------------------- */
@@ -1123,6 +1237,8 @@ void rt_gfx_present(rt_machine *m, u32 view)
     static rt_region regions[EMU_MAX_REGIONS];
     int regionCount = 0, regRow = 0, regVStart = 0, regVStop = 0;
     int regHStart = 0, regHStop = 0;   /* the list's horizontal window, in framebuffer columns */
+    int xOrigin = 0;                    /* standard column raster column 0 shows */
+    int srcBase = 0;                    /* bitmap column the raster reads at column 0 */
     static int s_progTiles;
     int ddfS = 0, ddfE = 0, mod = 0, mod2 = 0;  /* what the strides are derived from */
     int bp = EMU_BP_UNKNOWN, dblpf = 0, pf2pri = 0;   /* BPLCON0/BPLCON2 in force */
@@ -1186,15 +1302,30 @@ void rt_gfx_present(rt_machine *m, u32 view)
     if (w > EMU_FB_MAX_W) w = EMU_FB_MAX_W;
     if (h <= 0 || h > rows) h = rows;
     if (h > EMU_FB_MAX_H) h = EMU_FB_MAX_H;
-    /* The horizontal window in framebuffer columns: at most the raster the ViewPort declares. A
-     * window wider than that (the chicken race's starts 32 pixels left of the standard edge) loses
-     * nothing on our picture; a narrower one is the black frame the minigames have. */
+    /* The horizontal window in framebuffer columns. A window narrower than the ViewPort is the
+     * black frame the minigames have, and is clipped out of the ViewPort's raster. A window
+     * *wider* than it is a screen of its own: the chicken race programs DIW 0x1D61..0xF5D1, 368
+     * pixels across while the ViewPort it draws through says 320, and its text page lays its
+     * narration box out across all 368 (0..0x16F, text 0x1E..0x151). Clipping that to the
+     * ViewPort cut the right end off every line. The raster becomes the window then, with raster
+     * column 0 at the window's left edge and nothing the list displays dropped. */
     if (regHStop > regHStart)
     {
-        if (regHStart < 0) regHStart = 0;
-        if (regHStart > w) regHStart = w;
-        if (regHStop > w) regHStop = w;
-        if (regHStop < regHStart) regHStop = regHStart;
+        int winW = regHStop - regHStart;
+        if (winW > w && winW <= EMU_FB_MAX_W)
+        {
+            xOrigin = regHStart;
+            w = winW;
+            regHStart = 0;
+            regHStop = winW;
+        }
+        else
+        {
+            if (regHStart < 0) regHStart = 0;
+            if (regHStart > w) regHStart = w;
+            if (regHStop > w) regHStop = w;
+            if (regHStop < regHStart) regHStop = regHStart;
+        }
     }
     else
     {
@@ -1348,6 +1479,12 @@ void rt_gfx_present(rt_machine *m, u32 view)
         for (p = 0; p < 32; p++) g_latch[p] = palLatch[p];
         listColours = count;
     }
+    /* Where the picture sits in the window. The shifter's data starts at DDFSTRT, and the
+     * standard 0x38 is aligned with the standard window edge (0x80 in this code's units): a list
+     * that offsets DDFSTRT - the chicken's 0x28, 32 pixels left - starts its bitmap at that
+     * offset, not at the window's edge. Raster column 0 reads bitmap column
+     * `xOrigin - (ddfS - 0x38) * 2`; every other list has DDF 0x38 and reads column 0. */
+    srcBase = xOrigin - (ddfS != 0 ? (ddfS - 0x38) * 2 : 0);
     if (count == 0 && cm != 0)
     {
         count = (int)rt_read8(&m->mem, cm + EMU_CM_COUNT);
@@ -1498,8 +1635,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
     {
         int i;
         printf("emu: segments %d (palMulti %d segSimple %d vstart %d vstop %d hstart %d hstop %d "
-               "fetch %d mod %d/%d):",
+               "origin %d base %d fetch %d mod %d/%d):",
                regionCount, palMulti, segSimple, regVStart, regVStop, regHStart, regHStop,
+               xOrigin, srcBase,
                ddfE > ddfS ? (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2 : bpr, mod, mod2);
         for (i = 0; i < regionCount; i++)
             printf(" [%d r%d n%d s%d/%d %s%s b%02X p%06lX c%03X]", i, regions[i].row, regions[i].n,
@@ -1528,12 +1666,13 @@ void rt_gfx_present(rt_machine *m, u32 view)
         for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
         /* More than one display segment in the list, or a palette per line: each row is converted
          * with the plane set, stride, delay and palette the copper has in force at its line. */
-        if (!segSimple || palMulti)
+        if (!segSimple || palMulti || srcBase != 0 || xOrigin != 0)
         {
             int y0;
             /* Only the columns inside the window are displayed; the rest is border (pen 0). The
-             * source bit of a column is the column itself minus the playfield delay - the window
-             * clips what is visible, it does not move the picture. */
+             * source bit of a column is the column itself, moved by the window's place in the
+             * DDF fetch (srcBase) and by the playfield delay; the window clips what is visible,
+             * it does not otherwise move the picture. */
             int x0 = regHStart, x1 = regHStop;
             for (y0 = 0; y0 < h; y0++)
             {
@@ -1584,7 +1723,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 for (; x < x1; x++)
                 {
                     int idx = 0, pf1 = 0, pf2 = 0;
-                    int sx = x;
+                    int sx = x + srcBase;
                     for (p = 0; p < npUse; p++)
                     {
                         int s = sx - (((p & 1) != 0) ? dd2 : dd1);
@@ -1863,7 +2002,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
 #define OSD_PAD       2
 #define OSD_PEN_TEXT  255              /* #00FF00 */
 #define OSD_PEN_ICON  240              /* 240..245: the save icon's colours */
-#define OSD_PEN_PTR   246              /* 246..247: the pointer's outline and fill */
+#define OSD_PEN_PTR   EMU_PEN_POINTER  /* 246..247: the pointer's outline and fill */
 #define OSD_PEN_CRS   248              /* 248..254: the crosshair's colours */
 #define OSD_TEXT_MAX  40
 
@@ -1955,17 +2094,34 @@ static void osd_draw_icon(rt_machine *m)
         }
 }
 
-static void osd_draw_pointer(rt_machine *m)
+void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y)
 {
     int row, col;
 
+    if (dst == 0) return;
+    /* Drawing into the chunky buffer makes the plane comparison meaningless; a later present
+     * must rebuild it. */
+    g_srcValid = 0;
     for (row = 0; row < PTR_H; row++)
         for (col = 0; col < PTR_W; col++)
         {
             u8 v = g_pointer[row * PTR_W + col];
-            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, gfx->ptrX + col, gfx->ptrY + row,
-                             (u8)(OSD_PEN_PTR + v - 1));
+            int px = x + col, py = y + row;
+
+            if (v != 0 && px >= 0 && py >= 0 && px < w && py < h)
+                dst[(u32)py * stride + (u32)px] = (u8)(OSD_PEN_PTR + v - 1);
         }
+}
+
+const u8 *rt_pointer_palette(void)
+{
+    return g_pointerPal;
+}
+
+static void osd_draw_pointer(rt_machine *m)
+{
+    (void)m;
+    rt_pointer_draw(gfx->fb, EMU_FB_MAX_W, gfx->fbW, gfx->fbH, gfx->ptrX, gfx->ptrY);
 }
 
 /* The aiming crosshair: its centre pixel is the point it marks, so the picture is placed half its

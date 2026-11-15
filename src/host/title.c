@@ -3,8 +3,9 @@
  * Port code, not a translation: the original boots straight into its intro, and its own title is
  * drawn by code we have not translated. This scene exists so the product has a place for the main
  * menu (settings, save slots, ...) that a DOS/Win32 release needs and a 1989 game never had; for
- * now it shows assets\titlescreen.png, plays the map screen's score, and starts the game on fire
- * (or one of the minigames on a digit key - see the end of this comment).
+ * now it shows assets\titlescreen.png with its four menu buttons (title_button.c), plays the map
+ * screen's score, and starts the game on fire or 0 (or one of the minigames on a digit key - see
+ * the end of this comment).
  *
  * The music is the engine's, not ours: its driver is game code (CIA timer A -> FUN_0000f264 ->
  * the score player, see docs\next-session.md), so nothing on the host side could play a song. What
@@ -32,6 +33,20 @@
  * ant fight is the one scene that *reads* that missing room state (which location, which room
  * picture, the clock VBI that decodes the fire button), so its launch sets those three from the
  * room it runs in - see TITLE_ANT_PC.
+ *
+ * W, C and T are the three endings. Each writes DAT_00022D68 and enters FUN_0000A4D6, the
+ * dispatcher the world loop calls: 1 is the win (`!WIN`, the queen is dead), 2 the blast in the
+ * collapsing nest and 3 the town's deadline (`!LOS` for both). The epilogue is the text that word
+ * selects, so the key takes the same switch the game itself takes. An ending never returns - its
+ * per-frame callback always answers 0 - so the title does not come back; Esc restarts the game.
+ *
+ * Escape in a played game is not a quit: the front end stops the run and starts the machine again,
+ * so the player lands on this title with a fresh game (src\host\main.c, src\host\dos_main.c). The
+ * menu itself ignores Escape - a quit entry on the title is still to come.
+ *
+ * The buttons are visual only for now: the game's own arrow (the map/room pointer) follows the
+ * mouse, lights up the button under it, and nothing on the title commits a click. Starting the
+ * game is still the keyboard's fire or 0.
  */
 #include <stdio.h>
 #include <string.h>
@@ -39,10 +54,12 @@
 #include "types.h"
 #include "platform.h"
 #include "machine.h"
+#include "display.h"
 #include "../oracle/cpu.h"
 #include "../recomp/cpu.h"
 #include "title.h"
 #include "title_art.h"
+#include "title_button.h"
 
 /* Runtime addresses: the image loads at 0x4000, and the model addresses named in the comments are
  * the ones in re\disasm\dshell.asm. */
@@ -99,24 +116,34 @@
 #define TITLE_ROOM_NAME   0x2CB3Eu  /* DAT_00028B3E, "!B%02d" of that byte    (model 0x28B3E) */
 #define TITLE_ANT_LOC     0x0011u
 #define TITLE_ANT_ROOM    0x000Cu
+
+/* The endings, the same way: 1 win, 2 the nest collapse, 3 the deadline. FUN_0000A4D6 reads the
+ * word and runs `!WIN` or `!LOS` itself, so the key only has to set it first. */
+#define TITLE_END_PC      0x0E4D6u  /* FUN_0000A4D6, the ending dispatcher    (model 0xA4D6) */
+#define TITLE_END_FLAG    0x26D68u  /* DAT_00022D68, which ending it runs     (model 0x22D68) */
 typedef struct title_scene
 {
-    int         key;                     /* the digit that starts it (KEY_1 is "1") */
+    int         key;                     /* the key that starts it (KEY_1 is "1") */
+    const char *keyName;                 /* how title_keys() writes it down */
     const char *name;
     u32         entry;
     int         nargs;
     u32         arg0, arg1;
+    u16         ending;                  /* non-0: write DAT_00022D68 before entering TITLE_END_PC */
 } title_scene;
 
 static const title_scene g_scenes[] =
 {
-    { KEY_1, "Fight",           0x0F46Cu, 0, 0, 0 },
-    { KEY_2, "Take a Flight",   0x147A6u, 1, 6, 0 },   /* 6 = the dispatcher's own argument */
-    { KEY_3, "Fire Game",       0x0FE34u, 0, 0, 0 },
-    { KEY_4, "Escape Hospital", 0x1C19Au, 0, 0, 0 },
-    { KEY_5, "Chicken Race",    TITLE_CHICKEN_PC, 0, 0, 0 },
-    { KEY_6, "Underground",     TITLE_UNDER_PC, 0, 0, 0 },
-    { KEY_7, "Giant Ant",       TITLE_ANT_PC, 0, 0, 0 }
+    { KEY_1, "1", "Fight",           0x0F46Cu, 0, 0, 0, 0 },
+    { KEY_2, "2", "Take a Flight",   0x147A6u, 1, 6, 0, 0 },   /* 6 = the dispatcher's own argument */
+    { KEY_3, "3", "Fire Game",       0x0FE34u, 0, 0, 0, 0 },
+    { KEY_4, "4", "Escape Hospital", 0x1C19Au, 0, 0, 0, 0 },
+    { KEY_5, "5", "Chicken Race",    TITLE_CHICKEN_PC, 0, 0, 0, 0 },
+    { KEY_6, "6", "Underground",     TITLE_UNDER_PC,   0, 0, 0, 0 },
+    { KEY_7, "7", "Giant Ant",       TITLE_ANT_PC,     0, 0, 0, 0 },
+    { KEY_W, "W", "Win Ending",      TITLE_END_PC,     0, 0, 0, 1 },
+    { KEY_C, "C", "Nest Collapse",   TITLE_END_PC,     0, 0, 0, 2 },
+    { KEY_T, "T", "Time Ran Out",    TITLE_END_PC,     0, 0, 0, 3 }
 };
 
 #define TITLE_SCENE_COUNT ((int)(sizeof g_scenes / sizeof g_scenes[0]))
@@ -145,6 +172,8 @@ static int g_scripted;                   /* --titlekey was given: the title ends
 static int g_ticks;                      /* menu frames run since the title came up */
 static u32 g_popOnReturn;                /* argument bytes the injected call's caller would pop */
 static int g_clockVbi;                   /* the world loop's clock VBI is installed (once) */
+static int g_playMode;                   /* this session is a played game: Esc restarts it */
+static int g_restart;                    /* Esc asked the front end for a fresh boot */
 
 void host_title_arm(int on)
 {
@@ -152,6 +181,8 @@ void host_title_arm(int on)
     g_pick = 0;
     g_popOnReturn = 0;
     g_ticks = 0;
+    g_clockVbi = 0;                      /* a fresh machine has no clock VBI installed */
+    g_playMode = on;                     /* Esc restarts a played game, never a measurement */
     /* The intro's setup is reached inside a translated function (the mode dispatcher runs it as a
      * block), so there is no call boundary to catch: ask the dispatch to hand the program back
      * before that instruction runs. Cleared again as soon as the title is done with it. */
@@ -165,6 +196,28 @@ void host_title_key(int n)
      * taken this menu ends the run (a scene that returns therefore ends it too, which is what
      * tools\title-check.ps1 measures). */
     g_scripted = n >= 0;
+}
+
+/* Escape in a played game. The front end restarts the whole machine after this (see title.h), so
+ * every piece of emulated state is the one a fresh boot makes - which is what "back to the title"
+ * has to mean: the title is a host menu parked at the intro's setup, and nothing of the old
+ * session's stack, heap or banks can survive into it. The stop is forced twice: m->stop leaves the
+ * stream at the next function boundary, and rc_stopAt unwinds a translated busy loop that would
+ * never reach one. */
+void host_title_escape(rt_machine *m)
+{
+    if (!g_playMode) { m->stop = 1; return; }   /* a measurement: the front end's old stop */
+    if (g_restart) return;
+    g_restart = 1;
+    m->stop = 1;
+    rc_stopAt = (long)m->insns + 1;
+}
+
+int host_title_restart_pending(void)
+{
+    int r = g_restart;
+    g_restart = 0;
+    return r;
 }
 
 /* Enters `pc` the way a caller would: its stack arguments, then the return address on top, so the
@@ -194,31 +247,42 @@ static void title_tick(rt_machine *m)
     oracle_tick(m);                      /* vblank, interrupt servers, one frame */
 }
 
-static void title_draw(void)
+static void title_draw(rt_machine *m, const title_menu *menu)
 {
-    u8 *dst = plat_framebuffer();
+    u8 *dst;
+    u32 stride = plat_set_framebuffer_size(SCREEN_W, SCREEN_H);
     int x, y;
 
+    /* The title is the port's own 320x200 art; a scene that presented a larger screen (the chicken
+     * race's 368x216 narration page) has to give the window back first. */
+    if (stride == 0) stride = SCREEN_W;             /* a fixed-mode platform */
+    dst = plat_framebuffer();
     if (dst == 0) return;
     plat_set_palette(0, TITLE_PAL_ENTRIES, g_titlePal);
+    /* The menu's pens sit past the picture's own 69 entries, so the art keeps its colours. */
+    plat_set_palette(TITLE_BUTTON_PEN_OUTLINE,
+                     TITLE_BUTTON_PEN_COUNT - TITLE_BUTTON_PEN_OUTLINE, title_menu_palette());
+    /* The pointer is the game's own arrow, with the two pens the runtime overlay uses. */
+    plat_set_palette(EMU_PEN_POINTER, EMU_PEN_POINTER_COLOURS, rt_pointer_palette());
     for (y = 0; y < TITLE_H && y < SCREEN_H; y++)
     {
         for (x = 0; x < TITLE_W && x < SCREEN_W; x++)
-            dst[(u32)y * SCREEN_W + (u32)x] = g_titleImg[(u32)y * TITLE_W + (u32)x];
-        for (; x < SCREEN_W; x++) dst[(u32)y * SCREEN_W + (u32)x] = 0;
+            dst[(u32)y * stride + (u32)x] = g_titleImg[(u32)y * TITLE_W + (u32)x];
+        for (; x < SCREEN_W; x++) dst[(u32)y * stride + (u32)x] = 0;
     }
-    for (; y < SCREEN_H; y++) memset(dst + (u32)y * SCREEN_W, 0, SCREEN_W);
+    for (; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
+    title_menu_draw(m, menu, dst, stride, SCREEN_W, SCREEN_H);
 }
 
-/* The menu, on the console: the title art has no text of its own (the platform framebuffer has no
- * font), so this line is where the keys are written down. */
+/* The debug keys, on the console: the four menu entries are drawn on the title itself, but the
+ * scenes and endings have no button, so this line is where those keys are written down. */
 static void title_keys(void)
 {
     int i;
 
     printf("title: fire or 0 starts the game;");
     for (i = 0; i < TITLE_SCENE_COUNT; i++)
-        printf("  %d %s", i + 1, g_scenes[i].name);
+        printf("  %s %s", g_scenes[i].keyName, g_scenes[i].name);
     printf("\n");
 }
 
@@ -228,23 +292,27 @@ static void title_keys(void)
 static int title_play(rt_machine *m)
 {
     input_state in;
+    title_menu menu;
     void (*savedFrame)(rt_machine *) = m->on_frame;
     void (*savedPresent)(rt_machine *) = m->on_present;
     int pick = -1;
 
     if (g_scripted && g_virtualKey < 0) return TITLE_PICK_QUIT;   /* the choice was taken already */
 
-    title_draw();
+    title_menu_init(&menu);
     m->on_frame = 0;                     /* the title owns the keyboard ... */
     m->on_present = 0;                   /* ... and the screen */
     while (pick < 0)
     {
         int i;
 
-        plat_present();                  /* a still, redrawn so an uncovered window repaints */
         if (!plat_pump(&in)) { pick = TITLE_PICK_QUIT; break; }        /* the window was closed */
-        if (in.down[KEY_ESCAPE]) { pick = TITLE_PICK_QUIT; break; }
-        if (in.pressed[KEY_FIRE] || in.pressed[KEY_0] || in.mouse_left_pressed)
+        title_menu_pointer(&menu, in.mouse_present, in.mouse_x, in.mouse_y);
+        title_draw(m, &menu);            /* the still, the pointer, and the button it is over */
+        plat_present();
+        if (in.pressed[KEY_FIRE] || in.pressed[KEY_0])                  /* the buttons have no
+                                                                         * actions yet, so a click
+                                                                         * commits nothing */
             pick = TITLE_PICK_INTRO;
         for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
             if (in.pressed[g_scenes[i].key]) pick = TITLE_PICK_SCENE + i;
@@ -342,8 +410,12 @@ int host_title_check(rt_machine *m, u32 pc)
                 return 1;
             }
         }
+        if (s->ending != 0)
+            rt_write16(&m->mem, TITLE_END_FLAG, s->ending);      /* the word FUN_0000A4D6 reads */
         title_call(m, s->entry, pc, s->nargs, s->arg0, s->arg1);
         printf("title: %s at frame %lu\n", s->name, (unsigned long)m->frame);
+        if (s->ending != 0)
+            printf("title: ending %u\n", (unsigned)s->ending);
         g_state = TITLE_UNLOAD;
         return 1;
     }

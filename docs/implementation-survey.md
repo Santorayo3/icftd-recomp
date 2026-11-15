@@ -28,8 +28,9 @@ handlers.
 Verified against the original (machine state, not pictures): **intro/logo/desert, load screen, save,
 situation map, a location room, the flight, the underground ant nest, the hospital escape, the
 fight, the chicken race, the giant-ant fight**. Runs and renders, but
-has never been compared with the reference: **phone, fire game, win ending**. Never entered: **ant
-chapter's evidence dialogue, look-around menu, sleep/clock/shop-hours, pause, journey cutscene**.
+has never been compared with the reference: **phone, fire game, the three endings (win and both
+losses)**. Never entered: **ant chapter's evidence dialogue, look-around menu, sleep/clock/shop-hours,
+pause, journey cutscene**.
 
 Update 2026-11-14: the **underground ant nest (UNDER, `FUN_0000BFCA`)** moved from "never entered"
 to verified — it is the tunnel game Take a Flight continues into, not the journey cutscene (§3).
@@ -108,7 +109,7 @@ screenshot.
 | fight (bar-room brawl) | `--call 0xF46C:1513` + `ref\inputs\fight.txt`: 3432 frame records identical (PC/SR/registers/custom on every one; 76 differ only in dead stack bytes), RAM byte-identical at the win frame 3430, opponent's bar drained to 0 and `DAT_0002991e = 1`; `present-check` fight coverage 0.973 + both health bars | **done** |
 | chicken race | `--call 0x1FA3E:1513` + `ref\inputs\chicken-win.txt` (won) and the brake script: 335 and 351 frame records identical (PC/SR/registers/custom on every one), RAM byte-identical at 1560/1600/1630/1660 and 1620/1700; the two paths reach `DAT_0002bcd4 = 1` (he swerved) and `DAT_0002bcce = 60` (braked); `present-check` chicken coverage 0.974 over the list's 216-row DIW window, the 13 per-line palette bands, the dual-playfield horizon strip with both of its ranges (4119 px of playfield 1's tans, 2601 px of playfield 2's), the filled road surface (13 774 px of its pen-28 grey) and the cockpit picture (including the rows below 200) | **done** |
 | giant-ant fight (the pistol, and its antennas) | `--poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C` (the room's location/room/picture name, then the clock VBI, returning into `FUN_00008C5C`): 4028 frame records identical to the oracle (`--callat 0x951C:4876672:0x200:0x23512:0xCC5C`), RAM byte-identical at 1900/2100/2300/2500 (1750 differs in 2 dead-stack bytes at `0x17FCBC`), the aim moves with the stick and a fire stores its test point (`0x29AF2/0x29AFC` = aim `−0x1B`/`−0x3A`); the scene returns `D0 = 0` at frame 4028 | **done** |
-| title screen, OSD, save slots, mouse capture, the title's digit keys (1..7) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
+| title screen, OSD, save slots, mouse capture, the title's keys (1..7 the minigames, W/C/T the three endings) | port features (no counterpart in the original) — measured, see `next-session.md` | **done** |
 | the giant-ant fight's crosshair | port feature: `crosshair-check` — on frame 2121 the aim is `238,120` and the mark is drawn at `211,62`, which is exactly the shot point the engine stores on frame 2122 (`0x29AF2/0x29AFC`); the mark follows the stick (frame 2095: aim `212,120` → mark `185,62`); the same run without the seam draws no crosshair and matches the armed run on all 3391 frame records | **done** |
 | the situation map's cursor, driven by the mouse | port feature: `mouse-check` — the cursor is pinned under the pointer (hot spot `0x11`/`0x12`), the picture scrolls at the window's edge, a held stick wins, and a pointer run's frame records are identical to a plain run's up to the map's first update (`next-session.md`) | **done** |
 | the room screens' pointer, and a text menu line selected by hovering | port feature: `pointer-check` — the arrow is drawn only on a location view (never on the map, which has the game's cursor); hovering line 1 + click stores the same menu entry/action as Up ×4 (0/2), line 4 the same as Down ×2 (3/4); a pointer away from the text leaves the run byte-identical, a hover run first differs at the first pass after the pointer moved | **done** |
@@ -127,9 +128,19 @@ and they put a full 320×200 picture on the machine:
 |---|---|---|
 | phone | `--call 0xA4E2:1000` | `PHONE.DAT` + `Desert2:PEOPLE` load, the phone-book panel renders (names and numbers), waits for input (frame count climbs) |
 | fire game | `--call 0xFE34:1000` | `PEOPLE`/`BACKS`/`FIRE`/`sfx/fire` load, the room with the spreading fire renders, reaches the lose narration "The fire overcame my efforts to put it out" |
-| win ending | `--poke 1000:0x26D68=0x10000 --call 0xE4D6:1000` | `!WIN` re-opens `OPEN`, the epilogue renders ("The ant queen was dead…") |
+| endings (`!WIN` and both `!LOS` texts) | `--poke 1000:0x26D68=0x10000 --call 0xE4D6:1513` (win), `=0x20000` (lost in the nest collapse), `=0x30000` (town destroyed) | the end script re-opens `OPEN`; the epilogue is the text `DAT_00022d68-1` selects - "The ant queen was dead…", "…the blast from the dynamite collapsing the tunnel walls…", "We fought bravely, but in the end, time ran out…". 1 runs `!WIN`, 2 and 3 run `!LOS` |
 
-(`--poke` writes a long, so the word `DAT_00022d68` has to be poked as `0x10000`.)
+(`--poke` writes a long, so the word `DAT_00022d68` has to be poked as `0x10000`; the following
+word is the first string pointer's high half, which is 0 in RAM, so the write is harmless.)
+
+Update 2026-11-15: all three endings were run on the translated build (`out\ending-check\`,
+git-ignored), each showing its own text. The **deadline trigger was driven end to end**: on the
+situation map, `--poke 2000:0x25E1E=0,0x25E22=0x0017003B` (day 0, 23:59) makes the map script's own
+`FUN_0001061C` set `DAT_00022d68=3`; the main loop's dispatcher starts the ending at frame 2005 and
+`OPEN` re-opens at 2010 - no ending call is injected. The **flight-return block** (`0x10B0A`, after
+the ant nest) was exercised with `DAT_0002A174=2` and `DAT_0002991E` 1/0 (flags 1/2 as above) and
+with `0x71E=1` (plays its sound and returns without an ending); playing the nest itself through to
+that return was not driven.
 
 They are *plausible*, not *proven*: no reference state exists for them yet. Nothing in their code
 path hits an unimplemented library call or a memory fault (§6.5), so the remaining risk is the

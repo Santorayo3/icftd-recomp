@@ -216,9 +216,12 @@ if (Test-Path 'ref\inputs\fight.txt') {
 # bitmap at 0x2BCF0 says, not the 42 of the ViewPort's); one that reads DHeight instead of the
 # list's DIW window stops at row 200 and cuts the bottom of the cockpit; and one that ignores
 # BPLCON0's DBLPF bit folds the horizon strip's two playfields into a single five-plane index and
-# paints it in colours that segment never programs. All four are checked here:
+# paints it in colours that segment never programs; and one that takes the ViewPort's DWidth as the
+# raster width drops the right-hand 48 columns of the screen - which is where the narration text of
+# the scene's closing page ends. All five are checked here:
 #
 #   - the picture must cover the screen (coverage),
+#   - it must be 368 columns wide (DIWSTRT 0x1D61 .. DIWSTOP 0xF5D1), not the ViewPort's 320,
 #   - it must be 216 rows tall (DIWSTRT 0x1D .. DIWSTOP 0xF5), not the ViewPort's 200,
 #   - the sunset bands must carry *different* colours (only a per-line palette can),
 #   - the horizon strip must use only its segment's own colours, and show both of its ranges
@@ -289,6 +292,9 @@ if (Test-Path 'ref\inputs\chicken.txt') {
         if ($cov -lt 0.90) {
             Write-Output ("present: chicken FAIL - coverage {0:N3} < 0.90 (blank or sheared screen)" -f $cov)
             $fail++
+        } elseif ($ch.Width -ne 368) {
+            Write-Output ("present: chicken FAIL - the raster is {0} columns; the list's DIW window (0x1D61..0xF5D1) is 368, so its narration text is being clipped" -f $ch.Width)
+            $fail++
         } elseif ($ch.Height -ne 216) {
             Write-Output ("present: chicken FAIL - the raster is {0} rows; the list's DIW window (0x1D..0xF5) is 216" -f $ch.Height)
             $fail++
@@ -311,7 +317,7 @@ if (Test-Path 'ref\inputs\chicken.txt') {
             Write-Output ("present: chicken FAIL - rows 200..212 are empty ({0} px) - the cockpit below the ViewPort's 200 rows was cut" -f $cockpitBottom)
             $fail++
         } else {
-            Write-Output ("present: chicken ok   - {0} rows, coverage {1:N3}, bands {2} ({3} distinct), horizon tans {4}/{5} px, road {6} px, dashboard {7} px, cockpit below row 200 {8} px" -f $ch.Height, $cov, ($bands -join ' '), $distinct, $tanPx, $backPx, $roadGrey, $dash, $cockpitBottom)
+            Write-Output ("present: chicken ok   - {0}x{1}, coverage {2:N3}, bands {3} ({4} distinct), horizon tans {5}/{6} px, road {7} px, dashboard {8} px, cockpit below row 200 {9} px" -f $ch.Width, $ch.Height, $cov, ($bands -join ' '), $distinct, $tanPx, $backPx, $roadGrey, $dash, $cockpitBottom)
         }
     } catch { Write-Output "present: chicken FAIL - $_"; $fail++ }
     finally { if ($ch) { $ch.Dispose() } }

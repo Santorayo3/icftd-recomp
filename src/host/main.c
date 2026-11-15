@@ -14,9 +14,10 @@
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
- *                [--titlekey <n>] [--mouse <file>] [--hoverlog]
+ *                [--titlekey <n>] [--esc <frame>] [--mouse <file>] [--hoverlog]
  *
- * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space or the left
+ * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
+ * title screen, space or the left
  * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
  * mouse moves the situation map's cursor and the phone book's arrow, and on a room screen it is
  * the pointer a menu line is selected with); without it the build runs headless and only reports
@@ -30,8 +31,8 @@
  * `--hoverlog` prints every text menu line the pointer seam records and the entry a hover picks,
  * so a scripted run says which line is where instead of leaving it to a screenshot.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
- * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..6 the minigames) so a
- * scripted run can start a scene from the title; it is a dev seam like `--call`.
+ * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
+ * the endings) so a scripted run can start a scene from the title; it is a dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
  * (`--dumpfrom` starts the sequence at an emulated frame, for a scene reached deep into a run).
@@ -91,6 +92,11 @@ static u32 g_callRet;                      /* --call's 4th field: return here in
 static u32 g_callFrame;
 static u32 g_callArg;
 static int g_called;
+
+/* --esc <frame>: press Escape at a frame (a test seam, like --call). It goes through the same path
+ * the key does, so a scripted run can measure the restart that returns to the title. */
+static u32 g_escFrame;
+static int g_escDone;
 
 /* --poke <frame>:<addr>=<value>[,<addr>=<value>...] writes engine globals at a frame boundary, so
  * a state the game's own menus would produce (e.g. DAT_000269d6 = 9, "Take a Flight") can be set
@@ -751,13 +757,32 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
+/* A headless --esc run has no window and therefore no host_input; this hook is the frame boundary
+ * it needs. It is the same seam host_input checks. */
+static void host_esc_frame(rt_machine *m)
+{
+    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
+    {
+        g_escDone = 1;
+        printf("recomp: escape at frame %lu\n", (unsigned long)m->frame);
+        host_title_escape(m);
+    }
+}
+
 static void host_input(rt_machine *m)
 {
     input_state in;
     u16 joy;
 
+    /* --esc <frame>: the same path the Escape key takes (a test seam, like --call). */
+    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
+    {
+        g_escDone = 1;
+        printf("recomp: escape at frame %lu\n", (unsigned long)m->frame);
+        host_title_escape(m);
+    }
     if (!plat_pump(&in)) m->stop = 1;
-    if (in.down[KEY_ESCAPE]) m->stop = 1;
+    if (in.pressed[KEY_ESCAPE]) host_title_escape(m);
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     if (g_portArm)
@@ -881,7 +906,8 @@ static void host_present(rt_machine *m)
     const u8 *pal = rt_gfx_palette();
     int w = rt_gfx_width(), h = rt_gfx_height();
     u8 *dst;
-    int y, cw;
+    u32 stride;
+    int x, y, cw;
 
     /* --osd keeps a line (or "save" for the icon) up, so a headless --shot can be checked by
      * pixel instead of by eye. Armed here so it works without a window. */
@@ -901,26 +927,36 @@ static void host_present(rt_machine *m)
         shot_write(path);
     }
     if (!g_window) return;
+    /* The picture is the screen the copper list programs - 320x200, or 368x216 while the chicken
+     * race's narration page is up, because that page lays its text out across the overscan. The
+     * platform takes it at that size, so every column and row reaches the screen; sampling it into
+     * the 320x200 mode instead dropped one column in eight, which garbled the letters. */
+    stride = plat_set_framebuffer_size((u32)w, (u32)h);
     dst = plat_framebuffer();
-    plat_set_palette(0, 256, pal);
-    cw = w < SCREEN_W ? w : SCREEN_W;
-    if (h > SCREEN_H)
+    if (stride != 0)
     {
-        /* The raster is the size of the window the copper list programs, which can be taller than
-         * the 320x200 DIB (the chicken race's list asks for 216 rows). Sample it down instead of
-         * leaving its bottom rows - the cockpit - out of the window. */
-        for (y = 0; y < SCREEN_H; y++)
-        {
-            int sy = (y * h) / SCREEN_H;
-            if (sy >= h) sy = h - 1;
-            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)sy * EMU_FB_MAX_W, (size_t)cw);
-        }
+        for (y = 0; y < h; y++)
+            memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
     }
     else
-    {
-        for (y = 0; y < SCREEN_H && y < h; y++)
-            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)cw);
+    {   /* The video mode cannot change (DOS: VGA mode 13h is 320x200): fit the picture into it. */
+        cw = w < SCREEN_W ? w : SCREEN_W;
+        for (y = 0; y < SCREEN_H; y++)
+        {
+            int sy = (h > SCREEN_H) ? (y * h) / SCREEN_H : y;
+            const u8 *row;
+            if (sy >= h) break;
+            row = fb + (u32)sy * EMU_FB_MAX_W;
+            if (w > SCREEN_W)
+            {
+                for (x = 0; x < SCREEN_W; x++)
+                    dst[(u32)y * SCREEN_W + (u32)x] = row[(u32)(x * w) / SCREEN_W];
+            }
+            else
+                memcpy(dst + (u32)y * SCREEN_W, row, (size_t)cw);
+        }
     }
+    plat_set_palette(0, 256, pal);
     plat_present();
     (void)m;
 }
@@ -1086,10 +1122,18 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
         {
-            /* <n>: 0 starts the game from the title, 1..6 start the debug scenes. A dev seam like
-             * --call, but through the title's own menu - see src\host\title.c. */
+            /* <n>: 0 starts the game from the title, 1..7 start the debug scenes, 8..10 the three
+            * endings. A dev seam like --call, but through the title's own menu - see
+            * src\host\title.c. */
             titleKey = (int)strtol(argv[++i], 0, 0);
             if (titleKey < 0) titleKey = 0;
+            continue;
+        }
+        if (strcmp(argv[i], "--esc") == 0 && i + 1 < argc)
+        {
+            /* <frame>: press Escape at that frame, through the path the key takes (a test seam
+            * like --call - it measures the restart that returns to the title). */
+            g_escFrame = (u32)strtoul(argv[++i], 0, 0);
             continue;
         }
         if (argv[i][0] == '-') { printf("recomp: unknown option %s\n", argv[i]); return 2; }
@@ -1192,6 +1236,8 @@ int main(int argc, char **argv)
     }
     else if (mousePath != 0)
         m.on_frame = host_pointer_frame;   /* headless --mouse: only the scripted pointer */
+    else if (g_escFrame != 0)
+        m.on_frame = host_esc_frame;       /* headless --esc: the restart seam needs a frame */
     if (audioDump != 0)
     {
         /* Mix without a device: the run's audio is checked (and can be heard) offline. */
@@ -1207,11 +1253,12 @@ int main(int argc, char **argv)
      * script, a state/raster dump, an injected entry or a poke is reproducing or inspecting the
      * original, which has no title, and must start where the original starts. It engages itself
      * when the program is about to play its intro (see title.c). --titlekey is the exception: it
-     * asks for the title's own menu, so it arms the title even headless and with a capture. */
+     * asks for the title's own menu, so it arms the title even headless and with a capture - and
+     * an input script is exactly how a scene reached that way is replayed. */
     host_title_key(titleKey);
     host_title_arm((g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                     dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
-                   (titleKey >= 0 && inputPath == 0 && statePrefix == 0 &&
+                   (titleKey >= 0 && statePrefix == 0 &&
                     g_callPc == 0 && g_pokeCount == 0));
     /* The pointer that drives the map cursor, and the fight's aiming crosshair, are port features,
      * so they follow the same rule: they run in a played game (and for a --mouse test run), never
@@ -1238,65 +1285,148 @@ int main(int argc, char **argv)
     m.on_cia = host_cia;
     gather(&c, &m);
 
-    while (m.insns < insns && !m.stop)
+    for (;;)
     {
-        u32 pc;
-
-        if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
+        while (m.insns < insns && !m.stop)
         {
-            /* Enter one of the engine's own routines as if its caller had just called it: a frame
-             * is pushed with the program-end sentinel as the return address, so the run stops
-             * cleanly when it returns. This is how a scene is reached without playing to it. The
-             * core's PC has to be set here - translated code rewrites c->pc per instruction. */
-            u32 r[18];
-            u32 beforePc = m68k_get_reg(0, M68K_REG_PC);
-            g_called = 1;
-            oracle_regs_get(r);
-            r[REGS_A + 7] -= 4;
-            rt_write32(&m.mem, r[REGS_A + 7], g_callArg);   /* the routine's first argument */
-            r[REGS_A + 7] -= 4;
-            rt_write32(&m.mem, r[REGS_A + 7], g_callRet != 0 ? g_callRet : EMU_EXIT_PC);
-            r[REGS_PC] = g_callPc;
-            oracle_regs_set(r);
-            printf("recomp: calling %06lX(%08lX) at frame %lu (%ld insns, was at pc %06lX)\n",
-                   (unsigned long)g_callPc, (unsigned long)g_callArg, (unsigned long)m.frame,
-                   (long)m.insns, (unsigned long)beforePc);
-            if (g_callRet != 0)
-                printf("recomp:      returns into the program at %06lX\n", (unsigned long)g_callRet);
+            u32 pc;
+    
+            if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
+            {
+                /* Enter one of the engine's own routines as if its caller had just called it: a frame
+                 * is pushed with the program-end sentinel as the return address, so the run stops
+                 * cleanly when it returns. This is how a scene is reached without playing to it. The
+                 * core's PC has to be set here - translated code rewrites c->pc per instruction. */
+                u32 r[18];
+                u32 beforePc = m68k_get_reg(0, M68K_REG_PC);
+                g_called = 1;
+                oracle_regs_get(r);
+                r[REGS_A + 7] -= 4;
+                rt_write32(&m.mem, r[REGS_A + 7], g_callArg);   /* the routine's first argument */
+                r[REGS_A + 7] -= 4;
+                rt_write32(&m.mem, r[REGS_A + 7], g_callRet != 0 ? g_callRet : EMU_EXIT_PC);
+                r[REGS_PC] = g_callPc;
+                oracle_regs_set(r);
+                printf("recomp: calling %06lX(%08lX) at frame %lu (%ld insns, was at pc %06lX)\n",
+                       (unsigned long)g_callPc, (unsigned long)g_callArg, (unsigned long)m.frame,
+                       (long)m.insns, (unsigned long)beforePc);
+                if (g_callRet != 0)
+                    printf("recomp:      returns into the program at %06lX\n", (unsigned long)g_callRet);
+            }
+            pc = m68k_get_reg(0, M68K_REG_PC);
+            if (host_title_check(&m, pc)) continue;
+    
+            if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
+            {
+                /* Translated: it runs until it returns, or until it transfers somewhere the translator
+                 * refused, and c->pc then names where the core continues. */
+                translated++;
+                g_entryPc[g_entryPos++ & (HOST_PC_RING - 1)] = pc;
+                g_isActive = 0;
+                gather(&c, &m);                            /* the core's state is the machine's */
+                rc_call(&c, &m, pc);
+                scatter(&c, &m);                           /* ... and what the translation left is next */
+                continue;
+            }
+            interpreted++;
+            interp_note(pc, !g_isActive);
+            cover_note(pc);
+            while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
+            {
+                u32 cost = oracle_instruction_cost(&m, pc);
+    
+                rt_trace(&m, pc);
+                m.cyclesToTick -= (long)cost;
+                rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
+                rt_cia_service(&m);
+                if (m.cyclesToTick < 0) oracle_tick(&m);
+            }
+            if (!oracle_step(&m)) break;
+            if (progress && (m.insns % 1000000L) == 0)
+                printf("recomp: %ld steps, frame %lu, %lu raster(s), %lu translated entry(ies)\n",
+                       (long)m.insns, (unsigned long)m.frame, (unsigned long)m.gfx.frames,
+                       (unsigned long)translated);
         }
-        pc = m68k_get_reg(0, M68K_REG_PC);
-        if (host_title_check(&m, pc)) continue;
 
-        if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
+        /* Esc in a played game: the whole game starts again, so every piece of emulated state is
+         * the one a fresh boot makes. The title arms itself as it does on the first boot; nothing
+         * of the old session - its stack, heap, loaded banks or scores - can leak into it. */
+        if (!host_title_restart_pending()) break;
+
         {
-            /* Translated: it runs until it returns, or until it transfers somewhere the translator
-             * refused, and c->pc then names where the core continues. */
-            translated++;
-            g_entryPc[g_entryPos++ & (HOST_PC_RING - 1)] = pc;
+            int keepSlot = m.saveSlot;
+            int soundGain = m.audio.soundGain, musicGain = m.audio.musicGain;
+            int hadAudio = m.audio.device;
+
+            printf("recomp: restarting the game\n");
+            if (g_record != 0) { fclose(g_record); g_record = 0; }
+            if (m.callLog != 0) { fclose((FILE *)m.callLog); m.callLog = 0; }
+            if (m.frameLog != 0) { fclose((FILE *)m.frameLog); m.frameLog = 0; }
+            if (m.spriteLog != 0) { fclose((FILE *)m.spriteLog); m.spriteLog = 0; }
+            rt_shutdown(&m);
+            if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
+            if (!rt_load_image(&m, base, image))
+            {
+                printf("recomp: cannot load %s\n", image);
+                rt_shutdown(&m);
+                return 1;
+            }
+            /* The same per-session settings as above: rt_init starts from a zeroed machine, so the
+             * callbacks, the slot and the logging switches have to be put back. */
+            m.dataDir = dataDir;
+            m.progress = progress;
+            m.progressFrom = progressFrom;
+            m.blitLog = blitLog;
+            m.blitLogFrame = blitLogFrame;
+            m.blitBytePtr = blitBytePtr;
+            m.dosLog = dosLog;
+            m.textLog = textLog;
+            m.busTable = busTablePath != 0;
+            m.slotsAt = slotsAt;
+            m.saveSlot = keepSlot;
+            m.traceFrom = traceFrom;
+            m.traceTo = traceTo;
+            m.tickLog = tickLog;
+            m.audioLog = audioRegs;
+            if (hadAudio && plat_audio_open(EMU_AUD_RATE))
+            {
+                rt_audio_open(&m, EMU_AUD_RATE);
+                rt_audio_set_gain(&m, soundGain, musicGain);
+            }
+            if (audioDump != 0)
+            {
+                rt_audio_render_only(&m, EMU_AUD_RATE);
+                rt_audio_capture(&m, audioDump);
+            }
+            if (g_window) m.on_frame = host_input;
+            else if (mousePath != 0) m.on_frame = host_pointer_frame;
+            else if (g_escFrame != 0) m.on_frame = host_esc_frame;
+            if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
+            oracle_boot(HS_ENTRY, HS_A4);
+            m.on_cia = host_cia;
+            rc_frame_hook = host_frame;
+            rc_stopOnUnknown = 1;
+            rc_abort = 0;
+            rc_stopAt = runForever ? 0 : insns;
+            g_cpu = &c;
+            gather(&c, &m);
+            translated = interpreted = 0;
+            g_isCount = 0;
             g_isActive = 0;
-            gather(&c, &m);                            /* the core's state is the machine's */
-            rc_call(&c, &m, pc);
-            scatter(&c, &m);                           /* ... and what the translation left is next */
-            continue;
+            g_called = 0;
+            g_escDone = (g_escFrame != 0) ? 1 : 0;
+            /* The port seams keep per-screen state; a fresh game must not inherit the old one. */
+            g_ptrKnown = g_ptrActive = g_hoverOwn = 0;
+            g_ptrX = g_ptrY = 0;
+            g_ptrScriptPos = 0;
+            g_ptrButton = 0;
+            g_mapFrame = g_phoneFrame = g_roomFrame = g_antFrame = 0;
+            g_lineCount = 0;
+            /* A played game shows the title again. A headless run (the --titlekey seam) has no
+             * keyboard, so ask the menu to end the moment it is up: key 99 is not a scene. */
+            host_title_key(g_window ? -1 : 99);
+            host_title_arm(1);
         }
-        interpreted++;
-        interp_note(pc, !g_isActive);
-        cover_note(pc);
-        while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
-        {
-            u32 cost = oracle_instruction_cost(&m, pc);
-
-            rt_trace(&m, pc);
-            m.cyclesToTick -= (long)cost;
-            rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
-            rt_cia_service(&m);
-            if (m.cyclesToTick < 0) oracle_tick(&m);
-        }
-        if (!oracle_step(&m)) break;
-        if (progress && (m.insns % 1000000L) == 0)
-            printf("recomp: %ld steps, frame %lu, %lu raster(s), %lu translated entry(ies)\n",
-                   (long)m.insns, (unsigned long)m.frame, (unsigned long)m.gfx.frames,
-                   (unsigned long)translated);
     }
 
     printf("recomp: stopped at 0x%lx after %ld instruction(s), frame %lu\n",

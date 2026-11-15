@@ -19,7 +19,9 @@
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
- *   --titlekey <n>       take a title screen menu choice (0 the game, 1..6 the minigames)
+ *   --titlekey <n>       take a title screen menu choice (0 the game, 1..7 the minigames, 8..10
+ *                        the endings)
+ *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -55,6 +57,8 @@ static int    g_perf;
 static u32    g_perfLast, g_perfTotal, g_perfVblank, g_perfPresent, g_perfFrames, g_perfWait;
 static long   g_perfCiaInsns;           /* instructions run by the CIA handlers (the music driver) */
 static u32    g_perfCiaRuns;
+static u32    g_escFrame;               /* --esc <frame>: press Escape at that frame */
+static int    g_escDone;
 
 static void dump_ram(rt_machine *m)
 {
@@ -196,7 +200,14 @@ static void dos_input(rt_machine *m)
     u16 joy;
 
     if (!plat_pump(&in)) m->stop = 1;
-    if (in.down[KEY_ESCAPE]) m->stop = 1;
+    /* --esc <frame>: the same path the Escape key takes (a test seam, like --call). */
+    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
+    {
+        g_escDone = 1;
+        printf("icftd: escape at frame %lu\n", (unsigned long)m->frame);
+        host_title_escape(m);
+    }
+    if (in.pressed[KEY_ESCAPE]) host_title_escape(m);
 
     /* Save slot: F1..F4 pick one, F5 steps to the next. The engine writes its save into DSAVE:,
      * which the runtime maps onto SAVES\SLOT<N>, so the overlay is the only feedback. */
@@ -234,36 +245,54 @@ static void dos_present(rt_machine *m)
 {
     const u8 *fb = rt_gfx_framebuffer();
     const u8 *pal = rt_gfx_palette();
-    u8 *dst = plat_framebuffer();
+    u8 *dst;
     int w = rt_gfx_width(), h = rt_gfx_height();
     int x, y;
-    u32 t0 = g_perf ? plat_ticks_ms() : 0;
+    u32 stride, t0 = g_perf ? plat_ticks_ms() : 0;
 
-    if (fb == 0 || pal == 0 || dst == 0) return;
-    if (w > SCREEN_W) w = SCREEN_W;
+    if (fb == 0 || pal == 0) return;
+    stride = plat_set_framebuffer_size((u32)w, (u32)h);
+    dst = plat_framebuffer();
+    if (dst == 0) return;
     plat_set_palette(0, PAL_ENTRIES, pal);
-    if (h > SCREEN_H)
+    if (stride != 0)
     {
-        /* The raster is the size of the window the copper list programs, which can be taller than
-         * the 320x200 mode (the chicken race's list asks for 216 rows). Sample it down instead of
-         * losing its bottom rows. */
-        for (y = 0; y < SCREEN_H; y++)
+        /* The video mode took the picture's size: hand it over unchanged. */
+        for (y = 0; y < h; y++)
+            memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
+        plat_present();
+        if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
+        (void)m;
+        return;
+    }
+    /* VGA mode 13h is exactly 320x200, while the screen is the size of the window the copper list
+     * programs: the chicken race's list asks for 368x216, because it uses the overscan its text
+     * page lays the narration out across. The mode cannot hold that, so the picture is fitted into
+     * it. (On Win32 the mode follows the picture instead - the narration's letters stay whole
+     * there.) */
+    for (y = 0; y < SCREEN_H; y++)
+    {
+        int sy = (h > SCREEN_H) ? (y * h) / SCREEN_H : y;
+        const u8 *row;
+        u8 *out = dst + (u32)y * SCREEN_W;
+        if (sy >= h || y >= h)
         {
-            int sy = (y * h) / SCREEN_H;
-            if (sy >= h) sy = h - 1;
-            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)sy * EMU_FB_MAX_W, (size_t)w);
+            memset(out, 0, SCREEN_W);
+            continue;
+        }
+        row = fb + (u32)sy * EMU_FB_MAX_W;
+        if (w > SCREEN_W)
+        {
+            for (x = 0; x < SCREEN_W; x++)
+                out[x] = row[(u32)(x * w) / SCREEN_W];
+        }
+        else
+        {
+            /* Anything smaller sits in the top left corner, as before. */
+            memcpy(out, row, (size_t)w);
+            memset(out + w, 0, (size_t)(SCREEN_W - w));
         }
     }
-    else
-    {
-        /* Anything smaller sits in the top left corner, as before. */
-        for (y = 0; y < h; y++)
-            memcpy(dst + (u32)y * SCREEN_W, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
-        for (y = h; y < SCREEN_H; y++)
-            memset(dst + (u32)y * SCREEN_W, 0, SCREEN_W);
-    }
-    for (y = 0; y < SCREEN_H; y++)
-        for (x = w; x < SCREEN_W; x++) dst[(u32)y * SCREEN_W + x] = 0;
     plat_present();
     if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
     (void)m;
@@ -320,6 +349,11 @@ int main(int argc, char **argv)
         {
             titleKey = (int)strtol(argv[++i], 0, 0);
             if (titleKey < 0) titleKey = 0;
+            continue;
+        }
+        if (strcmp(argv[i], "--esc") == 0 && i + 1 < argc)
+        {
+            g_escFrame = (u32)strtoul(argv[++i], 0, 0);
             continue;
         }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
@@ -415,75 +449,129 @@ int main(int argc, char **argv)
     rc_abort = 0;                          /* the game's loops are supposed to spin */
     gather(&c, &m);
 
-    while (!m.stop)
+    for (;;)
     {
-        u32 pc;
+        while (!m.stop)
+        {
+            u32 pc;
+    
+            if (frameLimit != 0 && m.frame >= frameLimit) break;
+            if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
+            {
+                /* Enter the routine as its caller would: push the program-end sentinel as the return
+                 * address (and the argument below it), so the run stops when it returns. */
+                u32 r[18];
+                g_called = 1;
+                oracle_regs_get(r);
+                r[REGS_A + 7] -= 4;
+                rt_write32(&m.mem, r[REGS_A + 7], g_callArg);
+                r[REGS_A + 7] -= 4;
+                rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
+                r[REGS_PC] = g_callPc;
+                oracle_regs_set(r);
+                printf("icftd: calling %06lX(%08lX) at frame %lu\n", (unsigned long)g_callPc,
+                       (unsigned long)g_callArg, (unsigned long)m.frame);
+            }
+            pc = m68k_get_reg(0, M68K_REG_PC);
+            if (host_title_check(&m, pc)) continue;
+            if (g_trace && m.mem.bad != 0 && !badReported)
+            {
+                badReported = 1;
+                printf("icftd: first out-of-RAM access, at pc %06lX, frame %lu\n",
+                       (unsigned long)pc, (unsigned long)m.frame);
+                oracle_ring_print(&m);
+            }
+            if (g_trace && traced < 300 && pc != lastTraced && pc != prevTraced)
+            {
+                printf("  f%lu %06lX %s\n", (unsigned long)m.frame, (unsigned long)pc,
+                       (rc_containing(pc) != 0 || rc_lookup(pc) != 0) ? "rc" : "in");
+                prevTraced = lastTraced;
+                lastTraced = pc;
+                traced++;
+            }
+            if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
+            {
+                /* Translated: it runs until it returns, or until it transfers somewhere the
+                 * translator refused, and c->pc then names where the core continues. */
+                translated++;
+                gather(&c, &m);
+                rc_call(&c, &m, pc);
+                scatter(&c, &m);
+                continue;
+            }
+            /* Not translated (the translator refused the construct): run it on the core, one
+             * instruction, with the same time accounting as the oracle. */
+            interpreted++;
+            while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
+            {
+                u32 cost = oracle_instruction_cost(&m, pc);
+    
+                m.cyclesToTick -= (long)cost;
+                rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
+                rt_cia_service(&m);
+                if (m.cyclesToTick < 0) oracle_tick(&m);
+            }
+            if (!oracle_step(&m)) break;
+            if (g_trace && m.mem.bad != 0 && !badReported)
+            {
+                /* The first access outside the RAM block is where the machine left the rails; the
+                 * ring still holds the instructions that led there. */
+                badReported = 1;
+                printf("icftd: first out-of-RAM access at pc %06lX, frame %lu\n",
+                       (unsigned long)pc, (unsigned long)m.frame);
+                oracle_ring_print(&m);
+            }
+        }
 
-        if (frameLimit != 0 && m.frame >= frameLimit) break;
-        if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
+        /* Escape in a played game: start the whole game again, so the title screen comes back with
+         * every piece of emulated state reset (see src\host\title.c). */
+        if (!host_title_restart_pending()) break;
+
         {
-            /* Enter the routine as its caller would: push the program-end sentinel as the return
-             * address (and the argument below it), so the run stops when it returns. */
-            u32 r[18];
-            g_called = 1;
-            oracle_regs_get(r);
-            r[REGS_A + 7] -= 4;
-            rt_write32(&m.mem, r[REGS_A + 7], g_callArg);
-            r[REGS_A + 7] -= 4;
-            rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
-            r[REGS_PC] = g_callPc;
-            oracle_regs_set(r);
-            printf("icftd: calling %06lX(%08lX) at frame %lu\n", (unsigned long)g_callPc,
-                   (unsigned long)g_callArg, (unsigned long)m.frame);
-        }
-        pc = m68k_get_reg(0, M68K_REG_PC);
-        if (host_title_check(&m, pc)) continue;
-        if (g_trace && m.mem.bad != 0 && !badReported)
-        {
-            badReported = 1;
-            printf("icftd: first out-of-RAM access, at pc %06lX, frame %lu\n",
-                   (unsigned long)pc, (unsigned long)m.frame);
-            oracle_ring_print(&m);
-        }
-        if (g_trace && traced < 300 && pc != lastTraced && pc != prevTraced)
-        {
-            printf("  f%lu %06lX %s\n", (unsigned long)m.frame, (unsigned long)pc,
-                   (rc_containing(pc) != 0 || rc_lookup(pc) != 0) ? "rc" : "in");
-            prevTraced = lastTraced;
-            lastTraced = pc;
-            traced++;
-        }
-        if (rc_containing(pc) != 0 || rc_lookup(pc) != 0)
-        {
-            /* Translated: it runs until it returns, or until it transfers somewhere the
-             * translator refused, and c->pc then names where the core continues. */
-            translated++;
+            int keepSlot = m.saveSlot;
+            int soundGain = m.audio.soundGain, musicGain = m.audio.musicGain;
+            int hadAudio = m.audio.device;
+
+            printf("icftd: restarting the game\n");
+            rt_shutdown(&m);
+            if (!rt_init(&m)) { printf("icftd: not enough memory\n"); rc = 1; break; }
+            if (!rt_load_image(&m, EMU_IMAGE_BASE, image))
+            {
+                printf("icftd: cannot load %s\n", image);
+                rt_shutdown(&m);
+                rc = 1;
+                break;
+            }
+            m.dataDir = dataDir;
+            m.saveSlot = keepSlot;
+            g_frameLimit = frameLimit;
+            m.tickLog = tickLog;
+            m.traceFrom = traceFrom;
+            m.traceTo = traceTo;
+            rt_audio_set_gain(&m, soundGain, musicGain);
+            if (!g_noAudio && hadAudio) rt_audio_open(&m, EMU_AUD_RATE);
+            m.on_frame = dos_input;
+            m.on_present = dos_present;
+            oracle_boot(EMU_ENTRY, EMU_A4);
+            m.on_cia = dos_cia;
+            rc_frame_hook = dos_frame;
+            rc_stopOnUnknown = 1;
+            rc_stopAt = 0;
+            rc_abort = 0;
             gather(&c, &m);
-            rc_call(&c, &m, pc);
-            scatter(&c, &m);
+            translated = interpreted = 0;
+            g_called = 0;
+            g_dumped = 0;
+            g_escDone = (g_escFrame != 0) ? 1 : 0;
+            g_perfFrames = g_perfTotal = g_perfVblank = g_perfPresent = g_perfWait = 0;
+            g_perfCiaInsns = 0;
+            g_perfCiaRuns = 0;
+            badReported = 0;
+            traced = 0;
+            lastTraced = prevTraced = 0xFFFFFFFFu;
+            host_title_key(-1);
+            host_title_arm(1);
             continue;
-        }
-        /* Not translated (the translator refused the construct): run it on the core, one
-         * instruction, with the same time accounting as the oracle. */
-        interpreted++;
-        while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
-        {
-            u32 cost = oracle_instruction_cost(&m, pc);
-
-            m.cyclesToTick -= (long)cost;
-            rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
-            rt_cia_service(&m);
-            if (m.cyclesToTick < 0) oracle_tick(&m);
-        }
-        if (!oracle_step(&m)) break;
-        if (g_trace && m.mem.bad != 0 && !badReported)
-        {
-            /* The first access outside the RAM block is where the machine left the rails; the
-             * ring still holds the instructions that led there. */
-            badReported = 1;
-            printf("icftd: first out-of-RAM access at pc %06lX, frame %lu\n",
-                   (unsigned long)pc, (unsigned long)m.frame);
-            oracle_ring_print(&m);
         }
     }
 

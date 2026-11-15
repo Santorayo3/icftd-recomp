@@ -76,6 +76,15 @@ void rt_gfx_move(rt_machine *m, u32 rp, s32 x, s32 y);
 void rt_gfx_line(rt_machine *m, u32 rp, s32 x, s32 y);
 u32  rt_gfx_text(rt_machine *m, u32 rp, u32 text, u32 count);   /* returns pixels plotted */
 s32  rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count);
+
+/* The game's own disk font, drawn into a chunky 8-bit buffer (one byte per pixel, `stride` bytes
+ * per row) - the title menu's labels use it, outside the engine's RastPorts. `x`/`top` are the
+ * first glyph's left edge and top row; the return value is the advance. A machine with no font
+ * open falls back to the built-in 5x7 stand-in, so the geometry stays the same. */
+int  rt_font_height(rt_machine *m);
+s32  rt_font_text_width(rt_machine *m, const char *text);
+s32  rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
+                       int x, int top, const char *text, u8 pen);
 /* LoadRGB4(vp, table, count) / SetRGB4(vp, index, r, g, b) fill the ColorMap palette. */
 void rt_gfx_load_rgb4(rt_machine *m, u32 vp, u32 table, u32 count);
 void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b);
@@ -125,6 +134,13 @@ void rt_osd_icon(rt_machine *m, u32 frames);
  * the arrow's tip is its top left pixel, the point a hover is tested at. */
 void rt_pointer_at(s16 x, s16 y);
 void rt_pointer_hidden(void);
+
+/* The arrow itself, drawn into any chunky buffer (the title menu draws it while the game's own
+ * presenter is not running). x/y are the tip, its top left pixel. */
+enum { EMU_PEN_POINTER = 246, EMU_PEN_POINTER_COLOURS = 2 };   /* 246..247: outline, fill */
+void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y);
+/* The pointer's two colours (outline, fill), RGB. */
+const u8 *rt_pointer_palette(void);
 
 /* The port's aiming crosshair: drawn on top of the presented picture like the pointer, showing
  * the point a shot is tested at (the giant-ant fight). x/y are framebuffer coordinates and are the

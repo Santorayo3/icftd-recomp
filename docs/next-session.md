@@ -11,6 +11,43 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
+## The chicken race's narration is on the screen (2026-11-15)
+
+Reported as "when you complete the chicken game a textbox is displayed, drawn outside the screen on
+the right, and the text inside is too far to the right". Not a text fault: the narration is drawn
+exactly where the original draws it, on a screen the presenter was not showing in full.
+
+**The divergence.** `FUN_0001BA3E`'s scene installs its own copper list (`FUN_0001BE80`), and that
+list's DIW is `0x1D61..0xF5D1` — **368** columns from 32 px left of the standard edge — while the
+ViewPort it draws through stays 320x200. The closing page (`FUN_0001CF48` → `FUN_00005012`) points
+the text RastPort at the scene's own bitmap `DAT_0002BDE2` (46 bytes x 216 rows), sets the text right
+margin from the bitmap width (`DAT_00029A70 = 0x16F`), the box to `0x000..0x16F` and the text area to
+`0x1E..0x151`. The engine treats those 368 columns as the screen. `rt_gfx_present()` took the
+ViewPort's `DWidth` (320) as the raster width and clipped the list's window to it, so the right 48
+columns — the end of every narration line — were never composed. Measured at frame 420 of the replay:
+the list in the VM is the scene's (`0x67B28`, 187 entries), DIWSTRT `0x2761`, DIWSTOP `0xFFD1`, DDF
+`0x28..0xD8`, so the window is 368x216 and the bitmap column at its left edge is 0.
+
+**The fix.** `rt_gfx_present()` keeps the ViewPort's size only while the list's window fits it; a
+window *wider* than the ViewPort now becomes the raster (raster column 0 = the window's left edge),
+the same way a window taller than `DHeight` already became the raster's height. The source column
+also takes the DDF alignment into account — bitmap column 0 is at `(DDFSTRT − 0x38) × 2` standard
+columns, which is 0 for every list that uses the standard 0x38 and −32 for the chicken's 0x28 — and a
+frame with a shifted fetch takes the per-region converter. `host_present`/`dos_present` now sample
+the raster into the 320x200 window on **both** axes (the 216-row case already did) instead of copying
+a left-aligned 320 columns, so nothing is dropped.
+
+**Measured.** Replaying the recorded win (`--titlekey 5 --input out\chicken-rec.txt`; `--titlekey`
+now accepts an input script, because that is how a title-launched scene is replayed) the narration
+page presents **368x216** and carries all four lines: "... swerved my truck off the road. As I sat
+there with my heart pounding, Lee and his buddies drove by laughing and said they'd be at Beverly's
+Drive-In if I wanted to do anything about it." The pre-fix build presented 320x216 and both wrapped
+lines ended at column 319. Machine state is untouched (the presenter is the only code that changed).
+The other scenes' lists have windows inside their ViewPorts (MrgCop 320, flight/hospital 288) and DDF
+0x38, so their `srcBase` is 0 and their rasters are unchanged — `present-check` reports the same
+coverage numbers as before (intro 0.957, map 1.000, flight 0.804, hospital 0.810, fight 0.973,
+under 0.326) and the chicken now also pins its 368-column width, the assertion the old build fails.
+
 ## Infrastructure: incremental builds, and one page for port features (2026-11-14)
 
 Two changes, no product behaviour touched, both aimed at making the next feature session cheaper.
