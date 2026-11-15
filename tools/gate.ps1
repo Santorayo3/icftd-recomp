@@ -30,12 +30,14 @@
                                 are the port's artwork, point-sampled, not black)
      11. loading line          (tools\load-check.ps1 - the "Loading" line covers the engine's own
                                 resource loads and nothing else)
+     12. pointer aim           (tools\aim-check.ps1 - the pointer moves the giant-ant fight's gun
+                                and the fire game's extinguisher, inside the engine's own travel)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-11 cover the port's
+    capture or reference-image test can prove a translated function. Steps 5-12 cover the port's
     own surfaces - the presenter, the title menu, the map cursor, the room pointer, the fight's
-    crosshair, the fullscreen border and the loading line - which have no counterpart in the
-    original to diff against; they can only fail on their own terms.
+    crosshair, the fullscreen border, the loading line and the two aims - which have no counterpart
+    in the original to diff against; they can only fail on their own terms.
 
     A change is validated by the check that covers it, not by the whole table: while working, run
     the one step (-Only) or the tier (-Full) the change touches. See docs\port-features.md, "The
@@ -112,7 +114,8 @@ $all = @(
     @{ Name = 'room pointer (hover)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 } },
     @{ Name = 'fight crosshair (aim)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 } },
     @{ Name = 'fullscreen border (bars)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 } },
-    @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } }
+    @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } },
+    @{ Name = 'pointer aim (gun, extinguisher)';      Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\aim-check.ps1 } }
 )
 
 if ($Only) {

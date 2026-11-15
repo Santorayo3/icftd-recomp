@@ -209,6 +209,49 @@ custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 diff
 stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook, so the
 crosshair is inert there — the same gap the pointer has.
 
+## The gun and the extinguisher, moved with the pointer
+
+Two more original scenes are stick-only, and both read the stick the same way: `FUN_00011BF0` (called
+at the top of every update) decodes JOY0DAT into `0x24A80`/`0x24A82` and /FIRE into `0x24A84`, and
+each scene keeps its aim in the word pair `0x29AE0`/`0x29AE2`:
+
+| scene | movement | what the aim is |
+|---|---|---|
+| giant-ant fight | `FUN_000084E4` ramps the axes into `0x29AE4`/`0x29AE6` (clamped ±8) and adds them | the pistol; `FUN_000086A0` tests a shot at it `−0x1B`/`−0x3A` — the crosshair's point |
+| fire game | `FUN_0000B97C`, same ramp, same words | the hand: the sprite is drawn at it and `FUN_0000BADE`'s spray starts there |
+
+The port writes the aim itself, at the entry of **`FUN_000086A0`** and **`FUN_0000B97C`** — not at
+the scene's entry, because that is where `FUN_00011BF0` reads the stick and a write there would be
+overwritten a few instructions later. Each write also clears the axes and the ramped acceleration, so
+the engine's ramp cannot pull the aim away while the pointer owns it.
+
+What the pointer *means* differs, because the two aims are not the same thing:
+
+* **the fight**: pointer = the shot point, so the aim is the pointer `+0x1B/+0x3A` and the crosshair
+  is drawn under the mouse.
+* **the fire game**: the aim is the hand, and `FUN_0000B97C` only accelerates it *inside* a travel
+  rectangle — x `0x28..0x12C`, y `0xA5..0xF0`, damped outside. Raw screen coordinates are the wrong
+  control there: they aim the hand above the room (the sprite floats) and they cannot reach the low
+  flames the stick reaches. Measured with the stick held: it comes to rest at x 40..300,
+  y 165..240 (its ramp overshoots to x 28..311, y 149..251). The pointer's screen therefore spans
+  that rectangle, so its corners are exactly the stick's stops (pointer `0,0` → `40,165`, pointer
+  `319,199` → `300,240`).
+
+Ownership is the map cursor's rule: the pointer takes the aim on its first movement **while the
+scene is up**, and a held direction takes it back. A pointer put down before the scene started
+leaves the engine's own aim alone — which is also what keeps an armed measurement run inert.
+
+Measured with `tools\aim-check.ps1` (the fight's preset as above; the fire game is
+`--call 0xFE34:1000`, whose extinguisher routine starts once the sprites are loaded, ~frame 1900):
+
+| scene | pointer → aim | the engine acts at | keyboard | measurement |
+|---|---|---|---|---|
+| fight | `150,80` → `177,138`; `200,120` → `227,178` | the shot stored is `200,120` | stick moves it to `212,120` | a stale pointer leaves all 3 392 frame records unchanged; the pointer run first differs at 2001 (moved at 2000) |
+| fire game | `100,50` → `121,183`; `200,100` → `203,202`; corners → `40,165` / `300,240` | the spray stored is `203,202` | stick moves it to `188,180` | a stale pointer leaves all 2 280 frame records unchanged; the pointer run first differs at 1963 (moved at 1960) |
+
+The DOS build installs no per-screen hook, so both aims are inert there — the same gap the pointer
+and the crosshair have.
+
 ## The loading line during a screen transition
 
 The original waits for a screen's data with the previous picture still up, so a long transition (the
@@ -291,10 +334,10 @@ that does not touch them. Pick the tier by what the change is:
 
 | when | command | what runs |
 |---|---|---|
-| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all seven) | that check (its own binary must be built: `tools\build-host.ps1`) |
+| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all eight) | that check (its own binary must be built: `tools\build-host.ps1`) |
 | working on the translation | `tools\recomp-fixtures.ps1 -Only "000009*"`, then `tools\gate.ps1` | the fixtures under that address wildcard, then the core |
 | before a hand-off | `tools\gate.ps1` | builds, interpreter fixtures, translated vs interpreted |
-| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all seven port checks |
+| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all eight port checks |
 
 `-Quick` still skips the two builds. No change owes a whole-gate run: it owes the measurement that
 covers it — see `.github\copilot-instructions.md`, "Validation — check the change, not the

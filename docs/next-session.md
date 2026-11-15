@@ -11,7 +11,39 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
-## Validation is sized to the change, and the gate has tiers (2026-11-15, latest)
+## The gun and the extinguisher follow the mouse (2026-11-15, latest)
+
+Asked for: move the giant-ant fight's gun and the fire game's extinguisher with the mouse, next to
+the keyboard. Both are the original's scenes and both are stick-only, so this is a port feature
+(`docs\port-features.md`, "The gun and the extinguisher, moved with the pointer"): the pointer writes
+the aim the scene already keeps in `0x29AE0`/`0x29AE2`, at the entry of `FUN_000086A0` (the fight's
+trigger) and `FUN_0000B97C` (the extinguisher's movement) — not at the scene's entry, because that is
+where `FUN_00011BF0` reads the stick into `0x24A80`/`0x24A82`. Each write also clears the axes and the
+ramped acceleration `0x29AE4`/`0x29AE6`.
+
+Reported from play: *"in the fire minigame the movement rectangle should be the same as with the
+keyboard… you can aim higher with the extinguisher than it's possible with the keyboard (which leads
+to a floating hand sprite), but you can't aim as low as with the keyboard and unable to extinguish the
+lowest flames."* That is a difference from the original, not a symptom: the aim is the hand itself,
+and `FUN_0000B97C` accelerates it only *inside* a rectangle (x `0x28..0x12C`, y `0xA5..0xF0`) and
+damps it outside, so a raw screen position is the wrong control. Measured with the stick held: it
+comes to rest at x 40..300, y 165..240 (with the ramp's overshoot to x 28..311, y 149..251). The
+pointer's screen now spans that rectangle, so its corners are exactly the stick's stops. The fight
+is unchanged: its pointer is the shot point (`aim − 0x1B/−0x3A`), which is what the crosshair marks.
+
+**Measured** (`tools\aim-check.ps1`, in the gate): fight — pointer `150,80` → aim `177,138`,
+`200,120` → `227,178`, the shot `FUN_000086A0` stores is `200,120`, the stick still moves it to
+`212,120`; fire — pointer `100,50` → aim and spray `121,183`, `200,100` → `203,202`, pointer corners
+`0,0`/`319,199` → `40,165`/`300,240`, the stick still moves it to `188,180`. Inertness: an armed run
+whose pointer was put down before the scene leaves all 3 392 (fight) / 2 280 (fire) frame records
+identical, and a live pointer first differs exactly at its first move (2001 and 1963).
+
+Two traps met on the way, both worth keeping: the joystick's axes are read *at the top* of every
+scene update (so the seam has to sit after `FUN_00011BF0`, not at the entry), and in PowerShell
+`$b[$a] -shl 8` shifts a `[byte]` inside its own type — every 16-bit read in a check silently became
+its low byte, which is what made the first aim measurements look like the engine wrapping at 256.
+
+## Validation is sized to the change, and the gate has tiers (2026-11-15, later)
 
 Asked for: relax the validation rules and the gate — the game is close to finished, and the gate ran
 for every addition, which dominated iteration time.

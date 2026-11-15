@@ -19,15 +19,16 @@
  * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
  * title screen, space or the left
  * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
- * mouse moves the situation map's cursor and the phone book's arrow, and on a room screen it is
- * the pointer a menu line is selected with); without it the build runs headless and only reports
- * machine state. `--call`
+ * mouse moves the situation map's cursor, the phone book's arrow, the giant-ant fight's gun and the
+ * fire game's extinguisher, and on a room screen it is the pointer a menu line is selected with);
+ * without it the build runs headless and only reports machine state. `--call`
  * enters one of the engine's own routines at a frame boundary, with the program-end sentinel as its
  * return address.
  * `--mouse` feeds the pointer the positions a platform pointer would report
  * ("<frame> <x> <y> [<button>]"), so the port's pointer control - the map's cursor, the phone's
- * arrow and a room menu's hover - can be measured without a mouse (it is a dev seam like --input;
- * in a played game the platform pointer drives the same state).
+ * arrow, a room menu's hover, the fight's gun and the fire game's extinguisher - can be measured
+ * without a mouse (it is a dev seam like --input; in a played game the platform pointer drives the
+ * same state).
  * `--hoverlog` prints every text menu line the pointer seam records and the entry a hover picks,
  * so a scripted run says which line is where instead of leaving it to a screenshot.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
@@ -135,6 +136,7 @@ static void host_crash_note(rt_machine *m, cpu_t *c)
  * aiming crosshair is placed at the frame boundary, before the vblank composes the frame. */
 static void crosshair_present(rt_machine *m);
 static void loading_frame(rt_machine *m);
+static int  aim_live(rt_machine *m);
 
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
@@ -364,7 +366,7 @@ static const u16 g_joyDirs[16] =
 #define MAP_IDLE_FRAMES 30
 
 static int  g_portArm;                 /* the port's per-screen seams may run (a played game,
-                                        * or --mouse): the pointer, and the fight's crosshair */
+                                        * or --mouse): the pointer, the crosshair, the aim */
 static int  g_ptrKnown;                /* a pointer position is available */
 static int  g_ptrActive;               /* the pointer owns the map cursor */
 static int  g_hoverOwn;                /* the pointer owns the menu line under it */
@@ -407,9 +409,12 @@ static void pointer_script_load(const char *path)
 }
 
 /* Applies the scripted pointer positions that are due - the script holds the last one, like a
- * pointer that stays where it was put (and the button with it). */
-static void pointer_script_tick(rt_machine *m)
+ * pointer that stays where it was put (and the button with it). Returns how many were applied,
+ * i.e. whether the pointer moved in this frame. */
+static int pointer_script_tick(rt_machine *m)
 {
+    int applied = 0;
+
     while (g_ptrScriptPos < g_ptrScriptCount && g_ptrScript[g_ptrScriptPos].frame <= m->frame)
     {
         g_ptrX = g_ptrScript[g_ptrScriptPos].x;
@@ -419,7 +424,9 @@ static void pointer_script_tick(rt_machine *m)
         g_ptrActive = 1;
         g_hoverOwn = 1;
         g_ptrScriptPos++;
+        applied++;
     }
+    return applied;
 }
 
 /* The keyboard wins while a direction is held, the pointer wins when it moves: either one can be
@@ -682,8 +689,9 @@ static void menu_flip(cpu_t *c, rt_machine *m)
     g_lineCount = 0;
 }
 
-/* The arrow is a room-screen feature; the map and the phone draw their own cursor, so it stays
- * hidden there. */
+/* The arrow is a room-screen feature; the map, the phone and the two aiming scenes draw or move
+ * their own mark under the pointer (the game's cursor, the crosshair, the extinguisher), so it
+ * stays hidden there. */
 static void pointer_present(rt_machine *m)
 {
     int room, menu, map, phone, show;
@@ -693,7 +701,7 @@ static void pointer_present(rt_machine *m)
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
     map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
     phone = g_phoneFrame != 0 && m->frame - g_phoneFrame <= MAP_IDLE_FRAMES;
-    show = (room || menu) && !map && !phone;
+    show = (room || menu) && !map && !phone && !aim_live(m);
     if (show) rt_pointer_at(g_ptrX, g_ptrY);
     else rt_pointer_hidden();
     if (g_hoverLog && show && s_ptrShown != 1)
@@ -746,6 +754,123 @@ static void crosshair_present(rt_machine *m)
     aimX = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_X));
     aimY = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_Y));
     rt_crosshair_at((s16)(aimX + ANT_SHOT_DX), (s16)(aimY + ANT_SHOT_DY));
+}
+
+/* --- the gun and the extinguisher, moved with the pointer (port features) --------------------
+ * The original aims both minigames with the stick, and both scenes read it the same way:
+ * FUN_00011bf0 - called at the top of every update - decodes JOY0DAT into DAT_00024A80/0x24A82
+ * (+1/0/-1 per axis) and /FIRE into DAT_00024A84, and both scenes keep their aim in the word pair
+ * DAT_00029AE0/0x29AE2:
+ *
+ *   the giant-ant fight   FUN_000084E4 ramps the axes into the acceleration DAT_00029AE4/0x29AE6
+ *                         (clamped to +/-8, eased near the screen's edges) and adds it to the aim;
+ *                         FUN_000086A0 fires before that, storing the point it tests at as the aim
+ *                         0x1b left and 0x3a up - the point the port's crosshair marks;
+ *   the fire game         FUN_0000B97C is the same code over the same words, and the extinguisher
+ *                         sprite is drawn at the aim, which is where FUN_0000BADE's spray starts.
+ *
+ * So the pointer writes the aim itself, at the entry of those two routines: after FUN_00011bf0 has
+ * read the stick (which is why it is not the scene's entry - that is where the stick is read) and
+ * before the shot, the spray or the drawing. The axes and the acceleration are cleared with it, so
+ * the engine's own ramp cannot pull the aim away from the pointer while it owns the gun.
+ *
+ * What the pointer *means* differs, because the two aims are not the same thing:
+ *
+ *   the fight        the aim is the pistol, and the scene acts 0x1b left and 0x3a up of it, so the
+ *                    pointer is that point - the crosshair the port draws sits under the mouse;
+ *   the fire game    the aim is the hand itself (the sprite is drawn there and the spray starts
+ *                    there), and FUN_0000B97C only accelerates it *inside* a travel rectangle:
+ *                    x 0x28..0x12c and y 0xa5..0xf0, damped outside, which is where a held stick
+ *                    comes to rest (measured: x 28..311, y 149..251 including the ramp's overshoot).
+ *                    A raw screen position is the wrong control there: it aims the hand above the
+ *                    room (the floating hand) and cannot reach the low flames the stick reaches.
+ *                    The pointer's screen therefore spans that rectangle - every position the
+ *                    stick can reach and no other - so the mouse stops where the keyboard stops.
+ *
+ * A held direction key still moves the gun - the pointer takes over again the next time it moves -
+ * the rule the map's cursor follows; and a pointer that was put down before the scene started
+ * leaves the engine's own aim alone (g_aimOwn), exactly as such a pointer leaves the map's cursor
+ * where the game put it. Nothing here runs in a measurement: rc_entryHook is installed only while
+ * the game is being played (or for a --mouse test run). */
+#define AIM_SHOT_PC   0x000086A0u  /* FUN_000086a0: the fight's trigger, after FUN_00011bf0    */
+#define AIM_SPRAY_PC  0x0000B97Cu  /* FUN_0000b97c: the fire game's extinguisher movement     */
+#define AIM_X         0x00029AE0u  /* word, the aim both scenes share                          */
+#define AIM_Y         0x00029AE2u
+#define AIM_ACC_X     0x00029AE4u  /* word, the stick's ramped speed                           */
+#define AIM_ACC_Y     0x00029AE6u
+#define AIM_AXIS_X    0x00024A80u  /* word, FUN_00011bf0's decoded stick, +1 / 0 / -1          */
+#define AIM_AXIS_Y    0x00024A82u
+/* The fire game's travel rectangle, from the stops in FUN_0000B97C (0x28/0x12c at 0xb986..0xb9b0,
+ * 0xa5/0xf0 at 0xb9ce..0xb9f8): inside it a held stick accelerates the aim, outside it the
+ * acceleration is damped instead, so these are the positions the hand comes to rest at. */
+#define FIRE_MIN_X    0x0028
+#define FIRE_MAX_X    0x012C
+#define FIRE_MIN_Y    0x00A5
+#define FIRE_MAX_Y    0x00F0
+/* Both scenes call their aim routine every update, so this many frames without it means the scene
+ * is gone (aiming at the narration afterwards would only write a dead word). */
+#define FIRE_IDLE_FRAMES 10
+
+static int g_aimOwn;               /* the pointer owns the aim of the scene that is up */
+static u32 g_fireFrame;            /* last frame the fire game's extinguisher moved  */
+
+/* The pointer owns the aim only while one of the two scenes is running, and only after it moved
+ * while that scene was up. */
+static int aim_live(rt_machine *m)
+{
+    return (g_antFrame != 0 && m->frame - g_antFrame <= ANT_IDLE_FRAMES) ||
+           (g_fireFrame != 0 && m->frame - g_fireFrame <= FIRE_IDLE_FRAMES);
+}
+
+/* Once per frame, at the frame boundary: the pointer may take the gun, a held direction takes it
+ * back. `moved` is a pointer movement reported during this frame (the platform's, or --mouse's). */
+static void aim_input(rt_machine *m, int moved, int stickHeld)
+{
+    int was = g_aimOwn;
+
+    if (!aim_live(m)) { g_aimOwn = 0; return; }
+    if (moved) g_aimOwn = 1;
+    if (stickHeld) g_aimOwn = 0;
+    if (g_hoverLog && was != g_aimOwn)
+        printf("recomp: %s aims at frame %lu\n", g_aimOwn ? "the pointer" : "the stick",
+               (unsigned long)m->frame);
+}
+
+/* The aim is the pointer's: the axes and the acceleration are cleared so the engine's ramp cannot
+ * pull it away, and the two words are written. */
+static void aim_write(rt_machine *m, s32 x, s32 y)
+{
+    rt_write16(&m->mem, RC_ADDR(AIM_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_AXIS_Y), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_ACC_X), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_ACC_Y), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_X), (u16)x);
+    rt_write16(&m->mem, RC_ADDR(AIM_Y), (u16)y);
+}
+
+/* `v` (0..vmax, the pointer's travel) mapped onto lo..hi (the scene's own travel). */
+static s32 aim_span(s32 v, s32 vmax, s32 lo, s32 hi)
+{
+    if (v < 0) v = 0;
+    if (v > vmax) v = vmax;
+    return lo + (v * (hi - lo)) / vmax;
+}
+
+/* Runs at FUN_000086a0's entry: the pointer is the shot point, so the aim - the pistol - is that
+ * point 0x1b right and 0x3a down, and the port's crosshair lands under the mouse. */
+static void aim_shot(rt_machine *m)
+{
+    if (!g_aimOwn || !g_ptrKnown) return;
+    aim_write(m, (s32)g_ptrX - ANT_SHOT_DX, (s32)g_ptrY - ANT_SHOT_DY);
+}
+
+/* Runs at FUN_0000b97c's entry: the pointer's screen spans the hand's own travel rectangle, so the
+ * mouse can put the hand exactly where the stick can and no further. */
+static void aim_spray(rt_machine *m)
+{
+    if (!g_aimOwn || !g_ptrKnown) return;
+    aim_write(m, aim_span(g_ptrX, SCREEN_W - 1, FIRE_MIN_X, FIRE_MAX_X),
+                 aim_span(g_ptrY, SCREEN_H - 1, FIRE_MIN_Y, FIRE_MAX_Y));
 }
 
 /* --- the loading line (a port feature) ------------------------------------------------------
@@ -868,6 +993,13 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
+    if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
+    if (pc == RC_ADDR(AIM_SPRAY_PC))
+    {
+        g_fireFrame = m->frame;
+        aim_spray(m);
+        return;
+    }
     if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
@@ -901,9 +1033,13 @@ static void host_input(rt_machine *m)
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     if (g_portArm)
     {
+        int moved;
         /* A scripted stick (--input) counts like a held direction key: the pointer yields to it. */
-        if (g_ptrScriptCount > 0) pointer_script_tick(m);
-        else pointer_input(&in, joy != 0 || m->joy0 != 0);
+        if (g_ptrScriptCount > 0) moved = pointer_script_tick(m) > 0;
+        else { pointer_input(&in, joy != 0 || m->joy0 != 0); moved = in.mouse_moved != 0; }
+        /* The two aiming scenes (the giant-ant fight, the fire game) take the aim from the pointer
+         * once it moved over them; everywhere else this latch stays clear. */
+        aim_input(m, moved, joy != 0 || m->joy0 != 0);
         /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
          * owns nothing, so the next screen starts with the game's own placement until the pointer
          * moves again. */
@@ -961,14 +1097,17 @@ static void host_input(rt_machine *m)
  * at the frame boundary for the run to mean anything (it is a dev seam, like --input). */
 static void host_pointer_frame(rt_machine *m)
 {
+    int moved = 0;
+
     if (!g_portArm) return;
-    if (g_ptrScriptCount > 0) pointer_script_tick(m);
+    if (g_ptrScriptCount > 0) moved = pointer_script_tick(m) > 0;
     /* A scripted click is /FIRE, the same level the platform's button is; the script's own fire
      * level is put back when the button is released, so the two compose. */
     m->fireDown = (u8)((g_ptrButton || input_fire()) ? 1u : 0u);
     if (m->joy0 != 0) { g_ptrActive = 0; g_hoverOwn = 0; }   /* a scripted stick wins */
     if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
         g_ptrActive = 0;
+    aim_input(m, moved, m->joy0 != 0);
     pointer_present(m);
 }
 
@@ -1374,9 +1513,9 @@ int main(int argc, char **argv)
                     dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
                    (titleKey >= 0 && statePrefix == 0 &&
                     g_callPc == 0 && g_pokeCount == 0));
-    /* The pointer that drives the map cursor, and the fight's aiming crosshair, are port features,
-     * so they follow the same rule: they run in a played game (and for a --mouse test run), never
-     * in a measurement, where the machine state has to be the original's. */
+    /* The pointer that drives the map cursor and the two aims, and the fight's aiming crosshair,
+     * are port features, so they follow the same rule: they run in a played game (and for a --mouse
+     * test run), never in a measurement, where the machine state has to be the original's. */
     g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                 dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
     if (g_portArm) rc_entryHook = host_entry;
@@ -1535,6 +1674,8 @@ int main(int argc, char **argv)
             g_ptrScriptPos = 0;
             g_ptrButton = 0;
             g_mapFrame = g_phoneFrame = g_roomFrame = g_antFrame = 0;
+            g_fireFrame = 0;
+            g_aimOwn = 0;
             g_lineCount = 0;
             g_loadHold = g_loadHoldSeen = 0;
             g_loadOn = g_loadShown = 0;
