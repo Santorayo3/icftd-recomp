@@ -23,6 +23,7 @@
  *                        the endings, 11/12 the menu's Load Game / New Game)
  *                        the endings)
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
+ *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -40,6 +41,7 @@
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
 #include "title.h"
+#include "cheat.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 4
@@ -60,6 +62,8 @@ static long   g_perfCiaInsns;           /* instructions run by the CIA handlers 
 static u32    g_perfCiaRuns;
 static u32    g_escFrame;               /* --esc <frame>: press Escape at that frame */
 static int    g_escDone;
+static u32    g_cheatFrame;             /* --cheat <frame>: press left Ctrl+W at that frame */
+static int    g_cheatDone;
 
 static void dump_ram(rt_machine *m)
 {
@@ -196,10 +200,19 @@ void host_regs_sync(rt_machine *m)
 }
 
 /* The OSD loading line's explicit hold (src\host\main.c) has no seam here: the DOS front end
- * installs no per-screen hook, like the pointer and the crosshair. */
+ * installs no per-screen hook for the pointer, the crosshair or the loading line. */
 void host_loading_hold(rt_machine *m)
 {
     (void)m;
+}
+
+/* The one per-screen seam this front end needs: the Ctrl+W cheat is a played-game feature and its
+ * request is consumed at a minigame's own per-frame update (src\host\cheat.c). It does nothing
+ * unless a request is pending. */
+static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
+{
+    (void)c;
+    host_cheat_entry(m, pc);
 }
 
 static void dos_input(rt_machine *m)
@@ -214,6 +227,14 @@ static void dos_input(rt_machine *m)
         g_escDone = 1;
         printf("icftd: escape at frame %lu\n", (unsigned long)m->frame);
         host_title_escape(m);
+    }
+    /* Left Ctrl+W (the minigame cheat), and --cheat as the scripted form of the same request. */
+    host_cheat_input(m, &in);
+    if (g_cheatFrame != 0 && !g_cheatDone && m->frame >= g_cheatFrame)
+    {
+        g_cheatDone = 1;
+        printf("icftd: Ctrl+W at frame %lu\n", (unsigned long)m->frame);
+        host_cheat_force(m);
     }
     if (in.pressed[KEY_ESCAPE]) host_title_escape(m);
 
@@ -364,6 +385,11 @@ int main(int argc, char **argv)
             g_escFrame = (u32)strtoul(argv[++i], 0, 0);
             continue;
         }
+        if (strcmp(argv[i], "--cheat") == 0 && i + 1 < argc)
+        {
+            g_cheatFrame = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--tracewin") == 0 && i + 1 < argc)
         {
@@ -444,6 +470,11 @@ int main(int argc, char **argv)
      * the exception: it asks for the title's own menu, so it arms the title in a scripted run too. */
     host_title_key(titleKey);
     host_title_arm((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0);
+    /* The Ctrl+W cheat is a played-game feature: its entry hook runs only in a played run (and in
+     * a run that asked for the cheat with --cheat), never in a measurement. */
+    if (((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
+        g_cheatFrame != 0)
+        rc_entryHook = dos_entry;
 
     g_cpu = &c;
     oracle_boot(EMU_ENTRY, EMU_A4);
@@ -571,6 +602,8 @@ int main(int argc, char **argv)
             g_called = 0;
             g_dumped = 0;
             g_escDone = (g_escFrame != 0) ? 1 : 0;
+            g_cheatDone = (g_cheatFrame != 0) ? 1 : 0;
+            host_cheat_reset();
             g_perfFrames = g_perfTotal = g_perfVblank = g_perfPresent = g_perfWait = 0;
             g_perfCiaInsns = 0;
             g_perfCiaRuns = 0;

@@ -375,7 +375,11 @@ static int title_play(rt_machine *m)
             g_fromMenu = 1;
         }
         for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
-            if (in.pressed[g_scenes[i].key]) pick = TITLE_PICK_SCENE + i;
+            /* Ctrl+W is the minigame cheat (src\host\cheat.c), so it must not also take the W
+             * ending here; W alone still does. */
+            if (in.pressed[g_scenes[i].key] &&
+                !(g_scenes[i].key == KEY_W && in.down[KEY_CTRL]))
+                pick = TITLE_PICK_SCENE + i;
         if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */
         {
             int k = g_virtualKey;

@@ -120,6 +120,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_KILLFOCUS:
         cursor_capture(0);
+        /* A key-up that lands in another window must not leave Ctrl held: a later W press would
+         * otherwise be the cheat chord (src\host\cheat.c). */
+        g_keys[KEY_CTRL] = 0;
         return 0;
     case WM_MOUSEMOVE:
         g_mouse_x = (s16)LOWORD(lp);
@@ -147,6 +150,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == 'W')       g_keys[KEY_W] = 1;
         if (wp == 'C')       g_keys[KEY_C] = 1;
         if (wp == 'T')       g_keys[KEY_T] = 1;
+        /* Left Control only: the extended bit (lParam bit 24) is set for the right-hand one. */
+        if ((wp == VK_CONTROL || wp == VK_LCONTROL) && ((lp >> 24) & 1) == 0)
+            g_keys[KEY_CTRL] = 1;
         return 0;
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
@@ -165,6 +171,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == 'W')       g_keys[KEY_W] = 0;
         if (wp == 'C')       g_keys[KEY_C] = 0;
         if (wp == 'T')       g_keys[KEY_T] = 0;
+        if ((wp == VK_CONTROL || wp == VK_LCONTROL) && ((lp >> 24) & 1) == 0)
+            g_keys[KEY_CTRL] = 0;
         return 0;
     }
     return DefWindowProc(h, msg, wp, lp);

@@ -39,6 +39,7 @@ enum {
                                          * the game itself: no scene decodes a letter) */
     KEY_C,
     KEY_T,
+    KEY_CTRL,                           /* left Control, held: the Ctrl+W minigame cheat (cheat.c) */
     KEY_COUNT
 };
 

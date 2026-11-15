@@ -14,13 +14,14 @@
  *                [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
- *                [--titlekey <n>] [--esc <frame>] [--mouse <file>] [--hoverlog]
+ *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--mouse <file>] [--hoverlog]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
  * title screen, space or the left
  * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
  * mouse moves the situation map's cursor, the phone book's arrow, the giant-ant fight's gun and the
- * fire game's extinguisher, and on a room screen it is the pointer a menu line is selected with);
+ * fire game's extinguisher, and on a room screen it is the pointer a menu line is selected with;
+ * left Ctrl+W in a minigame ends it in that scene's own success state, src\host\cheat.c);
  * without it the build runs headless and only reports machine state. `--call`
  * enters one of the engine's own routines at a frame boundary, with the program-end sentinel as its
  * return address.
@@ -56,6 +57,7 @@
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
 #include "title.h"
+#include "cheat.h"
 
 #define DEFAULT_IMAGE "export\\code\\dshell4k\\dshell.img"
 #define HS_BASE       EMU_IMAGE_BASE
@@ -100,6 +102,12 @@ static int g_called;
  * the key does, so a scripted run can measure the restart that returns to the title. */
 static u32 g_escFrame;
 static int g_escDone;
+
+/* --cheat <frame>: press the Ctrl+W minigame cheat at a frame (a test seam, like --esc). It raises
+ * the same request the platform's chord does, so a scripted run measures the cheat itself and not
+ * a second path (src\host\cheat.c). */
+static u32 g_cheatFrame;
+static int g_cheatDone;
 
 /* --poke <frame>:<addr>=<value>[,<addr>=<value>...] writes engine globals at a frame boundary, so
  * a state the game's own menus would produce (e.g. DAT_000269d6 = 9, "Take a Flight") can be set
@@ -987,6 +995,7 @@ static void loading_frame(rt_machine *m)
  * seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
+    if (host_cheat_entry(m, pc)) return;
     if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
@@ -1003,10 +1012,23 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
+/* --cheat <frame>: the Ctrl+W chord at a frame boundary, once. The request itself is consumed by
+ * the next minigame update, exactly as the key's is. */
+static void host_cheat_frame(rt_machine *m)
+{
+    if (g_cheatFrame != 0 && !g_cheatDone && m->frame >= g_cheatFrame)
+    {
+        g_cheatDone = 1;
+        printf("recomp: Ctrl+W at frame %lu\n", (unsigned long)m->frame);
+        host_cheat_force(m);
+    }
+}
+
 /* A headless --esc run has no window and therefore no host_input; this hook is the frame boundary
  * it needs. It is the same seam host_input checks. */
 static void host_esc_frame(rt_machine *m)
 {
+    host_cheat_frame(m);
     if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
     {
         g_escDone = 1;
@@ -1029,6 +1051,8 @@ static void host_input(rt_machine *m)
     }
     if (!plat_pump(&in)) m->stop = 1;
     if (in.pressed[KEY_ESCAPE]) host_title_escape(m);
+    host_cheat_input(m, &in);
+    host_cheat_frame(m);
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
     if (g_portArm)
@@ -1100,6 +1124,7 @@ static void host_pointer_frame(rt_machine *m)
     int moved = 0;
 
     if (!g_portArm) return;
+    host_cheat_frame(m);
     if (g_ptrScriptCount > 0) moved = pointer_script_tick(m) > 0;
     /* A scripted click is /FIRE, the same level the platform's button is; the script's own fire
      * level is put back when the button is released, so the two compose. */
@@ -1389,6 +1414,13 @@ int main(int argc, char **argv)
             g_escFrame = (u32)strtoul(argv[++i], 0, 0);
             continue;
         }
+        if (strcmp(argv[i], "--cheat") == 0 && i + 1 < argc)
+        {
+            /* <frame>: press Ctrl+W at that frame, through the same request the platform's chord
+            * raises (a test seam like --esc - it measures the minigame cheat itself). */
+            g_cheatFrame = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
         if (argv[i][0] == '-') { printf("recomp: unknown option %s\n", argv[i]); return 2; }
         if (strchr(argv[i], '\\') || strchr(argv[i], '/') || strchr(argv[i], '.')) image = argv[i];
         else insns = strtol(argv[i], 0, 0);
@@ -1491,6 +1523,8 @@ int main(int argc, char **argv)
         m.on_frame = host_pointer_frame;   /* headless --mouse: only the scripted pointer */
     else if (g_escFrame != 0)
         m.on_frame = host_esc_frame;       /* headless --esc: the restart seam needs a frame */
+    else if (g_cheatFrame != 0)
+        m.on_frame = host_cheat_frame;     /* headless --cheat: the chord needs a frame */
     if (audioDump != 0)
     {
         /* Mix without a device: the run's audio is checked (and can be heard) offline. */
@@ -1518,7 +1552,9 @@ int main(int argc, char **argv)
      * test run), never in a measurement, where the machine state has to be the original's. */
     g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                 dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
-    if (g_portArm) rc_entryHook = host_entry;
+    /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry hook
+     * even in a run that is otherwise a measurement, because that run asked for the cheat. */
+    if (g_portArm || g_cheatFrame != 0) rc_entryHook = host_entry;
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);
@@ -1654,6 +1690,7 @@ int main(int argc, char **argv)
             if (g_window) m.on_frame = host_input;
             else if (mousePath != 0) m.on_frame = host_pointer_frame;
             else if (g_escFrame != 0) m.on_frame = host_esc_frame;
+            else if (g_cheatFrame != 0) m.on_frame = host_cheat_frame;
             if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
             oracle_boot(HS_ENTRY, HS_A4);
             m.on_cia = host_cia;
@@ -1668,6 +1705,8 @@ int main(int argc, char **argv)
             g_isActive = 0;
             g_called = 0;
             g_escDone = (g_escFrame != 0) ? 1 : 0;
+            g_cheatDone = (g_cheatFrame != 0) ? 1 : 0;
+            host_cheat_reset();
             /* The port seams keep per-screen state; a fresh game must not inherit the old one. */
             g_ptrKnown = g_ptrActive = g_hoverOwn = 0;
             g_ptrX = g_ptrY = 0;

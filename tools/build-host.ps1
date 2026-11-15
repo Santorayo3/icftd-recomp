@@ -42,6 +42,7 @@ $sources = @(
     (Join-Path $hs 'main.c'),
     (Join-Path $hs 'title.c'),
     (Join-Path $hs 'title_button.c'),
+    (Join-Path $hs 'cheat.c'),
     (Join-Path $or 'cpu.c'),
     (Join-Path $or 'state.c'),
     (Join-Path $or 'input.c'),

@@ -186,6 +186,8 @@ static void kbd_scancode(u8 sc)
         case 0x11: key = KEY_W;      break;
         case 0x2E: key = KEY_C;      break;
         case 0x14: key = KEY_T;      break;
+        /* Left Control (0xE0 0x1D, the right-hand one, is not this case). */
+        case 0x1D: key = KEY_CTRL;   break;
         default: break;
         }
     }

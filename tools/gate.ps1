@@ -32,26 +32,29 @@
                                 resource loads and nothing else)
      12. pointer aim           (tools\aim-check.ps1 - the pointer moves the giant-ant fight's gun
                                 and the fire game's extinguisher, inside the engine's own travel)
+     13. minigame cheat        (tools\cheat-check.ps1 - left Ctrl+W ends each of the seven scenes
+                                in the words its own success path writes, and no run without it
+                                changes)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-12 cover the port's
+    capture or reference-image test can prove a translated function. Steps 5-13 cover the port's
     own surfaces - the presenter, the title menu, the map cursor, the room pointer, the fight's
-    crosshair, the fullscreen border, the loading line and the two aims - which have no counterpart
-    in the original to diff against; they can only fail on their own terms.
+    crosshair, the fullscreen border, the loading line, the two aims and the Ctrl+W cheat - which
+    have no counterpart in the original to diff against; they can only fail on their own terms.
 
     A change is validated by the check that covers it, not by the whole table: while working, run
     the one step (-Only) or the tier (-Full) the change touches. See docs\port-features.md, "The
     dev loop".
 
 .PARAMETER Full
-    Add the port-feature steps (5-11) to the core steps.
+    Add the port-feature steps (5-13) to the core steps.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
 
 .PARAMETER Only
     Run only the steps whose name matches this wildcard, instead of the tier. A group keyword
-    selects a tier: 'core' (1-4), 'port' (5-11), 'build' (1-2).
+    selects a tier:     'core' (1-4), 'port' (5-13), 'build' (1-2).
     e.g. -Only pointer, -Only recomp, -Only port.
 
 .EXAMPLE
@@ -115,7 +118,8 @@ $all = @(
     @{ Name = 'fight crosshair (aim)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 } },
     @{ Name = 'fullscreen border (bars)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 } },
     @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } },
-    @{ Name = 'pointer aim (gun, extinguisher)';      Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\aim-check.ps1 } }
+    @{ Name = 'pointer aim (gun, extinguisher)';      Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\aim-check.ps1 } },
+    @{ Name = 'minigame cheat (Ctrl+W)';              Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\cheat-check.ps1 } }
 )
 
 if ($Only) {

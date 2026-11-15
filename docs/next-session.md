@@ -11,7 +11,36 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
-## The gun and the extinguisher follow the mouse (2026-11-15, latest)
+## The Ctrl+W minigame cheat (2026-11-15, latest)
+
+Asked for: left Ctrl+W in any minigame ends it immediately in its success state. The original has
+no cheat, so it is a port feature (`docs\port-features.md`, "The Ctrl+W minigame cheat"); the claim
+is machine state, and the seam writes the words each scene's own success path writes rather than a
+new flag. Seven per-frame updates are the attachment points (each is called from one scene only):
+`FUN_0000A74E` fight, `FUN_000125AA` flight, `FUN_0000B528` fire game, `FUN_00019E9C` hospital,
+`FUN_0001C838` chicken, `FUN_0000D376` underground, `FUN_00007934` giant ant. The request comes from
+`input_state.down[KEY_CTRL]` + a press of `KEY_W` (Windows: `VK_CONTROL`/`VK_LCONTROL` with the
+extended bit clear; DOS: scancode `0x1D`) and is consumed at a scene's next update (measured 0..2
+frames later). A request expires after 3 frames, so a press on the title, a room or the map cannot win
+the next scene; the title also ignores its W ending key while Ctrl is held.
+
+The success words, all the engine's own: the fight's `0x230f6`/`0x29e26`/`0x29e24`/`0x29e36` and
+`0x2991e`; the flight's landing `0x2a552`/`0x2a544`/`0x2991e` (`FUN_00017b9c` at `0x17c78`, which
+continues into the nest game); the fire game's eight `0x29e88` flags, `0x29cc0` and `0x29eba`; the
+shared `0x2991e`; the escape/nest `0x2a170`; the chicken's `0x2bcd4`/`0x2bcce`/`0x2bcd0`; the ant's
+`0x2991e`/`0x29920`/`0x29cc0`. The fire game's `0x29cc0` matters twice: it stops `FUN_0000b7b2`
+re-igniting a flame on that frame, and it is the tail of `FUN_0000b528` that returns 1.
+
+**Measured** (`tools\cheat-check.ps1`, gate step 13; also driven live through `WM_KEYDOWN` in a
+window): `--titlekey 1..7`, request at frame 600 — Fight: `0x2991e=1`, `0x230f6=1`; Flight:
+`0x2991e=1`, `0x2a552=1`, `0x2a544=1`; Fire: `0x2991e=1`, `0x29cc0=1`; Hospital: `0x2991e=1`,
+`0x2a170=8`; Chicken: `0x2bcd4=1`, `0x2bcd0=1`; Underground: `0x2991e=1`, `0x2a170=8`; Ant:
+`0x2991e=1`, `0x29cc0=1`. Inertness: the fight's `--call` preset with the seam installed but no
+request is byte-identical to the plain run on every frame record before frame 2500, and a plain
+measurement run ends no scene. The DOS build installs the same hook (only for this feature) and maps
+left Ctrl; the pointer, crosshair and loading seams remain Windows-only.
+
+## The gun and the extinguisher follow the mouse (2026-11-15, earlier)
 
 Asked for: move the giant-ant fight's gun and the fire game's extinguisher with the mouse, next to
 the keyboard. Both are the original's scenes and both are stick-only, so this is a port feature

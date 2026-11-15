@@ -1,8 +1,8 @@
 # Port features — where to attach, how to reach a screen, and what "done" means
 
 A *port feature* is code the original game does not have: save slots, the OSD, the title screen,
-the situation map's mouse cursor (and the room screens' pointer), the window/present backend, host
-input plumbing, our own tooling. There is nothing to diff it against, so RULE 0
+the situation map's mouse cursor (and the room screens' pointer), the Ctrl+W minigame cheat, the
+window/present backend, host input plumbing, our own tooling. There is nothing to diff it against, so RULE 0
 (`.github/copilot-instructions.md`) cannot decide it —
 but RULE 0 still governs everything the original *does* have, and a port feature may not disturb it.
 This page is what a session reads *before* writing one: where a feature attaches, the trap that has
@@ -135,7 +135,9 @@ proves the click is the same `/FIRE` as the key over all 2399 frame records, wit
 a divergence at exactly frame 1060 (1 and 3). It is the *most* a feature has needed, not the
 minimum. `tools\pointer-check.ps1` adds the second shape: a hover has to select the same menu entry
 the stick selects (the menu's stored index and action code), and a pointer that never reaches a line
-has to leave the run byte-identical, frame record for frame record.
+has to leave the run byte-identical, frame record for frame record. `tools\cheat-check.ps1` is the
+third: each scene's success is the set of words its own win path writes, read out of the RAM the run
+ends on, plus one armed-vs-plain frame-record comparison before the request.
 
 ## The room screens' pointer, and a menu line under it
 
@@ -206,8 +208,8 @@ crosshair and agrees with the armed run on all 3391 frame records.
 The fight itself had never been entered before this feature; it is now a scene preset, and its
 parity was measured the usual way: 4028 frame records identical to the oracle (registers, SR, PC,
 custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 differs in two dead
-stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook, so the
-crosshair is inert there — the same gap the pointer has.
+stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook for the
+crosshair, so it is inert there — the same gap the pointer has.
 
 ## The gun and the extinguisher, moved with the pointer
 
@@ -249,8 +251,57 @@ Measured with `tools\aim-check.ps1` (the fight's preset as above; the fire game 
 | fight | `150,80` → `177,138`; `200,120` → `227,178` | the shot stored is `200,120` | stick moves it to `212,120` | a stale pointer leaves all 3 392 frame records unchanged; the pointer run first differs at 2001 (moved at 2000) |
 | fire game | `100,50` → `121,183`; `200,100` → `203,202`; corners → `40,165` / `300,240` | the spray stored is `203,202` | stick moves it to `188,180` | a stale pointer leaves all 2 280 frame records unchanged; the pointer run first differs at 1963 (moved at 1960) |
 
-The DOS build installs no per-screen hook, so both aims are inert there — the same gap the pointer
-and the crosshair have.
+The DOS build installs no per-screen hook for either aim, so both are inert there — the same gap
+the pointer and the crosshair have.
+
+## The Ctrl+W minigame cheat
+
+The original has no cheat key. In a played game, left Ctrl + W ends whichever of the title's seven
+scenes is running in that scene's own success state. The claim is a machine state, not a picture:
+every scene already knows how its win looks, and the seam writes exactly the words its own success
+path writes. Nothing is skipped - the engine's end-of-scene code still runs, so the fight's result,
+the fire game's "the fire is out" countdown, the chicken's swerved narration and the flight's
+landing are the game's own.
+
+| scene | per-frame update | words written | what they are |
+|---|---|---|---|
+| Fight | `FUN_0000a74e`, `0x00a74e` | `0x230f6=1`, `0x29e26=8`, `0x29e24=0`, `0x29e36=0x76`, `0x2991e=1` | the update's own exit flag, the opponent's knockout pose, the player standing, the player at the setup's full health; the end of the update takes the result from the player's pose |
+| Take a Flight | `FUN_000125aa`, `0x0125aa` | `0x2a552=1`, `0x2a544=1`, `0x2991e=1` | `FUN_00017b9c`'s landing at the nest (`0x17c78`); `FUN_000107a6` follows `0x2a552` into the nest minigame |
+| Fire Game | `FUN_0000b528`, `0x00b528` | `0x29e88[0..7]=0`, `0x29cc0=1`, `0x29eba=1`, `0x2991e=1` | every flame out (`FUN_0000b7b2`'s own flag, which also stops a re-ignition that frame), the countdown's last step, the result |
+| Escape Hospital | `FUN_00019e9c`, `0x019e9c` | `0x2a170=8`, `0x2991e=1` | `FUN_0001819a`'s loop exit (`FUN_00018832` counts the escape up the same way), the result |
+| Chicken Race | `FUN_0001c838`, `0x01c838` | `0x2bcd4=1`, `0x2bcce=0`, `0x2bcd0=1` | Ice swerved - the win `FUN_0001cd94` narrates - not braking, and the race's own end flag |
+| Underground | `FUN_0000d376`, `0x00d376` | `0x2a170=8`, `0x2991e=1` | `FUN_0000bfca`'s `while (DAT_0002a170 < 8)`, the result |
+| Giant Ant | `FUN_00007934`, `0x007934` | `0x2991e=1`, `0x29920=1`, `0x29cc0=1` | the update's success branch, word for word |
+
+Each update is called from one scene only (the callers are in `re\decomp_all\dshell\ALL.c`), so the
+update identifies the scene. The request is consumed at its entry, within the three-frame window
+`CHEAT_REQUEST_FRAMES` (measured 0..2 frames after the key).
+
+Attachment points, in the table's order:
+
+* **Platform input** - the platform layers map left Ctrl to `input_state.down[KEY_CTRL]` (Windows:
+  `WM_KEYDOWN` `VK_CONTROL`/`VK_LCONTROL` with the extended bit clear; DOS: scancode `0x1D`, where
+  the `0xE0 0x1D` right-hand key is not matched). `host_cheat_input` turns the chord into one
+  request.
+* **Per-screen code** - `host_cheat_entry` is called first from `rc_entryHook`, and consumes the
+  request at the entry of the seven updates. The hook is installed in a played game (and for a
+  `--mouse`/`--cheat` test run), never in a plain measurement, where the machine state must be the
+  original's.
+* A request is good for three frames (`CHEAT_REQUEST_FRAMES`), so a press on the title, a room or
+  the map expires instead of winning the next scene. The title also ignores its W ending key while
+  Ctrl is held, so the chord does not take that menu entry on the way in.
+* `--cheat <frame>` is the scripted form (a test seam like `--esc`): it feeds the same
+  `input_state` the platform reports, so a test run exercises the one test that decides the chord.
+* The DOS front end installs the same hook for this feature alone; the pointer, crosshair and
+  loading seams stay Windows-only.
+
+Measured with `tools\cheat-check.ps1` (it is gate step 13): each scene is started from the title
+(`--titlekey 1..7`), the request is raised at frame 600, and the run's final RAM holds the words
+above (the fight, fire, escape, nest and ant runs return to the title and end there; the chicken's
+win narration waits for /FIRE and the flight continues into the nest, so those two end at their
+budget). The fight's documented preset, run with the seam installed but no request, is
+byte-identical to the plain run on every frame record before frame 2500, and a plain measurement
+run ends no scene.
 
 ## The loading line during a screen transition
 
@@ -294,9 +345,9 @@ Measured with `tools\load-check.ps1` (the recordings are game-derived, so it SKI
 | room → map (`map-pointer.txt`) | 1127..1200 | 1152 | 1209 | 1203 |
 
 The seam is inert in a measurement: a run without `--mouse` (or a window) never installs
-`rc_entryHook`, logs no line, and its RAM is byte-identical to the armed run's over all 2 MB. The
-DOS front end installs no per-screen hook, so the line is inert there — the same gap the pointer and
-the crosshair have.
+`rc_entryHook` for it, logs no line, and its RAM is byte-identical to the armed run's over all 2 MB.
+The DOS front end installs no per-screen hook for the line, so it is inert there — the same gap the
+pointer and the crosshair have.
 
 ## The fullscreen border
 
@@ -334,10 +385,10 @@ that does not touch them. Pick the tier by what the change is:
 
 | when | command | what runs |
 |---|---|---|
-| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all eight) | that check (its own binary must be built: `tools\build-host.ps1`) |
+| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all nine) | that check (its own binary must be built: `tools\build-host.ps1`) |
 | working on the translation | `tools\recomp-fixtures.ps1 -Only "000009*"`, then `tools\gate.ps1` | the fixtures under that address wildcard, then the core |
 | before a hand-off | `tools\gate.ps1` | builds, interpreter fixtures, translated vs interpreted |
-| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all eight port checks |
+| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all nine port checks |
 
 `-Quick` still skips the two builds. No change owes a whole-gate run: it owes the measurement that
 covers it — see `.github\copilot-instructions.md`, "Validation — check the change, not the
