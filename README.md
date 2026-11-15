@@ -143,7 +143,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu, the map's pointer control, the room pointer's hover and the giant-ant fight's crosshair |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu, the map's pointer control, the room pointer's hover, the giant-ant fight's crosshair and the fullscreen border |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
@@ -167,6 +167,8 @@ docs/                  architecture, plan, program model
 | `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |
 | `tools\crosshair-check.ps1` | the giant-ant fight's crosshair: its centre is the point the engine's shot test reads (the aim `−0x1b`/`−0x3a`, the value `FUN_000086A0` stores for `FUN_0000823A`), it follows the stick, and a measurement run draws none |
 | `tools\mkcrosshair.ps1` | PNG → `src\runtime\amiga\crosshair_art.h`, the aiming aid the fight draws |
+| `tools\mkborder.ps1` | PNG → `src\runtime\plat\win32\border_art.h`, the art the Windows fullscreen paints behind the 4:3 picture |
+| `tools\border-check.ps1` | the fullscreen border: the art table is the PNG byte for byte, `border_paint` is point sampling, and the bars are curtain rather than black |
 
 ## Where to start reading
 

@@ -7,7 +7,8 @@ This is the shipped half of the project. It contains **no 68000 core**: it is th
 types.h          fixed-width types, no OS headers
 platform.h       the platform contract: window, input, audio, files, heap, 50 Hz clock
 config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
-plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files)
+plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files,
+                 plus border.c: the artwork the fullscreen paints in the bars beside the picture)
 plat/dos/        the other: VGA mode 13h, the VGA DAC, polled 8042 scancodes, the 8254 frame clock
 amiga/memory.c   24-bit big-endian address space
 amiga/machine.c  the library shims (exec, dos, graphics, intuition, ciaa, input, ...), the heap,
@@ -45,7 +46,7 @@ reads it and hands the result to the platform layer, so the ini format never rea
 
 ```ini
 [VIDEO]
-fullscreen=true     ; false = 320x200 window, 1:1; true = whole screen, scaled 4:3
+fullscreen=true     ; false = 320x200 window, 1:1; true = whole screen, scaled 4:3, border art in the bars
 
 [AUDIO]
 sound=10            ; 0..10, 0 = sound effects off

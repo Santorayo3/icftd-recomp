@@ -2483,3 +2483,48 @@ A click is /FIRE, so hovering a line and clicking dials that entry - in a *playe
 clock VBI runs. An injected phone cannot be left at all without it: its loop exits on `0x26896`,
 which only `FUN_0000A500` (installed by `FUN_0000551C`) writes - the same caveat the giant-ant
 fight has, and the reason a `--mouse` run of this scene only shows the arrow moving.
+
+## The fullscreen border is the port's art, not black bars (2026-11-15, this session)
+
+Another port feature, and the first one in the present backend rather than in the game: nothing to
+diff against, and it must not touch what is diffed.
+
+**What it is.** Fullscreen has always kept the 320x200 picture at 4:3 (`plat_present` fits the
+largest 4:3 rectangle into the client area) and left the rest black. `assets\border.png` - the
+port's own artwork, curtains left and right, black across the middle, drawn at 356x200 - is now
+composed behind the picture instead: `border_paint` (`src\runtime\plat\win32\border.c`) fills the
+frame buffer `make_frame` creates, then the picture is stretched over it. The art's black centre is
+under the picture, so the bars show curtain. Windows only; the DOS build has no bars (VGA 13h is
+the picture) and does not compile the file.
+
+**Why it costs no machine state.** It is the platform layer: `plat_win32.c` calls it once per
+frame-buffer (re)creation, before any game pixel is involved, and it reads nothing. The one
+invariant of the port (a measurement run does not change) is trivially kept - a headless run never
+opens a window.
+
+**The picture is not decoded at run time.** `tools\mkborder.ps1` writes
+`src\runtime\plat\win32\border_art.h`, run-length encoded (`count, R, G, B`). Not an 8-bit
+palette: the curtain is shaded and the picture has **4039 colours**, so a palette would band it;
+RLE is exact and 73 160 bytes (18 290 runs, 206 KB of source, about the size of `title_art.h`).
+`border.c` decodes it once into a static image and scales from there.
+
+**Point sampling, not smoothing.** The scale is `src = dst * W / w` per axis - nearest neighbour -
+because the art is pixel art. It is stretched over the whole client area, which at 16:9 (the aspect
+it was drawn for, and this machine's screen) reproduces the author's layout almost exactly: the
+4:3 picture is 0.75 * width and the art's curtains are 47/356 = 0.132 * width per side, i.e. the
+bars. At 16:10 the curtain is slightly wider than the bar and the picture covers its inner edge. At
+21:9 the art's own black centre is visible between curtain and picture (57.8 % of the bars are
+curtain) - that is the artwork, not a gap left by the mapping.
+
+**Measured** with `tools\border-check.ps1` (now step 10 of the gate), and it is the feature's whole
+claim:
+
+| claim | how | result |
+|---|---|---|
+| the table is the picture | decode `border_art.h` and compare with `assets\border.png`, pixel by pixel | identical, 356x200, 18 290 runs |
+| the scale is point sampling | compile the **shipped** `border.c` with the build scripts' flags, paint, compare every output pixel with `img[y*H/h][x*W/w]` | 0 mismatches at 2048x1152, 1920x1080, 3840x2160, 1680x1050, 2560x1080, 320x200 and 256x144 (the last one scales the picture down) |
+| the bars are curtain | share of non-black pixels outside the 4:3 picture rect | 100.0 % at 2048x1152, 1920x1080, 3840x2160 and 1680x1050; 57.8 % at 2560x1080 (the art's black centre) |
+
+`assets\border.png` joins `autosave.png`, `titlescreen.png` and `crosshair.png` as tracked art (the
+rest of `assets\` stays gitignored game data); the generated header is tracked like the other art
+tables, so a build never needs the PNG.

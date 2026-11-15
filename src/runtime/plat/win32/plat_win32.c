@@ -10,6 +10,7 @@
 #include <string.h>
 #include "types.h"
 #include "platform.h"
+#include "border.h"
 
 /* waveOut lives in winmm; Watcom links a library through this pragma (the build scripts list no
  * libraries). */
@@ -21,6 +22,7 @@ static HBITMAP       g_dib;
 static u8           *g_bits;
 static HDC           g_frame_dc;      /* fullscreen: screen-sized compose buffer */
 static HBITMAP       g_frame_dib;
+static u32          *g_frame_bits;
 static int           g_frame_w, g_frame_h;
 static HPALETTE      g_pal;
 static int           g_quit;
@@ -283,7 +285,8 @@ const char *plat_default_ini(void)
            "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
            "\r\n"
            "[VIDEO]\r\n"
-           "; false = window at the original 320x200; true = fullscreen, picture scaled up to fit.\r\n"
+           "; false = window at the original 320x200; true = fullscreen, the 4:3 picture scaled up\r\n"
+           ";            to fit with the border art either side.\r\n"
            "fullscreen=true\r\n"
            "\r\n"
            "[AUDIO]\r\n"
@@ -328,6 +331,7 @@ static void free_frame(void)
     if (g_frame_dc) DeleteDC(g_frame_dc);
     g_frame_dib = 0;
     g_frame_dc = 0;
+    g_frame_bits = 0;
     g_frame_w = 0;
     g_frame_h = 0;
 }
@@ -337,7 +341,6 @@ static int make_frame(int w, int h)
     BITMAPINFO bi;
     HDC screen;
     void *bits = 0;
-    RECT all;
 
     free_frame();
     memset(&bi, 0, sizeof bi);
@@ -358,11 +361,13 @@ static int make_frame(int w, int h)
         return 0;
     }
     SelectObject(g_frame_dc, g_frame_dib);
-    /* The bars never change, so they are painted once and only the picture rect is rewritten. */
-    all.left = 0; all.top = 0; all.right = w; all.bottom = h;
-    FillRect(g_frame_dc, &all, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    g_frame_bits = (u32 *)bits;
     g_frame_w = w;
     g_frame_h = h;
+    /* The bars never change, so they are painted once and only the picture rect is rewritten.
+     * They are the port's border art, not black: the picture is 4:3, so a widescreen window shows
+     * the curtain either side of it (border.c). */
+    border_paint(g_frame_bits, w, h);
     return 1;
 }
 
@@ -389,7 +394,8 @@ void plat_present(void)
             }
         }
         /* 320x200 is a 4:3 picture with non-square pixels, as on an Amiga monitor: fit the
-         * largest 4:3 rectangle into the screen and keep the rest black. */
+         * largest 4:3 rectangle into the screen and leave the rest to the border art painted
+         * under it. */
         w = ch * 4 / 3;
         if (w > cw) {
             w = cw;
@@ -581,7 +587,7 @@ u32 plat_base_total_kb(void) { return 0; }
 
 /* Client point -> framebuffer pixel. Windowed the client is exactly the 320x200 DIB, so the
  * point is used as it is; fullscreen the picture is a 4:3 rectangle centred in the window, so the
- * pointer has to be mapped into it. It is clamped: a pointer on the black bars then reads as the
+ * pointer has to be mapped into it. It is clamped: a pointer on the border art then reads as the
  * nearest picture edge, which is what a map cursor pushed past its travel window needs (that is
  * the "scroll this way" input). */
 static void mouse_to_fb(s16 *x, s16 *y)

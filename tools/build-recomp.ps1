@@ -48,7 +48,8 @@ $sources = @(
     (Join-Path $rt 'amiga\copper.c'),
     (Join-Path $rt 'amiga\bus_cycles.c'),
     (Join-Path $rt 'amiga\inst_len.c'),
-    (Join-Path $rt 'plat\win32\plat_win32.c')
+    (Join-Path $rt 'plat\win32\plat_win32.c'),
+    (Join-Path $rt 'plat\win32\border.c')
 )
 # Every translated function: one file per function, discovered so the script never needs editing.
 $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullName } | Sort-Object

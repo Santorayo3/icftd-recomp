@@ -206,9 +206,38 @@ custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 diff
 stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook, so the
 crosshair is inert there — the same gap the pointer has.
 
+## The fullscreen border
+
+Fullscreen keeps the 320x200 picture at 4:3, so a widescreen window leaves bars either side. They
+used to be black; the Windows build paints the port's own artwork there (`assets\border.png`:
+curtains left and right, black across the middle, authored at 356x200 with the picture's footprint
+at its centre). This is the present backend, not the game: `border_paint` (`border.c`) fills the
+composed frame before `plat_present` blits the scaled picture over it, so the picture covers the
+art's black centre and the bars show curtain. Nothing of the machine is read or written, and the
+DOS build is untouched — VGA has no bars to fill.
+
+The picture is not decoded at run time: `tools\mkborder.ps1` turns it into
+`src\runtime\plat\win32\border_art.h`, run-length encoded (`count, R, G, B`; the shading has
+thousands of colours, so an 8-bit palette would band it), decoded once into a static image. It is
+scaled with **point sampling** — it is pixel art, and any smoothing turns the folds to mush — and
+stretched over the whole client area, which reproduces the author's layout exactly at 16:9 (the
+aspect the art was drawn for) and covers the bars completely at 16:10. A 21:9 window honestly
+shows the art's own black next to the picture.
+
+`tools\border-check.ps1` is the feature's own check, in the gate: (1) the generated table is
+`assets\border.png` byte for byte, (2) the *shipped* `border_paint`, compiled with the build
+scripts' flags, is exactly point sampling at several window sizes — every output pixel is the
+input pixel at `x*W/w, y*H/h`, so an interpolating scale fails on the first non-uniform pixel —
+and (3) on 16:9 and 16:10 the bars are 100 % curtain instead of black. It SKIPs without the
+picture (user-supplied) or without Open Watcom.
+
+The art itself is the port's, so `assets\border.png` is one of the few tracked files in `assets\`;
+the generated header is tracked next to `crosshair_art.h` and `title_art.h`, so a build never
+needs the PNG.
+
 ## The dev loop
 
 `tools\gate.ps1 -Quick` while working — it skips both builds and runs the checks (interpreter
-fixtures, translated vs interpreted, presenter, title, map cursor, room pointer, fight crosshair). Run
-the full `tools\gate.ps1` once before handing off: it also builds the exporter and the oracle, and it
-is the definition of green.
+fixtures, translated vs interpreted, presenter, title, map cursor, room pointer, fight crosshair,
+fullscreen border). Run the full `tools\gate.ps1` once before handing off: it also builds the
+exporter and the oracle, and it is the definition of green.

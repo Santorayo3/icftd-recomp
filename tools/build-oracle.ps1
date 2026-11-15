@@ -55,6 +55,7 @@ $args = @(
     ('"' + (Join-Path $rt 'amiga\inst_len.c') + '"'),
     ('"' + (Join-Path $rt 'config.c') + '"'),
     ('"' + (Join-Path $rt 'plat\win32\plat_win32.c') + '"'),
+    ('"' + (Join-Path $rt 'plat\win32\border.c') + '"'),
     # the vendored core (development dependency only)
     ('"' + (Join-Path $mus 'm68kcpu.c') + '"'),
     ('"' + (Join-Path $mus 'm68kops.c') + '"'),

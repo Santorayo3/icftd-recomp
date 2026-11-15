@@ -22,12 +22,14 @@
                                 recorded session)
       9. fight crosshair       (tools\crosshair-check.ps1 - the giant-ant fight's aiming aid marks
                                 the point the engine's shot test reads)
+     10. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
+                                are the port's artwork, point-sampled, not black)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-9 cover the port's
-    own surfaces - the presenter, the title menu, the map cursor, the room pointer and the fight's
-    crosshair - which have no counterpart in the original to diff against; they can only fail on
-    their own terms.
+    capture or reference-image test can prove a translated function. Steps 5-10 cover the port's
+    own surfaces - the presenter, the title menu, the map cursor, the room pointer, the fight's
+    crosshair and the fullscreen border - which have no counterpart in the original to diff
+    against; they can only fail on their own terms.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
@@ -88,6 +90,7 @@ Step 'title menu (scenes)' { powershell -NoProfile -ExecutionPolicy Bypass -File
 Step 'map pointer (cursor)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\mouse-check.ps1 }
 Step 'room pointer (hover)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 }
 Step 'fight crosshair (aim)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 }
+Step 'fullscreen border (bars)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String
