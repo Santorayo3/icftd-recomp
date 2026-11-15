@@ -39,3 +39,25 @@ not have (save slots, the OSD, the title screen, the map's pointer control, host
 tooling); they follow the definition of done in
 [`docs/port-features.md`](../docs/port-features.md) instead of a parity diff, and they too may never
 be justified by a symptom or hidden behind an opt-in flag.
+
+## Validation — check the change, not the project
+
+RULE 0 decides *where* the change goes; this section decides how much has to be checked afterwards.
+The game is feature-complete and in good shape, so validation is a cost to keep small:
+
+* **The check that covers the change is the bar.** A translator, interpreter or runtime-model change
+  is validated by the fixtures that exercise it (or by the core gate once); a change to a port
+  surface by the one port check that measures it (`tools\gate.ps1 -Only <step>`). A whole-gate run is
+  not a precondition for every change: `tools\gate.ps1` is the translation core, `-Full` adds the
+  port checks for hand-off or for changes that touch several surfaces at once.
+* **No new fixture is owed for every addition.** `ref\fixtures` is a regression set, not a checklist.
+  Add a case when it is the cheapest way to see a divergence, not because a function was touched.
+* **Name the divergence first, then measure.** For a re-implementation fix the one-sentence diff
+  (*the original does X at `0xNNNN`, we do Y*) is still required; what is no longer required is the
+  full parity apparatus around it. One targeted measurement — a single fixture, one
+  `tools\state-diff.ps1` pair, one `--state`/`--ram` comparison — is enough when it shows the gap
+  closed.
+* **A picture may show a symptom; it never closes a fix.** Frames and screenshots are allowed as a
+  first look, and for the port's own surfaces. The change itself still has to be explained as a
+  difference from the original, or — for port code — asserted against its own claim, not against how
+  the screen looks.

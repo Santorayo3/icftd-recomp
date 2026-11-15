@@ -109,18 +109,21 @@ Things the table does not say, because they are not what a preset needs:
 ## "Done" for a port feature
 
 Oracle parity cannot apply — the original has no such code. A port feature is done when all three
-hold, and none of them is a picture:
+hold, and none of them is a picture. "Asserted" is the measurement the feature *needs*, not the
+largest one available: one read of the words it touches, or one replay comparison, is enough.
 
 1. **Its own claim is asserted on machine state** — the words the feature reads and writes (the map
    cursor's `0x28A54/0x28A58`, the picture offset, the destination under the cursor), or, where the
-   feature *replaces* a key or behaviour, **bit-for-bit equivalence with what it replaces**:
-   removing the key press and feeding a click instead has to leave the run byte-identical, frame
-   record for frame record.
-2. **One invariant is kept: a measurement run does not change.** The seam is inert unless the game is
-   actually being played, and that is *shown*, not claimed: frame records of a feature run against
-   the recorded session's must be identical up to the frame where the feature legitimately first
-   acts (the pointer run and the plain run agree to frame 1205, diverge at 1206 — the map's first
-   update with the pointer active). Anything earlier is a regression, whatever the screenshot says.
+   feature *replaces* a key or behaviour, equality with what it replaces: removing the key press and
+   feeding a click instead has to leave the run byte-identical. Frame-by-frame records are the
+   cheapest way to see that when the seam is on the frame path; a single state dump is enough when
+   the feature only writes one word.
+2. **A measurement run is not disturbed.** The seam is inert unless the game is actually being
+   played. Show it when the seam can plausibly touch a measurement run — one comparison of the
+   feature run against the plain run up to the frame where the feature legitimately first acts (the
+   pointer run and the plain run agree to frame 1205, diverge at 1206). A feature that writes no
+   machine state (the OSD line, the border) is not owed the full-frame proof; the byte-compare of a
+   RAM dump is enough, and only if the code sits on a path a measurement takes.
 3. **The seam is inert unless the game is being played, and never behind an opt-in flag.** No
    `--enable-feature`; a shipped launch has the feature, a measurement (`--input`, `--call`,
    `--poke`, `--cover`) does not. If a fix only appears with a flag, it is not a fix — that is how
@@ -129,10 +132,10 @@ hold, and none of them is a picture:
 `tools\mouse-check.ps1` is the worked example of all three: it reads the map's own words out of a
 `--ram` dump (1), proves a pointer run is identical to the plain run until the map starts (2), and
 proves the click is the same `/FIRE` as the key over all 2399 frame records, with no press producing
-a divergence at exactly frame 1060 (1 and 3). Copy its shape rather than inventing a fourth.
-`tools\pointer-check.ps1` adds the second shape: a hover has to select the same menu entry the stick
-selects (the menu's stored index and action code), and a pointer that never reaches a line has to
-leave the run byte-identical, frame record for frame record.
+a divergence at exactly frame 1060 (1 and 3). It is the *most* a feature has needed, not the
+minimum. `tools\pointer-check.ps1` adds the second shape: a hover has to select the same menu entry
+the stick selects (the menu's stored index and action code), and a pointer that never reaches a line
+has to leave the run byte-identical, frame record for frame record.
 
 ## The room screens' pointer, and a menu line under it
 
@@ -283,7 +286,16 @@ needs the PNG.
 
 ## The dev loop
 
-`tools\gate.ps1 -Quick` while working — it skips both builds and runs the checks (interpreter
-fixtures, translated vs interpreted, presenter, title, map cursor, room pointer, fight crosshair,
-fullscreen border, loading line). Run the full `tools\gate.ps1` once before handing off: it also
-builds the exporter and the oracle, and it is the definition of green.
+The gate has tiers, because the port's scene replays cost minutes and say nothing about a change
+that does not touch them. Pick the tier by what the change is:
+
+| when | command | what runs |
+|---|---|---|
+| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all seven) | that check (its own binary must be built: `tools\build-host.ps1`) |
+| working on the translation | `tools\recomp-fixtures.ps1 -Only "000009*"`, then `tools\gate.ps1` | the fixtures under that address wildcard, then the core |
+| before a hand-off | `tools\gate.ps1` | builds, interpreter fixtures, translated vs interpreted |
+| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all seven port checks |
+
+`-Quick` still skips the two builds. No change owes a whole-gate run: it owes the measurement that
+covers it — see `.github\copilot-instructions.md`, "Validation — check the change, not the
+project". The full table is for hand-off and for changes whose blast radius is not obvious.

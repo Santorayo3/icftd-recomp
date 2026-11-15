@@ -11,6 +11,40 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
+## Validation is sized to the change, and the gate has tiers (2026-11-15, latest)
+
+Asked for: relax the validation rules and the gate — the game is close to finished, and the gate ran
+for every addition, which dominated iteration time.
+
+**Gate.** `tools\gate.ps1` ran all eleven steps every invocation (375 s measured). It now has two
+tiers and a selector, driven from one step table so they cannot drift:
+
+| invocation | runs | measured |
+|---|---|---|
+| `tools\gate.ps1` (default) | exporter build, oracle build, interpreter fixtures, translated vs interpreted | **41.4 s** |
+| `-Full` | the above plus presenter, title, map pointer, room pointer, crosshair, border, loading line | 382.8 s |
+| `-Only <step>` | one step by name wildcard, or the groups `core` / `port` / `build` (`-Only pointer`, `-Only port`) | its own cost |
+| `-Quick` | the selected steps without the two builds (as before) | |
+
+The default is the translation core, so a translation change is still covered end to end; the port
+scene replays are what `-Full` and `-Only` are for, measured in the `-Full` run: presenter **143 s**,
+map pointer 71 s, room pointer 66 s, crosshair 38 s, title 15 s, loading line 11 s, border 1 s.
+`-Only` with no match prints the name and exits 2. Verified after the change: default 4/4 (41.4 s),
+`-Only interpreter` 1/1, `-Only nope` exit 2, `-Full` 11/11 (382.8 s).
+
+**Rules.** `.github\copilot-instructions.md` gained "Validation — check the change, not the
+project". RULE 0's diagnosis is untouched — a bug is still a difference, and the one-sentence
+*the original does X at `0xNNNN`, we do Y* is still owed — but the evidence bar is now the
+measurement that covers the change (one fixture, one `state-diff` pair, one port check), not a
+whole-gate run. No new fixture is owed per translated function: `ref\fixtures` is a regression set,
+not a checklist. A picture may show a symptom, never close a fix.
+
+The documents that carried the old bar were changed with it: `README.md` (quick start, tools table),
+`docs\recomp-architecture.md` (the acceptance rows are what green means, not a per-change
+checklist), `docs\port-features.md` ("Done" is the measurement a feature *needs*; the dev loop is a
+tier table), `docs\harness.md` (`harness-check` is for the interpreter, stub ABI and harness, not
+for every touched function).
+
 ## Long screen transitions say "Loading" (2026-11-15, later still)
 
 Asked for: show the word "Loading" in the OSD during long screen transitions - the map into a

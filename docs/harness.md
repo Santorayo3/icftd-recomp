@@ -98,8 +98,10 @@ The SMS run is the strongest evidence collected: the interpreter, the stub ABI, 
 unpacker and the C decoder all agree on 680 bytes of bitplane data.
 
 `powershell -ExecutionPolicy Bypass -File tools\harness-check.ps1` re-runs all twelve cases
-plus the 680-byte plane comparison and prints PASS/FAIL — run it after touching the
-interpreter or a ported function.
+plus the 680-byte plane comparison and prints PASS/FAIL — run it after touching the interpreter,
+the stub ABI or the harness itself. A ported function is covered by `tools\recomp-fixtures.ps1`,
+which needs no new pinned case: the fixtures in `ref\fixtures` are a regression set, not a
+per-function obligation.
 
 
 ## The Phase B differential (to build)

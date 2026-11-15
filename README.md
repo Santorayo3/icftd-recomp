@@ -43,6 +43,10 @@ compared at frame boundaries, driven by a frame-indexed input script.
   must produce the same state hash at **every** frame boundary.
 * **OS surface:** the call census must show no library call answered with `0`.
 
+Validation scales with the change, not with the table: `tools\gate.ps1` runs the translation core
+(builds + the two fixture layers), `-Full` adds the port's own scene checks, and `-Only <step>` runs
+one of them. A change owes the measurement that covers it, not a whole-gate run.
+
 **Frames, screenshots, WinUAE captures and image matching are retired.** They cannot cover a whole
 game, and pixel-watching is the trial-and-error this project already paid for. If the machine state
 matches, the visuals follow by construction; the only model left is planar→chunky + palette, which
@@ -60,8 +64,10 @@ label table), not by earning them.
 powershell -ExecutionPolicy Bypass -File tools\extract.ps1
 powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1
 
-# 3. gate: exporter build + emulator build + interpreter fixtures (~19 s)
+# 3. gate: exporter build + oracle build + the two fixture layers (the translation core)
 powershell -ExecutionPolicy Bypass -File tools\gate.ps1
+#    -Full adds the port's own checks (presenter, title, pointer, crosshair, border, loading line),
+#    -Only <step> runs one of them while working on that surface
 ```
 
 ## Running the original (Phase A)
@@ -143,7 +149,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter (including the minigames' display window), the title menu, the map's pointer control, the room pointer's hover, the giant-ant fight's crosshair and the fullscreen border |
+| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, map pointer, room pointer, crosshair, border, loading line), `-Only <step>` runs one |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |

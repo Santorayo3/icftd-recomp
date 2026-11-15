@@ -322,6 +322,11 @@ the original's speed on a 486DX2-66 and needs 1.6x for 100 % (`next-session.md`)
 
 ## 7. What to do next, in order
 
+The order stands. Since 2026-11-15 a step owes the measurement it names, not a whole-gate run: the
+gate is tiered (`tools\gate.ps1` core, `-Full` for the port's surfaces, `-Only <step>` for one) and
+the evidence bar is in `.github\copilot-instructions.md`, "Validation — check the change, not the
+project".
+
 1. **Make the pause reachable** (one register bit + one host key/mouse mapping) and re-run the
    `--cover` matrix: it should light up `0x54CC` and exercise the clock VBI, with the state still
    identical when nothing is pressed. This is a difference, not a feature request.

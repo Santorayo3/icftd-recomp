@@ -137,6 +137,12 @@ divergence). The driver is a frame-indexed input script, so any run can be repla
 | OS surface | the call census: every library call the binary makes is implemented, and none is answered with 0 | seconds, automated |
 | display | planar->chunky + palette is a pure function of RAM, so it is verified once with synthetic bitmaps and then never re-examined | once |
 
+The rows are what *green* means, not a checklist every change owes. `tools\gate.ps1` runs the
+translation core (builds, interpreter fixtures, translated vs interpreted); `-Full` adds the port's
+own surfaces, and `-Only <step>` runs one of them. The whole-program row is a spot check for the
+transition a change touches, not a per-change obligation: a change is validated by the measurement
+that covers it, and RULE 0's one-sentence divergence is what it owes regardless.
+
 **Frame and pixel comparison is not an acceptance test and must not come back.** It was the method
 of the hand port: it cannot cover a whole game, it cannot be automated honestly, and it collapses
 back into "the picture looks wrong", i.e. the trial-and-error loop this architecture exists to
@@ -232,8 +238,9 @@ capture and frame tool. What remains is the split that the plan needs:
 | `src\assetExport\` | formats **and** the 68000 interpreter + `rcmp`/`rleaf` differential harness | no, a tool |
 | `src\recomp\` | (to be created) the translated functions and `fn_table` | **yes** |
 
-`tools\gate.ps1` is three steps: exporter build, oracle build, interpreter fixtures. No image step
-exists and none may be added.
+`tools\gate.ps1` builds the exporter and the oracle, then runs the interpreter fixtures and the
+translated-vs-interpreted differential; `-Full` adds the port's scene checks and `-Only <step>` runs
+one of them. No image step exists and none may be added.
 
 ## The platform surface, measured
 
