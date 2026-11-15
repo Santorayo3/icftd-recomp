@@ -56,6 +56,26 @@ Screen size is confirmed independently at `0x7E8`
 
 Our framebuffer (`SCREEN_W`/`SCREEN_H` = 320 x 200) therefore matches the original exactly.
 
+### The display window is not always the whole screen
+
+`DIWSTRT`/`DIWSTOP` are programmed by the copper list, and the area outside them is the border
+(`COLOR00`). Most screens run the list `MrgCop` builds for a 320x200 ViewPort, `2C81..F4C1`, i.e. the
+full width. The scrolling minigames install their own lists and program a narrower window:
+
+| screen | copper list | DIWSTRT..DIWSTOP | window |
+|---|---|---|---|
+| flight (`FUN_00011F64`), and the ant nest, which is a scene of the same runner | template `0x24A90` | `2C90..E0B0` | 288 x 180, inset 16 px left and right |
+| hospital escape (`FUN_00017F34`) | template `0x24EB2` | `2C90..E0B0` | 288 x 180 |
+| chicken race (`FUN_0001BE80`) | template `0x2621E` | `1D61..F5D1` | 368 x 216 |
+
+The horizontal field counts lores pixels from the standard window's edge `0x81`, ignores bit 0 (the
+hires half-pixel) and has DIWSTOP's ninth bit implied, so `81..C1` is 320 px and `90..B0` is 288 px
+starting 16 px in. The width is not an accident: those lists fetch 19 words = 304 px per line
+(DDF `38..C8`) with a fine scroll of 0..15, so 288 is fetch width minus the maximum delay, and the
+engine's own row arithmetic agrees (`FUN_0001B94A`: `(bitmapWidth - 0x130)/8` = the row's spare bytes
+beyond 304). The border therefore sits exactly where the scrolling renderer has not finished its
+strip - which is what it is for.
+
 ## 2. Graphics calls actually used (complete list, 35 wrappers)
 
 Wrapper block `0x21776`-`0x2195C`; each entry is `wrapper address, LVO, call`. Every LVO lands

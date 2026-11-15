@@ -7,6 +7,10 @@
 #   - it must change *where the input says it should* (the scrolling minigames),
 #   - nothing outside the window the copper list programs may keep the previous screen's pixels
 #     (the hospital windows 180 of the 200 buffer rows; the desert stayed under it),
+#   - the same for the columns: the scrolling minigames' lists program a horizontal window too
+#     (DIWSTRT 0x2C90 .. DIWSTOP 0xE0B0 = 288 of the 320 columns), and the 16 columns down each
+#     side are the border - that is where the original hides the strip the renderer is still
+#     drawing, so a presenter that fills them shows garbage,
 #   - a screen built out of its own display regions must still show them (the fight's two health
 #     bars are the only thing in the top and bottom bands, so coverage cannot stand in for them).
 #
@@ -73,18 +77,45 @@ function Differ($a, $b)
     return $diff
 }
 
+# Pixels outside the columns [x0,x1) of a display window, in the rows the window covers, that are
+# not the border colour (pen 0 = COLOR00, read at the top left corner where the border is).
+function SideBorder($bmp, [int]$x0, [int]$x1, [int]$rows)
+{
+    if ($x0 -le 0 -and $x1 -ge $bmp.Width) { return 0 }
+    $n = 0
+    $ref = $bmp.GetPixel(0, 0).ToArgb()
+    for ($y = 0; $y -lt $rows; $y++) {
+        for ($x = 0; $x -lt $bmp.Width; $x++) {
+            if ($x -ge $x0 -and $x -lt $x1) { continue }
+            if ($bmp.GetPixel($x, $y).ToArgb() -ne $ref) { $n++ }
+        }
+    }
+    return $n
+}
+
 $fail = 0
 $cases = @(
     @{ name = 'intro';  file = 'ref\inputs\flight-crash-hospital-room.txt'; insns = 12000000; min = 0.90 },
     @{ name = 'map';    file = 'ref\inputs\flight-crash-hospital-room.txt'; insns = 25000000; min = 0.90 },
-    @{ name = 'flight'; file = 'out\flight-live.txt';                      insns = 26500000; min = 0.85 }
+    # The flight's list windows 288 of the 320 columns and 180 of the 200 rows, so 81% of the
+    # raster can be lit at most, and the desert's black sky takes some of that.
+    @{ name = 'flight'; file = 'out\flight-live.txt';                      insns = 26500000; min = 0.78 }
 )
 foreach ($c in $cases) {
     if (-not (Test-Path $c.file)) { Write-Output ("present: {0,-7} SKIP (no {1})" -f $c.name, $c.file); continue }
     $bmp = $null
     try { $bmp = Shot $c.file $c.insns $c.name } catch { Write-Output "present: $($c.name) FAIL - $_"; $fail++; continue }
     $cov = Coverage $bmp
-    if ($cov -lt $c.min) {
+    # The flight, the ant nest and the hospital run on copper lists whose DIWSTRT/DIWSTOP program
+    # 0x2C90..0xE0B0: columns 16..303 and rows 0..179. The 16 columns down each side are the
+    # original's black frame - the one that hides the strip the scrolling renderer is still
+    # drawing - so they must be the border colour, not picture.
+    $side = 0
+    if ($c.name -eq 'flight') { $side = SideBorder $bmp 16 304 180 }
+    if ($side -ne 0) {
+        Write-Output ("present: {0,-7} FAIL - {1} pixel(s) in the 16 columns the list's DIWSTRT/DIWSTOP leave outside the window are not the border (the unfetched strip is being shown)" -f $c.name, $side)
+        $fail++
+    } elseif ($cov -lt $c.min) {
         Write-Output ("present: {0,-7} FAIL - coverage {1:N3} < {2:N2} (blank screen or oversized border)" -f $c.name, $cov, $c.min)
         $fail++
     } else {
@@ -124,14 +155,18 @@ if (Test-Path 'ref\inputs\flight-crash-hospital-room.txt') {
                 }
             }
             $cov = Coverage $h
+            $side = SideBorder $h 16 304 180
             if ($below -ne 0) {
                 Write-Output ("present: hospital FAIL - {0} pixel(s) below DIWSTOP are not the border colour (stale picture from the screen before)" -f $below)
                 $fail++
-            } elseif ($cov -lt 0.80) {
-                Write-Output ("present: hospital FAIL - coverage {0:N3} < 0.80 (cropped or blank window)" -f $cov)
+            } elseif ($side -ne 0) {
+                Write-Output ("present: hospital FAIL - {0} pixel(s) in the 16 columns outside the list's horizontal window are not the border" -f $side)
+                $fail++
+            } elseif ($cov -lt 0.78) {
+                Write-Output ("present: hospital FAIL - coverage {0:N3} < 0.78 (cropped or blank window)" -f $cov)
                 $fail++
             } else {
-                Write-Output ("present: hospital ok   - coverage {0:N3}, border below DIWSTOP clean" -f $cov)
+                Write-Output ("present: hospital ok   - coverage {0:N3}, border below DIWSTOP and beside the window clean" -f $cov)
             }
         }
         finally { $h.Dispose() }
@@ -284,13 +319,15 @@ if (Test-Path 'ref\inputs\chicken.txt') {
     Write-Output 'present: chicken SKIP (no ref\inputs\chicken.txt)'
 }
 
-# The underground ant nest (UNDER, FUN_0000BFCA) builds its own copper list from the template at
-# 0x24EB2 and patches the five plane pointers into the scrolled 216-row bitmap every frame
-# (FUN_00017F34/FUN_00017CE). The list windows rows 0x2C..0xE0 (180 lines) inside the ViewPort's
-# 200-row raster, and its playfield is 5 planes with BPL1MOD 2 against the tilz.pic palette
-# (AA1111/BB2222/771111 walls on black). The checks are the ones this screen can lose:
+# The underground ant nest (UNDER, FUN_0000BFCA) is a scene of the WGame runner FUN_000107A6, so it
+# runs the copper list that runner installs from the template at 0x24A90 - the flight's list, with
+# DIWSTRT 0x2C90 / DIWSTOP 0xE0B0 and 5 planes at BPL1MOD 2 - and patches the five plane pointers
+# into the scrolled 320x216 bitmap every frame. The window is 288 of the 320 columns and 180 of the
+# 200 rows, so:
 #   - the raster must stay 320x200 with the tunnel in rows 0..179 (coverage and non-border pixels),
-#   - rows 180..199 must be the border, not the screen that was up before (the window is 180 rows),
+#   - rows 180..199 must be the border, not the screen that was up before,
+#   - the 16 columns down each side must be the border too: that is where the original hides the
+#     tile strip the renderer is still drawing while the nest scrolls,
 #   - the tunnel must be the scene's own red palette, not a stale picture from the intro.
 if (Test-Path 'ref\inputs\under.txt') {
     $un = $null
@@ -298,6 +335,7 @@ if (Test-Path 'ref\inputs\under.txt') {
         $un = Shot 'ref\inputs\under.txt' 8000000 'under' @('--call', '0xFFCA:1513')
         $cov = Coverage $un
         $tunnel = Band $un 0 179
+        $side = SideBorder $un 16 304 180
         $below = 0
         $ref = $un.GetPixel(0, 185).ToArgb()
         for ($y = 180; $y -lt $un.Height; $y += 2) {
@@ -326,11 +364,14 @@ if (Test-Path 'ref\inputs\under.txt') {
         } elseif ($below -ne 0) {
             Write-Output ("present: under   FAIL - {0} pixel(s) below the list's 180-row window are not the border (stale picture)" -f $below)
             $fail++
+        } elseif ($side -ne 0) {
+            Write-Output ("present: under   FAIL - {0} pixel(s) in the 16 columns outside the list's horizontal window are not the border (the strip the renderer is still drawing)" -f $side)
+            $fail++
         } elseif ($wallPx -lt 3000) {
             Write-Output ("present: under   FAIL - only {0} pixel(s) of the tile palette's reds (a stale palette or the wrong bitmap)" -f $wallPx)
             $fail++
         } else {
-            Write-Output ("present: under   ok   - 320x200, coverage {0:N3}, tunnel {1} px, wall reds {2} px, border below row 180 clean" -f $cov, $tunnel, $wallPx)
+            Write-Output ("present: under   ok   - 320x200, coverage {0:N3}, tunnel {1} px, wall reds {2} px, border below row 180 and beside the window clean" -f $cov, $tunnel, $wallPx)
         }
     } catch { Write-Output "present: under   FAIL - $_"; $fail++ }
     finally { if ($un) { $un.Dispose() } }

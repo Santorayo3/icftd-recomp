@@ -143,7 +143,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter, the title menu, the map's pointer control, the room pointer's hover, the giant-ant fight's crosshair and the fullscreen border |
+| `tools\gate.ps1` | the definition of green: exporter build, oracle build, interpreter fixtures, translated vs interpreted, the presenter (including the minigames' display window), the title menu, the map's pointer control, the room pointer's hover, the giant-ant fight's crosshair and the fullscreen border |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |

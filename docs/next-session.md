@@ -903,9 +903,10 @@ Two code faults kept the HUD off the screen, both in `rt_gfx_present()`:
 Measured after the fix, on the recorded flight: region 1 at row **158**, its 22 rows carrying the
 panel's data (`row 162..178`, 250-280 non-blank pixels per row), rows 180+ border black - which is
 the black bar the original shows under the bar, and the same window gives the black band on foot.
-Only the *vertical* part of the DIW is used: the `0x90..0xB0` horizontal pair does not mean "inset
-window" (the original fills the width) and applying it cropped the picture to a 160-pixel column,
-which is what made a previous build look like huge borders with the character off-screen.
+The horizontal half of the same registers used to be ignored here (the stop was read as a raw byte,
+`0xB0-0x10 = 0xA0`, which is the 160-pixel column of a rejected attempt); it is a window too - 288 of
+the 320 columns, i.e. the black frame down each side of the flight, the ant nest and the hospital.
+See "The minigames' black side borders are the display window" at the end of this file.
 
 ## A raster regression check in the gate (2026-11-13, after breaking the map screen)
 
@@ -2528,3 +2529,80 @@ claim:
 `assets\border.png` joins `autosave.png`, `titlescreen.png` and `crosshair.png` as tracked art (the
 rest of `assets\` stays gitignored game data); the generated header is tracked like the other art
 tables, so a build never needs the PNG.
+
+## The minigames' black side border is the display window (2026-11-15)
+
+Reported as "the fight and the flight minigames - and maybe the hospital - have a black border
+around the screen in the original; without it our build shows the artifacts the border hides". The
+artifacts are real, the border is real, and nothing draws it: it is the area where the hardware is
+programmed with **no display window**, filled with pen 0 = COLOR00.
+
+**Where the window comes from.** No code in `dshell` writes `$DFF08E`/`$DFF090`; the DIW always
+arrives in a copper list. There are four sources in the image, and only three of them carry a
+horizontal window:
+
+| screen | list | installed by |
+|---|---|---|
+| map, rooms, intro, brawl, ant fight | graphics.library's own (MrgCop) - DIW `2C81..F4C1` | `rt_gfx_mrg_cop()` |
+| flight **and** the top-down ant nest (the grenade game) | template `0x24A90` - DIW `2C90..E0B0` | `FUN_000107A6` -> `FUN_00011F64()` |
+| hospital escape | template `0x24EB2` - DIW `2C90..E0B0` | `FUN_00017F34()` |
+| chicken race | template `0x2621E` - DIW `1D61..F5D1` | `FUN_0001BE80()` |
+
+`FUN_00011F64` is the WGame scene runner's list: 400 bytes `AllocMem`, a word-by-word copy of the
+template up to its `0xFACE` terminator, `cprlist->start` pointed at it, `LoadView`. The ant nest is
+one of that runner's scenes (`FUN_0000BFCA`, `Overhead2.tiny`), which is why it shares the flight's
+window - the two minigames the report names are the same display. At run time only `+0x1E`
+(BPLCON1), the plane pointers (`+0x2A`, `+0xE2`), the palette (`+0x52`) and the HUD region's WAIT
+(`+0xD8`) are patched; the DIW block is never touched.
+
+**How the numbers decode.** DIWSTRT/DIWSTOP hold two independent windows, `line << 8 | x`, and
+outside them the display is COLOR00. Vertically `0x2C..0xE0` is 180 rows from the standard top, so
+20 rows below are border. Horizontally the field counts **lores pixels from the standard window's
+left edge `0x81`**, bit 0 is the hires half-pixel a lores screen does not have, and DIWSTOP's ninth
+bit is implied - so `0x81..0xC1` is `0x1C1-0x80 = 0x140 = 320` px, and `0x90..0xB0` is
+`0x1B0-0x90 = 0x120 = 288` px starting 16 px in: the same screen with a 16-pixel black frame down
+each side.
+
+Three independent confirmations inside the engine:
+
+* the same list fetches 19 words = **304** px per line (`DDF 0x38..0xC8`) and the fine scroll is
+  0..15, so the widest thing it can ever show is 288+16 = 304 - the window is the fetch width minus
+  the maximum fine delay, and the first fetched word is pure prefetch;
+* `FUN_0001B94A` computes `DAT_00024ED4 = (bitmapWidth - 0x130)/8` - the spare bytes of a row beyond
+  **0x130 = 304** - and those two words are the hospital template's BPL1MOD/BPL2MOD (the flight's
+  template carries the same 2 literally). The engine itself works in "304 fetched, 288 shown": the
+  flight/nest rows are 320 px, the hospital's 336;
+* the chicken's template decodes to `0x1D0-0x60 = 0x170 = 368` px across while its fetch is 23 words
+  = 46 bytes = 368 px - window = fetch = row width - and `0x1D..0xF5` is 216 rows = its bitmap.
+
+**What the border is for.** The scrolling levels draw a strip into the bitmap that is not finished
+when the beam reaches it, and the last 16 px of each row are never fetched at all. Both are outside
+the window in the original, and we were showing them.
+
+**The divergence and the fix.** `rt_gfx_present()` read only the vertical half of DIWSTRT/DIWSTOP
+(its comment said the horizontal pair "does not mean inset window" - it came from reading the stop as
+a raw byte, `0xB0-0x10 = 0xA0`, which is the 160-pixel column of the rejected attempt).
+`list_window()` now returns both rects; the planar->chunky pass is clipped to `[hstart, hstop)` and
+the columns outside are filled with pen 0 (COLOR00, the region's slot 0 when the list carries a
+palette per line). The source column stays `column - fine delay`: the window clips, it does not move
+the picture - which is what keeps the fetched range 0..303 inside the visible range for every delay
+0..15.
+
+**Measured.**
+
+* **Machine state first**, because a presenter change must not move any: host and oracle on
+  `--input out\flight-live.txt` at 26 500 000 instructions both stop at frame 4080 with PC `0x15B6A`
+  and the same instruction count, and the RAM is **byte-identical, 0 of 2 097 152**. Over all 4081
+  frame records the only register differences are the two dead Z flags already on record (frames
+  1000/1903) and dead-stack bytes (`0x17BF32`, two bytes at frame 5).
+* **The raster** of that frame: columns 0..15 and 304..319 are pure black in all 180 window rows and
+  columns 16..303 carry the picture. The pre-fix build has **2529** lit pixels in the left 16 columns
+  (desert `BB5522`) and **2728** in the right ones - that is the strip, and it is exactly what the
+  original's border covers.
+* **`tools\present-check.ps1`** learned the assertion (the old build fails it, which is how it was
+  checked) and its flight/hospital coverage floors were re-based on the geometry - a 288x180 window
+  of a 320x200 raster cannot exceed 0.81. Flight 0.804, hospital 0.810, both with the side columns
+  clean; the nest 0.326 with its tunnel and reds and the side columns clean.
+* **Nothing else moved**: intro 0.957, map 1.000, fight 0.973 with both health bars, chicken 216 rows
+  / 0.974 with its bands, tans, road and cockpit (its window starts 32 px left of the standard edge
+  and is 368 px wide, so it covers the whole raster and nothing is clipped). `tools\gate.ps1` 10/10.

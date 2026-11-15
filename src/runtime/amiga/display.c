@@ -1065,22 +1065,48 @@ static void region_strides(rt_region *rg, int fetch, int mod1, int mod2, int bpr
     rg->stride2 = s2;
 }
 
-/* The visible window the installed list programs, as DIWSTOP.vpos - DIWSTRT.vpos: the hardware
- * shows exactly those lines and nothing else, whatever DHeight the game told the OS. Returns 0
- * when the list programs no sane window. */
-static int list_window(rt_machine *m, int *vstart)
+/* The display window the installed list programs. DIWSTRT/DIWSTOP carry two independent windows:
+ * the vertical pair (the high bytes) and the horizontal pair (the low bytes). The hardware displays
+ * exactly that rectangle and shows COLOR00 - the border - everywhere else, whatever DHeight or
+ * DWidth the game told the OS.
+ *
+ * Vertical: DIWSTOP.vpos - DIWSTRT.vpos lines starting at DIWSTRT.vpos.
+ *
+ * Horizontal: the field counts *lores pixels* from 0x81, the standard window's left edge, only bit
+ * 0 is the hires half-pixel a lores display does not have, and DIWSTOP's ninth bit is implied -
+ * which is why the standard pair 0x81..0xC1 is 0x1C1-0x80 = 0x140 = 320 pixels wide and not 32.
+ * The minigames program 0x90..0xB0: 0x1B0-0x90 = 0x120 = 288 pixels starting 16 pixels in, i.e.
+ * the same 320-pixel screen with a 16-pixel black frame down each side. That frame is what hides
+ * the strip the renderer has not finished with at the edges of the scrolling levels.
+ *
+ * Returns the window's height (0 when the list programs no sane vertical window); *hstart/*hstop
+ * get the horizontal pair in framebuffer columns, and are left alone when the list has none. */
+static int list_window(rt_machine *m, int *vstart, int *hstart, int *hstop)
 {
     u32 list = gfx->cprList;
     u32 start = list != 0 ? rt_read32(&m->mem, list + 4) : 0;
     int entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
-    int e, vs = -1, ve = -1;
+    int e, vs = -1, ve = -1, hs = -1, he = -1;
 
     for (e = 0; start != 0 && e < entries && e < 256; e++)
     {
         u32 reg = rt_read16(&m->mem, start + (u32)e * 4u);
         u32 val = rt_read16(&m->mem, start + (u32)e * 4u + 2u);
-        if (reg == 0x08Eu && vs < 0) vs = (int)((val >> 8) & 0xFFu);
-        else if (reg == 0x090u && ve < 0) ve = (int)((val >> 8) & 0xFFu);
+        if (reg == 0x08Eu)
+        {
+            if (vs < 0) vs = (int)((val >> 8) & 0xFFu);
+            if (hs < 0) hs = (int)(val & 0xFEu);
+        }
+        else if (reg == 0x090u)
+        {
+            if (ve < 0) ve = (int)((val >> 8) & 0xFFu);
+            if (he < 0) he = (int)((val & 0xFEu) | 0x100u);
+        }
+    }
+    if (hs >= 0 && he > hs)
+    {
+        *hstart = hs - 0x80;
+        *hstop = he - 0x80;
     }
     if (vs < 0 || ve < 0 || ve <= vs) return 0;
     *vstart = vs;
@@ -1096,6 +1122,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
     int planesSeen = 0;
     static rt_region regions[EMU_MAX_REGIONS];
     int regionCount = 0, regRow = 0, regVStart = 0, regVStop = 0;
+    int regHStart = 0, regHStop = 0;   /* the list's horizontal window, in framebuffer columns */
     static int s_progTiles;
     int ddfS = 0, ddfE = 0, mod = 0, mod2 = 0;  /* what the strides are derived from */
     int bp = EMU_BP_UNKNOWN, dblpf = 0, pf2pri = 0;   /* BPLCON0/BPLCON2 in force */
@@ -1141,18 +1168,39 @@ void rt_gfx_present(rt_machine *m, u32 view)
      * shows. Sanity: the window must be at least three quarters of the screen the game built and
      * must fit the bitmap the list names. */
     {
-        int vs = 0, win = list_window(m, &vs);
+        int vs = 0, hs = 0, he = 0;
+        int win = list_window(m, &vs, &hs, &he);
         if (win > 0 && win >= (h * 3) / 4 && win <= rows && win <= EMU_FB_MAX_H)
         {
             regVStart = vs;
             regVStop = vs + win;
             if (win > h) h = win;
         }
+        if (he > hs)
+        {
+            regHStart = hs;
+            regHStop = he;
+        }
     }
     if (w <= 0 || w > bpr * 8) w = bpr * 8;
     if (w > EMU_FB_MAX_W) w = EMU_FB_MAX_W;
     if (h <= 0 || h > rows) h = rows;
     if (h > EMU_FB_MAX_H) h = EMU_FB_MAX_H;
+    /* The horizontal window in framebuffer columns: at most the raster the ViewPort declares. A
+     * window wider than that (the chicken race's starts 32 pixels left of the standard edge) loses
+     * nothing on our picture; a narrower one is the black frame the minigames have. */
+    if (regHStop > regHStart)
+    {
+        if (regHStart < 0) regHStart = 0;
+        if (regHStart > w) regHStart = w;
+        if (regHStop > w) regHStop = w;
+        if (regHStop < regHStart) regHStop = regHStart;
+    }
+    else
+    {
+        regHStart = 0;
+        regHStop = w;
+    }
     gfx->fbW = w;
     gfx->fbH = h;
     if (m->progress && gfx->frames < 8)
@@ -1186,10 +1234,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
         int e;
         entries = list != 0 ? (int)rt_read16(&m->mem, list + 8) : 0;
         /* DIWSTRT/DIWSTOP were read before the clamps above: they are the frame's origin and end,
-         * and the region rows below are `vpos - vstart`, so the origin is already in regVStart.
-         * Only the vertical part is used. The engine's 0x90..0xB0 horizontal pair does not mean
-         * "inset window" - the original fills the width - and applying it cropped the picture to a
-         * 160-pixel column. */
+         * and the region rows below are `vpos - vstart`, so the origin is already in regVStart,
+         * and the horizontal pair is already in regHStart/regHStop. What is left here is the rest
+         * of the list. */
         for (p = 0; p < 32; p++) palLatch[p] = g_latch[p];
         for (e = 0; start != 0 && e < entries && e < 256; e++)
         {
@@ -1450,8 +1497,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
     if (m->progress && m->frame >= m->progressFrom && (gfx->frames % 8u) == 0u)
     {
         int i;
-        printf("emu: segments %d (palMulti %d segSimple %d vstart %d vstop %d fetch %d mod %d/%d):",
-               regionCount, palMulti, segSimple, regVStart, regVStop,
+        printf("emu: segments %d (palMulti %d segSimple %d vstart %d vstop %d hstart %d hstop %d "
+               "fetch %d mod %d/%d):",
+               regionCount, palMulti, segSimple, regVStart, regVStop, regHStart, regHStop,
                ddfE > ddfS ? (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2 : bpr, mod, mod2);
         for (i = 0; i < regionCount; i++)
             printf(" [%d r%d n%d s%d/%d %s%s b%02X p%06lX c%03X]", i, regions[i].row, regions[i].n,
@@ -1483,7 +1531,10 @@ void rt_gfx_present(rt_machine *m, u32 view)
         if (!segSimple || palMulti)
         {
             int y0;
-            int x0 = 0, x1 = w;
+            /* Only the columns inside the window are displayed; the rest is border (pen 0). The
+             * source bit of a column is the column itself minus the playfield delay - the window
+             * clips what is visible, it does not move the picture. */
+            int x0 = regHStart, x1 = regHStop;
             for (y0 = 0; y0 < h; y0++)
             {
                 int r = 0, rp = 0;
@@ -1491,15 +1542,17 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 int dd1, dd2;
                 int ry, stride1, stride2, npUse, dbl, front2;
                 const u8 *slot = 0;
+                u8 bc = 0;                      /* the border: pen 0, i.e. COLOR00 */
 
                 if (y0 >= visH)
                 {
-                    u8 bc = (palMulti && regionCount > 0) ? regions[regionCount - 1].slot[0] : 0;
+                    bc = (palMulti && regionCount > 0) ? regions[regionCount - 1].slot[0] : 0;
                     for (x = 0; x < w; x++) row[x] = bc;
                     for (; x < (int)EMU_FB_MAX_W; x++) row[x] = 0;
                     continue;
                 }
                 while (r + 1 < regionCount && regions[r + 1].row <= y0) r++;
+                if (palMulti) bc = regions[r].slot[0];
                 /* The plane pointers are latched: a segment that only changes colours keeps the
                  * set in force, and its rows continue from the row that set was loaded at. */
                 rp = r;
@@ -1527,11 +1580,11 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 dbl = regions[r].dblpf;
                 front2 = regions[r].pf2pri;
                 if (palMulti) slot = regions[r].slot;
-                for (x = 0; x < x0; x++) row[x] = 0;
+                for (x = 0; x < x0; x++) row[x] = bc;
                 for (; x < x1; x++)
                 {
                     int idx = 0, pf1 = 0, pf2 = 0;
-                    int sx = x - x0;
+                    int sx = x;
                     for (p = 0; p < npUse; p++)
                     {
                         int s = sx - (((p & 1) != 0) ? dd2 : dd1);
@@ -1555,7 +1608,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
                                      : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
                     row[x] = slot != 0 ? slot[idx] : (u8)idx;
                 }
-                for (; x < w; x++) row[x] = 0;
+                for (; x < w; x++) row[x] = bc;
             }
             for (y0 = h; y0 < EMU_FB_MAX_H; y0++)
             {
@@ -1594,13 +1647,27 @@ void rt_gfx_present(rt_machine *m, u32 view)
             conv_saved(m, bm, w, visH, bpr, np, planes, d1, d2);
         }
         /* Everything outside the window the list programs is border, which is pen 0 (COLOR00):
-         * below DIWSTOP, and right of the ViewPort's width. Only the row loop above knows about
-         * the window, so without this a screen shorter than the 200-row buffer keeps the previous
-         * screen's pixels there (the hospital's 180-row view showed the desert). */
-        if (!didRows && (visH < EMU_FB_MAX_H || w < EMU_FB_MAX_W))
+         * below DIWSTOP, left of DIWSTRT's horizontal position and right of DIWSTOP's. Only the
+         * row loop above knows about the window, so without this a screen shorter than the
+         * 200-row buffer keeps the previous screen's pixels there (the hospital's 180-row view
+         * showed the desert) - and the minigames would show the strip the renderer has not
+         * finished with at the edges of the scrolling level, which the original hides behind the
+         * same border. */
+        if (!didRows)
         {
-            for (y = visH; y < EMU_FB_MAX_H; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W, 0, (size_t)w);
-            for (y = 0; y < visH; y++) memset(gfx->fb + (u32)y * EMU_FB_MAX_W + w, 0, (size_t)(EMU_FB_MAX_W - w));
+            for (y = visH; y < EMU_FB_MAX_H; y++)
+            {
+                u8 *row = gfx->fb + (u32)y * EMU_FB_MAX_W;
+                memset(row, 0, (size_t)w);
+                memset(row + w, 0, (size_t)(EMU_FB_MAX_W - w));
+            }
+            for (y = 0; y < visH; y++)
+            {
+                u8 *row = gfx->fb + (u32)y * EMU_FB_MAX_W;
+                if (regHStart > 0) memset(row, 0, (size_t)regHStart);
+                if (regHStop < w) memset(row + regHStop, 0, (size_t)(w - regHStop));
+                memset(row + w, 0, (size_t)(EMU_FB_MAX_W - w));
+            }
         }
         if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
     }
