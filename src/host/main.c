@@ -18,14 +18,15 @@
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc quits, space or the left
  * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
- * mouse moves the situation map's cursor, and on a room screen it is the pointer a menu line is
- * selected with); without it the build runs headless and only reports machine state. `--call`
+ * mouse moves the situation map's cursor and the phone book's arrow, and on a room screen it is
+ * the pointer a menu line is selected with); without it the build runs headless and only reports
+ * machine state. `--call`
  * enters one of the engine's own routines at a frame boundary, with the program-end sentinel as its
  * return address.
  * `--mouse` feeds the pointer the positions a platform pointer would report
- * ("<frame> <x> <y> [<button>]"), so the port's pointer control - the map's cursor and a room
- * menu's hover - can be measured without a mouse (it is a dev seam like --input; in a played game
- * the platform pointer drives the same state).
+ * ("<frame> <x> <y> [<button>]"), so the port's pointer control - the map's cursor, the phone's
+ * arrow and a room menu's hover - can be measured without a mouse (it is a dev seam like --input;
+ * in a played game the platform pointer drives the same state).
  * `--hoverlog` prints every text menu line the pointer seam records and the entry a hover picks,
  * so a scripted run says which line is where instead of leaving it to a screenshot.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
@@ -476,6 +477,54 @@ static void map_pointer(rt_machine *m)
     }
 }
 
+/* --- the phone book's cursor (a port feature) ------------------------------------------------
+ * "Make a Call" (FUN_000064e2) shows the phone book and puts its arrow (AROW) on the entry list.
+ * The original moves it with the stick, in the scene's own loop: the position lives in two stack
+ * locals of the scene, and every iteration
+ *     0x65a4..0x65b8   x,y += axis * speed     (0x26892/0x26894, what the ClockVBI decoded)
+ *     0x65bc..0x65f4   clamps to x 0x40..0xaa, y 0x97..0xce (seven rows, 8 px apart)
+ *     0x6638..0x6646   reads the row under it: (y - 0x97) / 8 is the entry fire picks
+ * and ends by presenting the frame through FUN_00005fbe (0x662e; its return address 0x6632 is what
+ * tells the phone's loop from FUN_00005fe0's own calls to the same routine).
+ *
+ * That call is the seam: the pointer pins x,y there, so the next iteration clamps, draws and reads
+ * the pointer's row - hovering a line and clicking calls that number, like the room menus. The
+ * stick is left idle for the reason the map's cursor does it: the engine adds its axes to the
+ * cursor, and this update's movement is the pointer's.
+ *
+ * The two words are A5-relative because the scene keeps them in its frame. The pointer gets the
+ * map cursor's hot spot 0x11/0x12: AROW is drawn that far up-left of the point the scene keeps,
+ * so the arrow's tip sits under the mouse. */
+#define PHONE_UPDATE_PC  0x00005FBEu   /* FUN_00005fbe: present one update of the scene */
+#define PHONE_UPDATE_RET 0x00006632u   /* ... called from the phone's cursor loop          */
+#define PHONE_CUR_X      0x0Eu         /* word, A5-0x0e: the arrow's x                      */
+#define PHONE_CUR_Y      0x10u         /* word, A5-0x10: ... and y                          */
+#define PHONE_MIN_X      0x40          /* the scene's own clamps, from 0x65bc..0x65ec       */
+#define PHONE_MAX_X      0xAA
+#define PHONE_MIN_Y      0x97
+#define PHONE_MAX_Y      0xCE
+
+static u32 g_phoneFrame;               /* last frame the phone's cursor loop presented */
+
+static void phone_pointer(cpu_t *c, rt_machine *m)
+{
+    s32 x, y;
+
+    if (rt_read32(&m->mem, c->a[7]) != RC_ADDR(PHONE_UPDATE_RET)) return;
+    g_phoneFrame = m->frame;
+    if (!g_ptrKnown || !g_ptrActive) return;
+
+    x = (s32)g_ptrX + MAP_HOT_X;
+    y = (s32)g_ptrY + MAP_HOT_Y;
+    if (x < PHONE_MIN_X) x = PHONE_MIN_X; else if (x > PHONE_MAX_X) x = PHONE_MAX_X;
+    if (y < PHONE_MIN_Y) y = PHONE_MIN_Y; else if (y > PHONE_MAX_Y) y = PHONE_MAX_Y;
+
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
+    rt_write16(&m->mem, c->a[5] - PHONE_CUR_X, (u16)x);
+    rt_write16(&m->mem, c->a[5] - PHONE_CUR_Y, (u16)y);
+}
+
 /* --- the pointer on a room screen, and the menu line under it (port features) ----------------
  * The original has no mouse at all: a room is walked and its action list ("Go to Map", "Answer the
  * Door", ...) is chosen with the stick. The port shows the situation map's arrow under the mouse on
@@ -623,16 +672,18 @@ static void menu_flip(cpu_t *c, rt_machine *m)
     g_lineCount = 0;
 }
 
-/* The arrow is a room-screen feature; the map draws its own cursor, so it stays hidden there. */
+/* The arrow is a room-screen feature; the map and the phone draw their own cursor, so it stays
+ * hidden there. */
 static void pointer_present(rt_machine *m)
 {
-    int room, menu, map, show;
+    int room, menu, map, phone, show;
 
     if (!g_portArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
     room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
     map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
-    show = (room || menu) && !map;
+    phone = g_phoneFrame != 0 && m->frame - g_phoneFrame <= MAP_IDLE_FRAMES;
+    show = (room || menu) && !map && !phone;
     if (show) rt_pointer_at(g_ptrX, g_ptrY);
     else rt_pointer_hidden();
     if (g_hoverLog && show && s_ptrShown != 1)
@@ -695,6 +746,7 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
+    if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
@@ -713,9 +765,11 @@ static void host_input(rt_machine *m)
         /* A scripted stick (--input) counts like a held direction key: the pointer yields to it. */
         if (g_ptrScriptCount > 0) pointer_script_tick(m);
         else pointer_input(&in, joy != 0 || m->joy0 != 0);
-        /* Only the map's script consumes the pointer state: anywhere else it owns nothing, so
-         * the next screen starts with the game's own placement until the pointer moves again. */
-        if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
+        /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
+         * owns nothing, so the next screen starts with the game's own placement until the pointer
+         * moves again. */
+        if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
+            g_ptrActive = 0;
         pointer_present(m);
     }
     if (input_active())
@@ -774,7 +828,8 @@ static void host_pointer_frame(rt_machine *m)
      * level is put back when the button is released, so the two compose. */
     m->fireDown = (u8)((g_ptrButton || input_fire()) ? 1u : 0u);
     if (m->joy0 != 0) { g_ptrActive = 0; g_hoverOwn = 0; }   /* a scripted stick wins */
-    if (m->frame > g_mapFrame + MAP_IDLE_FRAMES) g_ptrActive = 0;
+    if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
+        g_ptrActive = 0;
     pointer_present(m);
 }
 

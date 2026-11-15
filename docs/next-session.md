@@ -2440,3 +2440,46 @@ The engine bug behind it is unchanged and still open: the intro's `DES4:INSTS` i
 `o.rff` entry, so the loader's substituted `Desert1:sfx/o.rff` record loses the 0x20 it set at
 0xe8ea, the object is allocated empty and gets no handler. What makes the reference reach that open
 with the size intact is still unknown, and the candidates are listed above.
+
+## The phone book's cursor follows the mouse (2026-11-15)
+
+Another port feature, on the same terms as the map's cursor: the original moves the phone book's
+arrow with the stick, so there is nothing to diff it against - and it must not disturb anything
+that is.
+
+**The screen.** `Make a Call` is `FUN_000064e2` (runtime `0xA4E2`), the phone book over
+`PHONE.DAT` and `Desert2:PEOPLE`: seven entries, 8 px apart, and the arrow `AROW` on the list. The
+scene keeps the arrow in two **stack locals of its own frame**, which is why the seam has to know
+the frame - `link.w A5,-0x2c`, x at `A5-0x0e`, y at `A5-0x10`, the speed accumulator at `A5-0x14`:
+
+| pc | what it does |
+|---|---|
+| `0x65a4..0x65b8` | `x,y += axis * speed` (`0x26892`/`0x26894`, what the ClockVBI decoded) |
+| `0x65bc..0x65f4` | clamps to x `0x40..0xaa`, y `0x97..0xce` (the seven rows) |
+| `0x6638..0x6646` | the entry fire picks is the row under the arrow: `(y - 0x97) / 8` |
+| `0x662e` | every iteration ends by presenting the frame: `jsr 0x00005fbe`, return `0x6632` |
+
+**The seam.** `src\host\main.c` hooks `FUN_00005fbe`'s entry and acts only when its return address
+is `0x6632` - the same routine is also called by `FUN_00005fe0` itself (`0x603c`, `0x60dc`,
+`0x60e6`), so the return address is what says "the phone's cursor loop". There the pointer pins
+`x,y` to `pointer + 0x11/0x12` (the map cursor's hot spot - AROW is drawn the same 0x11/0x12 up-left
+of the point the scene keeps, so its tip lands under the mouse), clamped to the scene's own window,
+and the two axis words are zeroed so the engine's own `axis * speed` adds nothing.
+
+Ownership is per screen, like the map's: the pointer owns the cursor from the moment it moves, and
+that claim is dropped once neither the map's script nor the phone's loop has run for
+`MAP_IDLE_FRAMES` - so a phone that is opened without the mouse moving keeps the game's own
+placement on the first entry. The port's own room arrow (`rt_pointer_at`) stays hidden while the
+phone is up, exactly as it is on the map, because the phone draws its own.
+
+**Measured** on frame dumps of `--call 0xA4E2:1000 --mouse <script>` (the phone book is up from
+frame ~1600; `PHONE.DAT` opens at 1513): with the pointer at `100,140` the arrow's tip is at
+`100,141` and the row under it is 0 (`AIRSTRIP`); at `140,175` the tip is at `140,176` and the row
+is 5 (`DESERT STAR`). Without the pointer the arrow stays where the scene put it (`90,152`, row 0).
+`tools\mouse-check.ps1` still passes unchanged - the map cursor, the scroll, the stick override and
+the click-as-/FIRE equivalence are untouched.
+
+A click is /FIRE, so hovering a line and clicking dials that entry - in a *played* game, where the
+clock VBI runs. An injected phone cannot be left at all without it: its loop exits on `0x26896`,
+which only `FUN_0000A500` (installed by `FUN_0000551C`) writes - the same caveat the giant-ant
+fight has, and the reason a `--mouse` run of this scene only shows the arrow moving.
