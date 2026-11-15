@@ -42,11 +42,19 @@
  *
  * Escape in a played game is not a quit: the front end stops the run and starts the machine again,
  * so the player lands on this title with a fresh game (src\host\main.c, src\host\dos_main.c). The
- * menu itself ignores Escape - a quit entry on the title is still to come.
+ * menu itself ignores Escape - the Quit Game button is the way out.
  *
- * The buttons are visual only for now: the game's own arrow (the map/room pointer) follows the
- * mouse, lights up the button under it, and nothing on the title commits a click. Starting the
- * game is still the keyboard's fire or 0.
+ * The buttons are wired. New Game starts the intro (fire and 0 do the same), Load Game loads the
+ * slot the player selected (m->saveSlot, F1..F4/F5 in the game), Quit Game closes the application,
+ * and Settings is drawn but not wired yet. A click is `input_state.mouse_left_pressed`, not the
+ * game's /FIRE, so a click that misses a button does nothing at all.
+ *
+ * The title also answers the engine's YES/NO load screen, which is why that screen never appears
+ * in a played game: the decision it asked for was just made here. The screen is FUN_0001029e,
+ * called by the boot loop right after FUN_00009870 returns - i.e. after the intro - and it is left
+ * in place in a --titlekey run, which reproduces the original from this hold point. Load Game also
+ * skips the intro scene itself (FUN_00009870's call into FUN_0001EB94), so a loaded game starts at
+ * once; New Game plays it, as the original does.
  */
 #include <stdio.h>
 #include <string.h>
@@ -121,6 +129,27 @@
  * word and runs `!WIN` or `!LOS` itself, so the key only has to set it first. */
 #define TITLE_END_PC      0x0E4D6u  /* FUN_0000A4D6, the ending dispatcher    (model 0xA4D6) */
 #define TITLE_END_FLAG    0x26D68u  /* DAT_00022D68, which ending it runs     (model 0x22D68) */
+
+/* The engine's own YES/NO load screen, FUN_0001029e ("Lizard Breath has been awaiting your
+ * return."), which the boot loop calls at 0x1EA right after the intro's setup returns. A played
+ * game never shows it: the decision it asks for was taken on the title, so the host answers it. The
+ * break pc is the routine's first instruction after its `link` (A5 then addresses its frame), and
+ * the answer is delivered the way its own prompt delivers it - D0 written at the instruction right
+ * after the `jsr FUN_000101e4`, where the routine stores it and branches to its load or its
+ * "a new game" path. Only the screen - the dim, the three lines, the prompt - is skipped; the
+ * decision, the palette restore and the load itself are the engine's own code. */
+#define TITLE_LOAD_PROMPT 0x142A2u  /* FUN_0001029e+4, after `link A5,#ffffee` (model 0x102A2) */
+#define TITLE_LOAD_ANSWER 0x142E6u  /* ... and after `jsr FUN_000101e4`, which reads D0 (0x102E6) */
+
+/* The intro is a MovE scene, not an animation the setup draws itself: FUN_00009870 loads the scene
+ * record at 0x993c and hands it to FUN_0001EB94, which runs it through FUN_0001D2C6 - the runner
+ * the situation map uses too. Load Game has nothing to show before the save, so the host skips that
+ * one call: the break is the `jsr` itself, so the four arguments it would have consumed are left for
+ * the `lea (0x10,A7),A7` that follows, and the setup's own cleanup (close the bank, free the score)
+ * still runs. Nothing of the scene is entered. */
+#define TITLE_INTRO_RUN   0x0D8F8u  /* FUN_00009870's `jsr (vector 96)`      (model 0x98F8) */
+#define TITLE_INTRO_SKIP  0x0D8FCu  /* the `lea (0x10,A7),A7` after it       (model 0x98FC) */
+
 typedef struct title_scene
 {
     int         key;                     /* the key that starts it (KEY_1 is "1") */
@@ -148,10 +177,11 @@ static const title_scene g_scenes[] =
 
 #define TITLE_SCENE_COUNT ((int)(sizeof g_scenes / sizeof g_scenes[0]))
 
-/* What title_play() picked: 0 leaves the game, 1 is the intro, 2 + n is scene n. */
+/* What title_play() picked: 0 leaves the game, 1 is the intro, 2 loads a save, 3 + n is scene n. */
 #define TITLE_PICK_QUIT   0
 #define TITLE_PICK_INTRO  1
-#define TITLE_PICK_SCENE  2
+#define TITLE_PICK_LOAD   2
+#define TITLE_PICK_SCENE  3
 
 /* A scene is entered as the two calls the dispatcher makes (free the score, then enter), and the
  * title comes back after each one: an injected call returns to the pc it was made from, so every
@@ -162,7 +192,9 @@ enum
     TITLE_UNLOAD,                        /* free whatever score is loaded ... */
     TITLE_LOAD,                          /* ... then load the map's */
     TITLE_PLAYING,                       /* the art, and the keys */
-    TITLE_LAUNCH                         /* enter the scene that was picked */
+    TITLE_LAUNCH,                        /* enter the scene that was picked */
+    TITLE_SKIP_INTRO,                    /* Load Game: the intro's setup runs, its scene does not */
+    TITLE_PROMPT                         /* the load screen is answered next */
 };
 
 static int g_state = TITLE_OFF;
@@ -174,6 +206,8 @@ static u32 g_popOnReturn;                /* argument bytes the injected call's c
 static int g_clockVbi;                   /* the world loop's clock VBI is installed (once) */
 static int g_playMode;                   /* this session is a played game: Esc restarts it */
 static int g_restart;                    /* Esc asked the front end for a fresh boot */
+static int g_wantLoad;                   /* the menu chose Load Game: the load screen answers yes */
+static int g_fromMenu;                   /* the pick was the player's, not --titlekey's */
 
 void host_title_arm(int on)
 {
@@ -183,6 +217,8 @@ void host_title_arm(int on)
     g_ticks = 0;
     g_clockVbi = 0;                      /* a fresh machine has no clock VBI installed */
     g_playMode = on;                     /* Esc restarts a played game, never a measurement */
+    g_wantLoad = 0;
+    g_fromMenu = 0;
     /* The intro's setup is reached inside a translated function (the mode dispatcher runs it as a
      * block), so there is no call boundary to catch: ask the dispatch to hand the program back
      * before that instruction runs. Cleared again as soon as the title is done with it. */
@@ -310,10 +346,31 @@ static int title_play(rt_machine *m)
         title_menu_pointer(&menu, in.mouse_present, in.mouse_x, in.mouse_y);
         title_draw(m, &menu);            /* the still, the pointer, and the button it is over */
         plat_present();
-        if (in.pressed[KEY_FIRE] || in.pressed[KEY_0])                  /* the buttons have no
-                                                                         * actions yet, so a click
-                                                                         * commits nothing */
+        if (in.mouse_left_pressed && menu.hover >= 0)
+        {
+            const title_button *b = &menu.buttons[menu.hover];
+
+            if (b->action == TITLE_ACTION_NEW_GAME) pick = TITLE_PICK_INTRO;
+            else if (b->action == TITLE_ACTION_LOAD_GAME)
+            {
+                /* The selected slot is the one the engine would write to (F1..F5 in the game).
+                 * An empty one is not a new game: the engine's load would fail and the boot loop
+                 * would start one, so the menu stays up instead. */
+                if (rt_save_slot_empty(m, m->saveSlot))
+                    printf("title: save slot %d is empty (frame %lu)\n", m->saveSlot,
+                           (unsigned long)m->frame);
+                else
+                    pick = TITLE_PICK_LOAD;
+            }
+            else if (b->action == TITLE_ACTION_QUIT) pick = TITLE_PICK_QUIT;
+            /* TITLE_ACTION_NONE (Settings) is drawn and does nothing yet. */
+            if (pick >= 0) g_fromMenu = 1;
+        }
+        if (pick < 0 && (in.pressed[KEY_FIRE] || in.pressed[KEY_0]))   /* fire and 0 are New Game */
+        {
             pick = TITLE_PICK_INTRO;
+            g_fromMenu = 1;
+        }
         for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
             if (in.pressed[g_scenes[i].key]) pick = TITLE_PICK_SCENE + i;
         if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */
@@ -337,6 +394,46 @@ static int title_play(rt_machine *m)
 
 int host_title_check(rt_machine *m, u32 pc)
 {
+    if (g_state == TITLE_SKIP_INTRO && pc == TITLE_INTRO_RUN)
+    {
+        /* Load Game: the intro's setup is running and is about to enter the intro scene. Skip that
+         * one call - the arguments it was given are dropped by the `lea (0x10,A7),A7` at
+         * TITLE_INTRO_SKIP - and wait for the load screen the setup leads to. */
+        u32 r[18];
+
+        oracle_regs_get(r);
+        r[REGS_PC] = TITLE_INTRO_SKIP;
+        oracle_regs_set(r);
+        host_regs_sync(m);
+        printf("title: skipping the intro (frame %lu)\n", (unsigned long)m->frame);
+        g_state = TITLE_PROMPT;
+        rc_breakPc = TITLE_LOAD_PROMPT;
+        return 1;
+    }
+
+    if (g_state == TITLE_PROMPT && pc == TITLE_LOAD_PROMPT)
+    {
+        /* The intro is over and the boot loop is about to run the engine's YES/NO load screen.
+         * The decision it asks for was taken on the title, so hand it the answer the prompt would
+         * have returned: the routine's `link` has run (its frame is A5), so writing D0 and
+         * resuming at the instruction after its `jsr FUN_000101e4` runs its own decision, palette
+         * restore and - for Load Game - its own file read. Nothing of the screen is drawn. */
+        u32 r[18];
+
+        oracle_regs_get(r);
+        r[REGS_D + 0] = g_wantLoad ? 1u : 0u;
+        r[REGS_PC] = TITLE_LOAD_ANSWER;
+        oracle_regs_set(r);
+        host_regs_sync(m);
+        printf("title: %s (frame %lu)\n",
+               g_wantLoad ? "loading the selected save slot" : "a new game, nothing to load",
+               (unsigned long)m->frame);
+        g_wantLoad = 0;
+        g_state = TITLE_OFF;
+        rc_breakPc = 0;
+        return 1;
+    }
+
     if (g_state == TITLE_OFF || pc != TITLE_HOLD_PC) return 0;
 
     if (g_popOnReturn != 0)
@@ -437,12 +534,30 @@ int host_title_check(rt_machine *m, u32 pc)
             rc_breakPc = 0;
             return 1;
         }
-        if (pick == TITLE_PICK_INTRO)
+        if (pick == TITLE_PICK_INTRO || pick == TITLE_PICK_LOAD)
         {
             title_call(m, TITLE_UNLOAD_PC, pc, 0, 0, 0);  /* the engine gets the score back */
-            printf("title: starting the game (frame %lu)\n", (unsigned long)m->frame);
-            g_state = TITLE_OFF;
-            rc_breakPc = 0;                  /* from here the intro runs untouched */
+            if (pick == TITLE_PICK_INTRO)
+                printf("title: starting the game (frame %lu)\n", (unsigned long)m->frame);
+            else
+                printf("title: loading save slot %d (frame %lu)\n", m->saveSlot,
+                       (unsigned long)m->frame);
+            g_wantLoad = pick == TITLE_PICK_LOAD;
+            if (g_fromMenu)
+            {
+                /* A played game: the pick is the answer to the load screen the boot loop asks for
+                 * once the intro's setup has returned. Loading goes straight in - the intro scene
+                 * itself is skipped - while a new game plays it and only suppresses the question.
+                 * The setup is what loads the resources the restored state expects, so it runs
+                 * either way. */
+                g_state = g_wantLoad ? TITLE_SKIP_INTRO : TITLE_PROMPT;
+                rc_breakPc = g_wantLoad ? TITLE_INTRO_RUN : TITLE_LOAD_PROMPT;
+            }
+            else
+            {
+                g_state = TITLE_OFF;         /* --titlekey: the original's flow, untouched */
+                rc_breakPc = 0;
+            }
             return 1;
         }
         /* A minigame: free the map's score first, exactly as the dispatcher does, then enter it on

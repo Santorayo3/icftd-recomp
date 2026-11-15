@@ -9,8 +9,9 @@
  * are palette entries 252..255, past the 69 colours the title picture itself uses, so drawing the
  * menu changes no pixel of the art.
  *
- * The buttons have no actions yet. The menu only reports what the pointer is over; title.c still
- * starts the game on fire or 0, and the digit/letter keys still start their scenes.
+ * What a click does is title.c's business: the layout below names the action, the menu reports the
+ * button under the pointer and the press edge, and title.c starts a new game, loads the selected
+ * save slot or ends the run. Settings is drawn with the others but is not wired yet.
  */
 #include <string.h>
 
@@ -26,12 +27,13 @@ static const struct
 {
     const char *label;
     s16 y;
+    title_action action;
 } g_titleButtonLayout[] =
 {
-    { "New Game",  85 },
-    { "Load Game", 106 },
-    { "Settings",  127 },
-    { "Quit Game", 164 }
+    { "New Game",  85, TITLE_ACTION_NEW_GAME },
+    { "Load Game", 106, TITLE_ACTION_LOAD_GAME },
+    { "Settings",  127, TITLE_ACTION_NONE },     /* drawn, not wired yet */
+    { "Quit Game", 164, TITLE_ACTION_QUIT }
 };
 
 #define TITLE_BUTTON_LAYOUT_COUNT \
@@ -69,6 +71,7 @@ void title_menu_init(title_menu *menu)
         menu->buttons[i].y = g_titleButtonLayout[i].y;
         menu->buttons[i].w = TITLE_BUTTON_W;
         menu->buttons[i].h = TITLE_BUTTON_H;
+        menu->buttons[i].action = g_titleButtonLayout[i].action;
     }
     menu->count = i;
 }

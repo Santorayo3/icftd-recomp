@@ -13,6 +13,13 @@ Written 2026-11-11. Everything in "what the game does" is read from
 | 49 | `0x021B7E` | `FUN_0001029e` | **load** — the "Lizard Breath has been awaiting your return." prompt |
 | 50 | `0x021B84` | `FUN_0001042a` | **save** — "Is something more important than saving mankind from annihilation?" |
 
+In a played game the load prompt's question is answered by the title screen instead of the screen
+itself: `src\host\title.c` gives `FUN_0001029e` the answer its own prompt would have returned, so
+the decision is taken on the title menu and only measurement runs (`--titlekey`, `--call`, an input
+script) still see the screen. Everything after the answer - the volume lock, the open, the two reads
+and the `1` the boot loop treats as "a save was loaded" - is the routine's own code (2026-11-15,
+`docs\next-session.md`).
+
 `FUN_000000e4` (the main loop) calls slot 49 once at start-up and slot 50 **after every game
 session ends**, before the outer loop continues:
 

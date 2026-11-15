@@ -11,6 +11,59 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
+## The title's buttons are wired, and the load screen is gone (2026-11-15, later)
+
+Asked for: wire the title menu's four buttons (Quit closes the application, New Game starts a new
+game with the intro, Load Game loads the currently selected save slot, Settings stays unwired) and
+remove the YES/NO load screen that comes after the intro, because that decision now lives on the
+title.
+
+**What was wired.** `src\host\title_button.c` names an action per button in the layout table, and
+`title_play` (`src\host\title.c`) acts on a click: the pointer's position picks the button
+(`title_menu_pointer`) and `input_state.mouse_left_pressed` is the press edge - not the game's
+/FIRE, so a click that misses every button does nothing. Fire and 0 still start a new game, and the
+digit/letter keys still start their scenes. Settings is `TITLE_ACTION_NONE`: highlighted like the
+others, commits nothing. Load Game on a slot with no save prints "save slot N is empty" and leaves
+the menu up - an empty slot must not fall through to a new game, because the engine's load fails
+there and the boot loop would take its "no" answer.
+
+**How the load screen is removed.** Not patched out: `FUN_0001029e` still runs and the host answers
+it where its own prompt's answer would land. The boot loop calls it at `0x1EA`, right after the
+intro's setup returns, so the break pc is its first instruction after `link` (`0x102A2`,
+runtime `0x142A2` - A5 then addresses its frame) and the answer is D0 written at `0x102E6`
+(runtime `0x142E6`), the instruction after `jsr FUN_000101e4`. Everything the routine does with
+that answer is its own code - the store, the palette restore at `0x102EA`, the volume/open/read/close
+of `DSAVE:ICFTD` and the `moveq #1` return value; only the dim, the three text lines and the prompt
+are skipped. The load therefore still happens **after the intro**, which is where the original
+performs it and where the intro's setup has loaded the resources the restored state expects.
+`--titlekey` runs keep the original screen (the seam reproduces the original from the hold point),
+which is why `tools\title-check.ps1` is unchanged and still passes 15/15.
+
+**Load is direct; the intro is skipped.** `FUN_00009870` is not "play the intro": it loads the
+intro's samples, its score and the `Desert1:OPEN` bank, then hands the scene record at `0x993c` to
+`FUN_0001EB94`, which runs it through `FUN_0001D2C6` (the same MovE runner the situation map uses).
+Loading skips that one call: the host breaks on the `jsr` at `0x98F8` (runtime `0xD8F8`) and resumes
+at the `lea (0x10,A7),A7` that follows (`0xD8FC`), so the four arguments the call would have consumed
+are discarded by the engine's own cleanup and the setup still closes its bank and frees its score.
+Everything the restored state expects from the setup has therefore run; nothing of the scene is
+entered. New Game plays the intro exactly as before and only answers the question.
+
+**Measured** in the window (`--run`, clicks posted to the game's own window at the
+fullscreen-mapped button centres; RAM through `--ramstop`):
+
+| click | what the log says | what the machine does |
+|---|---|---|
+| Quit Game | - | the process exits |
+| New Game | `starting the game (frame 176)`, then `a new game, nothing to load (frame 329)` | no `open "ICFTD"` at all; the intro runs and the run lands in the starting room ("Go to Map / Make a Call / Answer the Door / Sleep") |
+| Load Game (slot 1) | `loading save slot 1 (frame 176)`, `skipping the intro (frame 190)`, `loading the selected save slot (frame 190)` | `open "ICFTD" -> saves\slot1\ICFTD (12444 bytes)` fourteen frames after the click, and the run is on the situation map the save was taken on ("Home Base, June 1, 1951 - 03:29 a.m.") |
+| Settings | nothing | the title stays up, button highlighted |
+| Load Game, `--slot 2` (empty) | `save slot 2 is empty (frame 176)` | the title stays up |
+
+The load is byte-for-byte the save: a `--ramstop` dump taken ~10 s of play after the load carries
+the engine's own file content at the engine's own two destinations - `0x25E18` (image `0x21E18` +
+base): 118 of 120 bytes equal, `0x2A86C` (image `0x2686C` + base): 12317 of 12324 equal, the
+remaining bytes being words the running world had already changed.
+
 ## The chicken race's narration is on the screen (2026-11-15)
 
 Reported as "when you complete the chicken game a textbox is displayed, drawn outside the screen on

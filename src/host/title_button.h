@@ -17,11 +17,22 @@ enum
     TITLE_BUTTON_PEN_COUNT
 };
 
+/* What a button does when it is clicked. Settings is drawn like the other three but has no action
+ * yet, so a click on it commits nothing. */
+typedef enum title_action
+{
+    TITLE_ACTION_NONE = 0,
+    TITLE_ACTION_NEW_GAME,
+    TITLE_ACTION_LOAD_GAME,
+    TITLE_ACTION_QUIT
+} title_action;
+
 typedef struct title_button
 {
     const char *label;
     s16 x, y;
     s16 w, h;
+    title_action action;
 } title_button;
 
 typedef struct title_menu
