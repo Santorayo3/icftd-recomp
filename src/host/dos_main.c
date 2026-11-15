@@ -20,6 +20,7 @@
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
  *   --titlekey <n>       take a title screen menu choice (0 the game, 1..7 the minigames, 8..10
+ *                        the endings, 11/12 the menu's Load Game / New Game)
  *                        the endings)
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --trace             dispatch/ring diagnostics
@@ -192,6 +193,13 @@ static int g_called;
 void host_regs_sync(rt_machine *m)
 {
     if (g_cpu != 0) gather(g_cpu, m);
+}
+
+/* The OSD loading line's explicit hold (src\host\main.c) has no seam here: the DOS front end
+ * installs no per-screen hook, like the pointer and the crosshair. */
+void host_loading_hold(rt_machine *m)
+{
+    (void)m;
 }
 
 static void dos_input(rt_machine *m)

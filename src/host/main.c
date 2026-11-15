@@ -32,7 +32,9 @@
  * so a scripted run says which line is where instead of leaving it to a screenshot.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
- * the endings) so a scripted run can start a scene from the title; it is a dev seam like `--call`.
+ * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
+ * the title answers the load screen) so a scripted run can start a scene from the title; it is a
+ * dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
  * (`--dumpfrom` starts the sequence at an emulated frame, for a scene reached deep into a run).
@@ -132,12 +134,14 @@ static void host_crash_note(rt_machine *m, cpu_t *c)
 /* The port's per-screen seams, defined with their attachment points further down: the fight's
  * aiming crosshair is placed at the frame boundary, before the vblank composes the frame. */
 static void crosshair_present(rt_machine *m);
+static void loading_frame(rt_machine *m);
 
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
  * the registers comes back. */
 static void host_frame(cpu_t *c, rt_machine *m)
 {
+    loading_frame(m);                  /* arms the OSD line while a load runs, before the present */
     crosshair_present(m);              /* composed by the present inside oracle_tick */
     scatter(c, m);
     oracle_tick(m);
@@ -744,11 +748,121 @@ static void crosshair_present(rt_machine *m)
     rt_crosshair_at((s16)(aimX + ANT_SHOT_DX), (s16)(aimY + ANT_SHOT_DY));
 }
 
+/* --- the loading line (a port feature) ------------------------------------------------------
+ * The engine loads a screen before it can show it, and on the original that is a wait with the
+ * previous picture still on the screen: the bank opener reads the resource files, Sms_Load unpacks
+ * a picture bank's RLE tiles (Sms_Unpack) and FUN_000205e6 decrunches the LZ banks (FUN_0002069c).
+ * That work can run for hundreds of frames - often inside one call, so the engine dispatching
+ * nothing - and the view keeps showing the old picture until the new scene's first update. Measured
+ * on ref\inputs\flight-crash-hospital-room.txt: the map leaves at frame 1409, the last load
+ * routine runs at 1680 and the room appears at 1683; the 87-frame map load after a room is the
+ * same shape (frames 1127..1200 of ref\inputs\map-pointer.txt).
+ *
+ * A frame is load work when one of those routines was entered during it, or when the instruction
+ * the frame boundary lands on is inside one (a long decode never dispatches, so the entry hook
+ * alone misses most of it). The line appears after LOAD_SHOW_FRAMES of work - a short asset load
+ * must not flash - and stays through the gaps between one resource and the next (LOAD_IDLE_FRAMES),
+ * because those gaps are the loader looking the next asset up, not the end of the transition.
+ *
+ * The engine keeps presenting the unchanged picture through the load, so the line is just the
+ * runtime's OSD text: it is armed here, at the frame boundary before the present, and re-armed
+ * every frame the load runs. Nothing of the machine is written, and a measurement run never
+ * installs the seam (g_portArm).
+ */
+/* Image offsets of the load-only code, from re\decomp_all\dshell\ALL.c. Everything here is
+ * reached only from a resource load: the SMS loader and its unpacker, the bank directory search,
+ * the bank opener, the asset lookup inside a bank, the read helper, and the LZ decruncher's state
+ * machine and decoder. */
+static const u32 g_loadRanges[][2] =
+{
+    { 0x00000AAAu, 0x00000FA2u },   /* FUN_00000b62, a scene's script: read, then parse it   */
+    { 0x0001EC42u, 0x0001F03Eu },   /* Sms_Load, a picture bank's header and data           */
+    { 0x0002011Au, 0x000201D4u },   /* Sms_Unpack, its RLE decode loop                      */
+    { 0x00020204u, 0x000202C4u },   /* bank directory search and cleanup                    */
+    { 0x000202C4u, 0x000204FAu },   /* FUN_000202c4, the bank opener, and the asset lookup  */
+    { 0x000204FAu, 0x00020518u },   /* FUN_000204fa, read n bytes out of the open bank      */
+    { 0x00020518u, 0x000205E6u },   /* the decruncher's state machine and bit reader        */
+    { 0x000205E6u, 0x000207F0u }    /* FUN_000205e6/FUN_0002069c, the LZ decruncher         */
+};
+#define LOAD_SHOW_FRAMES 25        /* 1/2 s of work before the line appears */
+#define LOAD_IDLE_FRAMES 8         /* ... and how long a gap still belongs to the load */
+#define LOAD_HOLD_FRAMES 500       /* 10 s: a transition the title announced has no such limit */
+
+static u32 g_loadSeen;             /* last frame a load routine ran in          */
+static u32 g_loadStart;            /* first frame of the load now in progress   */
+static int g_loadOn;               /* a load has run within LOAD_IDLE_FRAMES    */
+static int g_loadShown;            /* the line is up (the log's edge)           */
+static int g_loadHold;             /* frames left on an announced transition    */
+static int g_loadHoldSeen;         /* load work has run since the hold was armed */
+
+static int load_pc(u32 pc)
+{
+    int i;
+
+    if (pc < RC_BASE) return 0;
+    pc -= RC_BASE;
+    for (i = 0; i < (int)(sizeof g_loadRanges / sizeof g_loadRanges[0]); i++)
+        if (pc >= g_loadRanges[i][0] && pc < g_loadRanges[i][1]) return 1;
+    return 0;
+}
+
+/* Armed when the title takes the intro away (a menu New Game after its scene ends, or Load Game,
+ * which skips the scene): from that frame the game is building its first screen, which takes
+ * seconds before the loader's own detection reaches LOAD_SHOW_FRAMES - or is not loader code at all
+ * yet. The line is up at once instead of a few seconds later, and it gives way again as soon as
+ * the load it waited for has run and ended. */
+void host_loading_hold(rt_machine *m)
+{
+    if (!g_portArm) return;
+    g_loadHold = LOAD_HOLD_FRAMES;
+    g_loadHoldSeen = 0;
+    rt_osd_text(m, "Loading", 2);
+}
+
+/* Runs at the frame boundary, before the vblank whose present composes the overlay. */
+static void loading_frame(rt_machine *m)
+{
+    int busy, up;
+
+    if (!g_portArm) return;
+    busy = load_pc(m->pc) || g_loadSeen == m->frame;
+    if (busy)
+    {
+        if (!g_loadOn) { g_loadOn = 1; g_loadStart = m->frame; }
+        g_loadSeen = m->frame;
+    }
+    else if (g_loadOn && m->frame - g_loadSeen > LOAD_IDLE_FRAMES)
+        g_loadOn = 0;
+
+    if (g_loadHold > 0)
+    {
+        if (busy) g_loadHoldSeen = 1;
+        else if (g_loadHoldSeen && !g_loadOn) g_loadHold = 0;   /* the load it waited for ended */
+        else g_loadHold--;
+    }
+
+    up = g_loadHold > 0 || (g_loadOn && m->frame - g_loadStart >= LOAD_SHOW_FRAMES);
+    if (up != g_loadShown)
+    {
+        g_loadShown = up;
+        printf("recomp: %s (frame %lu)\n", up ? "loading" : "loading done",
+               (unsigned long)m->frame);
+    }
+    if (!up) return;
+
+    /* A slot message has the corner while it is up; the load line takes it back when that
+     * expires. Re-arming every frame keeps it up for as long as the load runs. */
+    if (m->gfx.osdText[0] == 0 || (s32)(m->gfx.osdTextUntil - m->frame) <= 0 ||
+        strcmp(m->gfx.osdText, "Loading") == 0)
+        rt_osd_text(m, "Loading", 2);
+}
+
 /* rc_entryHook: everything the port's per-screen seams need is reached from inside the translated
  * stream (the scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the
  * seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
+    if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
@@ -1422,6 +1536,9 @@ int main(int argc, char **argv)
             g_ptrButton = 0;
             g_mapFrame = g_phoneFrame = g_roomFrame = g_antFrame = 0;
             g_lineCount = 0;
+            g_loadHold = g_loadHoldSeen = 0;
+            g_loadOn = g_loadShown = 0;
+            g_loadSeen = g_loadStart = 0;
             /* A played game shows the title again. A headless run (the --titlekey seam) has no
              * keyboard, so ask the menu to end the moment it is up: key 99 is not a scene. */
             host_title_key(g_window ? -1 : 99);

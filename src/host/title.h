@@ -29,6 +29,12 @@ int host_title_restart_pending(void);
  * front end, which owns the mirror. */
 void host_regs_sync(rt_machine *m);
 
+/* The intro is over: the game is about to build its first screen. Show the OSD loading line from
+ * this frame on, instead of waiting for the engine's own load detection - the world loop's script
+ * parser takes seconds before any of the loader code runs. Defined by each front end; the DOS
+ * front end has no per-screen seam and does nothing. */
+void host_loading_hold(rt_machine *m);
+
 /* Call from the main loop before executing `pc`. Returns 1 when the title did something and the
  * loop must re-read the PC (a call was injected, or the PC was left where it was). */
 int host_title_check(rt_machine *m, u32 pc);

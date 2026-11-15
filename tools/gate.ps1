@@ -24,12 +24,14 @@
                                 the point the engine's shot test reads)
      10. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
                                 are the port's artwork, point-sampled, not black)
+     11. loading line          (tools\load-check.ps1 - the "Loading" line covers the engine's own
+                                resource loads and nothing else)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-10 cover the port's
+    capture or reference-image test can prove a translated function. Steps 5-11 cover the port's
     own surfaces - the presenter, the title menu, the map cursor, the room pointer, the fight's
-    crosshair and the fullscreen border - which have no counterpart in the original to diff
-    against; they can only fail on their own terms.
+    crosshair, the fullscreen border and the loading line - which have no counterpart in the
+    original to diff against; they can only fail on their own terms.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
@@ -91,6 +93,7 @@ Step 'map pointer (cursor)' { powershell -NoProfile -ExecutionPolicy Bypass -Fil
 Step 'room pointer (hover)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 }
 Step 'fight crosshair (aim)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 }
 Step 'fullscreen border (bars)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 }
+Step 'loading line (transitions)' { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 }
 
 Write-Host ''
 $table = $results | Format-Table -AutoSize | Out-String

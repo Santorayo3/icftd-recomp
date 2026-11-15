@@ -206,6 +206,52 @@ custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 diff
 stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook, so the
 crosshair is inert there — the same gap the pointer has.
 
+## The loading line during a screen transition
+
+The original waits for a screen's data with the previous picture still up, so a long transition (the
+map into a location, a room into the map, the intro, a loaded save's first screen) is a stretch of
+frames in which nothing moves. The port says so: `Loading` in the OSD, top left, in the game's own
+font.
+
+The trigger is the engine's own load-only code, not a timer. A frame counts as load work when one of
+these was entered during it, or when the instruction the frame boundary lands on is inside one (a
+long decode runs inside a single call and never dispatches, so the entry hook alone misses most of
+it):
+
+| range (image offsets) | what it is |
+|---|---|
+| `0xAAA..0xFA2` | `FUN_00000b62` — a scene's script: read the asset, then parse it (and its helpers) |
+| `0x1EC42..0x1F03E` | `Sms_Load` — a picture bank's header, palette and tiles |
+| `0x2011A..0x201D4` | `Sms_Unpack` — its RLE decode loop |
+| `0x20204..0x204FA` | the bank directory search, `FUN_000202c4` (the bank opener), the asset lookup |
+| `0x204FA..0x20518` | `FUN_000204fa` — read n bytes out of the open bank |
+| `0x20518..0x207F0` | the LZ decruncher: state machine, bit reader, `FUN_000205e6`/`FUN_0002069c` |
+
+The line appears after 25 frames of work (`LOAD_SHOW_FRAMES`, half a second — a single asset must not
+flash) and survives gaps of up to 8 frames (`LOAD_IDLE_FRAMES`, the loader looking the next asset
+up). It is only the runtime's OSD text, armed at the frame boundary before the vblank whose present
+composes it; the engine keeps presenting the unchanged picture, so no extra present is needed.
+
+There is one transition the loader code does not mark from its first frame: the intro into the game.
+The title answers the engine's load screen at the moment the intro ends (`host_loading_hold`, called
+from the title's prompt break and from the Load Game intro skip), so the line is up on that frame
+instead of seconds later, when the world loop's script parser and the room's banks start. It hands
+over to the loader detection when that runs and ends with it. Measured (menu New Game, fire during
+the intro's desert scene): line up at the frame the intro ends (302), the script parse runs
+302..586, the picture bank is decoded 588..809, line down at 809.
+
+Measured with `tools\load-check.ps1` (the recordings are game-derived, so it SKIPs without them):
+
+| transition | load work | line up | line down | new screen |
+|---|---|---|---|---|
+| map → Hilbers Field (`flight-crash-hospital-room.txt`) | 1411..1680 | 1436 | 1689 | 1683 |
+| room → map (`map-pointer.txt`) | 1127..1200 | 1152 | 1209 | 1203 |
+
+The seam is inert in a measurement: a run without `--mouse` (or a window) never installs
+`rc_entryHook`, logs no line, and its RAM is byte-identical to the armed run's over all 2 MB. The
+DOS front end installs no per-screen hook, so the line is inert there — the same gap the pointer and
+the crosshair have.
+
 ## The fullscreen border
 
 Fullscreen keeps the 320x200 picture at 4:3, so a widescreen window leaves bars either side. They
@@ -239,5 +285,5 @@ needs the PNG.
 
 `tools\gate.ps1 -Quick` while working — it skips both builds and runs the checks (interpreter
 fixtures, translated vs interpreted, presenter, title, map cursor, room pointer, fight crosshair,
-fullscreen border). Run the full `tools\gate.ps1` once before handing off: it also builds the
-exporter and the oracle, and it is the definition of green.
+fullscreen border, loading line). Run the full `tools\gate.ps1` once before handing off: it also
+builds the exporter and the oracle, and it is the definition of green.

@@ -11,6 +11,54 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
+## Long screen transitions say "Loading" (2026-11-15, later still)
+
+Asked for: show the word "Loading" in the OSD during long screen transitions - the map into a
+location, into the map again, and after loading a savegame. A port feature, so written on its own
+terms (`docs\port-features.md` has the section): the line is the runtime's OSD text, armed by the
+front end while the engine's **load-only code** is running - the bank opener, `Sms_Load`/`Sms_Unpack`
+for the picture banks and the LZ decruncher `FUN_000205e6`/`FUN_0002069c`.
+
+**The seam.** `src\host\main.c`, `loading_frame` (frame boundary) + `host_entry` (`rc_entryHook`).
+A frame is load work if a load range was entered during it (`rc_entryHook`), or if `m->pc` - the
+instruction the vblank landed after - is inside one. The second test is what covers a decode that
+runs for hundreds of frames inside one call without dispatching: the location load is 270 frames,
+215 of them inside the decrunchers. `LOAD_SHOW_FRAMES` (25) keeps short asset loads from flashing;
+`LOAD_IDLE_FRAMES` (8) bridges the loader's own gaps (looking the next asset up).
+
+**The intro into the game needed two more things** (reported: pressing fire during the desert intro
+scene showed the line several seconds late). The first 284 frames after the intro are
+`FUN_00000b62`, the world loop's script reader and parser (`0xAAA..0xFA2`) - it ran before the
+picture-bank decode and was not in the ranges, so nothing was detected until frame 611. Added, that
+gives the line at 327 (the parser's cluster start 302 + the 25-frame threshold). The title's own
+transition removes even that delay: `host_loading_hold` is called where the title answers the load
+prompt (the intro is over) and where Load Game skips the intro, so the line is up on that frame and
+hands over to the loader detection when it runs.
+
+Measured (`--titlekey 12` = the menu's New Game, fire during the intro): line up at 302 (the prompt
+frame), script parse 302..586, bank decode 588..809, line down 809. Load Game (`--titlekey 11`,
+`--slot 1`): up at 37 (the skip) and again over the map's load at 453..653, with the 1 s world-loop
+setup between them showing nothing - acceptable, and the menu's New Game (the reported case) is
+immediate. `--titlekey` 11/12 are the menu's two start buttons; the original-flow keys (0..10) are
+unchanged, so `tools\title-check.ps1` still measures what it did.
+
+**Measured** (`tools\load-check.ps1`, which is in the gate; the recordings are game-derived, so it
+SKIPs without them):
+
+| transition | loader frames | line up / down | new screen |
+|---|---|---|---|
+| map → Hilbers Field (`flight-crash-hospital-room.txt`) | 1411..1680 | 1436 / 1689 | 1683 |
+| room → map (`map-pointer.txt`) | 1127..1200 | 1152 / 1209 | 1203 |
+
+The frames are the ones the rasters pin: the map's last frame is 1409 and the room first appears at
+1683; the map is up at 1203. A `--dump` at 1460 and at 1160 carries the green "Loading" in the top
+left, a dump at 1700 does not.
+
+**Inertness.** A measurement run never installs `rc_entryHook`, so it logs no line; and a run armed
+with `--mouse` (an empty script, the same seam the other port checks use) is byte-identical to the
+plain run over all 2 MB of RAM - the feature writes no machine state. `tools\gate.ps1 -Quick` is
+11/11.
+
 ## The title's buttons are wired, and the load screen is gone (2026-11-15, later)
 
 Asked for: wire the title menu's four buttons (Quit closes the application, New Game starts a new

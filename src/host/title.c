@@ -182,6 +182,9 @@ static const title_scene g_scenes[] =
 #define TITLE_PICK_INTRO  1
 #define TITLE_PICK_LOAD   2
 #define TITLE_PICK_SCENE  3
+/* --titlekey's values for the menu's New Game and Load Game buttons; past the scenes and endings. */
+#define TITLE_KEY_LOAD     11
+#define TITLE_KEY_NEW_GAME 12
 
 /* A scene is entered as the two calls the dispatcher makes (free the score, then enter), and the
  * title comes back after each one: an injected call returns to the pc it was made from, so every
@@ -379,6 +382,13 @@ static int title_play(rt_machine *m)
             g_virtualKey = -1;
             if (k == 0) pick = TITLE_PICK_INTRO;
             else if (k <= TITLE_SCENE_COUNT) pick = TITLE_PICK_SCENE + (k - 1);
+            else if (k == TITLE_KEY_LOAD || k == TITLE_KEY_NEW_GAME)
+            {
+                /* The Load Game / New Game buttons, for a scripted run: the menu path (the load
+                 * screen is answered by the title), not the original's. */
+                pick = k == TITLE_KEY_LOAD ? TITLE_PICK_LOAD : TITLE_PICK_INTRO;
+                g_fromMenu = 1;
+            }
             else pick = TITLE_PICK_QUIT;    /* no such key: a scripted run must not wait for one */
         }
         if (pick >= 0) break;
@@ -405,6 +415,7 @@ int host_title_check(rt_machine *m, u32 pc)
         r[REGS_PC] = TITLE_INTRO_SKIP;
         oracle_regs_set(r);
         host_regs_sync(m);
+        host_loading_hold(m);       /* the intro is skipped: the game starts building now */
         printf("title: skipping the intro (frame %lu)\n", (unsigned long)m->frame);
         g_state = TITLE_PROMPT;
         rc_breakPc = TITLE_LOAD_PROMPT;
@@ -425,6 +436,7 @@ int host_title_check(rt_machine *m, u32 pc)
         r[REGS_PC] = TITLE_LOAD_ANSWER;
         oracle_regs_set(r);
         host_regs_sync(m);
+        host_loading_hold(m);       /* the intro is over: the game starts building now */
         printf("title: %s (frame %lu)\n",
                g_wantLoad ? "loading the selected save slot" : "a new game, nothing to load",
                (unsigned long)m->frame);
