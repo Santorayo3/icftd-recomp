@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1
 # 3. gate: exporter build + oracle build + the two fixture layers (the translation core)
 powershell -ExecutionPolicy Bypass -File tools\gate.ps1
 #    -Full adds the port's own checks (presenter, title, pointer, crosshair, aim, border, loading line,
-#    the Ctrl+W minigame cheat),
+#    the Ctrl+W minigame cheat, the hospital escape's camera),
 #    -Only <step> runs one of them while working on that surface
 ```
 
@@ -150,7 +150,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, map pointer, room pointer, crosshair, border, loading line, pointer aim, minigame cheat), `-Only <step>` runs one |
+| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, map pointer, room pointer, crosshair, border, loading line, pointer aim, minigame cheat, hospital camera), `-Only <step>` runs one |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
@@ -175,6 +175,7 @@ docs/                  architecture, plan, program model
 | `tools\crosshair-check.ps1` | the giant-ant fight's crosshair: its centre is the point the engine's shot test reads (the aim `−0x1b`/`−0x3a`, the value `FUN_000086A0` stores for `FUN_0000823A`), it follows the stick, and a measurement run draws none |
 | `tools\aim-check.ps1` | the pointer's gun and extinguisher: the aim words are the pointer's point in the fight (`+0x1b/+0x3a`) and inside the fire game's own travel rectangle (`0x28..0x12c × 0xa5..0xf0`, so the mouse stops where the stick stops), the engine's shot/spray lands there, the keyboard still aims, and a measurement run is untouched |
 | `tools\cheat-check.ps1` | the Ctrl+W minigame cheat: each of the title's seven scenes ends in the words its own success path writes (the fight's result, the flight's landing, the fire game's "no fire left", the escape/nest step count, the chicken's swerve, the ant's win), and a run with the seam installed but no key is byte-identical to the plain one before the request |
+| `tools\camera-check.ps1` | the hospital escape's camera: the character's screen position stays at the middle of the window while it walks (the picture follows from one update to the next), and the same script played as a measurement still shows the original's camera |
 | `tools\mkcrosshair.ps1` | PNG → `src\runtime\amiga\crosshair_art.h`, the aiming aid the fight draws |
 | `tools\mkborder.ps1` | PNG → `src\runtime\plat\win32\border_art.h`, the art the Windows fullscreen paints behind the 4:3 picture |
 | `tools\border-check.ps1` | the fullscreen border: the art table is the PNG byte for byte, `border_paint` is point sampling, and the bars are curtain rather than black |

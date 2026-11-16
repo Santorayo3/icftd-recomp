@@ -42,6 +42,7 @@
 #include "../recomp/fn_table.h"
 #include "title.h"
 #include "cheat.h"
+#include "hospital_camera.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 4
@@ -206,13 +207,15 @@ void host_loading_hold(rt_machine *m)
     (void)m;
 }
 
-/* The one per-screen seam this front end needs: the Ctrl+W cheat is a played-game feature and its
- * request is consumed at a minigame's own per-frame update (src\host\cheat.c). It does nothing
- * unless a request is pending. */
+/* The per-screen seams this front end needs: the Ctrl+W cheat (src\host\cheat.c) and the
+ * hospital escape's camera (src\host\hospital_camera.c). Both are played-game features; the cheat
+ * does nothing unless a request is pending, the camera writes only while the hospital's own draw
+ * runs. */
 static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
     (void)c;
-    host_cheat_entry(m, pc);
+    if (host_cheat_entry(m, pc)) return;
+    host_hospital_camera_entry(m, pc);
 }
 
 static void dos_input(rt_machine *m)

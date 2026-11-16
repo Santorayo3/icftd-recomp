@@ -15,6 +15,7 @@
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--mouse <file>] [--hoverlog]
+ *                [--cameralog]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
  * title screen, space or the left
@@ -32,6 +33,10 @@
  * same state).
  * `--hoverlog` prints every text menu line the pointer seam records and the entry a hover picks,
  * so a scripted run says which line is where instead of leaving it to a screenshot.
+ * `--cameralog` prints the hospital escape's player, picture origin, fine scroll and scroll
+ * request once per update, so the port's centred camera is a list of numbers instead of a picture
+ * (a played run, or the headless --mouse form of one: a measurement installs no seam and prints
+ * nothing).
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
  * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
@@ -58,6 +63,7 @@
 #include "../recomp/fn_table.h"
 #include "title.h"
 #include "cheat.h"
+#include "hospital_camera.h"
 
 #define DEFAULT_IMAGE "export\\code\\dshell4k\\dshell.img"
 #define HS_BASE       EMU_IMAGE_BASE
@@ -610,6 +616,7 @@ static int g_lineCount;
 static u32 g_roomFrame;            /* last frame a location view was drawn or updated */
 static u32 g_menuFrame;            /* last frame a text menu flipped */
 static int g_hoverLog;             /* --hoverlog: the lines recorded and what the pointer picks */
+static int g_cameraLog;            /* --cameralog: the hospital camera, one line per update */
 static int s_ptrShown;             /* --hoverlog: the last reported pointer visibility */
 
 /* One line of a text menu was queued for drawing: remember where it is and which entry it is. */
@@ -990,6 +997,15 @@ static void loading_frame(rt_machine *m)
         rt_osd_text(m, "Loading", 2);
 }
 
+/* --- the hospital escape's camera (a port feature, src\host\hospital_camera.c) ----------------
+ * The original lets the walking character wander 40 px left or right of the middle of the window
+ * (30 px up or down) before the picture starts to follow it; the port keeps it in the middle and
+ * the picture scrolls for as long as it walks. The seam is the hospital's own actor draw, which
+ * its loop calls right after the walk has moved the player (0x18298) and before the vblank that
+ * applies the scroll request FUN_000189aa wrote; host_hospital_camera_entry answers for that
+ * entry and writes only DAT_000297f2. Nothing here runs in a measurement: rc_entryHook is
+ * installed in a played run only (g_portArm). */
+
 /* rc_entryHook: everything the port's per-screen seams need is reached from inside the translated
  * stream (the scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the
  * seam. */
@@ -997,6 +1013,7 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
     if (host_cheat_entry(m, pc)) return;
     if (load_pc(pc)) { g_loadSeen = m->frame; return; }
+    if (host_hospital_camera_entry(m, pc)) return;
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
@@ -1302,6 +1319,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
+        if (strcmp(argv[i], "--cameralog") == 0) { g_cameraLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
@@ -1555,6 +1573,7 @@ int main(int argc, char **argv)
     /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry hook
      * even in a run that is otherwise a measurement, because that run asked for the cheat. */
     if (g_portArm || g_cheatFrame != 0) rc_entryHook = host_entry;
+    host_hospital_camera_log(g_cameraLog);
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);

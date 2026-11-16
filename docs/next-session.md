@@ -11,7 +11,44 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
-## The Ctrl+W minigame cheat (2026-11-15, latest)
+## The hospital's camera follows the character (2026-11-16, latest)
+
+Asked for: in the hospital escape ("Escape Hospital", `FUN_0001819a`) the screen starts to scroll only
+when the character gets close to the window's border; it should scroll whenever the character walks,
+so that it stays in the middle. The original's camera is a dead band and nothing else, so this is a
+port feature (`docs\port-features.md`, "The hospital escape's camera"), not a divergence:
+`FUN_000189aa` ends by writing the scroll request `0x297f2` from (player - picture origin) with a
+band of `200`/`0x78` across and `0x82`/`0x46` down (`0x18fba..0x18fe6`) - 40 px of "walk to the edge"
+either way. The seam recomputes that word at the entry of the hospital's own actor draw
+(`FUN_00019e9c`, called right after the update at `0x18298`, before the vblank that applies it) and
+keeps the character at the middle instead:
+
+* **across, the position held is the *screen* one.** The walk sprite is blitted into the bitmap at
+  (player - origin) and the display fetches that bitmap `0x28cd4` colour clocks late (BPLCON1), so
+  `0x28cd4` is added to the difference and the target is the window's middle, **144**. This also
+  makes the controlled quantity smooth - while the picture follows, the origin jumps 16 px every
+  fifth update and the fine scroll jumps back by 13, so the sum does not move at all - which is why a
+  2 px band neither lags nor oscillates. Measured: the sprite's middle sat at
+  `player - origin + fine` to the pixel (116.5 against 116).
+* **down, the word is the visible position** - that scroll is the plane pointers moving and the
+  picture being redrawn, not a display delay - so it is held at the engine's own band midpoint
+  **100**, with a band of 5: half of the 10 px its word only ever moves in. A 5 px band was tried
+  first and ping-ponged (97/107) with the character standing still.
+
+Everything else is the engine's: the same request bits drive the same fine scroll, coarse step and
+redraw, and the level's edges (`0x28d46`, `0x2ae22`) still stop the camera at a wall.
+
+**Measured** (`tools\camera-check.ps1`, gate step 14; `--call 0x1C19A:100` plus a fire press and a
+frame-indexed walk, `--mouse` to arm the port seams): walking right and down, the character's screen
+position stays at x 145..150 of 144 and y 97..107 of 100, the picture followed 32 px across and 10 px
+down, and the view is still over the last 37 idle frames. The same script played as a measurement (no
+`--mouse`, so no entry hook) still shows the original camera - the character walks to screen x 193,
+its band's edge - and logs no camera line at all. Both front ends install the seam in a played game
+(Windows: `g_portArm`; DOS: the played-run hook), and `--cameralog` prints one line per update
+(player, origin, fine scroll, screen position, request), so the feature is a list of numbers rather
+than a picture.
+
+## The Ctrl+W minigame cheat (2026-11-15, earlier)
 
 Asked for: left Ctrl+W in any minigame ends it immediately in its success state. The original has
 no cheat, so it is a port feature (`docs\port-features.md`, "The Ctrl+W minigame cheat"); the claim

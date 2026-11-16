@@ -303,6 +303,52 @@ budget). The fight's documented preset, run with the seam installed but no reque
 byte-identical to the plain run on every frame record before frame 2500, and a plain measurement
 run ends no scene.
 
+## The hospital escape's camera
+
+The original's "Escape Hospital" walk (`FUN_0001819a`) scrolls the picture only after the character
+has walked to the edge of the dead band its update `FUN_000189aa` keeps: `0x18fba..0x18fe6` compare
+(player - picture origin) with `200`/`0x78` across and `0x82`/`0x46` down, so the character may
+wander 40 px left or right of the middle of the 288x180 window (30 px up or down) before the camera
+follows. The port keeps it at the middle and the picture follows from one update to the next.
+
+| what | where |
+|---|---|
+| the request word | `DAT_000297f2`, written by `FUN_000189aa` and applied one vblank later by `FUN_00017cec` (the fine scroll, the plane pointers, the coarse step) |
+| the seam | the entry of `FUN_00019e9c`, the loop's actor draw, reached at `0x18298` right after the update and before that vblank |
+| what it writes | `DAT_000297f2` only - the engine's own four direction bits |
+
+The position held, and why it is two different quantities on the two axes:
+
+* **across** the covered value is the *screen* position. The walk sprite is blitted into the bitmap
+  at (player - `0x29ec6`) and the copper list's BPLCON1 entry delays the fetch by `DAT_00028cd4`
+  colour clocks (the only horizontal scroll - see the flight's fix in `next-session.md`), so the
+  screen x is `player - 0x29ec6 + 0x28cd4`, and the target is the window's middle, 144. Adding the
+  delay also makes the value smooth: while the picture follows, the origin jumps 16 px every fifth
+  update and the fine scroll jumps back by 13, so the sum does not move - a 2 px band neither lags
+  nor oscillates, and the character is held within a few pixels of the middle. Measured: the sprite
+  body is 12 px wide with its middle at 116.5 while `player - origin + fine` was 116.
+* **down** the word `player - 0x29ec8` *is* the visible position (that scroll is the plane pointers
+  and a redraw, not a display delay), so it is held at the original's own band midpoint, 100 - 10 px
+  below the geometric centre, which is where the walk sprite's middle sits. Its band has to be 5 px
+  either side: the word only moves in 10 px steps, and a narrower band cannot settle. Measured with a
+  5 px band: the character standing still made the vertical offset ping-pong between 97 and 107.
+
+Everything else stays the engine's - the same bits drive the same fine scroll, coarse step and
+redraw, and the level's limits (`DAT_00028d46`, `DAT_0002ae22`) still stop the camera at a wall.
+`--cameralog` prints one line per update (player, origin, fine scroll, screen position, request), so
+a headless run says where the character is.
+
+"Done" for it (the three claims of this page, measured with `tools\camera-check.ps1`, gate step 14):
+
+1. **its claim is machine state** - walking right and down, the character's screen position stays at
+   x 145..150 of 144 and y 97..107 of 100, the origin moves 32 px across and 10 px down with it, and
+   the view is still over the last 37 idle frames;
+2. **a measurement run is not disturbed** - the same script played without `--mouse` installs no
+   entry hook, logs no camera line, and still walks to screen x 193, the edge of the original's band;
+3. **no opt-in flag** - a played game (Windows `g_portArm`, the DOS played-run hook) has it, a
+   measurement (`--input`, `--call`, `--poke`, `--cover`) does not; `--mouse` is the headless form of
+   a played run, and `--cameralog` only prints.
+
 ## The loading line during a screen transition
 
 The original waits for a screen's data with the previous picture still up, so a long transition (the
@@ -385,10 +431,10 @@ that does not touch them. Pick the tier by what the change is:
 
 | when | command | what runs |
 |---|---|---|
-| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all nine) | that check (its own binary must be built: `tools\build-host.ps1`) |
+| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all ten) | that check (its own binary must be built: `tools\build-host.ps1`) |
 | working on the translation | `tools\recomp-fixtures.ps1 -Only "000009*"`, then `tools\gate.ps1` | the fixtures under that address wildcard, then the core |
 | before a hand-off | `tools\gate.ps1` | builds, interpreter fixtures, translated vs interpreted |
-| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all nine port checks |
+| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all ten port checks |
 
 `-Quick` still skips the two builds. No change owes a whole-gate run: it owes the measurement that
 covers it — see `.github\copilot-instructions.md`, "Validation — check the change, not the
