@@ -11,7 +11,10 @@
 #include "types.h"
 
 enum {
-    KEY_UP = 0,
+    KEY_UP = 0,                         /* the four directions: the arrow cluster, and W/A/S/D. A
+                                         * direction stays down while either of its keys is held
+                                         * (the platform layer keeps the two apart), so the game
+                                         * only ever sees one joystick. */
     KEY_DOWN,
     KEY_LEFT,
     KEY_RIGHT,
@@ -36,7 +39,8 @@ enum {
     KEY_8,
     KEY_9,
     KEY_W,                              /* the title screen's three ending keys (they do nothing in
-                                         * the game itself: no scene decodes a letter) */
+                                         * the game itself: no scene decodes a letter). W is also
+                                         * the arrow cluster's Up, so holding it sets KEY_UP too. */
     KEY_C,
     KEY_T,
     KEY_CTRL,                           /* left Control, held: the Ctrl+W minigame cheat (cheat.c) */
@@ -68,10 +72,15 @@ const char *plat_default_ini(void);
 
 /* Window mode, from icftd.ini [VIDEO] fullscreen; call before plat_init.  Off keeps the window
  * at exactly the framebuffer size and blits it 1:1; on takes the whole screen and scales the
- * picture up.  May be a no-op. */
+ * picture up.  May be a no-op - plat_has_fullscreen says whether it is one - and where it is not,
+ * a call after plat_init switches the window there and then (the title menu's settings). */
 void plat_set_fullscreen(u32 on);
 
 u32  plat_fullscreen(void);
+
+/* 1 when this platform has a window mode of its own, i.e. when plat_set_fullscreen does something:
+ * the title's settings menu offers the fullscreen toggle only where it can be acted on. */
+u32  plat_has_fullscreen(void);
 
 void plat_shutdown(void);
 
@@ -174,12 +183,24 @@ u32 plat_mkdir(const char *path);
  * directory, so a slot nothing was written to yet is an empty one. */
 u32 plat_dir_empty(const char *path);
 
+/* Calls visit(name, size, ctx) once for every file directly in dir; subdirectories are skipped and
+ * `name` is the entry's own name, not a path. Returns how many files were visited. The order is the
+ * platform's, so a caller that needs a stable one sorts. Used by the first-start extraction to find
+ * the player's floppy images (src\runtime\assets.c). */
+typedef void (*plat_dir_visit)(const char *name, u32 size, void *ctx);
+u32 plat_dir_files(const char *dir, plat_dir_visit visit, void *ctx);
+
 /* Runs exe with the given argument string (already quoted) and waits for it.
  * Returns the child's exit code, or -1 when it could not be started. */
 s32 plat_spawn(const char *exe, const char *args);
 
 /* Window/screen caption; may be a no-op. */
 void plat_set_title(const char *text);
+
+/* Puts `text` in front of the player and returns once it is dismissed: a modal box where the
+ * platform has one, the console where it does not. Startup errors use it, and they happen before
+ * there is a window to draw in. */
+void plat_message(const char *title, const char *text);
 
 /* --- diagnostics ---------------------------------------------------------- */
 /* Rewrites <exe dir>\recomp-crash.txt with `text` (fixed size, NUL padded, flushed). Cheap

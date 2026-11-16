@@ -7,7 +7,8 @@
 !/disks/README.md
 
 # Everything decoded from the images: extracted filesystems, PNG previews and
-# the runtime pack.  Rebuilt on first start (see src/game/core/assets.c).
+# the runtime pack.  Rebuilt from disks\ by tools\extract.ps1 and tools\gamepack.ps1;
+# the port's own PNGs (below) are the opposite - authored here and tracked.
 /assets/*
 !/assets/README.md
 !/assets/autosave.png
@@ -17,6 +18,12 @@
 !/assets/btn_normal.png
 !/assets/btn_hover.png
 !/assets/portrait_box.png
+!/assets/plus_hover.png
+!/assets/plus_normal.png
+!/assets/minus_hover.png
+!/assets/minus_normal.png
+!/assets/toggle_off.png
+!/assets/toggle_on.png
 /export/
 
 # WinUAE reference captures of the original game.

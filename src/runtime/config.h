@@ -32,6 +32,13 @@ int rt_config_bool(const char *section, const char *key, int fallback);
  * malformed number gives fallback. */
 int rt_config_int(const char *section, const char *key, int fallback, int lo, int hi);
 
+/* Writes one decimal value back into the file the settings came from, and re-reads it, so
+ * rt_config_int answers with the new value afterwards. Every other line - comments, the order of
+ * the sections, keys this build does not know - is written back unchanged; a key that is not in
+ * its section yet is added under its header. The title menu's settings use it, so what a player
+ * picks survives the next start. Returns 1 when the file holds the value afterwards. */
+u32 rt_config_save_int(const char *section, const char *key, int value);
+
 void rt_config_free(void);
 
 #endif /* ICFTD_CONFIG_H */

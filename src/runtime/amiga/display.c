@@ -2118,6 +2118,23 @@ const u8 *rt_pointer_palette(void)
     return g_pointerPal;
 }
 
+u8 *rt_overlay_begin(void)
+{
+    if (gfx == 0 || gfx->fb == 0) return 0;
+    g_srcValid = 0;             /* the surface's pixels are not in the planes */
+    return gfx->fb;
+}
+
+void rt_overlay_palette(u32 first, u32 count, const u8 *rgb)
+{
+    u32 i;
+
+    if (gfx == 0 || rgb == 0) return;
+    if (first >= 256u) return;
+    if (first + count > 256u) count = 256u - first;
+    for (i = 0; i < count * 3u; i++) gfx->pal[first * 3u + i] = rgb[i];
+}
+
 static void osd_draw_pointer(rt_machine *m)
 {
     (void)m;

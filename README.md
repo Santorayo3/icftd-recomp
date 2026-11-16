@@ -2,8 +2,9 @@
 
 Statically recompiling the 1989 Cinemaware game "It Came from the Desert" from its three original
 Amiga floppy images: the original `dshell` binary (750 functions, 137 KB of 68000 code) is
-translated to C and runs against a portable runtime we write. Target: **Windows (32-bit PE, Open
-Watcom)**; the DOS target stays possible but is not being worked on.
+translated to C and runs against a portable runtime we write. Targets: **Windows (32-bit PE, Open
+Watcom)** and **MS-DOS** (VGA mode 13h, DOS/32A; being brought to full parity with the Windows
+build — see [`docs\dos-parity.md`](docs/dos-parity.md)).
 
 **No game data is in this repository.** The disk images are copyrighted, and so is everything
 decoded from them (`assets/`, `export/`, `re/`, `ref/`); `.gitignore` keeps all of it out of git.
@@ -66,9 +67,9 @@ powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1
 
 # 3. gate: exporter build + oracle build + the two fixture layers (the translation core)
 powershell -ExecutionPolicy Bypass -File tools\gate.ps1
-#    -Full adds the port's own checks (presenter, title, pointer, crosshair, aim, border, loading line,
-#    the Ctrl+W minigame cheat, the hospital escape's camera),
-#    -Only <step> runs one of them while working on that surface
+#    -Full adds the port's own checks (presenter, title menu, settings, quit notice, pointer,
+#    crosshair, aim, border, loading line, the Ctrl+W minigame cheat, the Ctrl+T clock freeze, the
+#    hospital escape's camera, the WASD aliases, the art tables), -Only <step> runs one of them while working on that surface
 ```
 
 ## Running the original (Phase A)
@@ -91,6 +92,46 @@ Flags worth knowing: `--progress` (counters every million steps), `--lvo` (libra
 The translated build takes the same measurement flags, plus `--cover <file>`: one line per function
 that ran (`<entry> <calls>`, and `<pc> <instructions>` for code the core executed), which is how
 "what never ran" is a list instead of a guess (`docs\implementation-survey.md`).
+
+## The Windows release
+
+A release is **the executable plus three empty folders** — no game data is distributed:
+
+```
+ICFTD.EXE       the translated game
+export\         empty: filled on the first start
+disks\          empty: the player's three original Amiga floppy images go here
+saves\          empty: the ten save slots
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\win32-pack.ps1
+#   -> bin\win32\game  (what a release is)
+#   -> bin\win32\icftd-win32.zip
+```
+
+Double-clicking `ICFTD.EXE` plays the game. On the first start `src\runtime\assets.c` extracts the
+files the engine asks for from the player's own disk images in `disks\` and writes them to
+`export\` (`disk1..3` plus `code\dshell4k\dshell.img`, the game program flattened at 0x4000), then
+boots; later starts read `export\` and never look at `disks\` again. Without the three images it
+shows one line and stops:
+
+> Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart.
+
+The extraction is the exporter's formats in C (`src\assetExport\Adf.cs`/`AmigaFs.cs`/`Hunk.cs`
+ported), and it lands on the same bytes `tools\extract.ps1` writes — that identity, not a
+screenshot, is what the feature is checked against (`docs\port-features.md`, "The first start").
+
+**Controls.** The stick is the keyboard: the arrow cluster, or W/A/S/D for the same four
+directions. Space (or the left mouse button) fires, Esc restarts the game, F1–F4 pick a save slot
+and F5 steps to the next one, and the title screen's `1`–`7` and `W`/`C`/`T` start its scenes.
+The title's own menu is clicked with the pointer: New Game, Load Game (the ten save slots), Settings
+(the fullscreen toggle and the two volume rows, which take effect at once and are written back to
+`icftd.ini`) and Quit Game, which shows a ten-second notice naming the successor on a black screen
+before the application closes. Two cheats: left Ctrl+W ends a minigame in that scene's own success
+state, and left Ctrl+T on the situation map freezes the game's clock (`Time frozen`, then
+`Time unfrozen` again), holding it through every screen until the game is restarted or a new game is
+started from the title.
 
 ## The MS-DOS build
 
@@ -117,6 +158,14 @@ open through that map. `ICFTD.CONF` is a DOSBox config for it - start it with
 `dosbox -conf ICFTD.CONF`. Save slots are directories next to the executable (`SAVES\SLOT1..4`),
 holding the engine's `ICFTD` file, exactly as on Windows.
 
+**The mouse works on DOS.** The platform layer reads the DOS driver through INT 33h, so the title
+menu's buttons, the Load Game list and the Settings view are clicked with the pointer, and on the
+situation map the game's own cursor follows it — pushed past the travel window the picture scrolls,
+and the SAVE GAME mark holds the window still while the pointer is over it. The room screens' arrow,
+the menu-line hover, the fight's crosshair and the two minigame aims are installed as well. The
+save-slot picker and the loading line are the remaining DOS items
+([`docs\dos-parity.md`](docs/dos-parity.md)).
+
 **DOSBox settings matter:** `core=dynamic` (the JIT) is roughly ten times faster than `core=normal`,
 and the cycle count is the emulated CPU: `30000` is about a 486DX2-66, `3000` a 386 (the stock
 setting, on which the game crawls) and `max` whatever the host can do. Those are DOSBox's own
@@ -130,7 +179,7 @@ vblank handler running on the 68000 interpreter is the first item). Measured cos
 
 ```
 disks/*.adf            the original floppies (not in git)
-export/disks           extracted filesystems
+export/disk1..disk3    extracted filesystems
 export/code            dshell flattened for Ghidra (base 0) and for the runtime (base 0x4000)
 re/                    Ghidra project, decompiled C, disassembly, exported program model
 ref/fixtures           pinned 68000 harness fixtures (the oracle's test inputs)
@@ -150,11 +199,12 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, map pointer, room pointer, crosshair, border, loading line, pointer aim, minigame cheat, hospital camera), `-Only <step>` runs one |
+| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, title settings, quit notice, map pointer, save picker, room pointer, crosshair, border, loading line, pointer aim, minigame cheat, clock freeze, hospital camera, WASD keys, art tables), `-Only <step>` runs one |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
 | `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
+| `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (ICFTD.EXE + empty `export\`, `disks\`, `saves\`) and zip it |
 | `tools\build-dos.ps1` | build `bin\dos\ICFTD.EXE`: the game for MS-DOS (DOS/32A extender) |
 | `tools\dos-pack.ps1` | stage a runnable DOS release in `bin\dos\game` (8.3 names + `NAMES.TXT`) |
 | `tools\dos-run.ps1` | run the DOS build under DOSBox with a generated config |
@@ -169,16 +219,24 @@ docs/                  architecture, plan, program model
 | `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD`) against `rt_os_call` |
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
+| `tools\mksettingsart.ps1` | PNG → `src\host\settings_art.h`, the minus and plus buttons and the fullscreen toggle the title's settings view draws |
 | `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title) |
+| `tools\settings-check.ps1` | the title's settings menu: the Settings button opens it, the fullscreen toggle and the two volumes change the machine and are written back to icftd.ini, and Back restores the menu |
+| `tools\quit-check.ps1` | Quit Game's farewell: the click replaces the menu with the two requested lines on black, centred, held for ten seconds (500 frames), then the application closes; a measurement run is untouched |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
 | `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |
 | `tools\crosshair-check.ps1` | the giant-ant fight's crosshair: its centre is the point the engine's shot test reads (the aim `−0x1b`/`−0x3a`, the value `FUN_000086A0` stores for `FUN_0000823A`), it follows the stick, and a measurement run draws none |
 | `tools\aim-check.ps1` | the pointer's gun and extinguisher: the aim words are the pointer's point in the fight (`+0x1b/+0x3a`) and inside the fire game's own travel rectangle (`0x28..0x12c × 0xa5..0xf0`, so the mouse stops where the stick stops), the engine's shot/spray lands there, the keyboard still aims, and a measurement run is untouched |
 | `tools\cheat-check.ps1` | the Ctrl+W minigame cheat: each of the title's seven scenes ends in the words its own success path writes (the fight's result, the flight's landing, the fire game's "no fire left", the escape/nest step count, the chicken's swerve, the ant's win), and a run with the seam installed but no key is byte-identical to the plain one before the request |
+| `tools\time-freeze-check.ps1` | the Ctrl+T clock freeze: the engine's date, time, printed hour and pause gate do not move while frozen and do again after the second press, a whole travel adds 27 minutes with the clock running and none while it is held, the real keys do it in the game window, a save that carries the pause word loads running, and a run with no key is the plain run frame for frame |
 | `tools\camera-check.ps1` | the hospital escape's camera: the character's screen position stays at the middle of the window while it walks (the picture follows from one update to the next), and the same script played as a measurement still shows the original's camera |
+| `tools\keys-check.ps1` | the four directions on two keys each: a press of A/S/D/W hands the front end the same `input_state` its arrow does, a direction stays down until both its keys are released, and an arrow press is not the title's W |
 | `tools\mkcrosshair.ps1` | PNG → `src\runtime\amiga\crosshair_art.h`, the aiming aid the fight draws |
 | `tools\mkborder.ps1` | PNG → `src\runtime\plat\win32\border_art.h`, the art the Windows fullscreen paints behind the 4:3 picture |
+| `tools\mkportraitbox.ps1` | PNG → `src\host\portrait_box_art.h`, the box the map's save-slot picker draws |
+| `tools\save-ui-check.ps1` | the map's save-slot picker: a click opens it, the map stays put, Back resumes, and a slot writes the engine's 12 444-byte save |
 | `tools\border-check.ps1` | the fullscreen border: the art table is the PNG byte for byte, `border_paint` is point sampling, and the bars are curtain rather than black |
+| `tools\art-check.ps1` | the shipping invariant: every picture compiled into the executable is what its tracked `assets\*.png` generates, so no game-derived art ships in the binary |
 
 ## Where to start reading
 

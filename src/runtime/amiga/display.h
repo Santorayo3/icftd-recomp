@@ -139,6 +139,15 @@ void rt_pointer_hidden(void);
  * presenter is not running). x/y are the tip, its top left pixel. */
 enum { EMU_PEN_POINTER = 246, EMU_PEN_POINTER_COLOURS = 2 };   /* 246..247: outline, fill */
 void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y);
+
+/* --- other port surfaces ------------------------------------------------------------------- */
+/* A port surface that is neither the OSD nor the pointer (the map's save-slot picker) draws on
+ * top of the composed picture. rt_overlay_begin returns the presented framebuffer and marks the
+ * pictured planes stale, so the next present rebuilds the pixels the surface covers; the caller
+ * then draws with rt_font_text_draw/rt_pointer_draw and installs its own colours with
+ * rt_overlay_palette. Call it from on_present, after the game's frame is composed. */
+u8  *rt_overlay_begin(void);
+void rt_overlay_palette(u32 first, u32 count, const u8 *rgb);
 /* The pointer's two colours (outline, fill), RGB. */
 const u8 *rt_pointer_palette(void);
 

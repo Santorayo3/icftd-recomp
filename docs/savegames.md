@@ -70,7 +70,8 @@ handle the engine has on it.
 | `dos.Open` | honours the mode: `1005` opens for reading, `1006`/`1004` create (`plat_create`) |
 | `dos.Write` (LVO −48) | writes through a real handle and returns the byte count; handle 0 is the console and still echoes to stdout |
 | `DSAVE:` | first-class volume → `<exe dir>\saves\slot<N>\`, both directory levels created on demand (a `Lock` on a missing directory would park the engine in its "insert volume" panel) |
-| slot | `m->saveSlot`, default 1; ten slots in `saves\slot1..10` — **F1..F4 pick 1..4, F5 cycles all ten**, and the title's Load Game lists them for the pointer; no ini entry, `--slot N` overrides for tests |
+| slot | `m->saveSlot`, default 1; ten slots in `saves\slot1..10` — **F1..F4 pick 1..4, F5 cycles all ten**, the title's Load Game and the map's Save Game list them for the pointer; no ini entry, `--slot N` overrides for tests |
+| the map's save picker | `src\host\save_ui.c`: a click on the map's SAVE GAME mark opens the ten slots in `assets\portrait_box.png` (centred, title, 8 px lines, Back); the map's axes and fire are cleared while it is up, so it cannot scroll or pick a destination. Back closes it; a slot sets `m->saveSlot` and runs the engine's own save path, so the write lands in `saves\slot<N>` |
 | feedback | the OSD: "Save Slot - N" in the top left (2 s) on a slot change, the save icon in the top right (2 s) when a save completes. " **(Empty)**" is appended when the slot's directory holds no file yet (`rt_save_slot_empty` → `plat_dir_empty`), and `--slot N` shows the same line at start-up, so a headless `--shot` can check it. The line is drawn **JAM1** (glyph pixels only): JAM2 with pen 0 used to paint a black box around every letter. |
 
 Verified so far (machine state, not pictures):
@@ -120,8 +121,8 @@ write-to-temp-then-rename, `meta.txt`).
 ## Planned, not implemented
 
 Phase 2 leftovers: `.bak` generation, write-to-temp-then-rename, `meta.txt` with the image checksum.
-Phase 4: refuse a save from a different image, an engine-side save screen (the load picker now lives
-on the title).
+Phase 4: refuse a save from a different image. The engine-side save screen now exists as the map's
+slot picker (`src\host\save_ui.c`, `docs\port-features.md`); the load picker lives on the title.
 
 ## Plan
 

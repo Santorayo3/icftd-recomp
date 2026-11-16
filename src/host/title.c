@@ -46,10 +46,17 @@
  *
  * The buttons are wired. New Game starts the intro (fire and 0 do the same), Load Game replaces the
  * buttons with the ten save slots (empty ones grey, a slot with a save white and #00FF00 under the
- * pointer; a click loads that exact slot) and a Back button that restores the menu, Quit Game
- * closes the application, and Settings is drawn but not wired yet. A click is
- * `input_state.mouse_left_pressed`, not the game's /FIRE, so a click that misses a button does
- * nothing at all.
+ * pointer; a click loads that exact slot) and a Back button that restores the menu, Settings
+ * replaces them with the settings view (title_button.c: the fullscreen toggle, the two volumes,
+ * Back), and Quit Game shows a ten-second farewell - the successor's name on a black screen - and
+ * then closes the application. A click is `input_state.mouse_left_pressed`, not the game's /FIRE,
+ * so a click that misses a button does nothing at all.
+ *
+ * The settings view changes the running machine, not just the file: the two volumes are the
+ * mixer's gains (rt_audio_set_gain - the title's own score is what a player hears the step on) and
+ * the toggle switches the window (plat_set_fullscreen), and each one is written back to icftd.ini
+ * (rt_config_save_int) so the next start keeps it. The platform says whether it has a window mode
+ * at all (plat_has_fullscreen), which is why the DOS build shows the two volumes only.
  *
  * The title also answers the engine's YES/NO load screen, which is why that screen never appears
  * in a played game: the decision it asked for was just made here. The screen is FUN_0001029e,
@@ -63,6 +70,7 @@
 
 #include "types.h"
 #include "platform.h"
+#include "config.h"
 #include "machine.h"
 #include "display.h"
 #include "../oracle/cpu.h"
@@ -70,6 +78,7 @@
 #include "title.h"
 #include "title_art.h"
 #include "title_button.h"
+#include "time_freeze.h"
 
 /* Runtime addresses: the image loads at 0x4000, and the model addresses named in the comments are
  * the ones in re\disasm\dshell.asm. */
@@ -184,9 +193,31 @@ static const title_scene g_scenes[] =
 #define TITLE_PICK_INTRO  1
 #define TITLE_PICK_LOAD   2
 #define TITLE_PICK_SCENE  3
-/* --titlekey's values for the menu's New Game and Load Game buttons; past the scenes and endings. */
+/* --titlekey's values for the menu's New Game, Load Game and Settings buttons, past the scenes and
+ * endings - and the menu itself, for a run whose --mouse script does the clicking. */
 #define TITLE_KEY_LOAD     11
 #define TITLE_KEY_NEW_GAME 12
+#define TITLE_KEY_SETTINGS 13
+#define TITLE_KEY_MENU     14
+
+/* Quit Game shows where the successor lives for ten seconds before the application ends, so a
+ * click is not an instant disappearance. The notice is the game's own font on black - port art,
+ * like the menu around it - and the frame is the machine's own 50 Hz. */
+#define TITLE_NOTICE_FRAMES    500
+#define TITLE_NOTICE_LINE_STEP 14
+
+static const char *const g_titleNotice[] =
+{
+    "Check out my spiritual successor \"It Returned to the Desert\"",
+    "Available on Steam and itch.io"
+};
+
+#define TITLE_NOTICE_LINES ((int)(sizeof g_titleNotice / sizeof g_titleNotice[0]))
+
+/* A scripted run's menu and settings view are clicked through by its own --mouse script (Back, or
+ * Quit Game); this is how long one may stay up before the run gives up on it, so a script that
+ * misses cannot hold a check for ever. */
+#define TITLE_SCRIPT_FRAMES 600
 
 /* A scene is entered as the two calls the dispatcher makes (free the score, then enter), and the
  * title comes back after each one: an injected call returns to the pc it was made from, so every
@@ -206,6 +237,7 @@ static int g_state = TITLE_OFF;
 static int g_pick;                       /* scene index for TITLE_LAUNCH */
 static int g_virtualKey = -1;            /* --titlekey: the choice to take, once; -1 = none */
 static int g_scripted;                   /* --titlekey was given: the title ends after that */
+static int g_scriptMenu;                 /* --titlekey 14: the run's --mouse script owns the menu */
 static int g_ticks;                      /* menu frames run since the title came up */
 static u32 g_popOnReturn;                /* argument bytes the injected call's caller would pop */
 static int g_clockVbi;                   /* the world loop's clock VBI is installed (once) */
@@ -224,6 +256,7 @@ void host_title_arm(int on)
     g_playMode = on;                     /* Esc restarts a played game, never a measurement */
     g_wantLoad = 0;
     g_fromMenu = 0;
+    g_scriptMenu = 0;
     /* The intro's setup is reached inside a translated function (the mode dispatcher runs it as a
      * block), so there is no call boundary to catch: ask the dispatch to hand the program back
      * before that instruction runs. Cleared again as soon as the title is done with it. */
@@ -288,8 +321,10 @@ static void title_tick(rt_machine *m)
     oracle_tick(m);                      /* vblank, interrupt servers, one frame */
 }
 
-/* The art, then either the four buttons or the load game view (slots != 0). */
-static void title_draw(rt_machine *m, const title_menu *menu, const title_slots *slots)
+/* The art, then either the four buttons, the load game view (slots != 0) or the settings view
+ * (settings != 0). */
+static void title_draw(rt_machine *m, const title_menu *menu, const title_slots *slots,
+                       const title_settings *settings)
 {
     u8 *dst;
     u32 stride = plat_set_framebuffer_size(SCREEN_W, SCREEN_H);
@@ -304,6 +339,9 @@ static void title_draw(rt_machine *m, const title_menu *menu, const title_slots 
     /* The menu's pens sit past the picture's own 69 entries, so the art keeps its colours. */
     plat_set_palette(TITLE_BUTTON_PEN_SLOT_EMPTY,
                      TITLE_BUTTON_PEN_COUNT - TITLE_BUTTON_PEN_SLOT_EMPTY, title_menu_palette());
+    /* The settings controls' own colours, below the pens the presenter and the OSD own. */
+    plat_set_palette(TITLE_SETTINGS_PEN_FIRST, TITLE_SETTINGS_PEN_COUNT - TITLE_SETTINGS_PEN_FIRST,
+                     title_settings_palette());
     /* The pointer is the game's own arrow, with the two pens the runtime overlay uses. */
     plat_set_palette(EMU_PEN_POINTER, EMU_PEN_POINTER_COLOURS, rt_pointer_palette());
     for (y = 0; y < TITLE_H && y < SCREEN_H; y++)
@@ -313,8 +351,63 @@ static void title_draw(rt_machine *m, const title_menu *menu, const title_slots 
         for (; x < SCREEN_W; x++) dst[(u32)y * stride + (u32)x] = 0;
     }
     for (; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
-    if (slots != 0) title_slots_draw(m, slots, dst, stride, SCREEN_W, SCREEN_H);
+    if (settings != 0) title_settings_draw(m, settings, dst, stride, SCREEN_W, SCREEN_H);
+    else if (slots != 0) title_slots_draw(m, slots, dst, stride, SCREEN_W, SCREEN_H);
     else title_menu_draw(m, menu, dst, stride, SCREEN_W, SCREEN_H);
+}
+
+/* Quit Game's farewell: a black screen with the successor's name, drawn in the game's own disk
+ * font and centred on the picture. It is the port's own screen, so it is drawn straight into the
+ * platform framebuffer and costs the machine nothing. */
+static void title_notice_draw(rt_machine *m)
+{
+    static const u8 black[3] = { 0, 0, 0 };
+    static const u8 white[3] = { 255, 255, 255 };
+    u32 stride = plat_set_framebuffer_size(SCREEN_W, SCREEN_H);
+    u8 *dst = plat_framebuffer();
+    int height = rt_font_height(m);
+    int block = height + TITLE_NOTICE_LINE_STEP * (TITLE_NOTICE_LINES - 1);
+    int top = (SCREEN_H - block) / 2;
+    int x, y, i;
+
+    if (stride == 0) stride = SCREEN_W;
+    if (dst == 0) return;
+    plat_set_palette(0, 1, black);
+    plat_set_palette(TITLE_BUTTON_PEN_TEXT, 1, white);
+    for (y = 0; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
+    for (i = 0; i < TITLE_NOTICE_LINES; i++)
+    {
+        s32 w = rt_font_text_width(m, g_titleNotice[i]);
+
+        x = (SCREEN_W - (int)w) / 2;
+        rt_font_text_draw(m, dst, stride, SCREEN_W, SCREEN_H, x,
+                          top + i * TITLE_NOTICE_LINE_STEP, g_titleNotice[i],
+                          TITLE_BUTTON_PEN_TEXT);
+    }
+}
+
+/* Holds the notice for TITLE_NOTICE_FRAMES frames - the score keeps playing and a closed window
+ * still ends the run - then lets the title return its quit. */
+static void title_quit_notice(rt_machine *m)
+{
+    input_state in;
+    long start = (long)m->frame;
+    int i;
+
+    printf("title: quit game: showing the notice for %d frame(s) (frame %lu)\n",
+           TITLE_NOTICE_FRAMES, (unsigned long)m->frame);
+    for (i = 0; i < TITLE_NOTICE_LINES; i++)
+        printf("title: quit game: line %d: %s\n", i + 1, g_titleNotice[i]);
+    for (i = 0; i < TITLE_NOTICE_FRAMES; i++)
+    {
+        if (!plat_pump(&in)) break;              /* the window was closed */
+        title_notice_draw(m);
+        plat_present();
+        title_tick(m);
+        plat_frame_sync();
+    }
+    printf("title: quit game: closing after %ld frame(s) (frame %lu)\n",
+           (long)m->frame - start, (unsigned long)m->frame);
 }
 
 /* The debug keys, on the console: the four menu entries are drawn on the title itself, but the
@@ -329,6 +422,63 @@ static void title_keys(void)
     printf("\n");
 }
 
+/* Opens the settings view on the settings the game was started with (the ini, the machine's own
+ * values where the file has no entry). */
+static void title_settings_open(rt_machine *m, title_settings *settings)
+{
+    title_settings_init(settings, m, (int)plat_has_fullscreen());
+    printf("title: settings: music %d/10, sound %d/10, %s (frame %lu)\n",
+           settings->music, settings->sound,
+           settings->fullscreen_on ? (settings->fullscreen ? "fullscreen on" : "fullscreen off")
+                                   : "no window mode",
+           (unsigned long)m->frame);
+}
+
+/* One volume step. The gain is the mixer's, so it is what the title's own score is played with the
+ * moment it changes; the ini keeps the choice for the next start. */
+static void title_settings_volume(rt_machine *m, title_settings *settings, int music, int delta)
+{
+    int v = (music ? settings->music : settings->sound) + delta;
+
+    if (v < 0) v = 0;
+    if (v > 10) v = 10;
+    if (music) settings->music = v;
+    else settings->sound = v;
+    rt_audio_set_gain(m, settings->sound, settings->music);
+    rt_config_save_int("AUDIO", music ? "music" : "sound", v);
+    printf("title: %s volume %d/10 (%d%% gain, frame %lu)\n", music ? "music" : "sound", v,
+           music ? m->audio.musicGain : m->audio.soundGain, (unsigned long)m->frame);
+}
+
+/* A click in the settings view. Returns 1 while the view stays up, 0 when Back closed it. */
+static int title_settings_click(rt_machine *m, title_settings *settings)
+{
+    if (settings->hover == TITLE_SETTING_NONE)
+    {
+        if (!settings->back_hover) return 1;          /* a click that missed every control */
+        printf("title: back to the main menu (frame %lu)\n", (unsigned long)m->frame);
+        return 0;
+    }
+    switch (settings->hover)
+    {
+    case TITLE_SETTING_FULLSCREEN:
+        /* The window mode is the platform's, so it changes there and then - not on the next
+         * start - and the ini records it for that next start. */
+        settings->fullscreen = !settings->fullscreen;
+        plat_set_fullscreen((u32)settings->fullscreen);
+        rt_config_save_int("VIDEO", "fullscreen", settings->fullscreen);
+        printf("title: fullscreen %s (frame %lu)\n", settings->fullscreen ? "on" : "off",
+               (unsigned long)m->frame);
+        break;
+    case TITLE_SETTING_MUSIC_DOWN: title_settings_volume(m, settings, 1, -1); break;
+    case TITLE_SETTING_MUSIC_UP:   title_settings_volume(m, settings, 1, +1); break;
+    case TITLE_SETTING_SOUND_DOWN: title_settings_volume(m, settings, 0, -1); break;
+    case TITLE_SETTING_SOUND_UP:   title_settings_volume(m, settings, 0, +1); break;
+    default: break;
+    }
+    return 1;
+}
+
 /* Shows the art until the player starts something. The keys are read as *presses*, not as held
  * state: the button that ended a scene is usually still down when the title comes back, and it must
  * not start the next thing on its own. */
@@ -337,34 +487,62 @@ static int title_play(rt_machine *m)
     input_state in;
     title_menu menu;
     title_slots slots;
+    title_settings settings;
     void (*savedFrame)(rt_machine *) = m->on_frame;
     void (*savedPresent)(rt_machine *) = m->on_present;
     int pick = -1;
     int showSlots = 0;
-
-    if (g_scripted && g_virtualKey < 0) return TITLE_PICK_QUIT;   /* the choice was taken already */
+    int showSettings = 0;
+    int quitNotice = 0;                  /* the pick was a click on Quit Game */
+    long scriptFrames = 0;
 
     title_menu_init(&menu);
     title_slots_init(&slots);
+    title_settings_init(&settings, m, (int)plat_has_fullscreen());
     m->on_frame = 0;                     /* the title owns the keyboard ... */
     m->on_present = 0;                   /* ... and the screen */
     while (pick < 0)
     {
         int i;
 
+        /* A scripted run has no keyboard: it ends once the choice it was given has been taken,
+         * unless a screen it can only click through is up (--titlekey 13's settings view, or the
+         * menu itself with 14). */
+        if (g_scripted && !g_scriptMenu && g_virtualKey < 0 && !showSettings)
+        {
+            pick = TITLE_PICK_QUIT;
+            break;
+        }
+        /* ... and a screen nothing clicks out of must not hold a run for ever. */
+        if (g_scripted && (showSettings || g_scriptMenu) && ++scriptFrames > TITLE_SCRIPT_FRAMES)
+        {
+            printf("title: the script left the menu open (frame %lu)\n", (unsigned long)m->frame);
+            pick = TITLE_PICK_QUIT;
+            break;
+        }
         if (!plat_pump(&in)) { pick = TITLE_PICK_QUIT; break; }        /* the window was closed */
-        if (showSlots)
+        host_title_pointer(m, &in);      /* --mouse: the pointer a headless run feeds */
+        if (showSettings)
+        {
+            title_settings_pointer(&settings, in.mouse_present, in.mouse_x, in.mouse_y);
+            title_draw(m, &menu, 0, &settings);  /* the still, the controls and the Back button */
+        }
+        else if (showSlots)
         {
             title_slots_pointer(&slots, in.mouse_present, in.mouse_x, in.mouse_y);
-            title_draw(m, &menu, &slots);    /* the still, the slots and the Back button */
+            title_draw(m, &menu, &slots, 0);     /* the still, the slots and the Back button */
         }
         else
         {
             title_menu_pointer(&menu, in.mouse_present, in.mouse_x, in.mouse_y);
-            title_draw(m, &menu, 0);         /* the still, the pointer, and the button it is over */
+            title_draw(m, &menu, 0, 0);          /* the still, the pointer, and the button it is over */
         }
         plat_present();
-        if (showSlots)
+        if (showSettings)
+        {
+            if (in.mouse_left_pressed && !title_settings_click(m, &settings)) showSettings = 0;
+        }
+        else if (showSlots)
         {
             /* Load Game's view: an empty slot is inert, a slot with a save loads itself, and Back
              * puts the four buttons back. Fire and the scene keys belong to the main menu only. */
@@ -403,8 +581,18 @@ static int title_play(rt_machine *m)
                     printf("title: load game: %d save slot(s) (frame %lu)\n", TITLE_SLOT_COUNT,
                            (unsigned long)m->frame);
                 }
-                else if (b->action == TITLE_ACTION_QUIT) pick = TITLE_PICK_QUIT;
-                /* TITLE_ACTION_NONE (Settings) is drawn and does nothing yet. */
+                else if (b->action == TITLE_ACTION_SETTINGS)
+                {
+                    /* The four buttons go; the options and Back take their place. */
+                    title_settings_open(m, &settings);
+                    showSettings = 1;
+                    menu.hover = -1;
+                }
+                else if (b->action == TITLE_ACTION_QUIT)
+                {
+                    pick = TITLE_PICK_QUIT;
+                    quitNotice = 1;
+                }
                 if (pick >= 0) g_fromMenu = 1;
             }
             if (pick < 0 && (in.pressed[KEY_FIRE] || in.pressed[KEY_0])) /* fire and 0 are New Game */
@@ -432,10 +620,26 @@ static int title_play(rt_machine *m)
                     pick = k == TITLE_KEY_LOAD ? TITLE_PICK_LOAD : TITLE_PICK_INTRO;
                     g_fromMenu = 1;
                 }
+                else if (k == TITLE_KEY_SETTINGS)
+                {
+                    /* The Settings button, for a scripted run: the view opens and the script's
+                     * pointer (--mouse) does the clicking, Back ends it. */
+                    title_settings_open(m, &settings);
+                    showSettings = 1;
+                }
+                else if (k == TITLE_KEY_MENU)
+                {
+                    /* The menu itself: the run's --mouse script clicks the buttons. */
+                    g_scriptMenu = 1;
+                }
                 else pick = TITLE_PICK_QUIT;    /* no such key: a scripted run must not wait for one */
             }
         }
-        if (pick >= 0) break;
+        if (pick >= 0)
+        {
+            if (quitNotice) title_quit_notice(m);
+            break;
+        }
         title_tick(m);
         g_ticks++;                       /* a real key press always lands after one menu frame, and
                                           * the first tick is where the score's CIA handler runs */
@@ -480,6 +684,9 @@ int host_title_check(rt_machine *m, u32 pc)
         r[REGS_PC] = TITLE_LOAD_ANSWER;
         oracle_regs_set(r);
         host_regs_sync(m);
+        /* The save is about to be read back into the image; its pause word is the port's, not the
+         * engine's, so the frames after this boundary clear it (src\host\time_freeze.c). */
+        if (g_wantLoad) host_time_freeze_loaded();
         host_loading_hold(m);       /* the intro is over: the game starts building now */
         printf("title: %s (frame %lu)\n",
                g_wantLoad ? "loading the selected save slot" : "a new game, nothing to load",
@@ -592,6 +799,9 @@ int host_title_check(rt_machine *m, u32 pc)
         }
         if (pick == TITLE_PICK_INTRO || pick == TITLE_PICK_LOAD)
         {
+            /* A new game or a loaded one replaces the clock the freeze was holding: it starts
+             * running from the date and time the game (or the save) has. */
+            host_time_freeze_reset();
             title_call(m, TITLE_UNLOAD_PC, pc, 0, 0, 0);  /* the engine gets the score back */
             if (pick == TITLE_PICK_INTRO)
                 printf("title: starting the game (frame %lu)\n", (unsigned long)m->frame);

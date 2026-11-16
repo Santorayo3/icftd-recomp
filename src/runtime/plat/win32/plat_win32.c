@@ -15,6 +15,7 @@
 /* waveOut lives in winmm; Watcom links a library through this pragma (the build scripts list no
  * libraries). */
 #pragma library("winmm")
+#pragma library("user32")
 
 static HWND          g_hwnd;
 static HDC           g_memdc;
@@ -32,6 +33,7 @@ static u32           g_start_ms;
 static u32           g_frame_ms = 20;    /* 50 Hz, the Amiga frame rate */
 static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
+static u8            g_dirHeld[4];        /* per direction: bit 0 the arrow key, bit 1 W/A/S/D */
 static s16           g_mouse_x, g_mouse_y;
 static u8            g_mouse_buttons;
 static u32           g_mouse_motion;      /* WM_MOUSEMOVE messages seen, for "did it move" */
@@ -104,6 +106,18 @@ static void cursor_capture(int on)
     }
 }
 
+/* The arrow cluster and W/A/S/D are the same four directions, so one direction can be held by two
+ * physical keys at once: the logical key stays down until the last of them is released, and a
+ * release of one must not report a release of the direction. */
+static void dir_key(int dir, int wasd, int down)
+{
+    u8 bit = (u8)(wasd ? 2 : 1);
+
+    if (down) g_dirHeld[dir] |= bit;
+    else      g_dirHeld[dir] &= (u8)~bit;
+    g_keys[KEY_UP + dir] = (u8)(g_dirHeld[dir] != 0);
+}
+
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -120,9 +134,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_KILLFOCUS:
         cursor_capture(0);
-        /* A key-up that lands in another window must not leave Ctrl held: a later W press would
-         * otherwise be the cheat chord (src\host\cheat.c). */
-        g_keys[KEY_CTRL] = 0;
+        /* A key-up that lands in another window never arrives here, so nothing may stay held: a
+         * later W press would otherwise still be the cheat chord (src\host\cheat.c), and a
+         * direction would stay down with no key to release it. */
+        memset(g_keys, 0, sizeof g_keys);
+        memset(g_dirHeld, 0, sizeof g_dirHeld);
         return 0;
     case WM_MOUSEMOVE:
         g_mouse_x = (s16)LOWORD(lp);
@@ -135,10 +151,14 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_RBUTTONUP:   g_mouse_buttons &= (u8)~2; return 0;
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 1;
-        if (wp == VK_UP)     g_keys[KEY_UP] = 1;
-        if (wp == VK_DOWN)   g_keys[KEY_DOWN] = 1;
-        if (wp == VK_LEFT)   g_keys[KEY_LEFT] = 1;
-        if (wp == VK_RIGHT)  g_keys[KEY_RIGHT] = 1;
+        if (wp == VK_UP)     dir_key(0, 0, 1);
+        if (wp == VK_DOWN)   dir_key(1, 0, 1);
+        if (wp == VK_LEFT)   dir_key(2, 0, 1);
+        if (wp == VK_RIGHT)  dir_key(3, 0, 1);
+        if (wp == 'W')       dir_key(0, 1, 1);
+        if (wp == 'S')       dir_key(1, 1, 1);
+        if (wp == 'A')       dir_key(2, 1, 1);
+        if (wp == 'D')       dir_key(3, 1, 1);
         if (wp == VK_RETURN) g_keys[KEY_ENTER] = 1;
         if (wp == VK_SPACE)  g_keys[KEY_FIRE] = 1;
         if (wp == VK_F1)     g_keys[KEY_F1] = 1;
@@ -156,10 +176,14 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
-        if (wp == VK_UP)     g_keys[KEY_UP] = 0;
-        if (wp == VK_DOWN)   g_keys[KEY_DOWN] = 0;
-        if (wp == VK_LEFT)   g_keys[KEY_LEFT] = 0;
-        if (wp == VK_RIGHT)  g_keys[KEY_RIGHT] = 0;
+        if (wp == VK_UP)     dir_key(0, 0, 0);
+        if (wp == VK_DOWN)   dir_key(1, 0, 0);
+        if (wp == VK_LEFT)   dir_key(2, 0, 0);
+        if (wp == VK_RIGHT)  dir_key(3, 0, 0);
+        if (wp == 'W')       dir_key(0, 1, 0);
+        if (wp == 'S')       dir_key(1, 1, 0);
+        if (wp == 'A')       dir_key(2, 1, 0);
+        if (wp == 'D')       dir_key(3, 1, 0);
         if (wp == VK_RETURN) g_keys[KEY_ENTER] = 0;
         if (wp == VK_SPACE)  g_keys[KEY_FIRE] = 0;
         if (wp == VK_F1)     g_keys[KEY_F1] = 0;
@@ -291,9 +315,55 @@ u32 plat_init(const char *title)
     return 1;
 }
 
+/* Puts the window into the mode g_fullscreen names. make_window applies it while it creates the
+ * window; this is the same change on a window that already exists, which is what the title's
+ * settings menu needs: the toggle has to take effect at once, not on the next start.
+ *
+ * The style a SetWindowLong installs must carry WS_VISIBLE: the visible bit belongs to the style, so
+ * a style without it hides the very window the game keeps drawing into - a player sees the picture
+ * vanish and, on the taskbar, a game that "closed". SWP_SHOWWINDOW states it again, and the frame is
+ * composed once here so the new client rectangle never shows what the old mode left in it. */
+static void apply_window_mode(void)
+{
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+    if (g_hwnd == 0) return;
+    if (g_fullscreen) {
+        SetWindowLong(g_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_TOP, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+                     GetSystemMetrics(SM_CYSCREEN), SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        SetForegroundWindow(g_hwnd);
+    } else {
+        RECT r;
+        int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+
+        style |= WS_VISIBLE;
+        r.left = 0; r.top = 0;
+        r.right = g_fb_w; r.bottom = g_fb_h;
+        SetWindowLong(g_hwnd, GWL_STYLE, style);
+        AdjustWindowRect(&r, style, FALSE);
+        SetWindowPos(g_hwnd, HWND_TOP, (sw - (r.right - r.left)) / 2, (sh - (r.bottom - r.top)) / 2,
+                     r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+    /* The picture's rectangle and the pointer's clip both depend on the mode. In windowed mode the
+     * client is the picture 1:1 again, so nothing has to be mapped. */
+    g_pic_w = g_pic_h = 0;
+    plat_present();                      /* this frame, in the new mode, at once */
+    cursor_clip();
+}
+
 void plat_set_fullscreen(u32 on)
 {
-    g_fullscreen = on ? 1u : 0u;
+    u32 want = on ? 1u : 0u;
+
+    if (want == g_fullscreen) return;
+    g_fullscreen = want;
+    apply_window_mode();
+}
+
+u32 plat_has_fullscreen(void)
+{
+    return 1;                                    /* the windowed build has a mode to choose */
 }
 
 /* GetModuleFileName knows the executable's path, so the argument is not needed here. */
@@ -865,6 +935,34 @@ u32 plat_dir_empty(const char *path)
     } while (FindNextFileA(h, &fd));
     FindClose(h);
     return 1;
+}
+
+/* Every file directly in dir, for the first-start extraction's search for the floppy images. */
+u32 plat_dir_files(const char *dir, plat_dir_visit visit, void *ctx)
+{
+    char pattern[288];
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+    u32 n = 0;
+
+    if (!dir || !*dir || !visit) return 0;
+    if (strlen(dir) + 3 >= sizeof pattern) return 0;
+    sprintf(pattern, "%s\\*", dir);
+    h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        visit(fd.cFileName, (u32)fd.nFileSizeLow, ctx);
+        n++;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return n;
+}
+
+void plat_message(const char *title, const char *text)
+{
+    if (!text) return;
+    MessageBoxA(0, text, title ? title : "", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
 }
 
 s32 plat_spawn(const char *exe, const char *args)

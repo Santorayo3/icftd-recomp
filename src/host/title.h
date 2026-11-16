@@ -3,6 +3,7 @@
 #define ICFTD_HOST_TITLE_H
 
 #include "machine.h"
+#include "platform.h"
 
 /* Arm the title for a played game (call it when the front end is about to run the game for a
  * player). It engages itself the first time the program is about to play its intro; measurement
@@ -11,7 +12,9 @@ void host_title_arm(int on);
 
 /* --titlekey <n>: take one menu choice as soon as the title is up, so a scripted run can start a
  * scene from the title (the same class of dev seam as --call). 0 = the intro, 1..7 = a scene,
- * 8..10 = the endings (win, nest collapse, deadline), -1 (the default) = no choice. */
+ * 8..10 = the endings (win, nest collapse, deadline), 11/12 = the Load Game and New Game buttons,
+ * 13 = the Settings button, 14 = the menu itself for a --mouse script to click, -1 (the default) =
+ * no choice. */
 void host_title_key(int n);
 
 /* Esc in a played game. The front end's input layer calls this at a frame boundary; it asks the
@@ -34,6 +37,12 @@ void host_regs_sync(rt_machine *m);
  * parser takes seconds before any of the loader code runs. Defined by each front end; the DOS
  * front end has no per-screen seam and does nothing. */
 void host_loading_hold(rt_machine *m);
+
+/* The title menu is a host screen with its own loop, so the front end's frame hooks - the ones that
+ * feed a scripted pointer - do not run while it is up. This overlays those positions on `in`, and
+ * answers 1 when it owns the pointer this frame. Defined by each front end: the Windows one feeds
+ * its --mouse script, the DOS one (no pointer at all) has nothing to say. */
+int host_title_pointer(rt_machine *m, input_state *in);
 
 /* Call from the main loop before executing `pc`. Returns 1 when the title did something and the
  * loop must re-read the PC (a call was injected, or the PC was left where it was). */

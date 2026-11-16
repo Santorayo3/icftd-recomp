@@ -2,6 +2,7 @@
 
 A *port feature* is code the original game does not have: save slots, the OSD, the title screen,
 the situation map's mouse cursor (and the room screens' pointer), the Ctrl+W minigame cheat, the
+Ctrl+T clock freeze, the
 window/present backend, host input plumbing, our own tooling. There is nothing to diff it against, so RULE 0
 (`.github/copilot-instructions.md`) cannot decide it —
 but RULE 0 still governs everything the original *does* have, and a port feature may not disturb it.
@@ -14,7 +15,7 @@ Everything below is measured, not remembered, unless it says otherwise.
 
 | point | where | use it when |
 |---|---|---|
-| **Platform input** | `input_state` (`src\runtime\platform.h`), filled by `plat_win32.c` (and left `0` — pointer and buttons — in `plat_dos.c`) | the feature is an input the game never had: a pointer, a button, a key. Add the field to the struct, set it in the platform layer, and let the front end read it. Never read the OS inside game-side code. |
+| **Platform input** | `input_state` (`src\runtime\platform.h`), filled by `plat_win32.c` and `plat_dos.c` (the DOS layer reads the mouse through INT 33h) | the feature is an input the game never had: a pointer, a button, a key. Add the field to the struct, set it in the platform layer, and let the front end read it. Never read the OS inside game-side code. |
 | **Frame boundary** | `rt_machine::on_frame` (`src\runtime\amiga\machine.h`), installed by the front end (`m.on_frame = host_input`) | the work is once per emulated frame and does not care *which* game function is running: sampling the pointer, overlaying the OSD, pacing. |
 | **Per-screen code** | `rc_entryHook` (`src\recomp\cpu.c`, null by default in `src\recomp\hooks.c`) | the work has to happen at a known point *inside* the game's own code — one per update of a script, one per scene loop — and the frame boundary is too coarse. The map's cursor (`host_entry` in `src\host\main.c`) and the room screens' pointer/hover (`line_record`, `menu_flip` there) are the worked examples. |
 | **Engine service** | `rt_os_call` shims (`src\runtime\amiga\machine.c`) | the engine already makes the library call and the runtime answers it: fix or extend the shim. Never special-case the engine's callers — the call census (`--lvo`) is the checklist. |
@@ -171,6 +172,10 @@ four lines at y 144..172 (baseline 150, 7 pixels apart); the menu's own default 
 pointer never reaches a line is byte-identical to the plain run; a hover run first differs at frame
 974, the first pass after the pointer moved (970).
 
+The DOS front end installs the same three seams (`line_record`, `menu_flip` and `g_roomFrame` in
+`src\host\dos_main.c`, with `--hoverlog` printing the same lines). It has no DOS measurement yet:
+reaching that room headlessly needs the recording the Windows check uses.
+
 ## The giant-ant fight's crosshair
 
 In the ant-invasion chapter's fight (`FUN_00007934`) the player aims a pistol with the stick and
@@ -208,8 +213,10 @@ crosshair and agrees with the armed run on all 3391 frame records.
 The fight itself had never been entered before this feature; it is now a scene preset, and its
 parity was measured the usual way: 4028 frame records identical to the oracle (registers, SR, PC,
 custom chips), RAM byte-identical at frames 1900/2100/2300/2500 (frame 1750 differs in two dead
-stack bytes at `0x17FCBC`, the known artifact). The DOS build installs no per-screen hook for the
-crosshair, so it is inert there — the same gap the pointer has.
+stack bytes at `0x17FCBC`, the known artifact). The DOS front end installs the same
+`crosshair_present` seam at its frame boundary (`src\host\dos_main.c`); it has no DOS measurement
+yet — reaching the fight headlessly there needs the preset's pokes, which the DOS front end does
+not carry.
 
 ## The gun and the extinguisher, moved with the pointer
 
@@ -251,8 +258,9 @@ Measured with `tools\aim-check.ps1` (the fight's preset as above; the fire game 
 | fight | `150,80` → `177,138`; `200,120` → `227,178` | the shot stored is `200,120` | stick moves it to `212,120` | a stale pointer leaves all 3 392 frame records unchanged; the pointer run first differs at 2001 (moved at 2000) |
 | fire game | `100,50` → `121,183`; `200,100` → `203,202`; corners → `40,165` / `300,240` | the spray stored is `203,202` | stick moves it to `188,180` | a stale pointer leaves all 2 280 frame records unchanged; the pointer run first differs at 1963 (moved at 1960) |
 
-The DOS build installs no per-screen hook for either aim, so both are inert there — the same gap
-the pointer and the crosshair have.
+The DOS front end installs the same two aim seams (`aim_shot`, `aim_spray` in
+`src\host\dos_main.c`) and the same ownership rule; like the crosshair they have no DOS measurement
+yet, because the scenes are reached with the Windows-only `--poke`/recording presets.
 
 ## The Ctrl+W minigame cheat
 
@@ -292,8 +300,8 @@ Attachment points, in the table's order:
   Ctrl is held, so the chord does not take that menu entry on the way in.
 * `--cheat <frame>` is the scripted form (a test seam like `--esc`): it feeds the same
   `input_state` the platform reports, so a test run exercises the one test that decides the chord.
-* The DOS front end installs the same hook for this feature alone; the pointer, crosshair and
-  loading seams stay Windows-only.
+* The DOS front end installs the same hook, now shared with the pointer, crosshair and aim seams;
+  only the loading line has no DOS seam yet.
 
 Measured with `tools\cheat-check.ps1` (it is gate step 13): each scene is started from the title
 (`--titlekey 1..7`), the request is raised at frame 600, and the run's final RAM holds the words
@@ -302,6 +310,63 @@ win narration waits for /FIRE and the flight continues into the nest, so those t
 budget). The fight's documented preset, run with the seam installed but no request, is
 byte-identical to the plain run on every frame record before frame 2500, and a plain measurement
 run ends no scene.
+
+## The map's Ctrl+T clock freeze
+
+The original has no such key, so this is a port feature: there is no path to diff against. It is
+also not a new clock — the engine's own clock pause is held, which is why nothing about the game's
+date, time, shop hours or day/night has to be re-implemented.
+
+The engine's clock is one routine, `FUN_00005406`. The clock VBI `FUN_000054cc` (installed once by
+`FUN_0000551c`) counts `0x50` vblanks in `DAT_0002687e`/`DAT_00026880` and calls it, and it counts
+the minute `DAT_00021e24` up, cascading at 59 into the hour `DAT_00021e22` (running the hourly code),
+at midnight into the day `DAT_00021e1e` (the daily code) and keeping the hour the map prints —
+`DAT_00026870` and its `"AM"`/`"PM"` string `DAT_00026872` — in step. Two places add time directly,
+before calling the same routine: travelling on the map (`FUN_00003b1e` at `0x3208`, the
+destination's minutes plus the current minute word) and sleeping (`FUN_0000579c` at `0x4204`).
+
+| what | where |
+|---|---|
+| the pause gate | `DAT_00021e26`, tested by `FUN_00005406` at `0x4006` — it is 1 while the engine stops the clock for a narration page or a pause loop, and the routine then returns without touching anything |
+| the frozen words | `DAT_00021e24` (minute), `DAT_00021e22` (hour), `DAT_00021e1e` (day), `DAT_00026870`/`0x26872` (the printed hour and AM/PM) |
+| the key | left Ctrl + T, on the situation map, through the platform's own `input_state` (`KEY_CTRL` + a `KEY_T` press, either order) |
+| the seams | platform input (`host_input` in `src\host\main.c`, `dos_input` in `dos_main.c`) and the frame boundary (`host_frame`/`dos_frame`, before the vblank whose interrupt servers tick the clock) |
+
+While frozen, the frame boundary writes `DAT_00021e26 = 1` and puts the five words back if they
+moved — the gate stops the VBI's tick and its hourly/midnight code exactly as during a narration,
+and putting the words back is what undoes the two direct adds of travel and sleep (they would
+otherwise surface, all at once, on the first tick after unfreezing). Words are only written when
+they differ, so a frozen game whose clock would not have moved is not touched. Unfreezing clears
+the gate. The state is the host's (`s_frozen`), so it survives every screen — a location, the
+phone, a minigame — and ends where a game ends: the Escape restart, or a new game / a load from
+the title, both of which replace the date and time. The feedback is the runtime's OSD line,
+`Time frozen` / `Time unfrozen`.
+
+One consequence of using the engine's own word: the save is a raw image of `0x021E18..0x021E90` and
+`0x02686C..0x029890` (`docs\savegames.md`), and the first range holds the gate — so a game saved
+while the clock was frozen carries it. It is the port's pause, not the game's, so the frames after
+the title answers the engine's load screen with "yes" clear it (`host_time_freeze_loaded`, from
+`host_title_check`; the loader is two synchronous reads, no vblank inside). A game saved while
+frozen therefore loads *running*: the freeze is a session setting, like the window size.
+
+`--timefreeze <frame>[,<frame>...]` is the scripted form (a test seam like `--cheat`): it raises the
+same `input_state` the platform reports for the chord at each of those frame boundaries, so two
+frames freeze and unfreeze again.
+
+Measured with `tools\time-freeze-check.ps1` (gate step 20). The map is reached without a save and
+without a recording — the world loop's entry `FUN_000043b8` is injected behind the clock VBI's
+installer (`--call 0x951C:300:0x200:0x83B8`), so the run has a live map and a live clock:
+
+| claim | measurement |
+|---|---|
+| frozen, the clock does not move | the five words at frames 400, 600 and 900 are identical (`day 14, 9:00`, printed hour 0) and the gate is 1 |
+| unfrozen, it moves again | frozen at 400 and unfrozen at 700: the words still agree at 600, the minute is 2 by frame 900 and the gate is 0 |
+| a travel adds no time | the same pointer-driven travel (cursor over a destination, then a click) ends at location 24 both times; with the clock running it moves it 27 minutes (`9:01` → `9:28`), frozen it moves it 0 (`9:00` → `9:00`) |
+| a measurement is not disturbed | every frame record up to and including the freeze frame is identical to the plain run, and a run with no key never writes the gate |
+| a save loads running | a save on disk copied into slot 10 with `DAT_00021e26 = 1` (a save made while frozen) loads at 9:12 and runs to 9:20 with the gate back at 0 |
+
+The DOS front end installs the same seams (its own map-script test is `host_time_freeze_map_pc`),
+so the chord works there too.
 
 ## The hospital escape's camera
 
@@ -416,6 +481,101 @@ holds 9 760 px of grey and 3 927 px of white with the pointer off the slots, and
 `(0,255,0)` with the pointer on Slot 3. `--titlekey 11` still loads the active slot directly, so the
 scripted title check is unaffected.
 
+## The title's settings menu
+
+Settings is not a placeholder any more: a click replaces the four buttons with the settings view, and
+Back puts them back. Three options, one row each — the label in the game's own disk font, the control
+under it (the column is 73 px wide and "Music Vol." plus "[-] 10 [+]" needs 102, so the row's label
+is on its own line while minus/value/plus stay on one):
+
+| row | control | what a click does |
+|---|---|---|
+| Fullscreen | the toggle, `assets\toggle_off.png` / `toggle_on.png`, with its state spelled out ("Off"/"On") beside it | flips the window mode through `plat_set_fullscreen`, so the live Win32 window is restyled there and then (`apply_window_mode`), and writes `[VIDEO] fullscreen` |
+
+One trap in that restyle, worth its line because it cost a session: **the visible bit lives in the
+window style**, so a `SetWindowLong(GWL_STYLE, …)` whose style lacks `WS_VISIBLE` *hides* the window
+the game keeps drawing into — the picture disappears, the taskbar shows no game, and it reads exactly
+like a crash ("the window just closes"). The new style carries `WS_VISIBLE`, `SWP_SHOWWINDOW` says it
+again, and the frame is composed once inside the switch so the new client rectangle never shows what
+the old mode left in it.
+| Music Vol. | minus, the value (0..10), plus — `assets\minus_*.png`, `assets\plus_*.png`, the hover state under the pointer | one step, clamped 0..10: `rt_audio_set_gain` changes the mixer **now**, so the map's score playing under the title is what the step is heard on, and `[AUDIO] music` is rewritten |
+| Sound Vol. | the same three controls | the same for the effect channels and `[AUDIO] sound` |
+
+The toggle, the two step buttons in both states and the value cell are
+`src\host\settings_art.h`, generated byte-exact from the tracked PNGs by the new
+`tools\mksettingsart.ps1`. The pictures' own palette indices become *pen offsets* in the table (0
+outline, 1 fill, 2 hover, 3 on, 4 knob, 5 edge), and the tool refuses a redrawn picture that breaks
+one of the relations the offsets rest on (one outline, one fill, the toggle's off track equal to the
+buttons' fill, …). The toggle's cyan surround — the colour outside its rounded corners — is written
+as `TITLE_SETTINGS_TRANSPARENT`, so those pixels leave the panel showing. The six pens are
+233..238, clear of the presenter's and the OSD's 240..255, and `title_draw` installs the generated
+palette every frame beside the menu's own.
+
+Where it attaches:
+
+* **Per-screen code.** The title menu is host code with its own loop (`title_play`,
+  `src\host\title.c`), so the front end's frame hooks do not run while it is up. `title_play` itself
+  drives `title_settings_pointer` (hover and hit boxes) and `title_settings_click` (the machine
+  changes) — nothing is derived from a `pc ==` test.
+* **Platform capability.** `plat_has_fullscreen` is what makes the DOS design right: the DOS build
+  returns 0, so its view draws the two volume rows only, moved down into the middle of the space the
+  three take, and it never offers a window mode it does not own. The DOS front end has the pointer
+  since 2026-11-16 (`plat_dos.c` reads INT 33h and `dos_main.c` drives the menu), so the view is
+  operable there too.
+* **Settings file.** `rt_config_save_int` patches the ini in place and re-reads it: the comment
+  lines, the key order and every key the write does not own are written back unchanged, and a key a
+  file lacks is added under its section. The view reads the file for what to show (`rt_config_bool`
+  for the flag, `rt_config_int` for the two gains, the machine's own values as the fallback), which
+  is exactly what the front end applied at startup.
+* **Test seams.** `--titlekey 13` opens the view for a scripted run, `--titlekey 14` puts the menu
+  up for the run's `--mouse` script to click (the script ends the run on Quit Game), and
+  `host_title_pointer` (`title.h`) is how those scripted positions reach a loop the frame hooks
+  cannot see. A screen nothing clicks out of is bounded (`TITLE_SCRIPT_FRAMES`), so a missed click
+  cannot hold a check for ever.
+
+Measured with `tools\settings-check.ps1` (gate step 7). The toggle is measured as the live window's
+geometry, not as a picture: the same click script runs with `--window` and the check samples the
+window while it runs - `320x200 -> 2048x1152 -> 320x200`, i.e. the windowed picture, the whole
+screen after the click and the window again after the second click (a machine with no desktop SKIPs
+that part). Headless: from an ini with
+`fullscreen=true, sound=7, music=10`, a click on Settings logs
+`title: settings: music 10/10, sound 7/10, fullscreen on`; the toggle logs `title: fullscreen off`;
+minus/minus/plus on Music and minus on Sound log `9/10`, `8/10`, `9/10` and `6/10` with the mixer's
+gain in the same line (`90% gain`, `80% gain`, …, i.e. the change reached `rt_audio_set_gain`, not
+just the file); Back logs `title: back to the main menu`, reopening shows `music 9/10, sound 6/10,
+fullscreen off`, and the file afterwards holds `fullscreen=0`, `music=9`, `sound=6` with every
+comment of the original still in place. A run without `--titlekey` never arms the title and logs
+none of it.
+
+## The title's Quit Game farewell
+
+Quit Game no longer ends the process on the click. It replaces the menu with a black screen and two
+lines in the game's own disk font, centred on the 320x200 picture:
+
+```
+Check out my spiritual successor "It Returned to the Desert"
+Available on Steam and itch.io
+```
+
+The notice is held for 500 frames - ten seconds of the machine's own 50 Hz - and only then does
+`title_play` return its quit, which stops the run as the button always did.
+
+Where it attaches: the title's own per-screen loop. `title_quit_notice` (`src\host\title.c`) draws
+every frame with `title_notice_draw` into the platform framebuffer (palette entry 0 black, the menu's
+white text pen), ticks the machine through `title_tick` so the map's score keeps playing while it is
+up, presents, and paces with `plat_frame_sync`. `plat_pump` still runs every frame, so closing the
+window ends the notice early. Only the button's own click sets the flag: a closed window, a
+`--titlekey` fallback or a `TITLE_SCRIPT_FRAMES` timeout still ends the run at once - those are not
+Quit Game.
+
+Measured with `tools\quit-check.ps1` (gate step 19). Headless, the click logs frames 40 to 540 -
+500 frames, ten seconds - the two requested lines, and `title: quit game: closing`; the run spends
+more than nine seconds of wall time on it, so the frames are the machine's paced 50 Hz and not a
+loop run as fast as the host can. A run without `--titlekey` logs none of it. Where a desktop gives
+the game a window, the check samples the client area while the notice is up: **98.8 % black, 746
+white text pixels, their bounding box centred at 159,99 of the 320x200 picture, all four corners
+black** - the title art is gone and the text is where the feature says it is.
+
 ## The situation map's SAVE GAME mark
 
 The map screen shows a "SAVE GAME" mark that belongs to the original: its script
@@ -441,7 +601,9 @@ added back to the argument.
 
 The pointer seam owns the mark too (`main.c`): while the pointer is over the mark's screen rectangle
 the map window does not scroll — the cursor stops inside the travel window as at any other edge, but
-the picture stays put — and a held fire is the mark's own click. The map's test (`FUN_00003B1E`,
+the picture stays put — and a click (the left button's press edge) opens the save-slot picker. Back
+returns to the map; picking a slot makes it active and then runs the save path below. The map's test
+(`FUN_00003B1E`,
 `0x40dc`: the fire held, the cursor less the picture offset inside `0x3c x 0x29`) can only be
 satisfied at the map's corner, so at the entry of `FUN_0001061C` — after this update's picture, arrow
 and nodes are drawn and right before the test — the seam presents the view the original had there:
@@ -460,6 +622,40 @@ clicked fire there ends the map: the run loads the next session (`desert.dat`, t
 `loading done`) instead of the map continuing. A `--input` run without `--mouse` installs no hook
 and logs nothing — the mark is still handed the map's position, and a mark placed at bitmap 0,0
 appears at the presented 0,0, which is the 1:1 mapping the corner is measured in.
+
+On DOS the mark is pinned by `host_save_button_entry` and `map_pointer` (`src\host\dos_main.c`)
+already holds the window still while the pointer is over it; the click and the picker are still
+Task 2 of [`dos-parity.md`](./dos-parity.md), so a click on the mark does nothing on DOS yet.
+
+### The save-slot picker
+
+A click on the mark opens `src\host\save_ui.c`'s list instead of ending the session at once. The
+box is `assets\portrait_box.png` (86x130, kept byte-exact in `src\host\portrait_box_art.h` by
+`tools\mkportraitbox.ps1`), centred on the presented picture; its top-left key colour (the cyan
+around the top tabs) is skipped when drawn, so only the box itself covers the map. Its mustard
+interior holds "Save Game", ten 8 px slot rows and the same 73x14 Back button the title's Load Game
+uses. Empty slots
+are grey, occupied ones white, and the line under the pointer is `#00FF00` — the title menu's pens
+250..255, installed through the runtime's port-overlay palette (`rt_overlay_begin`,
+`rt_overlay_palette`); the box's nine colours sit at 224..232. The pointer arrow is drawn over the
+popup, because the overlay is composed before `on_present` copies the frame and `save_ui_draw`
+redraws the arrow last.
+
+While the list is up the map is frozen at `FUN_00003B1E`'s entry: the decoded axes and the fire
+word are cleared, so the cursor, the picture offset and the destination under the cursor cannot
+change, and the front end also drops the stick and `/FIRE` before the vblank. A click on a slot
+sets `m->saveSlot` and closes the list; the next map tail runs the engine's own save path exactly as
+the mark's click used to (`save_mark_click`: fire plus the top-left view), so `DSAVE:` resolves to
+the chosen `saves\slot<N>`. Back (or Escape) closes the list and the click that closed it is ignored
+until the button is released, so it cannot also pick a destination. A measurement run never
+installs the seam and never logs the picker.
+
+Measured with `tools\save-ui-check.ps1` on `ref\inputs\map-pointer.txt`: a click at 290,177 opens
+the list (`save: slot picker opened`, frame 1303); moving the pointer to 20,20 leaves the cursor at
+307,195 and the picture at −153,−121; Back at (160,150) logs `save: slot picker closed` and the map
+then follows the pointer to 57,58; a click on Slot 10 (`--slot 1`, so the command line did not pick
+it) logs `save: save slot 10 selected`, `save: writing slot 10`, and the engine writes its 12 444
+bytes to `saves\slot10\ICFTD`. The same script without `--mouse` never logs the picker.
 
 ## The fullscreen border
 
@@ -490,6 +686,89 @@ The art itself is the port's, so `assets\border.png` is one of the few tracked f
 the generated header is tracked next to `crosshair_art.h` and `title_art.h`, so a build never
 needs the PNG.
 
+That is the rule for **every** picture the executable draws on its own: tracked PNG in `assets\` →
+generated table in `src\`, both committed, `assets\README.md` has the table. `tools\art-check.ps1`
+(gate step 15) regenerates all of them and requires the committed table to match its tool's output,
+so a stale or hand-edited table — a picture in the binary that no tracked PNG explains — fails.
+Game art never takes this route: it stays in `export\` (or the `DISK1..3` folders of a DOS release)
+and in `assets\game.pak`, neither of which is shipped or tracked.
+
+## The four directions, one per pair of keys
+
+The game's only control is a one-button stick, and the port's host input maps the arrow cluster onto
+it. W/A/S/D are the same four directions, so a player whose left hand is on the letters never has to
+reach across the keyboard.
+
+This is **platform input** (`src\runtime\platform.h`, filled by both `plat_win32.c` and
+`plat_dos.c`): the front end still reads `KEY_UP..KEY_RIGHT` and the joy word it builds from them is
+unchanged, so no game-side code knows about the second key. What the platform owes is an *alias*,
+not a second control — and an alias is more than one more `if`:
+
+* **The trap is the level state.** A logical key is a level (`g_keys[KEY_LEFT]`), and with two
+  physical keys behind it, a plain write reports a release when the *other* key is released: press A,
+  press Left, release Left, and the player stops although A is still down — and Windows does not
+  resend the make code until the auto-repeat delay, so the game sees a gap. Both layers therefore
+  keep one bit per physical key (`g_dirHeld`: bit 0 the arrow, bit 1 W/A/S/D, one entry per
+  direction) and derive the logical key from it. The press edge is only owed when the *first* of the
+  two goes down, which is what `g_make`/`pressed` already express.
+* **W is also a key of its own.** The title screen's third ending and the Ctrl+W cheat read `KEY_W`,
+  so on Win32 W sets both `KEY_UP` and `KEY_W`, and DOS maps scan code 0x11 to both. The alias does
+  not take that away: W is a direction *and* the letter W.
+* **Losing the focus releases everything.** A key-up that lands in another window never arrives, so
+  `WM_KILLFOCUS` clears the whole key state, not just the Ctrl it used to clear — otherwise a held
+  direction would stay down with no key left to release it.
+
+`tools\keys-check.ps1` (gate step 17) is the measurement: it compiles the *shipped* `plat_win32.c`,
+posts the `WM_KEYDOWN`/`WM_KEYUP` messages a player produces, and compares what `plat_pump` reports.
+
+| claim | measured |
+|---|---|
+| A, S, D produce the `input_state` their arrow produces (down and pressed) | the whole state compared field for field, not just the four direction bits |
+| W is Up *and* the title's W | the direction compared like the others; `KEY_W` asserted separately, it is the one word that may differ by design |
+| a direction outlives the release of one of its two keys | A + Left held, Left released → still left; then the other way round |
+| an arrow is not W, and opposites still report both | arrow press leaves `KEY_W` clear; A + D report left and right |
+
+The DOS layer takes the same two-keys-per-direction state machine (there the directions arrive as
+scan codes 0x48/0x50/0x4B/0x4D in two forms, plus 0x11/0x1E/0x1F/0x20 for W/A/S/D); it is covered
+by its build, and by the same argument, since a DOSBox run cannot be scripted from this check.
+
+## The first start: the game data comes from the player's own disks
+
+The port ships **no game data**. A release is `ICFTD.EXE` plus three empty folders — `export\`,
+`disks\`, `saves\` (`tools\win32-pack.ps1`) — and the player puts the three original Amiga floppy
+images in `disks\`. `rt_assets_ensure` (`src\runtime\assets.c`) runs once at startup, before the
+machine boots, and asks one question: is there an extracted tree to run?
+
+* **What "there" means** is machine-checkable, not a stamp file: `export\disk1`, `export\disk2`,
+  `export\disk3` and `export\code\dshell4k\dshell.img`. The image is written **last**, so an
+  interrupted extraction is not complete and the next start simply extracts again.
+* **Which images** are the right ones is decided by the volume labels — `Desert1`, `Desert2`,
+  `Desert3`, the names the runtime's `dos.library` shim already maps to `disk1..3`. A set that does
+  not cover all three is not a data set the engine could run, so it is refused *before* anything is
+  written. The formats are the exporter's, ported to C because a release cannot run .NET:
+  `src\assetExport\Adf.cs` (the raw image), `AmigaFs.cs` (AmigaDOS OFS directory and data chains)
+  and `Hunk.cs` (the game program's load image).
+* **The message is the feature's only player-facing text**, and it is the one the request named:
+  `Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and
+  restart.` A windowed start puts it in a modal box (`plat_message`), a headless one prints it and
+  exits 1.
+* **Where the folders are** is resolved once (`host_asset_dirs` in `src\host\main.c`): `export\`
+  and `disks\` next to the executable when the executable has an `export\` folder — the release
+  layout, started from anywhere — and plain working-directory-relative `export\`/`disks` otherwise,
+  which is how a run out of the repository root finds the developer's tree. `--data` and `--disks`
+  override both, and `--extract` only fills the tree (the check seam).
+
+**What is asserted** is not "the game starts": the extracted tree is byte-identical to what
+`tools\extract.ps1` writes — 78 files and the 185 752-byte `dshell.img` (`hunk` flattening included:
+622 relocations, 3 hunks, base 0x4000) — an empty `disks\` produces the message and exit 1, and a
+headless run from the extracted release folder is **frame-record identical** to the development
+tree's (`--state` dumps, 84 records). The extraction is a pure function of the images, so identity
+of the tree is identity of everything downstream.
+
+The DOS front end does not call `rt_assets_ensure` yet: its tree (`DISK1..3`, `DSHELL.IMG`,
+`NAMES.TXT`, 8.3 names) is a staging layout, not the Win32 one, and wiring it is the next step —
+the module itself is platform-neutral and uses only `plat_*`, so that call is the whole job.
+
 ## The dev loop
 
 The gate has tiers, because the port's scene replays cost minutes and say nothing about a change
@@ -497,10 +776,10 @@ that does not touch them. Pick the tier by what the change is:
 
 | when | command | what runs |
 |---|---|---|
-| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all ten) | that check (its own binary must be built: `tools\build-host.ps1`) |
+| working on one port surface | `tools\gate.ps1 -Only <step>` (e.g. `-Only pointer`, `-Only port` for all twelve) | that check (its own binary must be built: `tools\build-host.ps1`) |
 | working on the translation | `tools\recomp-fixtures.ps1 -Only "000009*"`, then `tools\gate.ps1` | the fixtures under that address wildcard, then the core |
 | before a hand-off | `tools\gate.ps1` | builds, interpreter fixtures, translated vs interpreted |
-| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all ten port checks |
+| several surfaces at once, or a presenter/input/host change | `tools\gate.ps1 -Full` | the core plus all twelve port checks |
 
 `-Quick` still skips the two builds. No change owes a whole-gate run: it owes the measurement that
 covers it — see `.github\copilot-instructions.md`, "Validation — check the change, not the

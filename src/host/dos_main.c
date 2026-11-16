@@ -18,12 +18,17 @@
  *   --ticklog           oracle_tick's `tick N in|out` lines, to compare pacing with the host
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
- *   --call <pc>[:<frame>]  enter one engine routine once (e.g. 0x1442A = save)
+ *   --call <pc>[:<frame>[:<arg>[:<retpc>]]]  enter one engine routine once (e.g. 0x1442A = save)
+ *   --mouse <file>      "<frame> <x> <y> [<button>]" pointer positions the seams read, headless
+ *   --input <file>      "<frame> <fire> <joy0>" scripted stick and fire, as src\host\main.c
+ *   --shot <bmp>        the composed picture (OSD, pointer, crosshair) as a 24-bit BMP
+ *   --hoverlog          the text-menu lines recorded and what the pointer picks
  *   --titlekey <n>       take a title screen menu choice (0 the game, 1..7 the minigames, 8..10
  *                        the endings, 11/12 the menu's Load Game / New Game)
  *                        the endings)
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
+ *   --timefreeze <f>[,<f>...]  press left Ctrl+T at each of those frames (the clock freeze's seam)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -38,12 +43,15 @@
 #include "m68k.h"
 /* Two headers are called cpu.h: the 68000 front end's and the translated layer's. */
 #include "../oracle/cpu.h"
+#include "../oracle/input.h"
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
 #include "title.h"
 #include "cheat.h"
+#include "time_freeze.h"
 #include "hospital_camera.h"
 #include "save_button.h"
+#include "save_ui.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 10
@@ -51,6 +59,7 @@
 static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
 static const char *g_dumpPath;  /* --dump <frame> <file>: the RAM image at that vblank */
+static const char *g_shotPath;  /* --shot <bmp>: the composed picture, for the port's surfaces */
 static int    g_noAudio;        /* --noaudio: leave the Sound Blaster alone */
 static int    g_sbTest;         /* --sbtest: diagnose the audio device and exit */
 u32    g_dumpFrame;
@@ -66,6 +75,12 @@ static u32    g_escFrame;               /* --esc <frame>: press Escape at that f
 static int    g_escDone;
 static u32    g_cheatFrame;             /* --cheat <frame>: press left Ctrl+W at that frame */
 static int    g_cheatDone;
+/* --timefreeze <frame>[,<frame>...]: press left Ctrl+T at each of those frames (the clock
+ * freeze's seam, like --cheat). Two frames freeze and unfreeze again. */
+#define DOS_TIME_FREEZE_MAX 8
+static u32    g_freezeAt[DOS_TIME_FREEZE_MAX];
+static int    g_freezeCount;
+static int    g_freezePos;
 
 static void dump_ram(rt_machine *m)
 {
@@ -124,6 +139,10 @@ static void note_state(rt_machine *m, cpu_t *c)
     plat_crash_state(text);
 }
 
+/* The fight's aiming crosshair is placed at the frame boundary, before the vblank composes the
+ * frame (defined with the pointer's seams below). */
+static void crosshair_present(rt_machine *m);
+
 /* The vertical blank, reached from inside translated code: the register file goes to the core,
  * the game's own servers run there, and what they leave comes back. */
 static void dos_frame(cpu_t *c, rt_machine *m)
@@ -139,6 +158,16 @@ static void dos_frame(cpu_t *c, rt_machine *m)
         g_perfLast = t0;
         g_perfFrames++;
     }
+    /* A frozen clock: the engine's own pause is held and its date and time put back before the
+     * vblank's interrupt servers tick it (src\host\time_freeze.c). Inert unless frozen. */
+    while (g_freezePos < g_freezeCount && m->frame >= g_freezeAt[g_freezePos])
+    {
+        g_freezePos++;
+        printf("icftd: Ctrl+T at frame %lu\n", (unsigned long)m->frame);
+        host_time_freeze_force(m);
+    }
+    host_time_freeze_frame(m);
+    crosshair_present(m);             /* composed by the present inside oracle_tick */
     scatter(c, m);
     oracle_tick(m);
     gather(c, m);
@@ -190,7 +219,7 @@ static const u16 g_joyDirs[16] =
 
 /* --call: enter one of the engine's own routines once, at a chosen frame (the same dev seam as
  * src\host\main.c). Used to reach the save routine without playing to it. */
-static u32 g_callPc, g_callFrame, g_callArg;
+static u32 g_callPc, g_callFrame, g_callArg, g_callRet;
 static int g_called;
 
 /* The title injects calls, and pops their arguments, on the machine's register file while no
@@ -201,23 +230,696 @@ void host_regs_sync(rt_machine *m)
     if (g_cpu != 0) gather(g_cpu, m);
 }
 
-/* The OSD loading line's explicit hold (src\host\main.c) has no seam here: the DOS front end
- * installs no per-screen hook for the pointer, the crosshair or the loading line. */
+/* The OSD loading line's explicit hold (src\host\main.c) has no seam here yet (Task 3 of
+ * docs\dos-parity.md): the DOS front end installs no loading-line hook. */
 void host_loading_hold(rt_machine *m)
 {
     (void)m;
 }
 
-/* The per-screen seams this front end needs: the Ctrl+W cheat (src\host\cheat.c), the hospital
- * escape's camera (src\host\hospital_camera.c) and the situation map's SAVE GAME mark
- * (src\host\save_button.c). All are played-game features; the cheat does nothing unless a request
- * is pending, the camera writes only while the hospital's own draw runs, and the mark is only
- * moved when the map's own SVGM node is blitted. */
+/* --- the pointer, and the screens it drives (port features, src\host\main.c) ------------------
+ * The original is joystick-only. The DOS platform reports the mouse through INT 33h, in mode 13h
+ * pixels (plat_dos.c); this front end turns that into the same g_ptrKnown / g_ptrActive /
+ * g_hoverOwn state the Windows seams use and drives the pointer once per frame.
+ *
+ * Coordinates: the title menu draws straight into the 320x200 VGA framebuffer, so it takes the raw
+ * position. The game seams work in the runtime picture, which dos_present fits into the mode
+ * (x * w / 320, y * h / 200 for a larger picture, top-left for a smaller one), so the platform's
+ * position is mapped the other way here; the overlay is then sampled into VGA with the arrow's tip
+ * under the physical pointer.
+ *
+ * The seams and their attachment points are the Windows front end's (src\host\main.c):
+ *
+ *   FUN_00003b1e  the situation map's script: the cursor is pinned under the pointer, the picture
+ *                 scrolls when it is pushed past the travel window, and the SAVE GAME mark holds
+ *                 the window still while the pointer is over it;
+ *   FUN_00005eac / FUN_00005824  a location view draw/update, so the arrow shows on room screens;
+ *   FUN_00004d76 / FUN_0001d1da  a text menu's line and its flip: the line under the pointer
+ *                 becomes the menu's own selection;
+ *   FUN_00005fbe  the phone book's update: the arrow is pinned under the pointer;
+ *   FUN_00007934 / FUN_000086a0 / FUN_0000b97c  the two aiming scenes: the pointer is the gun.
+ *
+ * Nothing here runs in a measurement: the hook is installed only in a played run or a --mouse test
+ * run (g_portArm), and the arrow and the crosshair are drawn on top of the composed picture, never
+ * into the machine's memory.
+ */
+#define MAP_SCRIPT_PC  0x00003B1Eu
+#define MAP_CUR_MIN    0x19        /* the map's travel window, from FUN_00003B1E          */
+#define MAP_CUR_MAXX   0x136
+#define MAP_HOT_X      0x11        /* the cursor sprite's hot spot: its tip               */
+#define MAP_HOT_Y      0x12
+#define MAP_SCROLL     6           /* picture pixels per update at the window's edge      */
+#define MAP_MAX_Y      0x00028A48u /* word, the window's bottom row                       */
+#define MAP_ORG_X      0x00028A4Cu /* long, the map picture offset <= 0                   */
+#define MAP_ORG_Y      0x00028A50u
+#define MAP_ORG_MINY   0x00028A5Cu /* ... and the bottom limit FUN_000035D2 clamps to      */
+#define MAP_ORG_MAXX   0x13F       /* the same clamp, x: -0x13F                           */
+#define MAP_CUR_X      0x00028A54u /* long, the cursor's screen x/y                       */
+#define MAP_CUR_Y      0x00028A58u
+#define MAP_AXIS_X     0x00026892u /* word, the decoded stick, +1 right / -1 left         */
+#define MAP_AXIS_Y     0x00026894u /* ... +1 down / -1 up                                 */
+#define MAP_FIRE_HELD  0x00026896u /* word, the decoded fire level (the save test's own)   */
+#define MAP_PANEL      0x00028C1Cu /* word, a panel or menu is up                          */
+#define MAP_EVENT_PC   0x0001061Cu /* FUN_0001061c: the map's tail, just before its save test */
+/* The map's script runs every few vblanks, so "the map is not on screen" cannot be decided on one
+ * frame: this many frames without a script call means the screen is gone. */
+#define MAP_IDLE_FRAMES 30
+
+/* The room screens' pointer: the arrow is shown on a room, and the menu line under it becomes the
+ * menu's selection at the flip. */
+#define ROOM_DRAW_PC     0x00005EACu   /* FUN_00005eac: the location picture and its actors */
+#define ROOM_UPDATE_PC   0x00005824u   /* FUN_00005824: the room view's per-frame update    */
+#define TEXT_LINE_PC     0x00004D76u   /* FUN_00004d76(text, x, y, pen, count)              */
+#define MENU_FLIP_PC     0x0001D1DAu   /* FUN_0001d1da: the menu's bitmap flip              */
+#define MENU_ACTION_PC   0x0000247Au   /* FUN_0000247a: the action list                     */
+#define MENU_ACTION_END  0x00002B0Eu
+#define MENU_LOOK_PC     0x00002B7Cu   /* FUN_00002b7c: Look North/South/...                */
+#define MENU_LOOK_END    0x00002C92u
+#define MENU_ACTION_FLIP 0x000029D2u   /* the flip's return address inside FUN_0000247a     */
+#define MENU_LOOK_FLIP   0x00002C62u   /* ... and inside FUN_00002b7c                       */
+#define TEXT_LINE_RET    0x00004F40u   /* the text draw's return address inside FUN_00004f0a */
+#define TEXT_RASTPORT    0x0002656Au   /* DAT_0002656a: the engine's animation RastPort     */
+
+/* The phone book's cursor (FUN_00005fbe called from the phone's own loop): the two words are
+ * A5-relative locals of the scene. */
+#define PHONE_UPDATE_PC  0x00005FBEu   /* FUN_00005fbe: present one update of the scene */
+#define PHONE_UPDATE_RET 0x00006632u   /* ... called from the phone's cursor loop       */
+#define PHONE_CUR_X      0x0Eu         /* word, A5-0x0e: the arrow's x                  */
+#define PHONE_CUR_Y      0x10u         /* word, A5-0x10: ... and y                      */
+#define PHONE_MIN_X      0x40          /* the scene's own clamps                        */
+#define PHONE_MAX_X      0xAA
+#define PHONE_MIN_Y      0x97
+#define PHONE_MAX_Y      0xCE
+
+/* The two aiming scenes: the fight's shot point is the aim 0x1b left and 0x3a up, and the fire
+ * game's hand travels inside x 0x28..0x12c, y 0xa5..0xf0. */
+#define ANT_SCENE_PC   0x00007934u /* FUN_00007934: one update of the giant-ant fight          */
+#define ANT_AIM_X      0x00029AE0u /* word, the pistol's screen x                              */
+#define ANT_AIM_Y      0x00029AE2u /* ... and y                                               */
+#define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim      */
+#define ANT_SHOT_DY    (-0x3A)
+#define ANT_IDLE_FRAMES 10
+#define AIM_SHOT_PC    0x000086A0u /* FUN_000086a0: the fight's trigger                        */
+#define AIM_SPRAY_PC   0x0000B97Cu /* FUN_0000b97c: the fire game's extinguisher movement      */
+#define AIM_X          0x00029AE0u /* word, the aim both scenes share                          */
+#define AIM_Y          0x00029AE2u
+#define AIM_ACC_X      0x00029AE4u /* word, the stick's ramped speed                           */
+#define AIM_ACC_Y      0x00029AE6u
+#define AIM_AXIS_X     0x00024A80u /* word, FUN_00011bf0's decoded stick                       */
+#define AIM_AXIS_Y     0x00024A82u
+#define FIRE_MIN_X     0x0028      /* the fire game's travel rectangle                         */
+#define FIRE_MAX_X     0x012C
+#define FIRE_MIN_Y     0x00A5
+#define FIRE_MAX_Y     0x00F0
+#define FIRE_IDLE_FRAMES 10
+
+#define HOST_LINE_MAX 24
+typedef struct
+{
+    s16 x0, x1, top, h;            /* the line's screen rectangle */
+    s16 entry;                     /* the menu entry that drew it  */
+    u8  menu;                      /* 1 = action list, 2 = Look ... */
+} host_text_line;
+
+static int  g_portArm;             /* the port's per-screen seams may run (a played game, or
+                                    * --mouse): the pointer, the crosshair, the aim */
+static int  g_ptrKnown;            /* a pointer position is available */
+static int  g_ptrActive;           /* the pointer owns the map cursor */
+static int  g_hoverOwn;            /* the pointer owns the menu line under it */
+static s16  g_ptrX, g_ptrY;        /* picture coordinates */
+
+/* --mouse <file>: "<frame> <x> <y> [<button>]" per line, the pointer's positions and left-button
+ * state as the platform would report them (mode 13h pixels, like INT 33h). A dev seam like
+ * --cheat: the same state, so the feature can be measured headless. */
+#define HOST_MOUSE_MAX 256
+static struct { u32 frame; s16 x, y; u8 button; } g_ptrScript[HOST_MOUSE_MAX];
+static int g_ptrScriptCount, g_ptrScriptPos;
+static s16 g_scriptX, g_scriptY;   /* the script's last position, in platform pixels */
+static u8  g_ptrButton;            /* the script's left button, held until it changes */
+static u8  g_ptrButtonPrev;        /* ... the previous frame, for its press edge */
+static const char *g_mousePath;    /* --mouse <file> */
+static const char *g_inputPath;    /* --input <file>: a scripted stick and fire */
+static int g_hoverLog;             /* --hoverlog: the lines recorded and what the pointer picks */
+
+static u32 g_mapFrame;             /* last frame the map's script ran */
+static u32 g_roomFrame;            /* last frame a location view was drawn or updated */
+static u32 g_menuFrame;            /* last frame a text menu flipped */
+static u32 g_phoneFrame;           /* last frame the phone's cursor loop presented */
+static u32 g_antFrame;             /* last frame the giant-ant fight updated */
+static u32 g_fireFrame;            /* last frame the fire game's extinguisher moved */
+static int g_aimOwn;               /* the pointer owns the aim of the scene that is up */
+static host_text_line g_line[HOST_LINE_MAX];
+static int g_lineCount;
+static int s_markHover;            /* the pointer is over the SAVE GAME mark */
+static int s_ptrShown;             /* --hoverlog: the last reported pointer visibility */
+static s32 s_mapLogX = -1, s_mapLogY = -1;  /* --hoverlog: the cursor last reported */
+
+/* The save-slot picker (src\host\save_ui.c), the Windows front end's state machine. */
+static save_ui g_saveUi;
+static int s_markClick;            /* a click on the mark waits for the map's own tail */
+static u32 s_markClickFrame;       /* ... the frame it was reported in */
+static int s_saveCommit;           /* a slot was chosen: the map's save path runs next */
+static int s_clickHeld;            /* the click that closed the picker is still down */
+static int s_fakeView;             /* the map's own words were replaced for a click */
+static s32 s_trueOrgX, s_trueOrgY; /* ... the picture offset before that */
+
+static void crosshair_present(rt_machine *m);
+static int  aim_live(rt_machine *m);
+
+/* The platform's mode 13h position mapped onto the presented picture, clamped to it. */
+static void ptr_set(int x, int y)
+{
+    int w = rt_gfx_width(), h = rt_gfx_height();
+
+    if (w <= 0) w = SCREEN_W;
+    if (h <= 0) h = SCREEN_H;
+    if (x < 0) x = 0; else if (x >= SCREEN_W) x = SCREEN_W - 1;
+    if (y < 0) y = 0; else if (y >= SCREEN_H) y = SCREEN_H - 1;
+    if (w > SCREEN_W) x = x * w / SCREEN_W;
+    if (h > SCREEN_H) y = y * h / SCREEN_H;
+    if (x >= w) x = w - 1;
+    if (y >= h) y = h - 1;
+    g_ptrX = (s16)x;
+    g_ptrY = (s16)y;
+}
+
+static void pointer_script_load(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    char line[160];
+
+    if (f == 0) { printf("icftd: cannot read %s\n", path); return; }
+    while (fgets(line, sizeof line, f) != 0 && g_ptrScriptCount < HOST_MOUSE_MAX)
+    {
+        char *p = line;
+        u32 fr;
+        long x, y, b = 0;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || *p == '\r' || *p == 0) continue;
+        fr = (u32)strtoul(p, &p, 0);
+        x = strtol(p, &p, 0);
+        y = strtol(p, &p, 0);
+        b = strtol(p, &p, 0);
+        g_ptrScript[g_ptrScriptCount].frame = fr;
+        g_ptrScript[g_ptrScriptCount].x = (s16)x;
+        g_ptrScript[g_ptrScriptCount].y = (s16)y;
+        g_ptrScript[g_ptrScriptCount].button = (u8)(b != 0);
+        g_ptrScriptCount++;
+    }
+    fclose(f);
+    printf("icftd: pointer script %s, %d position(s)\n", path, g_ptrScriptCount);
+}
+
+/* Applies the scripted positions that are due - the script holds the last one, like a pointer that
+ * stays where it was put (and the button with it). Returns how many were applied, i.e. whether the
+ * pointer moved in this frame. */
+static int pointer_script_tick(rt_machine *m)
+{
+    int applied = 0;
+
+    while (g_ptrScriptPos < g_ptrScriptCount && g_ptrScript[g_ptrScriptPos].frame <= m->frame)
+    {
+        g_scriptX = g_ptrScript[g_ptrScriptPos].x;
+        g_scriptY = g_ptrScript[g_ptrScriptPos].y;
+        g_ptrButton = g_ptrScript[g_ptrScriptPos].button;
+        ptr_set(g_scriptX, g_scriptY);
+        g_ptrKnown = 1;
+        g_ptrActive = 1;
+        g_hoverOwn = 1;
+        g_ptrScriptPos++;
+        applied++;
+        if (g_hoverLog)
+            printf("icftd: pointer script %d,%d button %d -> picture %d,%d (frame %lu)\n",
+                   (int)g_scriptX, (int)g_scriptY, (int)g_ptrButton, (int)g_ptrX, (int)g_ptrY,
+                   (unsigned long)m->frame);
+    }
+    return applied;
+}
+
+/* The keyboard wins while a direction is held, the pointer wins when it moves - the rule the
+ * Windows front end's pointer_input follows. A pointer that has not moved since the map opened
+ * leaves the cursor where the game put it. */
+static void pointer_input(const input_state *in, int stickHeld)
+{
+    if (!in->mouse_present) { g_ptrKnown = 0; g_ptrActive = 0; g_hoverOwn = 0; return; }
+    if (stickHeld) { g_ptrActive = 0; g_hoverOwn = 0; }
+    else if (in->mouse_moved)
+    {
+        ptr_set(in->mouse_x, in->mouse_y);
+        g_ptrKnown = 1;                /* the position is only trusted once it was reported */
+        g_ptrActive = 1;
+        g_hoverOwn = 1;                /* a menu line under it is selected from now on */
+    }
+}
+
+/* The title menu runs its own loop, so the frame hooks do not run while it is up: a --mouse
+ * script reaches its buttons through this. A played game has a real pointer - the platform's own
+ * report arrives through plat_pump - so the menu's copy is left alone. */
+int host_title_pointer(rt_machine *m, input_state *in)
+{
+    if (g_ptrScriptCount == 0) return 0;
+    pointer_script_tick(m);
+    if (!g_ptrKnown) {
+        in->mouse_present = 0;                  /* the script's first position is not due yet */
+        return 1;
+    }
+    in->mouse_present = 1;
+    in->mouse_x = g_scriptX;                    /* the title is the raw 320x200 framebuffer */
+    in->mouse_y = g_scriptY;
+    in->mouse_left = g_ptrButton ? 1 : 0;
+    in->mouse_left_pressed = (u8)(g_ptrButton && !g_ptrButtonPrev);
+    in->mouse_moved = 0;
+    g_ptrButtonPrev = g_ptrButton;
+    return 1;
+}
+
+/* Whether the pointer is over the screen rectangle the map's SAVE GAME mark was drawn in. */
+static int save_mark_under_pointer(void)
+{
+    s32 mx, my, mw, mh;
+
+    if (!host_save_button_rect(&mx, &my, &mw, &mh)) return 0;
+    return g_ptrX >= mx && g_ptrX < mx + mw && g_ptrY >= my && g_ptrY < my + mh;
+}
+
+/* The map's script runs every few frames, so a click reported at the frame boundary has to stay
+ * valid until the next update; after that it was either consumed or was not on the mark. */
+#define SAVE_CLICK_FRAMES 8
+
+static int save_click_pending(const rt_machine *m)
+{
+    return s_markClick && m->frame - s_markClickFrame <= SAVE_CLICK_FRAMES;
+}
+
+/* While the picker is up (or about to run the save) the map owns no input: no stick, no fire. */
+static int save_owns_input(const rt_machine *m)
+{
+    return g_saveUi.open || s_saveCommit || s_clickHeld || save_click_pending(m);
+}
+
+/* Records a click that landed on the mark. The picker itself is opened at FUN_0001061C's entry
+ * (save_mark_click), where the map has drawn its update and is about to test its own click. */
+static void save_click_note(rt_machine *m)
+{
+    if (save_owns_input(m)) return;
+    if (!save_mark_under_pointer()) return;
+    s_markClick = 1;
+    s_markClickFrame = m->frame;
+}
+
+/* The map's own test (FUN_00003B1E, 0x40dc) looks for the cursor at the mark's *map* position -
+ * "cursor - offset inside 0x3c x 0x29" with the fire held - because that is where the original drew
+ * it. The port's mark is on the screen, so the seam presents the view the original had there for
+ * the one update that is left: the picture's offset at 0 and the cursor at the map's top left. It
+ * runs at FUN_0001061C's entry - after this update's picture, arrow and nodes are drawn, right
+ * before the test - so none of it reaches the screen; the engine then takes its own save path.
+ * If a queued panel opens in the tail instead and the test is skipped, the offset is put back at
+ * the next map update, before that one is drawn. */
+static void save_fake_view(rt_machine *m)
+{
+    s_trueOrgX = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_X));
+    s_trueOrgY = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_Y));
+    rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_X), MAP_CUR_MIN);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_Y), MAP_CUR_MIN);
+    s_fakeView = 1;
+}
+
+/* FUN_0001061C's entry: the picker opens on a click, and a chosen slot runs the map's save path
+ * exactly as the mark's own click did. */
+static void save_mark_click(rt_machine *m)
+{
+    if (s_saveCommit)
+    {
+        s_saveCommit = 0;
+        rt_write16(&m->mem, RC_ADDR(MAP_FIRE_HELD), 1);   /* the test's fire, for this update */
+        save_fake_view(m);
+        printf("save: writing slot %d (frame %lu)\n", m->saveSlot, (unsigned long)m->frame);
+        return;
+    }
+    if (g_saveUi.open) return;
+    if (!save_click_pending(m)) { s_markClick = 0; return; }
+    s_markClick = 0;
+    if (!s_markHover) return;
+    if ((s16)rt_read16(&m->mem, RC_ADDR(MAP_PANEL)) != 0) return;
+
+    /* The map's own test must not see the click that opened the picker. */
+    rt_write16(&m->mem, RC_ADDR(MAP_FIRE_HELD), 0);
+    save_ui_start(&g_saveUi, m);
+    printf("save: slot picker opened (%d slot(s)) at frame %lu\n", SAVE_UI_SLOTS,
+           (unsigned long)m->frame);
+}
+
+/* Runs at FUN_00003B1E's entry, once per map update: the pointer pins the cursor, and the picture
+ * scrolls while it is pushed past the travel window. The scrolling is the seam's own: the engine's
+ * accumulator is reset by every vblank between two map updates, so with the pointer it can only
+ * ever add +/-1 per update. */
+static void map_pointer(rt_machine *m)
+{
+    s32 x, y, maxY, ox, oy, sx = 0, sy = 0;
+
+    /* The click's view was replaced and the map is still running: put the picture back before this
+     * update draws it (a new map session starts with the game's own placement instead). */
+    if (s_fakeView)
+    {
+        if (m->frame - g_mapFrame <= MAP_IDLE_FRAMES)
+        {
+            rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), (u32)s_trueOrgX);
+            rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), (u32)s_trueOrgY);
+        }
+        s_fakeView = 0;
+    }
+    g_mapFrame = m->frame;
+    if (!save_click_pending(m)) s_markClick = 0;
+
+    /* The picker (or the click that opens it, or the save it chose) holds the map still: the
+     * stick is idle and the fire is released for this update, so neither the cursor, the picture
+     * nor a destination can move or be picked. */
+    if (save_owns_input(m))
+    {
+        rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
+        rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
+        rt_write16(&m->mem, RC_ADDR(MAP_FIRE_HELD), 0);
+        s_markHover = save_click_pending(m) ? save_mark_under_pointer() : 0;
+        return;
+    }
+    if (!g_ptrKnown || !g_ptrActive) { s_markHover = 0; return; }
+
+    maxY = (s16)rt_read16(&m->mem, RC_ADDR(MAP_MAX_Y));
+    x = (s32)g_ptrX + MAP_HOT_X;
+    y = (s32)g_ptrY + MAP_HOT_Y;
+    s_markHover = save_mark_under_pointer();
+    if (s_markHover)
+    {
+        /* The SAVE GAME mark owns the pointer while it is over it: pushing past the travel window
+         * must not scroll the picture and carry the mark away from the pointer. */
+        if (x < MAP_CUR_MIN) x = MAP_CUR_MIN; else if (x > MAP_CUR_MAXX) x = MAP_CUR_MAXX;
+        if (y < MAP_CUR_MIN) y = MAP_CUR_MIN; else if (y > maxY) y = maxY;
+    }
+    else
+    {
+        if (x < MAP_CUR_MIN)       { sx = -MAP_SCROLL; x = MAP_CUR_MIN; }
+        else if (x > MAP_CUR_MAXX) { sx =  MAP_SCROLL; x = MAP_CUR_MAXX; }
+        if (y < MAP_CUR_MIN)       { sy = -MAP_SCROLL; y = MAP_CUR_MIN; }
+        else if (y > maxY)         { sy =  MAP_SCROLL; y = maxY; }
+    }
+
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_X), (u32)x);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_Y), (u32)y);
+    if (g_hoverLog && (x != s_mapLogX || y != s_mapLogY))
+    {
+        s_mapLogX = x;
+        s_mapLogY = y;
+        printf("icftd: map pointer %d,%d -> cursor %ld,%ld (frame %lu)\n", (int)g_ptrX,
+               (int)g_ptrY, (long)x, (long)y, (unsigned long)m->frame);
+    }
+
+    if (sx != 0)
+    {
+        ox = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_X)) - sx;
+        if (ox < -MAP_ORG_MAXX) ox = -MAP_ORG_MAXX;
+        if (ox > 0) ox = 0;
+        rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), (u32)ox);
+    }
+    if (sy != 0)
+    {
+        oy = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_Y)) - sy;
+        if (oy < (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_MINY)))
+            oy = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_MINY));
+        if (oy > 0) oy = 0;
+        rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), (u32)oy);
+    }
+}
+
+/* The phone book's loop presents through FUN_00005fbe: the pointer pins the arrow's stack local,
+ * so the next iteration clamps, draws and reads the pointer's row. */
+static void phone_pointer(cpu_t *c, rt_machine *m)
+{
+    s32 x, y;
+
+    if (rt_read32(&m->mem, c->a[7]) != RC_ADDR(PHONE_UPDATE_RET)) return;
+    g_phoneFrame = m->frame;
+    if (!g_ptrKnown || !g_ptrActive) return;
+
+    x = (s32)g_ptrX + MAP_HOT_X;
+    y = (s32)g_ptrY + MAP_HOT_Y;
+    if (x < PHONE_MIN_X) x = PHONE_MIN_X; else if (x > PHONE_MAX_X) x = PHONE_MAX_X;
+    if (y < PHONE_MIN_Y) y = PHONE_MIN_Y; else if (y > PHONE_MAX_Y) y = PHONE_MAX_Y;
+
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
+    rt_write16(&m->mem, c->a[5] - PHONE_CUR_X, (u16)x);
+    rt_write16(&m->mem, c->a[5] - PHONE_CUR_Y, (u16)y);
+}
+
+/* One line of a text menu was queued for drawing: remember where it is and which entry it is. */
+static void line_record(cpu_t *c, rt_machine *m)
+{
+    u32 sp = c->a[7], frame = c->a[5], ret, caller, text, count, rp, font;
+    s16 menu = 0, entry = 0, x, y, h = 7, base = 6;
+    s32 w;
+
+    if (rt_read32(&m->mem, sp) != RC_ADDR(TEXT_LINE_RET)) return;   /* not FUN_00004f0a's draw */
+    ret = rt_read32(&m->mem, frame + 4);        /* where FUN_00004f0a was called from */
+    caller = rt_read32(&m->mem, frame);         /* ... and the menu's own frame */
+    if (ret >= RC_ADDR(MENU_ACTION_PC) && ret < RC_ADDR(MENU_ACTION_END))
+    {
+        menu = 1;
+        entry = (s16)rt_read16(&m->mem, caller - 2);   /* local_6, the entry loop counter */
+    }
+    else if (ret >= RC_ADDR(MENU_LOOK_PC) && ret < RC_ADDR(MENU_LOOK_END))
+    {
+        menu = 2;
+        entry = (s16)rt_read16(&m->mem, caller - 8);
+    }
+    else return;                                /* narration, panel text: not a chooser */
+
+    text  = rt_read32(&m->mem, sp + 4);
+    x     = (s16)rt_read16(&m->mem, sp + 8);
+    y     = (s16)rt_read16(&m->mem, sp + 10);
+    count = rt_read32(&m->mem, sp + 14);
+    rp    = rt_read32(&m->mem, RC_ADDR(TEXT_RASTPORT));
+    font  = rp != 0 ? rt_read32(&m->mem, rp + EMU_RP_FONT) : 0;
+    if (font != 0)
+    {
+        h = (s16)rt_read16(&m->mem, font + EMU_TF_Y_SIZE);
+        base = (s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
+    }
+    if (h <= 0) h = 7;
+    w = rt_gfx_text_length(m, rp, text, count);
+    if (g_lineCount < HOST_LINE_MAX)
+    {
+        g_line[g_lineCount].menu = (u8)menu;
+        g_line[g_lineCount].entry = entry;
+        g_line[g_lineCount].x0 = x;
+        g_line[g_lineCount].x1 = (s16)(x + w);
+        g_line[g_lineCount].top = (s16)(y - base);
+        g_line[g_lineCount].h = h;
+        g_lineCount++;
+    }
+    if (g_hoverLog)
+        printf("icftd: line menu %d entry %d at %d..%d x %d..%d (frame %lu)\n", (int)menu,
+               (int)entry, (int)x, (int)(x + w), (int)(y - base), (int)(y - base + h),
+               (unsigned long)m->frame);
+}
+
+/* A menu draw pass ends here: the pointer's line, if it is over one, becomes the selection. */
+static void menu_flip(cpu_t *c, rt_machine *m)
+{
+    u32 ret = rt_read32(&m->mem, c->a[7]);
+    int menu = ret == RC_ADDR(MENU_ACTION_FLIP) ? 1
+             : ret == RC_ADDR(MENU_LOOK_FLIP) ? 2 : 0;
+    int i, hover = -1;
+
+    if (menu != 0)
+    {
+        g_menuFrame = m->frame;
+        if (g_hoverOwn && g_ptrKnown &&
+            (g_mapFrame == 0 || m->frame - g_mapFrame > MAP_IDLE_FRAMES))
+        {
+            for (i = 0; i < g_lineCount; i++)
+                if (g_line[i].menu == (u8)menu &&
+                    g_ptrX >= g_line[i].x0 - 1 && g_ptrX <= g_line[i].x1 + 1 &&
+                    g_ptrY >= g_line[i].top && g_ptrY < g_line[i].top + g_line[i].h)
+                    hover = i;
+            if (hover >= 0)
+            {
+                u32 at = c->a[5] - (menu == 1 ? 6u : 4u);
+                s16 was = (s16)rt_read16(&m->mem, at);
+                rt_write16(&m->mem, at, (u16)g_line[hover].entry);
+                if (g_hoverLog && was != g_line[hover].entry)
+                    printf("icftd: hover %d,%d -> entry %d of menu %d (was %d) at frame %lu\n",
+                           (int)g_ptrX, (int)g_ptrY, (int)g_line[hover].entry, menu, (int)was,
+                           (unsigned long)m->frame);
+            }
+        }
+    }
+    g_lineCount = 0;
+}
+
+/* The pointer owns the aim only while one of the two scenes is running, and only after it moved
+ * while that scene was up. */
+static int aim_live(rt_machine *m)
+{
+    return (g_antFrame != 0 && m->frame - g_antFrame <= ANT_IDLE_FRAMES) ||
+           (g_fireFrame != 0 && m->frame - g_fireFrame <= FIRE_IDLE_FRAMES);
+}
+
+/* The pointer may take the gun, a held direction takes it back. */
+static void aim_input(rt_machine *m, int moved, int stickHeld)
+{
+    int was = g_aimOwn;
+
+    if (!aim_live(m)) { g_aimOwn = 0; return; }
+    if (moved) g_aimOwn = 1;
+    if (stickHeld) g_aimOwn = 0;
+    if (g_hoverLog && was != g_aimOwn)
+        printf("icftd: %s aims at frame %lu\n", g_aimOwn ? "the pointer" : "the stick",
+               (unsigned long)m->frame);
+}
+
+static void aim_write(rt_machine *m, s32 x, s32 y)
+{
+    rt_write16(&m->mem, RC_ADDR(AIM_AXIS_X), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_AXIS_Y), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_ACC_X), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_ACC_Y), 0);
+    rt_write16(&m->mem, RC_ADDR(AIM_X), (u16)x);
+    rt_write16(&m->mem, RC_ADDR(AIM_Y), (u16)y);
+}
+
+/* `v` (0..vmax) mapped onto lo..hi (the scene's own travel). */
+static s32 aim_span(s32 v, s32 vmax, s32 lo, s32 hi)
+{
+    if (v < 0) v = 0;
+    if (v > vmax) v = vmax;
+    return lo + (v * (hi - lo)) / vmax;
+}
+
+/* FUN_000086a0's entry: the pointer is the shot point, so the aim - the pistol - is that point
+ * 0x1b right and 0x3a down, and the crosshair lands under the mouse. */
+static void aim_shot(rt_machine *m)
+{
+    if (!g_aimOwn || !g_ptrKnown) return;
+    aim_write(m, (s32)g_ptrX - ANT_SHOT_DX, (s32)g_ptrY - ANT_SHOT_DY);
+}
+
+/* FUN_0000b97c's entry: the pointer's screen spans the hand's own travel rectangle. */
+static void aim_spray(rt_machine *m)
+{
+    if (!g_aimOwn || !g_ptrKnown) return;
+    aim_write(m, aim_span(g_ptrX, SCREEN_W - 1, FIRE_MIN_X, FIRE_MAX_X),
+                 aim_span(g_ptrY, SCREEN_H - 1, FIRE_MIN_Y, FIRE_MAX_Y));
+}
+
+/* The save picker's once-per-frame work: follow the pointer, and act on a click. A slot sets
+ * m->saveSlot and closes the list; Back only closes it. The engine's save path runs at the next
+ * map update (save_mark_click), so the chosen slot is the one DSAVE: resolves to. */
+static void save_ui_frame(rt_machine *m, int click)
+{
+    if (!g_saveUi.open) return;
+    save_ui_pointer(&g_saveUi, g_ptrKnown, g_ptrX, g_ptrY);
+    if (!click) return;
+
+    if (g_saveUi.back_hover)
+    {
+        save_ui_close(&g_saveUi);
+        s_clickHeld = 1;               /* the press that chose Back must not reach the map */
+        printf("save: slot picker closed (frame %lu)\n", (unsigned long)m->frame);
+        return;
+    }
+    if (g_saveUi.hover >= 0)
+    {
+        m->saveSlot = g_saveUi.hover + 1;
+        save_ui_close(&g_saveUi);
+        s_saveCommit = 1;
+        printf("save: save slot %d selected (frame %lu)\n", m->saveSlot,
+               (unsigned long)m->frame);
+    }
+}
+
+/* The map is the only screen that can service a click. If it left while the list was up (a queued
+ * panel or a timer ended the scene), close the list rather than leaving it over the next screen
+ * with no seam to consume the choice. */
+static void save_ui_watch(rt_machine *m)
+{
+    if (!g_saveUi.open && !s_saveCommit) return;
+    if (g_mapFrame != 0 && m->frame <= g_mapFrame + MAP_IDLE_FRAMES) return;
+    if (g_saveUi.open)
+        printf("save: slot picker closed (the map left, frame %lu)\n",
+               (unsigned long)m->frame);
+    save_ui_close(&g_saveUi);
+    s_saveCommit = 0;
+}
+
+/* The arrow is a room-screen feature; the map, the phone and the two aiming scenes draw or move
+ * their own mark under the pointer, so it stays hidden there. */
+static void pointer_present(rt_machine *m)
+{
+    int room, menu, map, phone, show;
+
+    if (!g_portArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
+    /* The save picker is a pointer screen: its arrow is drawn over the popup by save_ui_draw. */
+    if (g_saveUi.open) { rt_pointer_at(g_ptrX, g_ptrY); return; }
+    room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
+    menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
+    map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
+    phone = g_phoneFrame != 0 && m->frame - g_phoneFrame <= MAP_IDLE_FRAMES;
+    show = (room || menu) && !map && !phone && !aim_live(m);
+    if (show) rt_pointer_at(g_ptrX, g_ptrY);
+    else rt_pointer_hidden();
+    if (g_hoverLog && show && s_ptrShown != 1)
+    {
+        s_ptrShown = 1;
+        printf("icftd: pointer shown at %d,%d on a room screen (frame %lu)\n", (int)g_ptrX,
+               (int)g_ptrY, (unsigned long)m->frame);
+    }
+    else if (g_hoverLog && !show) s_ptrShown = 0;
+}
+
+/* The aimed scenes' mark: reads the aim words at the frame boundary, before the present composes
+ * the overlay, so the crosshair is the point the engine will read on the next trigger pull. */
+static void crosshair_present(rt_machine *m)
+{
+    s16 aimX, aimY;
+
+    if (!g_portArm || g_antFrame == 0 || m->frame - g_antFrame > ANT_IDLE_FRAMES)
+    {
+        rt_crosshair_hidden();
+        return;
+    }
+    aimX = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_X));
+    aimY = (s16)rt_read16(&m->mem, RC_ADDR(ANT_AIM_Y));
+    rt_crosshair_at((s16)(aimX + ANT_SHOT_DX), (s16)(aimY + ANT_SHOT_DY));
+}
+
+/* The per-screen seams this front end installs. All are played-game features: the cheat does
+ * nothing unless a request is pending, the camera writes only while the hospital's own draw runs,
+ * the mark is only moved when the map's own SVGM node is blitted, and the pointer seams return at
+ * once while g_ptrKnown is clear. */
 static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
+    /* The map's script: the pointer seam, and the screen Ctrl+T's clock freeze belongs to. */
+    if (host_time_freeze_map_pc(pc)) { map_pointer(m); return; }
     if (host_cheat_entry(m, pc)) return;
     if (host_hospital_camera_entry(m, pc)) return;
-    host_save_button_entry(c, m, pc);
+    if (host_save_button_entry(c, m, pc)) return;
+    if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
+    if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
+    if (pc == RC_ADDR(MAP_EVENT_PC)) { save_mark_click(m); return; }
+    if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
+    if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
+    if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
+    if (pc == RC_ADDR(AIM_SPRAY_PC))
+    {
+        g_fireFrame = m->frame;
+        aim_spray(m);
+        return;
+    }
+    if (pc == RC_ADDR(ROOM_DRAW_PC) || pc == RC_ADDR(ROOM_UPDATE_PC)) g_roomFrame = m->frame;
 }
 
 static void dos_input(rt_machine *m)
@@ -235,16 +937,75 @@ static void dos_input(rt_machine *m)
     }
     /* Left Ctrl+W (the minigame cheat), and --cheat as the scripted form of the same request. */
     host_cheat_input(m, &in);
+    /* Left Ctrl+T on the situation map freezes the game's clock (src\host\time_freeze.c). */
+    host_time_freeze_input(m, &in,
+                           g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES);
     if (g_cheatFrame != 0 && !g_cheatDone && m->frame >= g_cheatFrame)
     {
         g_cheatDone = 1;
         printf("icftd: Ctrl+W at frame %lu\n", (unsigned long)m->frame);
         host_cheat_force(m);
     }
-    if (in.pressed[KEY_ESCAPE]) host_title_escape(m);
+    if (in.pressed[KEY_ESCAPE])
+    {
+        /* Escape closes the picker first; only outside it is the game's restart. */
+        if (g_saveUi.open)
+        {
+            save_ui_close(&g_saveUi);
+            printf("save: slot picker closed (escape, frame %lu)\n", (unsigned long)m->frame);
+        }
+        else host_title_escape(m);
+    }
+
+    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
+                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
+    if (g_portArm)
+    {
+        int moved, click;
+        /* A scripted pointer stands in for the platform's: it feeds the same state the seams read.
+         * A held direction (keyboard or a scripted stick) takes the pointer off the cursor. */
+        if (g_ptrScriptCount > 0)
+        {
+            moved = pointer_script_tick(m) > 0;
+            click = g_ptrButton && !g_ptrButtonPrev;
+            g_ptrButtonPrev = g_ptrButton;
+        }
+        else
+        {
+            pointer_input(&in, joy != 0 || m->joy0 != 0);
+            moved = in.mouse_moved != 0;
+            click = in.mouse_left_pressed != 0;
+            g_ptrButtonPrev = 0;
+        }
+        if (s_clickHeld && !in.mouse_left && !g_ptrButton) s_clickHeld = 0;
+        save_ui_frame(m, click);
+        if (click) save_click_note(m);
+        save_ui_watch(m);
+        /* The two aiming scenes take the aim from the pointer once it moved over them. */
+        aim_input(m, moved, joy != 0 || m->joy0 != 0);
+        /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
+         * owns nothing, so the next screen starts with the game's own placement. */
+        if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
+            g_ptrActive = 0;
+        pointer_present(m);
+    }
+    if (input_active())
+    {
+        /* A frame-indexed script owns fire and the stick (input_apply already wrote them); the
+         * keyboard only quits. A scripted pointer's button is /FIRE too, the same level the
+         * platform's button is in a played game, so a screen that waits for the button (the
+         * engine's save prompt) can be played headless. The picker still holds both still while it
+         * owns the input. */
+        m->fireDown = (u8)((m->fireDown || g_ptrButton) ? 1u : 0u);
+        if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
+        plat_frame_sync();
+        return;
+    }
 
     /* Save slot: F1..F4 pick one, F5 steps to the next. The engine writes its save into DSAVE:,
-     * which the runtime maps onto SAVES\SLOT<N>, so the overlay is the only feedback. */
+     * which the runtime maps onto SAVES\SLOT<N>, so the overlay is the only feedback. The picker's
+     * own choice owns the slot while it is up. */
+    if (!save_owns_input(m))
     {
         int slot = 0;
         if (in.pressed[KEY_F1]) slot = 1;
@@ -262,10 +1023,9 @@ static void dos_input(rt_machine *m)
             rt_osd_text(m, msg, EMU_OSD_FRAMES);
         }
     }
-    m->fireDown = (u8)(in.down[KEY_FIRE] ? 1u : 0u);
-    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
-                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
+    m->fireDown = (u8)((in.down[KEY_FIRE] || in.mouse_left || g_ptrButton) ? 1u : 0u);
     m->joy0 = joy;
+    if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
     {
         /* Time spent waiting for the next frame slot. It is the difference between the pacing
          * interval --perf reports and the work the frame actually costs, so without it the split
@@ -275,6 +1035,51 @@ static void dos_input(rt_machine *m)
         if (g_perf) g_perfWait += plat_ticks_ms() - w0;
     }
 }
+/* Writes the composed raster as a 24-bit BMP (bottom-up); --shot makes screen content testable.
+ * The picture is the runtime framebuffer, which already holds the OSD, the pointer and the
+ * crosshair. Machine state remains the acceptance; this is only for the port's own surfaces. */
+static void shot_write(const char *path)
+{
+    const u8 *fb = rt_gfx_framebuffer();
+    const u8 *pal = rt_gfx_palette();
+    int w = rt_gfx_width(), h = rt_gfx_height();
+    u32 rowBytes, dataSize;
+    u8 hdr[54];
+    static u8 row[EMU_FB_MAX_W * 3 + 4];
+    FILE *f;
+    int x, y;
+
+    if (fb == 0 || pal == 0 || w <= 0 || h <= 0) return;
+    rowBytes = (u32)((w * 3 + 3) & ~3);
+    dataSize = rowBytes * (u32)h;
+    f = fopen(path, "wb");
+    if (f == 0) return;
+    memset(hdr, 0, sizeof hdr);
+    hdr[0] = 'B'; hdr[1] = 'M';
+#define PUT32(o, v) do { u32 v_ = (u32)(v); hdr[o] = (u8)v_; hdr[o+1] = (u8)(v_ >> 8); \
+                         hdr[o+2] = (u8)(v_ >> 16); hdr[o+3] = (u8)(v_ >> 24); } while (0)
+    PUT32(2, 54 + dataSize); PUT32(10, 54); PUT32(14, 40);
+    PUT32(18, w); PUT32(22, h); PUT32(34, dataSize);
+    PUT32(38, 2835); PUT32(42, 2835);
+#undef PUT32
+    hdr[26] = 1;                            /* planes */
+    hdr[28] = 24;                           /* bits per pixel */
+    fwrite(hdr, 1, sizeof hdr, f);
+    for (y = h - 1; y >= 0; y--)
+    {
+        memset(row, 0, rowBytes);
+        for (x = 0; x < w; x++)
+        {
+            u32 p = (u32)fb[(u32)y * EMU_FB_MAX_W + x] * 3;
+            row[x * 3 + 0] = pal[p + 2];
+            row[x * 3 + 1] = pal[p + 1];
+            row[x * 3 + 2] = pal[p + 0];
+        }
+        fwrite(row, 1, rowBytes, f);
+    }
+    fclose(f);
+}
+
 static void dos_present(rt_machine *m)
 {
     const u8 *fb = rt_gfx_framebuffer();
@@ -285,6 +1090,10 @@ static void dos_present(rt_machine *m)
     u32 stride, t0 = g_perf ? plat_ticks_ms() : 0;
 
     if (fb == 0 || pal == 0) return;
+    /* The save picker sits on top of the composed frame and under the pointer, so it also reaches
+     * --shot: the runtime framebuffer is what is copied into VGA here. */
+    save_ui_draw(m, &g_saveUi);
+    if (g_shotPath != 0) shot_write(g_shotPath);
     stride = plat_set_framebuffer_size((u32)w, (u32)h);
     dst = plat_framebuffer();
     if (dst == 0) return;
@@ -376,9 +1185,14 @@ int main(int argc, char **argv)
             char *p = argv[++i];
             g_callPc = (u32)strtoul(p, &p, 0);
             g_callFrame = (*p == ':') ? (u32)strtoul(p + 1, &p, 0) : 300u;
-            if (*p == ':') g_callArg = (u32)strtoul(p + 1, 0, 0);
+            if (*p == ':') g_callArg = (u32)strtoul(p + 1, &p, 0);
+            if (*p == ':') g_callRet = (u32)strtoul(p + 1, &p, 0);
             continue;
         }
+        if (strcmp(argv[i], "--mouse") == 0 && i + 1 < argc) { g_mousePath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) { g_inputPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { g_shotPath = argv[++i]; continue; }
+        if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
         if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
         {
             titleKey = (int)strtol(argv[++i], 0, 0);
@@ -393,6 +1207,17 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--cheat") == 0 && i + 1 < argc)
         {
             g_cheatFrame = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
+        if (strcmp(argv[i], "--timefreeze") == 0 && i + 1 < argc)
+        {
+            char *p = argv[++i];
+            while (*p != 0 && g_freezeCount < DOS_TIME_FREEZE_MAX)
+            {
+                g_freezeAt[g_freezeCount++] = (u32)strtoul(p, &p, 0);
+                if (*p == ',') p++;
+                else break;
+            }
             continue;
         }
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
@@ -475,10 +1300,21 @@ int main(int argc, char **argv)
      * the exception: it asks for the title's own menu, so it arms the title in a scripted run too. */
     host_title_key(titleKey);
     host_title_arm((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0);
-    /* The Ctrl+W cheat is a played-game feature: its entry hook runs only in a played run (and in
-     * a run that asked for the cheat with --cheat), never in a measurement. */
-    if (((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
-        g_cheatFrame != 0)
+    if (g_mousePath != 0) pointer_script_load(g_mousePath);
+    /* A scripted stick/fire (src\oracle\input.c): applied at the frame boundary by oracle_tick, so
+     * a screen that waits for the button - the engine's own save prompt - can be played headless. */
+    if (g_inputPath != 0 && !input_load(g_inputPath))
+    {
+        rt_shutdown(&m);
+        plat_shutdown();
+        return 1;
+    }
+    /* The port's per-screen seams (the pointer, the crosshair, the aim) are played-game features:
+     * they run in a played run and in a run that asked for the pointer with --mouse, never in a
+     * measurement. The cheat follows the same rule with its own scripted form. */
+    g_portArm = ((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
+                g_mousePath != 0;
+    if (g_portArm || g_cheatFrame != 0)
         rc_entryHook = dos_entry;
 
     g_cpu = &c;
@@ -502,19 +1338,22 @@ int main(int argc, char **argv)
             if (frameLimit != 0 && m.frame >= frameLimit) break;
             if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
             {
-                /* Enter the routine as its caller would: push the program-end sentinel as the return
-                 * address (and the argument below it), so the run stops when it returns. */
+                /* Enter the routine as its caller would: push the return address (the program-end
+                 * sentinel, or --call's fourth field) and the argument below it. */
                 u32 r[18];
                 g_called = 1;
                 oracle_regs_get(r);
                 r[REGS_A + 7] -= 4;
                 rt_write32(&m.mem, r[REGS_A + 7], g_callArg);
                 r[REGS_A + 7] -= 4;
-                rt_write32(&m.mem, r[REGS_A + 7], EMU_EXIT_PC);
+                rt_write32(&m.mem, r[REGS_A + 7], g_callRet != 0 ? g_callRet : EMU_EXIT_PC);
                 r[REGS_PC] = g_callPc;
                 oracle_regs_set(r);
                 printf("icftd: calling %06lX(%08lX) at frame %lu\n", (unsigned long)g_callPc,
                        (unsigned long)g_callArg, (unsigned long)m.frame);
+                if (g_callRet != 0)
+                    printf("icftd:      returns into the program at %06lX\n",
+                           (unsigned long)g_callRet);
             }
             pc = m68k_get_reg(0, M68K_REG_PC);
             if (host_title_check(&m, pc)) continue;
@@ -609,6 +1448,26 @@ int main(int argc, char **argv)
             g_escDone = (g_escFrame != 0) ? 1 : 0;
             g_cheatDone = (g_cheatFrame != 0) ? 1 : 0;
             host_cheat_reset();
+            /* A fresh game starts with the clock running; the scripted chord has had its frames. */
+            host_time_freeze_reset();
+            g_freezePos = g_freezeCount;
+            /* The pointer seams keep per-screen state; a fresh game must not inherit the old one. */
+            g_ptrKnown = g_ptrActive = g_hoverOwn = 0;
+            g_ptrX = g_ptrY = 0;
+            g_ptrScriptPos = 0;
+            g_ptrButton = 0;
+            g_ptrButtonPrev = 0;
+            save_ui_init(&g_saveUi);
+            s_markClick = 0;
+            s_saveCommit = 0;
+            s_clickHeld = 0;
+            s_markHover = 0;
+            s_fakeView = 0;
+            s_ptrShown = 0;
+            g_mapFrame = g_phoneFrame = g_roomFrame = g_menuFrame = 0;
+            g_antFrame = g_fireFrame = 0;
+            g_aimOwn = 0;
+            g_lineCount = 0;
             g_perfFrames = g_perfTotal = g_perfVblank = g_perfPresent = g_perfWait = 0;
             g_perfCiaInsns = 0;
             g_perfCiaRuns = 0;

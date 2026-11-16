@@ -37,7 +37,17 @@
 #define KBC_STATUS  0x64
 #define KBC_DATA    0x60
 
-static u8   g_dac[PAL_ENTRIES * 3];         /* what the DAC currently holds */
+/* The frame the front end composes, and the palette it is drawn with. Neither is the screen:
+ * video memory is written in one place only, by plat_present, which hands the finished frame over
+ * in one copy. Mode 13h's linear layout invites drawing straight into video memory, but the
+ * display reads that memory while the frame is being composed - the title's art arrives first and
+ * its buttons after it, so a frame caught in between shows the art with no buttons, and the Quit
+ * Game notice's white text is caught half written. The Win32 build has the same split (a DIB,
+ * composed off screen, then one BitBlt). */
+static u8   g_screen[SCREEN_PIXELS];        /* the frame plat_framebuffer() hands out */
+static u8   g_pal[PAL_ENTRIES * 3];         /* the palette that frame is drawn with */
+static u8   g_dac[PAL_ENTRIES * 3];         /* what the DAC currently holds, 0xFF = unknown */
+static int  g_palUp;                        /* g_pal differs from what was handed over */
 static int  g_videoMode = 3;                /* mode to restore on shutdown */
 
 static u32  g_period = 23863;               /* PIT counts per frame: 1193182 / 50 */
@@ -49,8 +59,21 @@ static u32  g_frameHz = 50;
 static u8   g_irq1Masked, g_irq1Old;
 static u8   g_keys[KEY_COUNT];
 static u8   g_make[KEY_COUNT];              /* a make code arrived since the last pump */
+static u8   g_dirHeld[4];                   /* per direction: bit 0 the arrow keys, bit 1 W/A/S/D */
 static u8   g_e0;                           /* the previous scancode was the E0 prefix */
 static int  g_e1;                           /* bytes left of an E1 (Pause) sequence */
+
+/* The mouse, through the DOS driver's INT 33h. The driver's own arrow is kept hidden: the runtime
+ * draws the game's arrow into the picture (rt_pointer_at), and a second, always-visible cursor on
+ * top of it would be a different pointer from the one the seams use. */
+static int  g_mouse = -1;                   /* -1 = not probed, 0 = no driver, 1 = there */
+static s16  g_mouseX, g_mouseY;             /* mode 13h pixels, 0..319 / 0..199 */
+static u8   g_mouseButtons;                 /* bit 0 left, bit 1 right */
+static u8   g_mousePrevButtons;
+static u32  g_mouseMoves;                   /* positions reported, for "did it move" */
+static u32  g_mouseMovesSeen;
+
+static void mouse_init(void);
 
 static char g_exeDir[144] = ".";
 
@@ -141,11 +164,39 @@ u32 plat_emulated_ms(void)
 
 /* --- keyboard ------------------------------------------------------------------------------ */
 
+static void kbd_key(int key, int make)
+{
+    if (make) {
+        if (!g_keys[key]) g_make[key] = 1;
+        g_keys[key] = 1;
+    } else {
+        g_keys[key] = 0;
+    }
+}
+
+/* The arrow cluster and W/A/S/D are the same four directions, so one direction can be held by two
+ * physical keys at once: the logical key stays down until the last of them is released, and a
+ * release of one must not report a release of the direction. */
+static void dir_key(int dir, int wasd, int down)
+{
+    u8 bit = (u8)(wasd ? 2 : 1);
+    int key = KEY_UP + dir;
+
+    if (down) g_dirHeld[dir] |= bit;
+    else      g_dirHeld[dir] &= (u8)~bit;
+    if (g_dirHeld[dir] != 0) {
+        if (!g_keys[key]) g_make[key] = 1;
+        g_keys[key] = 1;
+    } else {
+        g_keys[key] = 0;
+    }
+}
+
 /* One scancode sequence. 0xE0 marks the arrow cluster (and the keypad Enter), 0xE1 the six-byte
  * Pause sequence; everything else is the basic set. A make code has bit 7 clear. */
 static void kbd_scancode(u8 sc)
 {
-    int make, key = -1;
+    int make, key = -1, e0;
 
     if (sc == 0xE0) { g_e0 = 1; return; }
     if (sc == 0xE1) { g_e1 = 5; return; }
@@ -153,13 +204,31 @@ static void kbd_scancode(u8 sc)
 
     make = (sc & 0x80u) == 0;
     sc &= 0x7Fu;
-    if (g_e0) {
-        g_e0 = 0;
+    e0 = g_e0;
+    g_e0 = 0;
+
+    /* The four directions come in two scan-code forms (the E0 set and the keypad's own codes) and
+     * are also on W/A/S/D, so they are handled before the key table below. */
+    switch (sc) {
+    case 0x48: dir_key(0, 0, make); return;     /* up */
+    case 0x50: dir_key(1, 0, make); return;     /* down */
+    case 0x4B: dir_key(2, 0, make); return;     /* left */
+    case 0x4D: dir_key(3, 0, make); return;     /* right */
+    default: break;
+    }
+    if (!e0) {
         switch (sc) {
-        case 0x48: key = KEY_UP;    break;
-        case 0x50: key = KEY_DOWN;  break;
-        case 0x4B: key = KEY_LEFT;  break;
-        case 0x4D: key = KEY_RIGHT; break;
+        /* W is a direction and, alone, the title screen's and the cheat's key of its own. */
+        case 0x11: dir_key(0, 1, make); kbd_key(KEY_W, make); return;
+        case 0x1E: dir_key(2, 1, make); return;     /* A */
+        case 0x1F: dir_key(1, 1, make); return;     /* S */
+        case 0x20: dir_key(3, 1, make); return;     /* D */
+        default: break;
+        }
+    }
+
+    if (e0) {
+        switch (sc) {
         case 0x1C: key = KEY_ENTER; break;      /* the keypad's Enter */
         default: break;
         }
@@ -173,17 +242,12 @@ static void kbd_scancode(u8 sc)
         case 0x3D: key = KEY_F3;     break;
         case 0x3E: key = KEY_F4;     break;
         case 0x3F: key = KEY_F5;     break;
-        case 0x48: key = KEY_UP;     break;    /* the numeric keypad */
-        case 0x50: key = KEY_DOWN;   break;
-        case 0x4B: key = KEY_LEFT;   break;
-        case 0x4D: key = KEY_RIGHT;  break;
         /* The digit row, 0x02 ('1') .. 0x0A ('9') and 0x0B ('0'). */
         case 0x02: case 0x03: case 0x04: case 0x05: case 0x06:
         case 0x07: case 0x08: case 0x09: case 0x0A:
             key = KEY_1 + (sc - 0x02); break;
         case 0x0B: key = KEY_0;      break;
         /* The title screen's ending keys. */
-        case 0x11: key = KEY_W;      break;
         case 0x2E: key = KEY_C;      break;
         case 0x14: key = KEY_T;      break;
         /* Left Control (0xE0 0x1D, the right-hand one, is not this case). */
@@ -192,12 +256,7 @@ static void kbd_scancode(u8 sc)
         }
     }
     if (key < 0) return;
-    if (make) {
-        if (!g_keys[key]) g_make[key] = 1;
-        g_keys[key] = 1;
-    } else {
-        g_keys[key] = 0;
-    }
+    kbd_key(key, make);
 }
 
 /* Drains everything the 8042 holds. Called from the frame wait as well as from plat_pump, so a
@@ -220,6 +279,7 @@ static void kbd_take(void)
     while ((inp(KBC_STATUS) & 0x01u) != 0) (void)inp(KBC_DATA);   /* stale keys */
     memset(g_keys, 0, sizeof g_keys);
     memset(g_make, 0, sizeof g_make);
+    memset(g_dirHeld, 0, sizeof g_dirHeld);
     g_e0 = 0;
     g_e1 = 0;
 }
@@ -264,6 +324,7 @@ u32 plat_init(const char *title)
     g_msFrac = 0;
     clock_calibrate();
     g_rtc0 = rtc_secs();
+    mouse_init();
     return 1;
 }
 
@@ -302,6 +363,11 @@ u32 plat_fullscreen(void)
     return 0;
 }
 
+u32 plat_has_fullscreen(void)
+{
+    return 0;                                   /* no window mode: no [VIDEO] settings either */
+}
+
 /* No window mode to choose, so the default ini does not carry one. */
 const char *plat_default_ini(void)
 {
@@ -322,9 +388,10 @@ void plat_shutdown(void)
 
 u8 *plat_framebuffer(void)
 {
-    /* Mode 13h is linear 320x200x256, exactly the runtime's chunky layout, so the screen *is* the
-     * framebuffer: a staging buffer plus a 64 KB copy per present bought nothing. */
-    return (u8 *)(u32)VGA_MEMORY;
+    /* Mode 13h is linear 320x200x256, exactly the runtime's chunky layout - but the frame is
+     * composed here and not in video memory, because the display is reading that memory the whole
+     * time the frame is drawn (see g_screen). plat_present puts it there in one copy. */
+    return g_screen;
 }
 
 /* Mode 13h is a fixed 320x200: it has no room for the screen a scene programs when that screen is
@@ -337,32 +404,47 @@ u32 plat_set_framebuffer_size(u32 w, u32 h)
     return 0;
 }
 
-void plat_present(void)
-{
-    /* Nothing to copy: the presenter wrote the screen directly. */
-}
-
 /* Only entries the DAC does not already hold are written: the presenter hands over all 256 every
  * frame, and the palette changes a few times per second at most. g_dac is the truth about the DAC
  * (it starts "unknown" after a mode set), so this is safe for black as well. */
-void plat_set_palette(u32 first, u32 count, const u8 *rgb)
+static void dac_update(void)
 {
     u32 i;
 
-    if (rgb == 0 || first >= PAL_ENTRIES) return;
-    if (first + count > PAL_ENTRIES) count = PAL_ENTRIES - first;
-    for (i = 0; i < count; i++) {
-        u32 idx = first + i;
-        const u8 *src = rgb + i * 3;
-        u8 *dst = g_dac + idx * 3;
+    if (!g_palUp) return;
+    g_palUp = 0;
+    if (memcmp(g_pal, g_dac, sizeof g_pal) == 0) return;
+    for (i = 0; i < PAL_ENTRIES; i++) {
+        const u8 *src = g_pal + i * 3;
+        u8 *dst = g_dac + i * 3;
 
         if (memcmp(dst, src, 3) == 0) continue;
         memcpy(dst, src, 3);
-        outp(0x3C8, idx);
+        outp(0x3C8, i);
         outp(0x3C9, (unsigned)(src[0] >> 2));   /* the DAC is 6 bits per gun */
         outp(0x3C9, (unsigned)(src[1] >> 2));
         outp(0x3C9, (unsigned)(src[2] >> 2));
     }
+}
+
+/* The frame goes to the display whole, with the palette it was drawn with. The DAC first: the
+ * title installs its full 256-entry table every frame and then its own pens over it, and a DAC
+ * write is the one change a running display shows at once, so the table reaches it once, as the
+ * state the frame was drawn with, and never as the intermediate one. */
+void plat_present(void)
+{
+    dac_update();
+    memcpy((void *)VGA_MEMORY, g_screen, SCREEN_PIXELS);
+}
+
+/* The palette is noted, not programmed: an entry written between two composes would be seen on
+ * the frame the display is showing, in the colours of the frame being drawn. */
+void plat_set_palette(u32 first, u32 count, const u8 *rgb)
+{
+    if (rgb == 0 || first >= PAL_ENTRIES) return;
+    if (first + count > PAL_ENTRIES) count = PAL_ENTRIES - first;
+    memcpy(g_pal + first * 3, rgb, (size_t)count * 3);
+    g_palUp = 1;
 }
 
 /* --- Sound Blaster ---------------------------------------------------------------------------
@@ -1203,6 +1285,44 @@ u32 plat_audio_played(void)
     return g_sb.open ? g_sb.written : 0;
 }
 
+/* --- mouse --------------------------------------------------------------------------------- */
+
+/* INT 33h, function 0: reset the driver and read whether one is there. Function 2 hides its
+ * text/graphics cursor; the port's own arrow is part of the picture and is what the seams use. */
+static void mouse_init(void)
+{
+    union REGS r;
+
+    memset(&r, 0, sizeof r);
+    r.x.eax = 0x0000;
+    int386(0x33, &r, &r);                       /* DPMI reflects the driver's real-mode vector */
+    g_mouse = ((r.x.eax & 0xFFFFu) == 0xFFFFu) ? 1 : 0;
+    if (g_mouse) {
+        memset(&r, 0, sizeof r);
+        r.x.eax = 0x0002;
+        int386(0x33, &r, &r);
+    }
+    printf("icftd: mouse driver %s\n", g_mouse ? "present" : "not present");
+}
+
+/* Function 3: position and button state. Mode 13h reports 0..319 x 0..199, the framebuffer's own
+ * pixels; the front end maps that onto the picture when the copper list asks for another size. */
+static void mouse_poll(void)
+{
+    union REGS r;
+
+    if (g_mouse != 1) return;
+    memset(&r, 0, sizeof r);
+    r.x.eax = 0x0003;
+    int386(0x33, &r, &r);
+    if ((s16)(r.x.ecx & 0xFFFFu) != g_mouseX || (s16)(r.x.edx & 0xFFFFu) != g_mouseY) {
+        g_mouseX = (s16)(r.x.ecx & 0xFFFFu);
+        g_mouseY = (s16)(r.x.edx & 0xFFFFu);
+        g_mouseMoves++;
+    }
+    g_mouseButtons = (u8)(r.x.ebx & 0x03u);
+}
+
 /* --- input and clock ----------------------------------------------------------------------- */
 
 u32 plat_pump(input_state *in)
@@ -1210,20 +1330,21 @@ u32 plat_pump(input_state *in)
     u32 i;
 
     kbd_poll();
+    mouse_poll();
     for (i = 0; i < KEY_COUNT; i++) {
         in->down[i] = g_keys[i];
         in->pressed[i] = g_make[i];
         g_make[i] = 0;
     }
-    in->mouse_x = 0;
-    in->mouse_y = 0;
-    in->mouse_left = 0;
-    in->mouse_right = 0;
-    in->mouse_left_pressed = 0;
-    /* DOS has no pointer device in this port: the map's pointer seam stays inert (the Windows
-     * front end is where it was implemented; porting it means reading the DOS mouse driver). */
-    in->mouse_present = 0;
-    in->mouse_moved = 0;
+    in->mouse_x = g_mouseX;
+    in->mouse_y = g_mouseY;
+    in->mouse_left = (u8)(g_mouseButtons & 1u);
+    in->mouse_right = (u8)((g_mouseButtons >> 1) & 1u);
+    in->mouse_left_pressed = (u8)((g_mouseButtons & 1u) && !(g_mousePrevButtons & 1u));
+    in->mouse_present = (u8)(g_mouse == 1);
+    in->mouse_moved = (u8)(g_mouseMoves != g_mouseMovesSeen);
+    g_mousePrevButtons = g_mouseButtons;
+    g_mouseMovesSeen = g_mouseMoves;
     return 1;
 }
 
@@ -1490,6 +1611,33 @@ s32 plat_spawn(const char *exe, const char *args)
     (void)exe;
     (void)args;
     return -1;                                  /* nothing spawns anything in this build */
+}
+
+/* Every file directly in dir (8.3 names, like everything else this layer sees). */
+u32 plat_dir_files(const char *dir, plat_dir_visit visit, void *ctx)
+{
+    char pattern[160];
+    struct find_t ff;
+    u32 n = 0;
+
+    if (dir == 0 || *dir == 0 || visit == 0) return 0;
+    if (strlen(dir) + 5 >= sizeof pattern) return 0;
+    sprintf(pattern, "%s\\*.*", dir);
+    if (_dos_findfirst(pattern, 0x3Fu, &ff) != 0) return 0;
+    do {
+        if ((unsigned char)ff.attrib & _A_SUBDIR) continue;
+        visit(ff.name, (u32)ff.size, ctx);
+        n++;
+    } while (_dos_findnext(&ff) == 0);
+    _dos_findclose(&ff);
+    return n;
+}
+
+/* No message box in a DOS program: the console, which is where a started program writes. */
+void plat_message(const char *title, const char *text)
+{
+    if (title != 0 && *title != 0) printf("\n%s\n", title);
+    if (text != 0) printf("%s\n", text);
 }
 
 void plat_set_title(const char *text)

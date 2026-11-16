@@ -7,6 +7,9 @@ This is the shipped half of the project. It contains **no 68000 core**: it is th
 types.h          fixed-width types, no OS headers
 platform.h       the platform contract: window, input, audio, files, heap, 50 Hz clock
 config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
+assets.c         the first start: the player's three floppy images -> the extracted tree in
+                 `export\` (an AmigaDOS OFS reader and the hunk flattening of the exporter, in C,
+                 because a release cannot run the .NET tool)
 plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files,
                  plus border.c: the artwork the fullscreen paints in the bars beside the picture)
 plat/dos/        the other: VGA mode 13h, the VGA DAC, polled 8042 scancodes, the 8254 frame clock
@@ -26,8 +29,9 @@ amiga/audio.c    Paula (4 DMA channels, AUDxLC/LEN/PER/VOL, DMACON) mixed to the
 uses (`src\host\dos_main.c`, `tools\build-dos.ps1`):
 
 * **Display**: the runtime framebuffer is 8-bit chunky, which is exactly VGA mode 13h (320x200, one
-  byte per pixel) - the platform copies it to `A0000` and uploads the palette to the DAC (6 bits per
-  gun, only the entries that changed).
+  byte per pixel) - the platform composes the frame in RAM and `plat_present` copies it to `A0000`
+  in one pass, uploading the palette to the DAC first (6 bits per gun, only the entries that
+  changed). Drawing straight into video memory would put every half-drawn frame on the display.
 * **Keyboard**: INT 16h only reports presses, but the engine needs held directions and the moment
   fire is *released*, so IRQ1 is masked and the 8042's make/break scancodes are polled (in
   `plat_pump` and while waiting for the next frame). The mask is restored on shutdown.
@@ -52,6 +56,15 @@ fullscreen=true     ; false = 320x200 window, 1:1; true = whole screen, scaled 4
 sound=10            ; 0..10, 0 = sound effects off
 music=10            ; 0..10, 0 = music off
 ```
+
+It is not read-only: the title's settings menu writes the three values back with
+`rt_config_save_int`, which patches the file in place and re-reads it. Every other line - the
+comments, the order of the sections, keys this build does not know - is written back unchanged, and
+a key the file lacks is added under its section header; a file too large for its own limit is left
+exactly as it was instead of being half written. The values are applied at once, not on the next
+start: the fullscreen toggle calls `plat_set_fullscreen` (the Win32 layer restyles the live window)
+and the volumes call `rt_audio_set_gain`. `plat_has_fullscreen` says whether a platform has a window
+mode at all, which is what keeps the toggle out of the DOS build's menu.
 
 ## Audio
 

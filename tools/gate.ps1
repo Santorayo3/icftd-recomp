@@ -19,46 +19,64 @@
                                 gate cannot see)
       6. title menu            (tools\title-check.ps1 - the port's own digit keys start the
                                 minigames from the title; skipped without that binary)
-      7. map pointer           (tools\mouse-check.ps1 - the port's pointer control of the
+      7. title settings        (tools\settings-check.ps1 - the Settings button opens the view, its
+                                toggle and two volumes change the machine and are written back to
+                                icftd.ini, and Back restores the menu)
+      8. map pointer           (tools\mouse-check.ps1 - the port's pointer control of the
                                 situation map's cursor; skipped without its recorded session)
-      8. room pointer          (tools\pointer-check.ps1 - the pointer shown on a room screen, and
+      9. room pointer          (tools\pointer-check.ps1 - the pointer shown on a room screen, and
                                 a text menu line selected by hovering; skipped without its
                                 recorded session)
-      9. fight crosshair       (tools\crosshair-check.ps1 - the giant-ant fight's aiming aid marks
+     10. fight crosshair       (tools\crosshair-check.ps1 - the giant-ant fight's aiming aid marks
                                 the point the engine's shot test reads)
-     10. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
+     11. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
                                 are the port's artwork, point-sampled, not black)
-     11. loading line          (tools\load-check.ps1 - the "Loading" line covers the engine's own
+     12. loading line          (tools\load-check.ps1 - the "Loading" line covers the engine's own
                                 resource loads and nothing else)
-     12. pointer aim           (tools\aim-check.ps1 - the pointer moves the giant-ant fight's gun
+     13. pointer aim           (tools\aim-check.ps1 - the pointer moves the giant-ant fight's gun
                                 and the fire game's extinguisher, inside the engine's own travel)
-     13. minigame cheat        (tools\cheat-check.ps1 - left Ctrl+W ends each of the seven scenes
+     14. minigame cheat        (tools\cheat-check.ps1 - left Ctrl+W ends each of the seven scenes
                                 in the words its own success path writes, and no run without it
                                 changes)
-     14. hospital camera       (tools\camera-check.ps1 - the escape's view keeps the character at
+     15. hospital camera       (tools\camera-check.ps1 - the escape's view keeps the character at
                                 the middle of the window while it walks, and a measurement run
                                 keeps the original's camera)
+     16. art tables            (tools\art-check.ps1 - every picture the executable draws is what its
+                                tracked PNG generates, and no game-derived art is compiled in)
+     17. map save picker       (tools\save-ui-check.ps1 - a click opens the slot list, the map
+                                stays put, Back resumes, and a slot writes the engine's own save)
+     18. WASD keys             (tools\keys-check.ps1 - A/S/D/W are the same input the arrow
+                                cluster produces, and a direction outlives a release of either key)
+     19. title quit notice     (tools\quit-check.ps1 - a click on Quit Game shows the two requested
+                                lines on black for ten seconds, then the application closes; the
+                                screen is sampled where a desktop gives the game a window)
+
+     20. clock freeze          (tools\time-freeze-check.ps1 - left Ctrl+T on the map holds the
+                                engine's clock: the date and time do not move, a travel adds no
+                                time, the real keys do it in a window, a save that carries the pause
+                                word loads running, and no run without the key changes)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-14 cover the port's
-    own surfaces - the presenter, the title menu, the map cursor, the room pointer, the fight's
-    crosshair, the fullscreen border, the loading line, the two aims, the Ctrl+W cheat and the
-    hospital's camera - which have no counterpart in the original to diff against; they can only
-    fail on their own terms.
+    capture or reference-image test can prove a translated function. Steps 5-20 cover the port's
+    own surfaces - the presenter, the title menu and its settings and farewell, the map cursor, the
+    save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
+    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys and the Ctrl+T
+    clock freeze - which have no counterpart in the original to diff against; they can only fail on
+    their own terms.
 
     A change is validated by the check that covers it, not by the whole table: while working, run
     the one step (-Only) or the tier (-Full) the change touches. See docs\port-features.md, "The
     dev loop".
 
 .PARAMETER Full
-    Add the port-feature steps (5-14) to the core steps.
+    Add the port-feature steps (5-20) to the core steps.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
 
 .PARAMETER Only
     Run only the steps whose name matches this wildcard, instead of the tier. A group keyword
-    selects a tier:     'core' (1-4), 'port' (5-14), 'build' (1-2).
+    selects a tier:     'core' (1-4), 'port' (5-20), 'build' (1-2).
     e.g. -Only pointer, -Only recomp, -Only port.
 
 .EXAMPLE
@@ -117,14 +135,20 @@ $all = @(
     @{ Name = 'translated vs interpreted (fixtures)'; Port = $false; Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\recomp-fixtures.ps1 } },
     @{ Name = 'presentation (raster)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\present-check.ps1 } },
     @{ Name = 'title menu (scenes)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\title-check.ps1 } },
+    @{ Name = 'title settings (menu, volumes)';       Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\settings-check.ps1 } },
     @{ Name = 'map pointer (cursor)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\mouse-check.ps1 } },
+    @{ Name = 'map save picker (slots)';              Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\save-ui-check.ps1 } },
     @{ Name = 'room pointer (hover)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 } },
     @{ Name = 'fight crosshair (aim)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 } },
     @{ Name = 'fullscreen border (bars)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 } },
     @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } },
     @{ Name = 'pointer aim (gun, extinguisher)';      Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\aim-check.ps1 } },
     @{ Name = 'minigame cheat (Ctrl+W)';              Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\cheat-check.ps1 } },
-    @{ Name = 'hospital camera (follow)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\camera-check.ps1 } }
+    @{ Name = 'hospital camera (follow)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\camera-check.ps1 } },
+    @{ Name = 'WASD keys (aliases)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\keys-check.ps1 } },
+    @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
+    @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
+    @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } }
 )
 
 if ($Only) {
