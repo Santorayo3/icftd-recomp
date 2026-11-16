@@ -16,6 +16,20 @@ The full plan, the current state (the platform mouse is in and measured) and the
 pointer seams, save picker, loading line, first-start extraction, headless seams - are in
 [`dos-parity.md`](dos-parity.md). Read that before working on `dos_main.c`.
 
+## The DOS build gets the loading line (2026-11-16, latest)
+
+Task 3 of [`dos-parity.md`](dos-parity.md) is in: `dos_main.c` now carries the Windows seam verbatim
+— `g_loadRanges`/`load_pc` (as an entry hook and as the frame boundary's own test), `loading_frame`
+before `oracle_tick`, and the real `host_loading_hold` (the 500-frame hold plus
+`rt_osd_text(m, "Loading", 2)`) that `title.c` already called. Measured headless under DOSBox: the
+line is up/down over the boot load (42..136) and the injected world loop's picture-bank load
+(387..447), and the title's Load Game arms the hold on the prompt frame (37) and gives way at 403
+when the screen it waited for is up; a plain measurement run logs no line. One measurement rule
+came out of it, in the file's "Known traps": an armed DOS run always differs from a plain one in
+~845 bytes of chip RAM even with a still pointer — that is the map mark's placement, not host
+timing (two runs of each kind are byte-identical). Next on that plan: Task 4, the first-start
+extraction into the DOS 8.3 layout.
+
 ## The DOS screen gets whole frames again (2026-11-16, latest)
 
 Asked for: the title menu's buttons and the Quit Game notice's white text flicker on DOS.

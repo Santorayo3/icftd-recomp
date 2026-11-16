@@ -162,8 +162,10 @@ holding the engine's `ICFTD` file, exactly as on Windows.
 menu's buttons, the Load Game list and the Settings view are clicked with the pointer, and on the
 situation map the game's own cursor follows it — pushed past the travel window the picture scrolls,
 and the SAVE GAME mark holds the window still while the pointer is over it. The room screens' arrow,
-the menu-line hover, the fight's crosshair and the two minigame aims are installed as well. The
-save-slot picker and the loading line are the remaining DOS items
+the menu-line hover, the fight's crosshair and the two minigame aims are installed as well, and a
+click on the map's SAVE GAME mark opens the same ten-slot picker Windows has. The engine's long
+screen transitions say `Loading` while the game's own loader runs, as on Windows. The first-start
+extraction into empty folders is the one remaining DOS item
 ([`docs\dos-parity.md`](docs/dos-parity.md)).
 
 **DOSBox settings matter:** `core=dynamic` (the JIT) is roughly ten times faster than `core=normal`,

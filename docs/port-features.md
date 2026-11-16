@@ -300,8 +300,8 @@ Attachment points, in the table's order:
   Ctrl is held, so the chord does not take that menu entry on the way in.
 * `--cheat <frame>` is the scripted form (a test seam like `--esc`): it feeds the same
   `input_state` the platform reports, so a test run exercises the one test that decides the chord.
-* The DOS front end installs the same hook, now shared with the pointer, crosshair and aim seams;
-  only the loading line has no DOS seam yet.
+* The DOS front end installs the same hook, shared with the pointer, crosshair, aim and loading
+  seams.
 
 Measured with `tools\cheat-check.ps1` (it is gate step 13): each scene is started from the title
 (`--titlekey 1..7`), the request is raised at frame 600, and the run's final RAM holds the words
@@ -457,8 +457,12 @@ Measured with `tools\load-check.ps1` (the recordings are game-derived, so it SKI
 
 The seam is inert in a measurement: a run without `--mouse` (or a window) never installs
 `rc_entryHook` for it, logs no line, and its RAM is byte-identical to the armed run's over all 2 MB.
-The DOS front end installs no per-screen hook for the line, so it is inert there — the same gap the
-pointer and the crosshair have.
+
+The DOS front end installs the same seam (`load_pc`, `loading_frame`, `host_loading_hold` in
+`src\host\dos_main.c`, the line on the shared OSD), and it is measured the same way: the boot load
+runs 42..136 and the injected world loop's picture-bank load 387..447, each with the line up and
+down at those frames; the title's Load Game arms the hold on frame 37 and the line gives way at 403
+when the screen it waited for is up. A DOS measurement run (no `--mouse`) logs no line at all.
 
 ## The title's Load Game slot list
 

@@ -43,6 +43,7 @@ scripted form of one (`--mouse`, `--cheat`) — installs `rc_entryHook`; a measu
 | **Task 5 — headless seams** | **Done** | `dos_main.c`: `--mouse <file>` (same file format as `src\host\main.c`; positions are platform pixels and are mapped onto the picture), `--shot <bmp>` (24-bit BMP of the composed raster, written from `dos_present`), `--hoverlog` (the pointer/menu/aim lines the Windows seams print), and `--call`'s fourth field (return address, so the world loop can be entered and left at a sentinel). See Task 5. |
 | **Task 1 — pointer state and seams** | **Done for the map, room, phone, menu-hover, crosshair and both aims; measured on the map** | `dos_main.c`: `g_ptrKnown/g_ptrActive/g_hoverOwn/g_ptrX/g_ptrY`, the mode-13h → picture mapping, `pointer_input`/`aim_input`/`pointer_present`, `crosshair_present` at the frame boundary, and the entry-hook seams for `FUN_00003b1e`, `FUN_00005eac`/`FUN_00005824`, `FUN_00004d76`/`FUN_0001d1da`, `FUN_00005fbe`, `FUN_00007934`, `FUN_000086a0`, `FUN_0000b97c`. Map cursor, window edge and scrolling measured from a RAM dump (below); the resting seams have no DOS measurement yet. |
 | **Task 2 — map save-slot picker** | **Done, measured end to end** | `dos_main.c`: the Windows picker state machine (`save_click_note`, `save_fake_view`, `save_mark_click`, `save_owns_input`, `save_ui_frame`, `save_ui_watch`, `save_ui_draw` in `dos_present`, Escape first). Measured headless (below): mark click opens the list, the map words stay put while it is up, Back restores the pointer-driven cursor, and the chosen slot reaches the engine's own save — `SAVES\SLOT10\ICFTD`, 12 444 bytes. |
+| **Task 3 — loading line** | **Done, measured** | `dos_main.c`: `g_loadRanges`/`load_pc`, `load_pc` as an entry-hook seam, `loading_frame` in `dos_frame` before `oracle_tick`, `host_loading_hold` arming the 10-second hold and `rt_osd_text(m, "Loading", 2)`. Measured headless: line up/down on the boot load (42..136) and the injected world loop's picture-bank load (387..447), the title's Load Game hold up at 37 and down at 403; a plain measurement logs no line. See Task 3. |
 
 **Trap learned the hard way:** in the 32-bit Watcom target `union REGS` has `x` = `DWORDREGS`
 (`eax`/`ebx`/…), not `ax`/`bx`, and `int86()` is not declared for it. Use
@@ -51,9 +52,9 @@ scripted form of one (`--mouse`, `--cheat`) — installs `rc_entryHook`; a measu
 
 ### Not done (the rest of this file)
 
-The DOS front end has a live pointer, the pointer seams and the map's save-slot picker, but **no
-loading line** and **no first-start extraction**. Task 3 (the loading line) and Task 4 (first
-start) are independent of each other; Task 6 is the documentation/verification pass.
+The DOS front end has a live pointer, the pointer seams, the map's save-slot picker and the loading
+line, but **no first-start extraction** (Task 4). Task 4 is independent of everything above;
+Task 6 is the documentation/verification pass.
 
 ---
 
@@ -134,8 +135,9 @@ So anything that must be inside the presented frame goes **before `oracle_tick`*
 **Acceptance:** a DOSBox window with a mouse, on the situation map: moving the mouse moves the
 map's own cursor, pushing past the window edge scrolls, holding a direction yields to the stick;
 the room screens show the game's arrow; hovering a text-menu line selects the same entry the stick
-selects. A headless `--frames` run without a pointer stays byte-identical (same `--dump` RAM) to a
-run with the pointer code compiled but never moved. Do not claim a picture as proof: read the map
+selects. A headless `--frames` run without a pointer keeps the game's own cursor words in a run
+whose pointer never moves (a whole-RAM identity does not hold between a measurement and a played
+run — see Known traps). Do not claim a picture as proof: read the map
 cursor words (`0x28A54/0x28A58`), the picture offset (`0x28A4C/0x28A50`) and the menu's stack
 selection (`A5-6` / `A5-4`) out of a RAM dump, or compare frame records.
 
@@ -257,6 +259,8 @@ and Space or the left button confirms.** A headless run therefore has to schedul
 
 ## Task 3 — the loading line on DOS
 
+**State: done (2026-11-16), measured** (see "Done" at the end of this task).
+
 **Files:** `src\host\dos_main.c`.
 
 Port from `src\host\main.c`:
@@ -277,6 +281,43 @@ framebuffer, so nothing platform-specific is needed.
 frames in and `loading done` after the new screen appears; the world-loop intro transition gets the
 line from `host_loading_hold` on the prompt frame. A run that never plays (no hook) logs no line and
 its RAM dump is unchanged.
+
+### Done (2026-11-16)
+
+What landed, all in `src\host\dos_main.c`: `g_loadRanges` and `load_pc`; the `load_pc(pc)` entry
+hook (`g_loadSeen = m->frame`, checked after the cheat and before the screen seams, as on Windows);
+`g_loadSeen/g_loadStart/g_loadOn/g_loadShown/g_loadHold/g_loadHoldSeen`; `loading_frame` called in
+`dos_frame` before `crosshair_present` and `oracle_tick`, so the line is composed by the present
+inside the tick; `host_loading_hold` replacing the DOS stub — behind `g_portArm` it arms the
+500-frame hold and `rt_osd_text(m, "Loading", 2)`, exactly as `src\host\main.c` does, which is what
+`title.c` already calls on its prompt break and its intro skip; and the restart reset of the six
+words. The line is the runtime's own OSD, so `dos_present` needed no change.
+
+**Measured** under DOSBox (`tools\dos-run.ps1`), headless with `--noaudio`; the log's edges are
+`loading: loading (frame N)` / `loading: loading done (frame N)`:
+
+| run | what the loader was doing | line |
+|---|---|---|
+| `--frames 4000 --call 0x951C:300:0x200:0x83B8 --mouse TRAVEL.MOU` | boot: OPEN, then the boot scene's script | up 42, down 136 |
+| the same run, the injected world loop | `DES4:ANI` picture bank, then the map | up 387, down 447 (the mark was placed at 441) |
+| `--frames 1500 --titlekey 11` (Load Game) | the title's hold at the intro skip/load prompt (frame 37), then `desert.dat` + `ANI` | **up 37** (the hold, on the prompt frame), down 403 |
+| `--frames 700 --call …` (plain, no `--mouse`) | the same work with no seam installed | no line at all |
+
+The third row is the second acceptance: `title: skipping the intro (frame 37)` /
+`title: loading the selected save slot (frame 37)` → the line at 37, i.e. on the prompt frame rather
+than four hundred frames later when the loader's own detection would reach it, and it gives way at
+403 when the screen it waited for is up.
+
+**One caveat, which also explains the Task 1 mystery.** An *armed* DOS run's `--dump` is not
+byte-identical to a plain measurement's: frame 600 of the runs above differs in 845 bytes of chip
+RAM (8-byte records at a 0x2A stride, the shape of the engine's own move-node structures), while the
+map's words agree (cursor 178,119; origin −153,−121; location 23), and two plain runs are
+byte-identical to each other as are two armed runs. The cause is the *run*, not the line: an armed
+run is a played run, so the port's map-mark seam places the SAVE GAME mark's node at the screen
+corner (`save: the map's SAVE GAME mark is pinned to the screen's corner (frame 397)`) and the
+engine's node list follows it. The loading seam itself is host OSD state only, so its inertness is
+measured by the log (a plain run logs no line) — the DOS front end has no frame recorder to isolate
+the line from the other seams a played run installs.
 
 ---
 
@@ -437,8 +478,9 @@ rasters, and the title menu still runs to its script bound (624 frames).
 1. **Task 0 — DOS mouse driver** — *done*.
 2. **Task 1 — pointer state + seams** — *done* (map measured; room/menu/aim seams installed).
 3. **Task 2 — save picker** — depends on Task 1 (map seam + click state). *Done.*
-4. **Task 3 — loading line** — independent of 1/2; can be done in parallel. **Next.**
+4. **Task 3 — loading line** — independent of 1/2. *Done.*
 5. **Task 4 — first-start extraction** — independent of 1/2/3; needs `assets.c` and `dos_main.c`.
+   **Next.**
 6. **Task 5 — `--mouse`/`--shot`/`--input` seams** — *done* (before Tasks 1–3, as planned; `--input`
    added with Task 2).
 7. **Task 6 — verification + docs** — after all.
@@ -448,8 +490,8 @@ A sensible split over sessions:
 | session | work | leaves |
 |---|---|---|
 | A | Task 5 + Task 1 | *done*: pointer works live and headless; map/room/phone/aim/crosshair seams installed, the map's cursor and scrolling measured |
-| B | Task 2 + Task 3 | *done: picker* — opens, freezes the map, Back restores it, the chosen slot reaches the engine's 12 444-byte save; loading line still open |
-| C | Task 3 + Task 4 | loading line and first start done; release can ship empty folders |
+| B | Task 2 + Task 3 | *done: picker and loading line* — picker opens, freezes the map, Back restores it, the chosen slot reaches the engine's 12 444-byte save; the line covers the boot, world-loop and title-hold loads |
+| C | Task 4 | first start done; release can ship empty folders |
 | D | Task 6 | docs and full DOSBox checks |
 
 ---
@@ -498,8 +540,11 @@ A sensible split over sessions:
   `g_ptrActive` on a frame with no map/phone script, so a position applied at frame 400 (before the
   injected world loop has reached the map) is discarded and the map opens with the game's own
   cursor. Move at a frame the screen is demonstrably live (550 in the injected map above).
-* **Read the words the seam claims, not the whole RAM.** A plain DOSBox run and an armed one whose
-  pointer moved have differed in ~850 bytes of display-list-looking data as well as the map words;
-  whether that is the seam's own effect or DOSBox host-time nondeterminism has not been settled.
-  The cursor/origin/location readings are exact and causal; a whole-RAM byte-identity claim between
-  two DOSBox launches is not yet safe to make.
+* **Read the words the seam claims, not the whole RAM.** A plain DOSBox run and an *armed* one
+  always differ in ~845 bytes of chip RAM (8-byte records at a 0x2A stride) even when the pointer
+  never moves. It is settled now: that is the run, not host timing — two plain runs and two armed
+  runs are each byte-identical, and the armed run's own log places the map's SAVE GAME mark at the
+  screen corner (`… pinned to the screen's corner (frame 397)`), which moves the engine's move-node
+  records. Every played run installs that seam, so a DOS armed/plain RAM identity can only prove the
+  *other* seams inert, never the mark's; the loading line's inertness is the log (a plain run logs
+  no line). The cursor/origin/location readings stay exact and causal.

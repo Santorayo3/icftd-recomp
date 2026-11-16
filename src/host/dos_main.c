@@ -140,8 +140,10 @@ static void note_state(rt_machine *m, cpu_t *c)
 }
 
 /* The fight's aiming crosshair is placed at the frame boundary, before the vblank composes the
- * frame (defined with the pointer's seams below). */
+ * frame (defined with the pointer's seams below), and so is the loading line (defined with the
+ * loading-line seam below). */
 static void crosshair_present(rt_machine *m);
+static void loading_frame(rt_machine *m);
 
 /* The vertical blank, reached from inside translated code: the register file goes to the core,
  * the game's own servers run there, and what they leave comes back. */
@@ -167,6 +169,7 @@ static void dos_frame(cpu_t *c, rt_machine *m)
         host_time_freeze_force(m);
     }
     host_time_freeze_frame(m);
+    loading_frame(m);                 /* arms the OSD line while a load runs, before the present */
     crosshair_present(m);             /* composed by the present inside oracle_tick */
     scatter(c, m);
     oracle_tick(m);
@@ -228,13 +231,6 @@ static int g_called;
 void host_regs_sync(rt_machine *m)
 {
     if (g_cpu != 0) gather(g_cpu, m);
-}
-
-/* The OSD loading line's explicit hold (src\host\main.c) has no seam here yet (Task 3 of
- * docs\dos-parity.md): the DOS front end installs no loading-line hook. */
-void host_loading_hold(rt_machine *m)
-{
-    (void)m;
 }
 
 /* --- the pointer, and the screens it drives (port features, src\host\main.c) ------------------
@@ -896,6 +892,101 @@ static void crosshair_present(rt_machine *m)
     rt_crosshair_at((s16)(aimX + ANT_SHOT_DX), (s16)(aimY + ANT_SHOT_DY));
 }
 
+/* --- the loading line (a port feature, src\host\main.c) --------------------------------------
+ * The engine loads a screen before it can show it, and on the original that is a wait with the
+ * previous picture still on the screen: the bank opener reads the resource files, Sms_Load unpacks
+ * a picture bank's RLE tiles and FUN_000205e6 decrunches the LZ banks. A frame is load work when
+ * one of those routines was entered during it, or when the instruction the frame boundary lands on
+ * is inside one (a long decode never dispatches, so the entry hook alone misses most of it). The
+ * line appears after LOAD_SHOW_FRAMES of work and stays through the gaps between one resource and
+ * the next. Nothing of the machine is written, and a measurement run never installs the seam.
+ *
+ * Image offsets of the load-only code, from re\decomp_all\dshell\ALL.c: the SMS loader and its
+ * unpacker, the bank directory search, the bank opener, the asset lookup inside a bank, the read
+ * helper, and the LZ decruncher's state machine and decoder. */
+static const u32 g_loadRanges[][2] =
+{
+    { 0x00000AAAu, 0x00000FA2u },   /* FUN_00000b62, a scene's script: read, then parse it   */
+    { 0x0001EC42u, 0x0001F03Eu },   /* Sms_Load, a picture bank's header and data           */
+    { 0x0002011Au, 0x000201D4u },   /* Sms_Unpack, its RLE decode loop                      */
+    { 0x00020204u, 0x000202C4u },   /* bank directory search and cleanup                    */
+    { 0x000202C4u, 0x000204FAu },   /* FUN_000202c4, the bank opener, and the asset lookup  */
+    { 0x000204FAu, 0x00020518u },   /* FUN_000204fa, read n bytes out of the open bank      */
+    { 0x00020518u, 0x000205E6u },   /* the decruncher's state machine and bit reader        */
+    { 0x000205E6u, 0x000207F0u }    /* FUN_000205e6/FUN_0002069c, the LZ decruncher         */
+};
+#define LOAD_SHOW_FRAMES 25        /* 1/2 s of work before the line appears */
+#define LOAD_IDLE_FRAMES 8         /* ... and how long a gap still belongs to the load */
+#define LOAD_HOLD_FRAMES 500       /* 10 s: a transition the title announced has no such limit */
+
+static u32 g_loadSeen;             /* last frame a load routine ran in          */
+static u32 g_loadStart;            /* first frame of the load now in progress   */
+static int g_loadOn;               /* a load has run within LOAD_IDLE_FRAMES    */
+static int g_loadShown;            /* the line is up (the log's edge)           */
+static int g_loadHold;             /* frames left on an announced transition    */
+static int g_loadHoldSeen;         /* load work has run since the hold was armed */
+
+static int load_pc(u32 pc)
+{
+    int i;
+
+    if (pc < RC_BASE) return 0;
+    pc -= RC_BASE;
+    for (i = 0; i < (int)(sizeof g_loadRanges / sizeof g_loadRanges[0]); i++)
+        if (pc >= g_loadRanges[i][0] && pc < g_loadRanges[i][1]) return 1;
+    return 0;
+}
+
+/* Armed when the title takes the intro away (a menu New Game after its scene ends, or Load Game,
+ * which skips the scene): from that frame the game is building its first screen, which takes
+ * seconds. The line is up at once instead of a few seconds later, and it gives way again as soon
+ * as the load it waited for has run and ended. */
+void host_loading_hold(rt_machine *m)
+{
+    if (!g_portArm) return;
+    g_loadHold = LOAD_HOLD_FRAMES;
+    g_loadHoldSeen = 0;
+    rt_osd_text(m, "Loading", 2);
+}
+
+/* Runs at the frame boundary, before the vblank whose present composes the overlay. */
+static void loading_frame(rt_machine *m)
+{
+    int busy, up;
+
+    if (!g_portArm) return;
+    busy = load_pc(m->pc) || g_loadSeen == m->frame;
+    if (busy)
+    {
+        if (!g_loadOn) { g_loadOn = 1; g_loadStart = m->frame; }
+        g_loadSeen = m->frame;
+    }
+    else if (g_loadOn && m->frame - g_loadSeen > LOAD_IDLE_FRAMES)
+        g_loadOn = 0;
+
+    if (g_loadHold > 0)
+    {
+        if (busy) g_loadHoldSeen = 1;
+        else if (g_loadHoldSeen && !g_loadOn) g_loadHold = 0;   /* the load it waited for ended */
+        else g_loadHold--;
+    }
+
+    up = g_loadHold > 0 || (g_loadOn && m->frame - g_loadStart >= LOAD_SHOW_FRAMES);
+    if (up != g_loadShown)
+    {
+        g_loadShown = up;
+        printf("loading: %s (frame %lu)\n", up ? "loading" : "loading done",
+               (unsigned long)m->frame);
+    }
+    if (!up) return;
+
+    /* A slot message has the corner while it is up; the load line takes it back when that
+     * expires. Re-arming every frame keeps it up for as long as the load runs. */
+    if (m->gfx.osdText[0] == 0 || (s32)(m->gfx.osdTextUntil - m->frame) <= 0 ||
+        strcmp(m->gfx.osdText, "Loading") == 0)
+        rt_osd_text(m, "Loading", 2);
+}
+
 /* The per-screen seams this front end installs. All are played-game features: the cheat does
  * nothing unless a request is pending, the camera writes only while the hospital's own draw runs,
  * the mark is only moved when the map's own SVGM node is blitted, and the pointer seams return at
@@ -905,6 +996,7 @@ static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
     /* The map's script: the pointer seam, and the screen Ctrl+T's clock freeze belongs to. */
     if (host_time_freeze_map_pc(pc)) { map_pointer(m); return; }
     if (host_cheat_entry(m, pc)) return;
+    if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (host_hospital_camera_entry(m, pc)) return;
     if (host_save_button_entry(c, m, pc)) return;
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
@@ -1468,6 +1560,9 @@ int main(int argc, char **argv)
             g_antFrame = g_fireFrame = 0;
             g_aimOwn = 0;
             g_lineCount = 0;
+            g_loadHold = g_loadHoldSeen = 0;
+            g_loadOn = g_loadShown = 0;
+            g_loadSeen = g_loadStart = 0;
             g_perfFrames = g_perfTotal = g_perfVblank = g_perfPresent = g_perfWait = 0;
             g_perfCiaInsns = 0;
             g_perfCiaRuns = 0;
