@@ -59,15 +59,25 @@ static void rt_save_ensure(rt_machine *m, char *out, int max)
     plat_mkdir(out);
 }
 
-/* Whether a slot has ever been written: its directory is the slot, so an empty one is unused. */
+/* Whether a slot holds a save. The directory being empty is the common case, but the engine's own
+ * "no save yet" path writes a one-byte placeholder into the slot before it opens the file for
+ * reading (FUN_0000067c), so a file shorter than EMU_SAVE_BYTES is a placeholder, not a save. */
 int rt_save_slot_empty(const rt_machine *m, int slot)
 {
     const char *dir = m->saveDir != 0 ? m->saveDir : "saves";
     char path[288];
+    plat_file *f;
+    u32 size;
 
-    if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 24 >= (int)sizeof(path)) return 1;
+    if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 32 >= (int)sizeof(path)) return 1;
     sprintf(path, "%s\\%s\\slot%d", plat_exe_dir(), dir, slot);
-    return (int)plat_dir_empty(path);
+    if (plat_dir_empty(path)) return 1;
+    sprintf(path, "%s\\%s\\slot%d\\ICFTD", plat_exe_dir(), dir, slot);
+    f = plat_open(path);
+    if (f == 0) return 1;
+    size = plat_size(f);
+    plat_close(f);
+    return size < EMU_SAVE_BYTES ? 1 : 0;
 }
 
 /* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3

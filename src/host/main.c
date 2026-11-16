@@ -15,7 +15,7 @@
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--mouse <file>] [--hoverlog]
- *                [--cameralog]
+ *                [--cameralog] [--savelog]
  *
  * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
  * title screen, space or the left
@@ -37,6 +37,8 @@
  * request once per update, so the port's centred camera is a list of numbers instead of a picture
  * (a played run, or the headless --mouse form of one: a measurement installs no seam and prints
  * nothing).
+ * `--savelog` does the same for the situation map's SAVE GAME mark: the node's own position, the
+ * screen's corner it is moved to and the surface it is drawn on, once per placement.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
  * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
@@ -64,14 +66,15 @@
 #include "title.h"
 #include "cheat.h"
 #include "hospital_camera.h"
+#include "save_button.h"
 
 #define DEFAULT_IMAGE "export\\code\\dshell4k\\dshell.img"
 #define HS_BASE       EMU_IMAGE_BASE
 #define HS_ENTRY      EMU_ENTRY
 #define HS_A4         EMU_A4
 
-/* How many save slots the game exposes: saves\slot1 .. slot4. */
-#define MAX_SAVE_SLOTS 4
+/* How many save slots the game exposes: saves\slot1 .. slot10, the ten the title lists. */
+#define MAX_SAVE_SLOTS 10
 
 static void gather(cpu_t *c, rt_machine *m)
 {
@@ -354,7 +357,9 @@ static const u16 g_joyDirs[16] =
  * The pointer drives that same state absolutely: the cursor is pinned under it (hot spot added)
  * every update, and while the pointer is pushed past the travel window the cursor stays on the
  * edge it hit while the picture scrolls under it. That scroll rate is this seam's own - the
- * engine's accumulator cannot carry it (see map_pointer).
+ * engine's accumulator cannot carry it (see map_pointer). The exception is the screen's SAVE GAME
+ * mark: while the pointer is over the mark the window holds still, and a held fire is reported at
+ * the mark's own map point so the script's click test takes its save path.
  * Only those words are written, and only while the map's script is the one being called, so no
  * other screen and no headless/scripted measurement (where this is not armed at all) can see it. */
 #define MAP_SCRIPT_PC  0x00003B1Eu
@@ -374,6 +379,9 @@ static const u16 g_joyDirs[16] =
 #define MAP_CUR_Y      0x00028A58u
 #define MAP_AXIS_X     0x00026892u /* word, the decoded stick, +1 right / -1 left */
 #define MAP_AXIS_Y     0x00026894u /* ... +1 down / -1 up */
+#define MAP_FIRE_HELD  0x00026896u /* word, the decoded fire level (the test's own word) */
+#define MAP_PANEL      0x00028C1Cu /* word, a panel or menu is up */
+#define MAP_EVENT_PC   0x0001061Cu /* FUN_0001061c: the map's tail, just before its save test */
 /* The map's script runs every few vblanks (its loop flips buffers and waits), so "the map is not
  * on screen" cannot be decided on one frame: this many frames without a script call means the
  * screen is gone, and the next one starts with the game's own cursor placement again. */
@@ -461,23 +469,83 @@ static void pointer_input(const input_state *in, int stickHeld)
     }
 }
 
+/* Whether the pointer is over the screen rectangle the map's SAVE GAME mark was drawn in. */
+static int save_mark_under_pointer(void)
+{
+    s32 mx, my, mw, mh;
+
+    if (!host_save_button_rect(&mx, &my, &mw, &mh)) return 0;
+    return g_ptrX >= mx && g_ptrX < mx + mw && g_ptrY >= my && g_ptrY < my + mh;
+}
+
+static int s_markHover;            /* the pointer is over the SAVE GAME mark */
+static int s_fakeView;             /* the map's own words were replaced for a click */
+static s32 s_trueOrgX, s_trueOrgY; /* ... the picture offset before that */
+
+/* A click on the mark. The map's own test (FUN_00003B1E, 0x40dc) looks for the cursor at the mark's
+ * *map* position - "cursor - offset inside 0x3c x 0x29" with the fire held - because that is where
+ * the original drew it. The port's mark is on the screen, so while the player holds fire over it
+ * the seam presents the view the original had there for the one update that is left: the picture's
+ * offset at 0 and the cursor at the map's top left. It runs at FUN_0001061C's entry -
+ * after this update's picture, arrow and nodes are drawn, right before the test - so none of it
+ * reaches the screen; the engine then takes its own save path (clear DAT_00026886, end the map
+ * scene, and the world loop's session end + save). If a queued panel opens in the tail instead and
+ * the test is skipped, the offset is put back at the next map update, before that one is drawn. */
+static void save_mark_click(rt_machine *m)
+{
+    if (!s_markHover) return;
+    if ((s16)rt_read16(&m->mem, RC_ADDR(MAP_PANEL)) != 0) return;
+    if ((s16)rt_read16(&m->mem, RC_ADDR(MAP_FIRE_HELD)) == 0) return;
+    s_trueOrgX = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_X));
+    s_trueOrgY = (s32)rt_read32(&m->mem, RC_ADDR(MAP_ORG_Y));
+    rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), 0);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_X), MAP_CUR_MIN);
+    rt_write32(&m->mem, RC_ADDR(MAP_CUR_Y), MAP_CUR_MIN);
+    s_fakeView = 1;
+}
+
 /* Runs at FUN_00003B1E's entry, i.e. once per map update, right before the cursor is moved. */
 static void map_pointer(rt_machine *m)
 {
     s32 x, y, maxY, ox, oy, sx = 0, sy = 0;
 
+    /* The click's view was replaced and the map is still running: put the picture back before this
+     * update draws it (a new map session starts with the game's own placement instead). */
+    if (s_fakeView)
+    {
+        if (m->frame - g_mapFrame <= MAP_IDLE_FRAMES)
+        {
+            rt_write32(&m->mem, RC_ADDR(MAP_ORG_X), (u32)s_trueOrgX);
+            rt_write32(&m->mem, RC_ADDR(MAP_ORG_Y), (u32)s_trueOrgY);
+        }
+        s_fakeView = 0;
+    }
     g_mapFrame = m->frame;
-    if (!g_ptrKnown || !g_ptrActive) return;
+    if (!g_ptrKnown || !g_ptrActive) { s_markHover = 0; return; }
 
     maxY = (s16)rt_read16(&m->mem, RC_ADDR(MAP_MAX_Y));
     x = (s32)g_ptrX + MAP_HOT_X;
     y = (s32)g_ptrY + MAP_HOT_Y;
-    /* Pushed past the travel window: the cursor stops at the edge it hit and the picture moves
-     * under it. Back inside, it just follows the pointer again. */
-    if (x < MAP_CUR_MIN)       { sx = -MAP_SCROLL; x = MAP_CUR_MIN; }
-    else if (x > MAP_CUR_MAXX) { sx =  MAP_SCROLL; x = MAP_CUR_MAXX; }
-    if (y < MAP_CUR_MIN)       { sy = -MAP_SCROLL; y = MAP_CUR_MIN; }
-    else if (y > maxY)         { sy =  MAP_SCROLL; y = maxY; }
+    s_markHover = save_mark_under_pointer();
+    if (s_markHover)
+    {
+        /* The SAVE GAME mark owns the pointer while it is over it. Pushing past the travel window
+         * used to scroll the picture, which carried the mark away from the pointer, so the mark
+         * holds the window still: the cursor stops inside it exactly as at any other edge, and a
+         * held fire is the mark's own click (save_mark_click). */
+        if (x < MAP_CUR_MIN) x = MAP_CUR_MIN; else if (x > MAP_CUR_MAXX) x = MAP_CUR_MAXX;
+        if (y < MAP_CUR_MIN) y = MAP_CUR_MIN; else if (y > maxY) y = maxY;
+    }
+    else
+    {
+        /* Pushed past the travel window: the cursor stops at the edge it hit and the picture moves
+         * under it. Back inside, it just follows the pointer again. */
+        if (x < MAP_CUR_MIN)       { sx = -MAP_SCROLL; x = MAP_CUR_MIN; }
+        else if (x > MAP_CUR_MAXX) { sx =  MAP_SCROLL; x = MAP_CUR_MAXX; }
+        if (y < MAP_CUR_MIN)       { sy = -MAP_SCROLL; y = MAP_CUR_MIN; }
+        else if (y > maxY)         { sy =  MAP_SCROLL; y = maxY; }
+    }
 
     /* The cursor itself is in screen coordinates (the map picture's offset is 0x28A4C/0x28A50, and
      * FUN_00003B1E converts with cursor - offset when it tests a location). The stick is left idle:
@@ -617,6 +685,7 @@ static u32 g_roomFrame;            /* last frame a location view was drawn or up
 static u32 g_menuFrame;            /* last frame a text menu flipped */
 static int g_hoverLog;             /* --hoverlog: the lines recorded and what the pointer picks */
 static int g_cameraLog;            /* --cameralog: the hospital camera, one line per update */
+static int g_saveLog;              /* --savelog: the map's SAVE GAME mark, one line per placement */
 static int s_ptrShown;             /* --hoverlog: the last reported pointer visibility */
 
 /* One line of a text menu was queued for drawing: remember where it is and which entry it is. */
@@ -1006,6 +1075,12 @@ static void loading_frame(rt_machine *m)
  * entry and writes only DAT_000297f2. Nothing here runs in a measurement: rc_entryHook is
  * installed in a played run only (g_portArm). */
 
+/* --- the map's SAVE GAME mark (a port feature, src\host\save_button.c) -----------------------
+ * The map's own script puts the mark on the map picture's top-left corner, so it scrolls with
+ * the picture; the port pins it 2 px in from the screen's bottom-right corner at the one blit the
+ * MovE renderer makes for it. rc_entryHook is installed in a played run only (g_portArm), so a
+ * measurement still sees the original's placement. */
+
 /* rc_entryHook: everything the port's per-screen seams need is reached from inside the translated
  * stream (the scene runner's `jsr (A0)` never returns to the front end's own loop), so this is the
  * seam. */
@@ -1014,9 +1089,11 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (host_cheat_entry(m, pc)) return;
     if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (host_hospital_camera_entry(m, pc)) return;
+    if (host_save_button_entry(c, m, pc)) return;
     if (pc == RC_ADDR(TEXT_LINE_PC)) { line_record(c, m); return; }
     if (pc == RC_ADDR(MENU_FLIP_PC)) { menu_flip(c, m); return; }
     if (pc == RC_ADDR(MAP_SCRIPT_PC)) { map_pointer(m); return; }
+    if (pc == RC_ADDR(MAP_EVENT_PC)) { save_mark_click(m); return; }
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
@@ -1320,6 +1397,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
         if (strcmp(argv[i], "--cameralog") == 0) { g_cameraLog = 1; continue; }
+        if (strcmp(argv[i], "--savelog") == 0) { g_saveLog = 1; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
@@ -1574,6 +1652,7 @@ int main(int argc, char **argv)
      * even in a run that is otherwise a measurement, because that run asked for the cheat. */
     if (g_portArm || g_cheatFrame != 0) rc_entryHook = host_entry;
     host_hospital_camera_log(g_cameraLog);
+    host_save_button_log(g_saveLog);
 
     printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
            insns, (long)RC_BASE);

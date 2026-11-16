@@ -44,10 +44,12 @@
  * so the player lands on this title with a fresh game (src\host\main.c, src\host\dos_main.c). The
  * menu itself ignores Escape - the Quit Game button is the way out.
  *
- * The buttons are wired. New Game starts the intro (fire and 0 do the same), Load Game loads the
- * slot the player selected (m->saveSlot, F1..F4/F5 in the game), Quit Game closes the application,
- * and Settings is drawn but not wired yet. A click is `input_state.mouse_left_pressed`, not the
- * game's /FIRE, so a click that misses a button does nothing at all.
+ * The buttons are wired. New Game starts the intro (fire and 0 do the same), Load Game replaces the
+ * buttons with the ten save slots (empty ones grey, a slot with a save white and #00FF00 under the
+ * pointer; a click loads that exact slot) and a Back button that restores the menu, Quit Game
+ * closes the application, and Settings is drawn but not wired yet. A click is
+ * `input_state.mouse_left_pressed`, not the game's /FIRE, so a click that misses a button does
+ * nothing at all.
  *
  * The title also answers the engine's YES/NO load screen, which is why that screen never appears
  * in a played game: the decision it asked for was just made here. The screen is FUN_0001029e,
@@ -286,7 +288,8 @@ static void title_tick(rt_machine *m)
     oracle_tick(m);                      /* vblank, interrupt servers, one frame */
 }
 
-static void title_draw(rt_machine *m, const title_menu *menu)
+/* The art, then either the four buttons or the load game view (slots != 0). */
+static void title_draw(rt_machine *m, const title_menu *menu, const title_slots *slots)
 {
     u8 *dst;
     u32 stride = plat_set_framebuffer_size(SCREEN_W, SCREEN_H);
@@ -299,8 +302,8 @@ static void title_draw(rt_machine *m, const title_menu *menu)
     if (dst == 0) return;
     plat_set_palette(0, TITLE_PAL_ENTRIES, g_titlePal);
     /* The menu's pens sit past the picture's own 69 entries, so the art keeps its colours. */
-    plat_set_palette(TITLE_BUTTON_PEN_OUTLINE,
-                     TITLE_BUTTON_PEN_COUNT - TITLE_BUTTON_PEN_OUTLINE, title_menu_palette());
+    plat_set_palette(TITLE_BUTTON_PEN_SLOT_EMPTY,
+                     TITLE_BUTTON_PEN_COUNT - TITLE_BUTTON_PEN_SLOT_EMPTY, title_menu_palette());
     /* The pointer is the game's own arrow, with the two pens the runtime overlay uses. */
     plat_set_palette(EMU_PEN_POINTER, EMU_PEN_POINTER_COLOURS, rt_pointer_palette());
     for (y = 0; y < TITLE_H && y < SCREEN_H; y++)
@@ -310,7 +313,8 @@ static void title_draw(rt_machine *m, const title_menu *menu)
         for (; x < SCREEN_W; x++) dst[(u32)y * stride + (u32)x] = 0;
     }
     for (; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
-    title_menu_draw(m, menu, dst, stride, SCREEN_W, SCREEN_H);
+    if (slots != 0) title_slots_draw(m, slots, dst, stride, SCREEN_W, SCREEN_H);
+    else title_menu_draw(m, menu, dst, stride, SCREEN_W, SCREEN_H);
 }
 
 /* The debug keys, on the console: the four menu entries are drawn on the title itself, but the
@@ -332,13 +336,16 @@ static int title_play(rt_machine *m)
 {
     input_state in;
     title_menu menu;
+    title_slots slots;
     void (*savedFrame)(rt_machine *) = m->on_frame;
     void (*savedPresent)(rt_machine *) = m->on_present;
     int pick = -1;
+    int showSlots = 0;
 
     if (g_scripted && g_virtualKey < 0) return TITLE_PICK_QUIT;   /* the choice was taken already */
 
     title_menu_init(&menu);
+    title_slots_init(&slots);
     m->on_frame = 0;                     /* the title owns the keyboard ... */
     m->on_present = 0;                   /* ... and the screen */
     while (pick < 0)
@@ -346,54 +353,87 @@ static int title_play(rt_machine *m)
         int i;
 
         if (!plat_pump(&in)) { pick = TITLE_PICK_QUIT; break; }        /* the window was closed */
-        title_menu_pointer(&menu, in.mouse_present, in.mouse_x, in.mouse_y);
-        title_draw(m, &menu);            /* the still, the pointer, and the button it is over */
+        if (showSlots)
+        {
+            title_slots_pointer(&slots, in.mouse_present, in.mouse_x, in.mouse_y);
+            title_draw(m, &menu, &slots);    /* the still, the slots and the Back button */
+        }
+        else
+        {
+            title_menu_pointer(&menu, in.mouse_present, in.mouse_x, in.mouse_y);
+            title_draw(m, &menu, 0);         /* the still, the pointer, and the button it is over */
+        }
         plat_present();
-        if (in.mouse_left_pressed && menu.hover >= 0)
+        if (showSlots)
         {
-            const title_button *b = &menu.buttons[menu.hover];
-
-            if (b->action == TITLE_ACTION_NEW_GAME) pick = TITLE_PICK_INTRO;
-            else if (b->action == TITLE_ACTION_LOAD_GAME)
+            /* Load Game's view: an empty slot is inert, a slot with a save loads itself, and Back
+             * puts the four buttons back. Fire and the scene keys belong to the main menu only. */
+            if (in.mouse_left_pressed)
             {
-                /* The selected slot is the one the engine would write to (F1..F5 in the game).
-                 * An empty one is not a new game: the engine's load would fail and the boot loop
-                 * would start one, so the menu stays up instead. */
-                if (rt_save_slot_empty(m, m->saveSlot))
-                    printf("title: save slot %d is empty (frame %lu)\n", m->saveSlot,
+                if (slots.back_hover)
+                {
+                    showSlots = 0;
+                    menu.hover = -1;
+                    printf("title: back to the main menu (frame %lu)\n",
                            (unsigned long)m->frame);
-                else
+                }
+                else if (slots.hover >= 0)
+                {
+                    m->saveSlot = slots.hover + 1;
                     pick = TITLE_PICK_LOAD;
+                    g_fromMenu = 1;
+                    printf("title: save slot %d selected (frame %lu)\n", m->saveSlot,
+                           (unsigned long)m->frame);
+                }
             }
-            else if (b->action == TITLE_ACTION_QUIT) pick = TITLE_PICK_QUIT;
-            /* TITLE_ACTION_NONE (Settings) is drawn and does nothing yet. */
-            if (pick >= 0) g_fromMenu = 1;
         }
-        if (pick < 0 && (in.pressed[KEY_FIRE] || in.pressed[KEY_0]))   /* fire and 0 are New Game */
+        else
         {
-            pick = TITLE_PICK_INTRO;
-            g_fromMenu = 1;
-        }
-        for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
-            /* Ctrl+W is the minigame cheat (src\host\cheat.c), so it must not also take the W
-             * ending here; W alone still does. */
-            if (in.pressed[g_scenes[i].key] &&
-                !(g_scenes[i].key == KEY_W && in.down[KEY_CTRL]))
-                pick = TITLE_PICK_SCENE + i;
-        if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */
-        {
-            int k = g_virtualKey;
-            g_virtualKey = -1;
-            if (k == 0) pick = TITLE_PICK_INTRO;
-            else if (k <= TITLE_SCENE_COUNT) pick = TITLE_PICK_SCENE + (k - 1);
-            else if (k == TITLE_KEY_LOAD || k == TITLE_KEY_NEW_GAME)
+            if (in.mouse_left_pressed && menu.hover >= 0)
             {
-                /* The Load Game / New Game buttons, for a scripted run: the menu path (the load
-                 * screen is answered by the title), not the original's. */
-                pick = k == TITLE_KEY_LOAD ? TITLE_PICK_LOAD : TITLE_PICK_INTRO;
+                const title_button *b = &menu.buttons[menu.hover];
+
+                if (b->action == TITLE_ACTION_NEW_GAME) pick = TITLE_PICK_INTRO;
+                else if (b->action == TITLE_ACTION_LOAD_GAME)
+                {
+                    /* The slot list replaces the buttons; nothing is loaded until a slot is
+                     * clicked, and an empty one cannot be clicked at all. */
+                    title_slots_load(&slots, m);
+                    showSlots = 1;
+                    printf("title: load game: %d save slot(s) (frame %lu)\n", TITLE_SLOT_COUNT,
+                           (unsigned long)m->frame);
+                }
+                else if (b->action == TITLE_ACTION_QUIT) pick = TITLE_PICK_QUIT;
+                /* TITLE_ACTION_NONE (Settings) is drawn and does nothing yet. */
+                if (pick >= 0) g_fromMenu = 1;
+            }
+            if (pick < 0 && (in.pressed[KEY_FIRE] || in.pressed[KEY_0])) /* fire and 0 are New Game */
+            {
+                pick = TITLE_PICK_INTRO;
                 g_fromMenu = 1;
             }
-            else pick = TITLE_PICK_QUIT;    /* no such key: a scripted run must not wait for one */
+            for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
+                /* Ctrl+W is the minigame cheat (src\host\cheat.c), so it must not also take the W
+                 * ending here; W alone still does. */
+                if (in.pressed[g_scenes[i].key] &&
+                    !(g_scenes[i].key == KEY_W && in.down[KEY_CTRL]))
+                    pick = TITLE_PICK_SCENE + i;
+            if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */
+            {
+                int k = g_virtualKey;
+                g_virtualKey = -1;
+                if (k == 0) pick = TITLE_PICK_INTRO;
+                else if (k <= TITLE_SCENE_COUNT) pick = TITLE_PICK_SCENE + (k - 1);
+                else if (k == TITLE_KEY_LOAD || k == TITLE_KEY_NEW_GAME)
+                {
+                    /* The Load Game / New Game buttons, for a scripted run: the menu path (the
+                     * load screen is answered by the title), not the original's. The scripted
+                     * Load Game takes the active slot directly - a script has no pointer. */
+                    pick = k == TITLE_KEY_LOAD ? TITLE_PICK_LOAD : TITLE_PICK_INTRO;
+                    g_fromMenu = 1;
+                }
+                else pick = TITLE_PICK_QUIT;    /* no such key: a scripted run must not wait for one */
+            }
         }
         if (pick >= 0) break;
         title_tick(m);

@@ -43,9 +43,10 @@
 #include "title.h"
 #include "cheat.h"
 #include "hospital_camera.h"
+#include "save_button.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
-#define MAX_SAVE_SLOTS 4
+#define MAX_SAVE_SLOTS 10
 
 static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
@@ -207,15 +208,16 @@ void host_loading_hold(rt_machine *m)
     (void)m;
 }
 
-/* The per-screen seams this front end needs: the Ctrl+W cheat (src\host\cheat.c) and the
- * hospital escape's camera (src\host\hospital_camera.c). Both are played-game features; the cheat
- * does nothing unless a request is pending, the camera writes only while the hospital's own draw
- * runs. */
+/* The per-screen seams this front end needs: the Ctrl+W cheat (src\host\cheat.c), the hospital
+ * escape's camera (src\host\hospital_camera.c) and the situation map's SAVE GAME mark
+ * (src\host\save_button.c). All are played-game features; the cheat does nothing unless a request
+ * is pending, the camera writes only while the hospital's own draw runs, and the mark is only
+ * moved when the map's own SVGM node is blitted. */
 static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
-    (void)c;
     if (host_cheat_entry(m, pc)) return;
-    host_hospital_camera_entry(m, pc);
+    if (host_hospital_camera_entry(m, pc)) return;
+    host_save_button_entry(c, m, pc);
 }
 
 static void dos_input(rt_machine *m)

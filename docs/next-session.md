@@ -11,7 +11,87 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
-## The hospital's camera follows the character (2026-11-16, latest)
+## The map's SAVE GAME mark is pinned to the screen's corner (2026-11-16, latest)
+
+Asked for: the map's "SAVE GAME" mark currently sits on the top-left of the *map* and scrolls with
+the picture, so it is only visible after scrolling the map to its top-left; it should always be
+shown in the bottom-right corner of the *screen*, 2 px in from the right and bottom edges.
+
+**What it is.** The mark is the original's: the map's own script `FUN_00003B1E` loads the ANI bank's
+`SVGM` once (`DAT_0002682c`) and, on every update while the map is up, hands it to the MovE renderer
+as a child node at the map picture's offset plus `0x20`/`0xa` (`0x3cd2..0x3cf6`). `Move_Walk` adds
+the node's 16.16 position to its base, `Move_DrawNode` turns that into the blit's destination
+(`0x1dbe0`: `screenX = ((x + 0x8000) >> 16) - hotX`), so the mark lands on the map's top-left corner
+and the scroll carries it. (The map creates and frees its sprite nodes inside each update, op 1 … op
+3 at `0x403a`, so nothing of it is left in RAM at a frame boundary.)
+
+**What changed.** `src\host\save_button.c` (new) answers `Move_DrawNode`'s entry: when the node
+being drawn carries the map's `SVGM` asset, the two 16.16 position arguments on its stack frame are
+replaced so the mark's top-left is at the screen's `0x140 - 59 - 2` / `DAT_00026618 - 16 - 2` — the
+map's own screen rectangle (`0x140` is `FUN_00003912`'s clamp; `DAT_00026618` is its height and the
+blitter's clip, the bitmap itself being 336x216). The mark's size comes from the node's
+`srcW`/`srcH`, and the bitmap's hot spot (29,8) is added back because `Move_DrawNode` subtracts it.
+The node's x/y are not touched. Both front ends install it in a played game only (`main.c`'s
+`host_entry`, `dos_main.c`'s `dos_entry`), like the other per-screen seams; `--savelog` prints one
+line per placement.
+
+**Raised 12 px, and the mark's own click.** The map cursor's travel window ends at `DAT_00028A48`
+(`0xC4` here), so the arrow — its tip being the cursor less its `0x12` hot spot — could not reach a
+mark at the very bottom, and pushing the pointer down there scrolled the picture away. The mark now
+sits `SAVE_UP` = 12 px higher (y `0xAA`): its whole height is inside the window for the cursor
+(`0x19..0xC4`) and its top rows for the arrow's tip. While the pointer is over the mark the window
+holds still: the cursor stops inside the travel window as at any other edge, but the picture does
+not move. A held fire there is the mark's own click — the map's test (`FUN_00003B1E`, `0x40dc`)
+looks for the cursor at the mark's *map* position, so at the entry of `FUN_0001061C` (after this
+update's picture, arrow and nodes are drawn, right before the test) the seam presents the view the
+original had there: offset 0 and the cursor at the map's top left. The engine then takes its own
+save path (clear `DAT_00026886`, end the map scene, the world loop's session end + save). If a queued
+panel opens instead and the test is skipped, the offset is put back at the next map update, before
+that one is drawn.
+
+**Measured.** `--input ref\inputs\map-pointer.txt --mouse <pointer script> --savelog`, i.e. the
+headless form of a played run: `mark 59x16 at -150,-119 -> 259,170 (screen 320x200)`, and the mark's
+own three sprite colours occupy exactly x 259..317, y 170..185 over ten consecutive presented frames
+while the map's origin moves (-153,-121 and scrolling) — 2 px clear to the right and 14 px below
+(the 2 px padding plus the 12 px lift). With the pointer parked on the mark the origin stays at
+-153,-121 for forty frames (no scrolling), and a clicked fire there ends the map: the run logs the
+load of the next session (`desert.dat`, then the ANI bank and `loading done`) instead of the map
+continuing. The same script without `--mouse` installs no hook, logs nothing and leaves the mark on
+the map's corner; placing the mark at bitmap 0,0 puts it at the presented 0,0, which is the 1:1
+mapping the corner is measured in. `docs\port-features.md` has the section.
+
+## The title's Load Game lists the ten save slots (2026-11-16, earlier)
+
+Asked for: Load Game must not load the active slot at once. It replaces the four buttons with a list
+of ten lines, "Slot 1" to "Slot 10", empty slots grey and slots with a save white; a slot under the
+pointer turns #00FF00 and a click loads exactly that slot; a Back button at the bottom restores the
+main menu.
+
+**What changed.** `src\host\title_button.c` owns the new view (`title_slots`, `title_slots_load`,
+`title_slots_pointer`, `title_slots_draw`), and `title_play` (`src\host\title.c`) keeps which view is
+up. The slot lines use the game's own disk font in the buttons' column - x 230, ten 8 px rows from
+y 80 to y 152 - and Back is the shipped button art at y 164, where Quit Game was; the four menu
+buttons are simply not drawn while the list is up. Empty slots use palette pen 250
+`(128,128,128)`, occupied ones pen 255 white, and the hover pen 251 is `#00FF00`; the button pens
+moved behind them to 252..255. A click on an occupied slot only sets `m->saveSlot` and takes the
+existing `TITLE_PICK_LOAD` path (skip the intro, answer the engine's load screen, let
+`FUN_0001029e` read `DSAVE:ICFTD`); nothing of the load changed. Empty slots never report a hover
+and their click is inert. `MAX_SAVE_SLOTS` is now 10 in both front ends, so F5 cycles all ten (F1..F4
+still pick 1..4) and `--slot` accepts 1..10. `--titlekey 11` keeps its meaning: a script has no
+pointer, so it loads the active slot directly (and still runs `tools\title-check.ps1` unchanged).
+
+**Measured** (windowed run with posted mouse messages, fullscreen 2048x1152 so client points are
+mapped back into the 4:3 picture): click Load Game at framebuffer 266,113 ->
+`title: load game: 10 save slot(s) (frame 165)`; the pointer over Slot 3 turns it green; click ->
+`title: save slot 3 selected (frame 224)`, `title: loading save slot 3`, `skipping the intro`,
+`loading the selected save slot`, and
+`emu: open "ICFTD" -> ...\bin\win32\saves\slot3\ICFTD (12444 bytes)` at frame 238. Pixel counts in
+the list region: 9 760 px of `(128,128,128)` for the eight empty slots and 3 927 px of white (the
+two occupied labels and Back); with the pointer on Slot 3, 1 151 px of `(0,255,0)` and white falls
+to 2 737. Slots 1 and 3 were the saves already on disk; the click loaded slot 3, not the active
+slot.
+
+## The hospital's camera follows the character (2026-11-16, earlier)
 
 Asked for: in the hospital escape ("Escape Hospital", `FUN_0001819a`) the screen starts to scroll only
 when the character gets close to the window's border; it should scroll whenever the character walks,

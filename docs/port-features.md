@@ -395,6 +395,72 @@ The seam is inert in a measurement: a run without `--mouse` (or a window) never 
 The DOS front end installs no per-screen hook for the line, so it is inert there — the same gap the
 pointer and the crosshair have.
 
+## The title's Load Game slot list
+
+The title menu's Load Game does not load the active slot: it replaces the four buttons with ten
+"Slot N" lines and a Back button, so the slot is picked with the pointer. It is drawn by
+`title_slots_draw` (`src\host\title_button.c`) in the buttons' column (x 230, ten 8 px rows from
+y 80, Back at y 164 on the shipped button art); the label font is the game's own, and the view is
+plain host framebuffer work, so it writes no machine state. An empty slot is pen 250
+`(128,128,128)`, an occupied one pen 255 white, and the pointer over an occupied one pen 251
+`#00FF00`; the menu's button pens moved to 252..255. Empty slots are inert in both hover and click.
+A click on an occupied slot sets `m->saveSlot` and takes the title's existing `TITLE_PICK_LOAD` path
+- the intro skip, the answered load screen and `FUN_0001029e`'s own `DSAVE:ICFTD` read; Back returns
+to the four buttons. `MAX_SAVE_SLOTS` is 10 in both front ends (F1..F4 still pick 1..4, F5 cycles
+all ten, `--slot` accepts 1..10).
+
+Measured in the window with posted mouse messages (fullscreen 2048x1152, so client points map back
+into the 4:3 picture): Load Game logs `title: load game: 10 save slot(s)`, the click on Slot 3 logs
+`title: save slot 3 selected` and then opens `saves\slot3\ICFTD` (12 444 bytes); the list region
+holds 9 760 px of grey and 3 927 px of white with the pointer off the slots, and 1 151 px of
+`(0,255,0)` with the pointer on Slot 3. `--titlekey 11` still loads the active slot directly, so the
+scripted title check is unaffected.
+
+## The situation map's SAVE GAME mark
+
+The map screen shows a "SAVE GAME" mark that belongs to the original: its script
+`FUN_00003B1E` loads the ANI bank's `SVGM` once and, on every update while the map is up, hands it
+to the MovE renderer as a child node whose position is the map picture's offset plus `0x20`/`0xa`
+(`0x3cd2..0x3cf6`). `Move_Walk` adds the node's 16.16 x/y to the base it carries, `Move_DrawNode`
+turns the sum into the blit's screen position (`screenX = ((x + 0x8000) >> 16) - hotX`,
+`0x1dbe0..0x1dbfa`), so the mark sits on the map's own top-left corner and scrolls with the
+picture — it is only seen after pushing the cursor to the map's top-left edge. The map creates and
+frees its sprite nodes inside each update (op 1 … op 3), so the node is not left in RAM.
+
+The port keeps the engine's mark and the engine's blit but pins it to the screen's bottom-right
+corner, 2 px in from the right edge and 2 px above the bottom, then 12 px higher still: the map
+cursor's travel window ends at `DAT_00028A48` (`0xC4`), so an arrow whose tip is the cursor less its
+`0x12` hot spot cannot reach a mark at the very bottom. The seam is `Move_DrawNode`'s entry: when the
+node being drawn carries the map's `SVGM` asset (`DAT_0002682c`), the two 16.16 position arguments on
+the stack are replaced; the node's own x/y, and everything that moves it, are untouched. The screen
+is the map's own rectangle in the bitmap — `0x140` across, the width `FUN_00003912` clamps the
+selection box to, and `DAT_00026618` down, the height it uses and the clip the blitter applies (the
+bitmap itself is 336x216 and only this part is shown). The mark's size is the node's source
+rectangle (`srcW`/`srcH`, 59x16); `Move_DrawNode` subtracts the bitmap's hot spot (29,8), so that is
+added back to the argument.
+
+The pointer seam owns the mark too (`main.c`): while the pointer is over the mark's screen rectangle
+the map window does not scroll — the cursor stops inside the travel window as at any other edge, but
+the picture stays put — and a held fire is the mark's own click. The map's test (`FUN_00003B1E`,
+`0x40dc`: the fire held, the cursor less the picture offset inside `0x3c x 0x29`) can only be
+satisfied at the map's corner, so at the entry of `FUN_0001061C` — after this update's picture, arrow
+and nodes are drawn and right before the test — the seam presents the view the original had there:
+offset 0 and the cursor at the map's top left. The engine then takes its own save path (clear
+`DAT_00026886`, return from the map script, and the world loop's session end + save). A queued panel
+in the tail can skip the test; then the offset is restored at the next map update, before that
+update is drawn.
+
+Measured on `ref\inputs\map-pointer.txt` with `--mouse` (the headless form of a played run) and
+`--savelog`: the mark's node is placed at `-150,-119` in the original and at `259,170` with the
+seam, on a 320x200 screen; the presented frames put the mark's own three sprite colours in exactly
+x 259..317, y 170..185 over ten consecutive frames while the map scrolls (origin −153,−121 and
+moving), so exactly 2 px stay clear to the right and 14 below (the 2 px padding plus the 12 px
+lift). With the pointer parked on the mark the origin does not move at all for forty frames, and a
+clicked fire there ends the map: the run loads the next session (`desert.dat`, the ANI bank,
+`loading done`) instead of the map continuing. A `--input` run without `--mouse` installs no hook
+and logs nothing — the mark is still handed the map's position, and a mark placed at bitmap 0,0
+appears at the presented 0,0, which is the 1:1 mapping the corner is measured in.
+
 ## The fullscreen border
 
 Fullscreen keeps the 320x200 picture at 4:3, so a widescreen window leaves bars either side. They

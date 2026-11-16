@@ -70,7 +70,7 @@ handle the engine has on it.
 | `dos.Open` | honours the mode: `1005` opens for reading, `1006`/`1004` create (`plat_create`) |
 | `dos.Write` (LVO −48) | writes through a real handle and returns the byte count; handle 0 is the console and still echoes to stdout |
 | `DSAVE:` | first-class volume → `<exe dir>\saves\slot<N>\`, both directory levels created on demand (a `Lock` on a missing directory would park the engine in its "insert volume" panel) |
-| slot | `m->saveSlot`, default 1; **F1..F4 pick a slot, F5 cycles** — no ini entry; `--slot N` overrides for tests |
+| slot | `m->saveSlot`, default 1; ten slots in `saves\slot1..10` — **F1..F4 pick 1..4, F5 cycles all ten**, and the title's Load Game lists them for the pointer; no ini entry, `--slot N` overrides for tests |
 | feedback | the OSD: "Save Slot - N" in the top left (2 s) on a slot change, the save icon in the top right (2 s) when a save completes. " **(Empty)**" is appended when the slot's directory holds no file yet (`rt_save_slot_empty` → `plat_dir_empty`), and `--slot N` shows the same line at start-up, so a headless `--shot` can check it. The line is drawn **JAM1** (glyph pixels only): JAM2 with pen 0 used to paint a black box around every letter. |
 
 Verified so far (machine state, not pictures):
@@ -120,7 +120,8 @@ write-to-temp-then-rename, `meta.txt`).
 ## Planned, not implemented
 
 Phase 2 leftovers: `.bak` generation, write-to-temp-then-rename, `meta.txt` with the image checksum.
-Phase 4: refuse a save from a different image, a native slot picker, an engine-side save screen.
+Phase 4: refuse a save from a different image, an engine-side save screen (the load picker now lives
+on the title).
 
 ## Plan
 
@@ -138,9 +139,10 @@ Phase 4: refuse a save from a different image, a native slot picker, an engine-s
 ### Phase 1 — one slot, original compatibility
 
 **Decision (2026-11-11): the slot is chosen with function keys, not from the ini.** F1..F4 select
-slot 1..4, F5 steps to the next one, and the runtime shows "Save Slot - N" for two seconds. The
-ini entry below is therefore *not* implemented; it is kept here only as the alternative that was
-considered.
+slot 1..4, F5 steps to the next one (all ten), and the runtime shows "Save Slot - N" for two
+seconds. The title's Load Game button also lists the ten slots for the pointer; there, empty slots
+are grey and a click on a slot with a save loads that exact slot. The ini entry below is therefore
+*not* implemented; it is kept here only as the alternative that was considered.
 
 `icftd.ini`:
 
@@ -185,8 +187,9 @@ Three options, cheapest first:
 1. **Host shortcuts** (no UI work): `F5` cycles the active slot and shows it in the window title (or
    a one-line OSD), `F6` re-reads the ini, `F7`/`F8` = quick load / quick save into the active slot.
    This alone satisfies "more than one savegame" for a player who can read the ini.
-   **Done, with a different key set:** F1..F4 pick a slot, F5 cycles, and the OSD shows which one
-   is active. Quick load / quick save are not implemented (the engine's own prompt already asks).
+   **Done, with a different key set:** F1..F4 pick a slot, F5 cycles the ten, the OSD shows which
+   one is active, and the title's Load Game is the visual slot picker. Quick load / quick save are
+   not implemented (the engine's own prompt already asks).
 2. **Runtime-side dialog**: when the engine opens `DSAVE:ICFTD` for writing, show a native "save to
    slot N?" box; on a read, show a slot picker. Zero engine changes, but the UI is host-styled.
 3. **Engine-side UI**: replace routines 49/50 (vector slots) with our own screens using the game's
