@@ -3,9 +3,11 @@ rem Play the MS-DOS build under DOSBox.
 rem   space = fire, arrows = joystick, esc = quit
 rem   F1..F4 = pick a save slot, F5 = next slot; saves land in bin\dos\game\SAVES\SLOT<N>
 rem
-rem The game itself (ICFTD.EXE + DSHELL.IMG + DISK1..3) is built output in bin\dos\game and is not
-rem in git, so the first double-click stages it. After changing the sources, delete bin\dos\game (or
-rem run tools\build-dos.ps1 + tools\dos-pack.ps1) to restage it.
+rem The game itself (ICFTD.EXE) is built output in bin\dos\game and is not in git, so the first
+rem double-click stages it. The release ships no game data: the game extracts the three floppy
+rem images itself on its first start, and this script hands it the repository's disks\ folder for
+rem that (bin\dos\game\DISK1..3 and DSHELL.IMG appear after the first run). After changing the
+rem sources, delete bin\dos\game (or run tools\build-dos.ps1 + tools\dos-pack.ps1) to restage it.
 rem
 rem DOSBox settings matter: core=dynamic is the JIT (the interpreter core is ~10x slower).
 rem cycles=30000 is a 486DX2-66-class machine - the target the DOS port is aimed at - so what you
@@ -55,8 +57,12 @@ rem Written here, not shipped, so the mounted directory is always this checkout.
 >> "%CONF%" echo cycles=%ICFTD_CYCLES%
 >> "%CONF%" echo [autoexec]
 >> "%CONF%" echo mount c "%GAME%"
+rem The player's own images, for the release's first start; a completed release ignores them.
+set "DISKARG="
+if exist "%~dp0disks\*.adf" >> "%CONF%" echo mount d "%~dp0disks"
+if exist "%~dp0disks\*.adf" set "DISKARG=--disks D:\"
 >> "%CONF%" echo c:
->> "%CONF%" echo ICFTD.EXE %*
+>> "%CONF%" echo ICFTD.EXE %DISKARG% %*
 
 "%DB%" -conf "%CONF%"
 if errorlevel 1 pause

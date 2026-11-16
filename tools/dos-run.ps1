@@ -1,15 +1,16 @@
 # Runs a DOS program under DOSBox with a generated config.
 #
-# The default runs the packaged game in bin\dos\game (tools\dos-pack.ps1): ICFTD.EXE, DSHELL.IMG,
-# DISK1..3 and NAMES.TXT all in one directory, which is what the release looks like.  Pass -Mount
-# and -Autoexec to run something else; the repository is always mounted as Y:, so the game can be
-# pointed at the extracted data ("--data Y:\export") while iterating without restaging.
+# The default runs the packaged release in bin\dos\game (tools\dos-pack.ps1): ICFTD.EXE with an
+# empty `DISKS\` that the game fills itself on its first start, which is what the release looks like.
+# The repository is mounted as Y:, so a fresh release folder is given the player's own images with
+# `--disks Y:\disks` (the default autoexec does that); pass -Mount and -Autoexec to run something
+# else, e.g. the extracted tree of a development run ("--data Y:\export").
 #
 #   powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 [-Autoexec "..."] [-Mount <dir>]
 param(
     [string]$DosBox = 'H:\Spiele\DosBox\DOSBox.exe',
     [string]$Mount = '',
-    [string]$Autoexec = 'ICFTD.EXE --frames 300 > ICFTD.LOG',
+    [string]$Autoexec = 'ICFTD.EXE --disks Y:\disks --frames 300 > ICFTD.LOG',
     [string]$LogName = 'ICFTD.LOG',
     [int]$TimeoutSec = 240,
     [int]$MemSize = 16,

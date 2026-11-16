@@ -1,8 +1,13 @@
-/* First-start game data: the extracted tree in `export\`, and how it gets there.
+/* First-start game data: the extracted tree, and how it gets there.
  *
- * A release ships empty `export\` and `disks\` folders - no game data is distributed, the player's
- * own three Amiga floppy images are the only source. `rt_assets_ensure` answers "is the tree there,
- * and if not, make it" once, at startup, before the machine boots.
+ * A release ships empty data folders - no game data is distributed, the player's own three Amiga
+ * floppy images are the only source. `rt_assets_ensure` answers "is the tree there, and if not,
+ * make it" once, at startup, before the machine boots.
+ *
+ * Two trees are extractable from the same reader: the Windows export (`disk1..3\` under their
+ * AmigaDOS names, the game program under `code\dshell4k\`) and the MS-DOS release, which cannot
+ * hold those names (`DISK1..3\` with 8.3 names, `NAMES.TXT` recording long=short, `DSHELL.IMG` in
+ * the data folder). The layout is a parameter, not a second extractor.
  */
 #ifndef ICFTD_ASSETS_H
 #define ICFTD_ASSETS_H
@@ -15,6 +20,12 @@ enum {
     RT_ASSETS_FAILED = -1             /* the images were there, writing dataDir failed */
 };
 
+/* Which tree `dataDir` holds, or is to be given. */
+enum {
+    RT_ASSETS_WINDOWS = 0,            /* disk1..3\ and code\dshell4k\dshell.img */
+    RT_ASSETS_DOS = 1                 /* DISK1..3\, NAMES.TXT, DSHELL.IMG */
+};
+
 /* The three images that make a complete data set. */
 #define RT_ASSETS_DISK_COUNT 3
 
@@ -23,14 +34,15 @@ enum {
 #define RT_ASSETS_MSG_DISKS \
     "Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart."
 
-/* 1 when dataDir holds a complete extraction (disk1..3 and the flattened game program). The image
- * is written last, so an interrupted extraction does not count as complete. */
-u32 rt_assets_ready(const char *dataDir);
+/* 1 when dataDir holds a complete extraction for `layout` (the disk folders and the flattened game
+ * program; for DOS the name map too). The image is written last, so an interrupted extraction does
+ * not count as complete. */
+u32 rt_assets_ready(const char *dataDir, int layout);
 
-/* Ensures dataDir holds the game data, extracting it from the AmigaDOS floppy images in diskDir
- * when it does not. Returns one of the three codes above; on anything but RT_ASSETS_OK `msg`
- * (when not null) holds the line to show the player. Does nothing and returns RT_ASSETS_OK when
- * the tree is already there. */
-int rt_assets_ensure(const char *dataDir, const char *diskDir, char *msg, u32 max);
+/* Ensures dataDir holds the game data in `layout`, extracting it from the AmigaDOS floppy images in
+ * diskDir when it does not. Returns one of the three codes above; on anything but RT_ASSETS_OK
+ * `msg` (when not null) holds the line to show the player. Does nothing and returns RT_ASSETS_OK
+ * when the tree is already there. */
+int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char *msg, u32 max);
 
 #endif /* ICFTD_ASSETS_H */

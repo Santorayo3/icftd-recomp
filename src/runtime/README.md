@@ -7,9 +7,10 @@ This is the shipped half of the project. It contains **no 68000 core**: it is th
 types.h          fixed-width types, no OS headers
 platform.h       the platform contract: window, input, audio, files, heap, 50 Hz clock
 config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
-assets.c         the first start: the player's three floppy images -> the extracted tree in
-                 `export\` (an AmigaDOS OFS reader and the hunk flattening of the exporter, in C,
-                 because a release cannot run the .NET tool)
+assets.c         the first start: the player's three floppy images -> the extracted tree (an
+                 AmigaDOS OFS reader and the hunk flattening of the exporter, in C, because a
+                 release cannot run the .NET tool); two layouts, the Windows `export\` and the DOS
+                 release's `DISK1..3` / `NAMES.TXT` / `DSHELL.IMG` 8.3 tree
 plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files,
                  plus border.c: the artwork the fullscreen paints in the bars beside the picture)
 plat/dos/        the other: VGA mode 13h, the VGA DAC, polled 8042 scancodes, the 8254 frame clock
@@ -39,7 +40,8 @@ uses (`src\host\dos_main.c`, `tools\build-dos.ps1`):
   18.2 Hz and the frame is 20 ms, and this leaves the BIOS clock alone.
 * **Files**: the C library, plus `NAMES.TXT`: the engine asks for a few names FAT cannot hold
   (`fonts\newnem.font`), so a path that fails to open is retried with the 8.3 name the record maps
-  it to. `tools\dos-pack.ps1` writes that file while staging the release.
+  it to. The first start writes that file while it extracts the player's disks (`assets.c`); it is
+  not in the release.
 * **Settings**: `plat_default_ini()` is per platform - the DOS build writes no `[VIDEO] fullscreen`.
 
 ## Settings (`icftd.ini`)

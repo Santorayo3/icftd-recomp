@@ -1798,7 +1798,8 @@ int main(int argc, char **argv)
     }
     {   /* First start: fill `export\` from the player's `disks\`, or say what is missing. */
         char msg[600];
-        if (rt_assets_ensure(dataDir, diskDir, msg, (u32)sizeof msg) != RT_ASSETS_OK)
+        if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_WINDOWS, msg, (u32)sizeof msg) !=
+            RT_ASSETS_OK)
         {
             printf("recomp: %s\n", msg);
             if (g_window) plat_message("It Came from the Desert", msg);

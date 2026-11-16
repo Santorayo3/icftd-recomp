@@ -12,9 +12,40 @@ pointer), read `docs/port-features.md`: the five attachment points, the `rc_stre
 presets and what "done" means without an oracle to diff against.
 
 **MS-DOS parity (started 2026-11-16).** The Windows feature set is being brought to the DOS build.
-The full plan, the current state (the platform mouse is in and measured) and the remaining tasks -
-pointer seams, save picker, loading line, first-start extraction, headless seams - are in
-[`dos-parity.md`](dos-parity.md). Read that before working on `dos_main.c`.
+The full plan, the current state (the platform mouse, the pointer seams, the save picker, the
+loading line and the first start are in and measured) and the remaining task - the documentation and
+verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
+`dos_main.c`.
+
+## The DOS release extracts itself on first start (2026-11-16)
+
+Task 4 of [`dos-parity.md`](dos-parity.md) is in. `src\runtime\assets.c` gained a layout parameter
+(`RT_ASSETS_WINDOWS` / `RT_ASSETS_DOS`): the same OFS reader and hunk flattener now also writes the
+DOS 8.3 tree, naming each file with `tools\dos-pack.ps1`'s `Get-ShortName` rule, recording
+`long=short` and writing `NAMES.TXT` (the packer's exact bytes, including PowerShell's `Sort-Object`
+order, where `-`/`.` carry no weight) before the image. `dos_main.c` resolves `--data`/`--disks`/
+`--image`, defaults the image to `<dataDir>\DSHELL.IMG` (or a `code\dshell4k\dshell.img` export
+tree), runs the DOS ensure before the machine boots, prints
+`Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and
+restart.` and exits 1 when the disks are not there, and has `--extract` for the step on its own.
+`tools\build-dos.ps1` now compiles `assets.c`; `tools\dos-extract-check.ps1` is the measurement.
+
+Measured in DOSBox: from an empty release folder plus the three ADFs the first start writes the
+tree `tools\dos-pack.ps1 -Data` stages - 78 files, every one byte-identical under its 8.3 path, the
+same 314-byte `NAMES.TXT`, the same 185 752-byte `DSHELL.IMG`; a second start logs no extraction and
+leaves every hash unchanged; an empty `disks\` prints the message and exits 1 without writing
+anything; the same image twice is refused before writing; a 300-frame `--dump` from the extracted
+tree (and from a first start that extracts and boots in one process) is identical to the reference
+tree's. The Windows first start still writes its documented 78 files +
+`code\dshell4k\dshell.img`.
+
+**The release folder follows.** `bin\dos\game` is now what ships - `ICFTD.EXE`, an empty `DISKS\`
+and `SAVES\`, `ICFTD.CONF` - and `tools\dos-pack.ps1` stages exactly that; the extracted tree moved
+to `-Data <dir>`, which keeps the naming rules in one place and gives the check its reference.
+`play_dos.cmd` mounts the repository's `disks\` as D: and passes `--disks`, and `tools\dos-run.ps1`
+defaults to `--disks Y:\disks`, so a freshly staged release still plays and measures on the first
+run (it extracts into the release folder, which then holds the tree the engine runs from). Next on
+that plan: Task 6, the documentation and verification pass.
 
 ## The DOS build gets the loading line (2026-11-16, latest)
 
@@ -202,9 +233,10 @@ development tree (`--state`, 84 records, `tools\state-diff.ps1`: IDENTICAL). A 3
 run from the repository root is identical to the pre-change binary's dump, so the startup addition costs a
 measurement nothing. Both existing builds still compile (`build-oracle`, `build-dos`).
 
-**Not done.** The DOS front end does not call `rt_assets_ensure` yet - its tree is `DISK1..3` +
-`DSHELL.IMG` + `NAMES.TXT` (8.3 staging), so wiring it needs its own folder names, not a new
-extractor; the module is platform-neutral and only uses `plat_*`.
+**Not done.** The DOS front end calls the same extractor with its own layout since 2026-11-16
+(`RT_ASSETS_DOS`: `DISK1..3` under 8.3 names, `NAMES.TXT`, `DSHELL.IMG`) - see the
+"DOS release extracts itself" section above; the module stays platform-neutral and only uses
+`plat_*`.
 
 ## The map's SAVE GAME opens a slot picker (2026-11-16, earlier)
 
@@ -247,8 +279,10 @@ two halves look alike in the tree:
   runtime reads the extracted filesystems instead (`export\` on Win32, `DISK1..3` next to
   `ICFTD.EXE` on DOS), and no build input comes from either: the Win32 objects are `src\runtime`,
   `src\recomp`, `src\oracle`, `src\host` and Musashi only. So a release is the executable plus the
-  port's own tables; the player's own disks supply the rest. (`bin\dos\game` — `DSHELL.IMG` and
-  `DISK1..3` — is a *staging* directory for playing locally, not a distribution.)
+  port's own tables; the player's own disks supply the rest. (`bin\dos\game` is a *staging*
+  directory for playing locally, not a distribution: since the DOS first start it holds no game
+  data either - just `ICFTD.EXE`, empty `DISKS\`/`SAVES\` and `ICFTD.CONF` - and the
+  `DSHELL.IMG`/`DISK1..3` tree only appears there after a run extracts it.)
 * **The port's art is compiled in, as generated tables.** `title_art.h`, `title_buttons.h`,
   `osd_icon.h`, `crosshair_art.h` and `border_art.h` are `assets\*.png` (all tracked) converted by
   `tools\mk*.ps1`; `pointer_art.h` is ASCII art living in its tool. No pack is involved and none is

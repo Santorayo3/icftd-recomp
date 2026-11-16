@@ -3,8 +3,8 @@
  * A release ships no game data: the player's own three Amiga floppies are the only source. This
  * module reads them directly - the AmigaDOS OFS directory and data chains of src\assetExport\Adf.cs
  * and AmigaFs.cs, and the hunk flattening of src\assetExport\Hunk.cs - and writes exactly the tree
- * tools\extract.ps1 writes, so the runtime cannot tell the two apart. No image means no game: the
- * caller shows RT_ASSETS_MSG_DISKS and stops.
+ * tools\extract.ps1 writes, or - for the MS-DOS release - exactly the tree tools\dos-pack.ps1
+ * stages from it. No image means no game: the caller shows RT_ASSETS_MSG_DISKS and stops.
  */
 #include "assets.h"
 #include "machine.h"
@@ -180,6 +180,172 @@ static int write_file(const char *path, const u8 *data, u32 len)
     return ok;
 }
 
+/* --- the MS-DOS release layout ------------------------------------------------------------
+ * MS-DOS cannot hold the AmigaDOS names, so every file goes under a legal 8.3 name and NAMES.TXT
+ * records long=short - which is what plat_dos.c's failed-open retry reads. The naming is
+ * tools\dos-pack.ps1's, character for character: a folder this extractor fills and one the packer
+ * stages are the same tree, down to the bytes of NAMES.TXT. */
+
+#define DOS_NAME_MAX     12                        /* 8 + '.' + 3 */
+#define DOS_USED_MAX     64                        /* names in one directory, folders included */
+#define NAME_MAP_MAX     128                       /* entries in NAMES.TXT */
+
+static struct { char from[ADF_NAME_CHARS + 1]; char to[DOS_NAME_MAX + 1]; } g_names[NAME_MAP_MAX];
+static int g_nameCount;
+
+/* The 8.3 names already taken per directory depth, so a collision retries `stem~1`. */
+static char g_used[ADF_DIR_DEPTH + 2][DOS_USED_MAX][DOS_NAME_MAX + 1];
+static int  g_usedCount[ADF_DIR_DEPTH + 2];
+
+/* What exactly went wrong when extract_dir refused the data (a name MS-DOS cannot hold); empty for
+ * an ordinary write failure. */
+static char g_nameError[120];
+
+static char upper_char(char c)
+{
+    return (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+}
+
+/* The first `count` characters of src, uppercased. */
+static void upper_chars(const char *src, int count, char *dst)
+{
+    int i;
+
+    for (i = 0; i < count && src[i] != 0; i++) dst[i] = upper_char(src[i]);
+    dst[i] = 0;
+}
+
+static int used_has(int depth, const char *name)
+{
+    int i;
+
+    for (i = 0; i < g_usedCount[depth]; i++)
+        if (strcmp(g_used[depth][i], name) == 0) return 1;
+    return 0;
+}
+
+static int used_add(int depth, const char *name)
+{
+    if (g_usedCount[depth] >= DOS_USED_MAX) return 0;
+    strcpy(g_used[depth][g_usedCount[depth]++], name);
+    return 1;
+}
+
+/* tools\dos-pack.ps1's Get-ShortName: split at the last dot into base and extension, uppercase
+ * both, cut a base longer than 8 down to 6 (so a `~n` suffix still fits), truncate the extension to
+ * 3, then retry `stem~n` until the name is free in its directory. Returns 0 when no legal name is
+ * left, which the data does not do. */
+static int short_name(const char *name, int depth, char *out)
+{
+    char base[DOS_NAME_MAX + 1], ext[8], stem[DOS_NAME_MAX + 4], cand[DOS_NAME_MAX + 4];
+    const char *dot = 0, *p;
+    int len, n;
+
+    for (p = name; *p != 0; p++)
+        if (*p == '.') dot = p;
+    if (dot != 0 && dot != name) {                  /* a leading dot is part of the base */
+        len = (int)(dot - name);
+        if (len > 8) len = 6;
+        upper_chars(name, len, base);
+        len = (int)strlen(dot + 1);
+        if (len > 3) len = 3;
+        upper_chars(dot + 1, len, ext);
+    } else {
+        len = (int)strlen(name);
+        if (len > 8) len = 6;
+        upper_chars(name, len, base);
+        ext[0] = 0;
+    }
+    for (n = 0; n < 1000; n++) {
+        if (n == 0) {
+            strcpy(stem, base);
+        } else {
+            len = (int)strlen(base);
+            if (len > 6) len = 6;
+            sprintf(stem, "%.*s~%d", len, base, n);
+        }
+        sprintf(cand, "%s%s%s", stem, ext[0] != 0 ? "." : "", ext);
+        if (strlen(cand) > DOS_NAME_MAX) return 0;
+        if (!used_has(depth, cand)) break;
+    }
+    if (n >= 1000) return 0;
+    used_add(depth, cand);
+    strcpy(out, cand);
+    return 1;
+}
+
+/* NAMES.TXT's map: the uppercased long name to the 8.3 name. The first mapping wins and a second,
+ * different one is reported - the packer's behaviour for one name that maps differently in two
+ * directories. */
+static void record_name(const char *longName, const char *shortName)
+{
+    int i;
+
+    for (i = 0; i < g_nameCount; i++)
+        if (strcmp(g_names[i].from, longName) == 0) {
+            if (strcmp(g_names[i].to, shortName) != 0)
+                printf("assets: name maps differently per directory: %s\n", longName);
+            return;
+        }
+    if (g_nameCount >= NAME_MAP_MAX) return;
+    strcpy(g_names[g_nameCount].from, longName);
+    strcpy(g_names[g_nameCount].to, shortName);
+    g_nameCount++;
+}
+
+/* The packer sorts the map with PowerShell's Sort-Object, which gives '-' and '.' no weight of
+ * their own ("DISK-VALIDATOR" comes after "DISKFONT.LIBRARY"). Same order, so the file is the
+ * same bytes. */
+static int name_less(const char *a, const char *b)
+{
+    const char *pa = a, *pb = b;
+
+    for (;;) {
+        while (*pa == '-' || *pa == '.') pa++;
+        while (*pb == '-' || *pb == '.') pb++;
+        if (*pa == 0 || *pb == 0) break;
+        if (*pa != *pb) return *pa < *pb;
+        pa++;
+        pb++;
+    }
+    if (*pa != *pb) return *pa == 0;                /* one ran out: the shorter name is smaller */
+    return strcmp(a, b) < 0;                        /* same letters: the punctuation decides */
+}
+
+/* NAMES.TXT in dataDir, the header line and then the map in the packer's order. Written before the
+ * image, so an interrupted extraction is not complete. */
+static int write_names(const char *dataDir)
+{
+    static const char header[] =
+        "; long name = DOS 8.3 name, for the files MS-DOS could not hold\r\n";
+    char path[ADF_PATH_CHARS];
+    char line[80];
+    plat_file *f;
+    int order[NAME_MAP_MAX];
+    int i, j, off = 0, ok;
+
+    sprintf(path, "%s\\NAMES.TXT", dataDir);
+    f = plat_create(path);
+    if (f == 0) return 0;
+    ok = plat_write(f, (u32)off, header, (u32)strlen(header)) == (u32)strlen(header);
+    off += (int)strlen(header);
+    for (i = 0; i < g_nameCount; i++) order[i] = i;
+    for (i = 1; i < g_nameCount; i++) {
+        int k = order[i];
+        for (j = i; j > 0 && name_less(g_names[k].from, g_names[order[j - 1]].from); j--)
+            order[j] = order[j - 1];
+        order[j] = k;
+    }
+    for (i = 0; ok && i < g_nameCount; i++) {
+        int n = sprintf(line, "%s=%s\r\n", g_names[order[i]].from, g_names[order[i]].to);
+        ok = plat_write(f, (u32)off, line, (u32)n) == (u32)n;
+        off += n;
+    }
+    plat_close(f);
+    if (ok) printf("assets: %s (%d name(s))\n", path, g_nameCount);
+    return ok;
+}
+
 /* One file of the volume: the OFS data chain, each block holding a 24-byte header and up to 488
  * bytes. The header's byte size is the authority, so the chain may be longer than the file. */
 static int extract_file(const disk_image *d, u32 first, u32 size, const char *path)
@@ -207,40 +373,89 @@ static int extract_file(const disk_image *d, u32 first, u32 size, const char *pa
 
 /* A directory block's hash table: 72 buckets in the standard layout, but the root says how many
  * and AmigaDOS 1.x wrote 0 there, so a zero/invalid count means the standard 72. Each bucket starts
- * a chain that continues through the entry's own next pointer at 0x1F0. */
-static int extract_dir(const disk_image *d, u32 block, const char *dirPath, int depth, int *files)
+ * a chain that continues through the entry's own next pointer at 0x1F0.
+ *
+ * For the DOS layout the table is walked twice - folders first, files second - because a folder's
+ * 8.3 name has to be in the directory's name space before a file can be named past it, which is how
+ * tools\dos-pack.ps1 stages a directory. */
+static int extract_dir(const disk_image *d, u32 block, const char *dirPath, int depth, int layout,
+                       int *files)
 {
     u8 dir[ADF_BLOCK];
     u32 htSize, i;
+    int pass, passes;
 
     if (depth > ADF_DIR_DEPTH) return 0;
     if (!disk_block(d, block, dir) || be32(dir) != 2) return 0;
     htSize = be32(dir + 12);
     if (htSize == 0 || htSize > 200) htSize = 72;
+    passes = (layout == RT_ASSETS_DOS) ? 2 : 1;
+    if (layout == RT_ASSETS_DOS) g_usedCount[depth] = 0;
 
-    for (i = 0; i < htSize; i++) {
-        u32 b = be32(dir + 24 + i * 4);
-        int guard = 0;
-        while (b > 0 && b < d->blocks && guard++ < 200) {
-            u8 hdr[ADF_BLOCK];
-            u32 first;
-            char name[ADF_NAME_CHARS + 1];
-            char path[ADF_PATH_CHARS];
+    for (pass = 0; pass < passes; pass++) {
+        for (i = 0; i < htSize; i++) {
+            u32 b = be32(dir + 24 + i * 4);
+            int guard = 0;
+            while (b > 0 && b < d->blocks && guard++ < 200) {
+                u8 hdr[ADF_BLOCK];
+                u32 first, self;
+                char name[ADF_NAME_CHARS + 1];
+                char path[ADF_PATH_CHARS];
 
-            if (!disk_block(d, b, hdr) || be32(hdr) != 2) break;
-            first = be32(hdr + 16);
-            disk_name(hdr, name, (int)sizeof name);
-            if (name[0] == 0) break;
-            if ((int)strlen(dirPath) + (int)strlen(name) + 2 > (int)sizeof path) return 0;
-            sprintf(path, "%s\\%s", dirPath, name);
-            if (first == 0) {                       /* a directory: its own hash table */
-                if (!make_dirs(path)) return 0;
-                if (!extract_dir(d, b, path, depth + 1, files)) return 0;
-            } else {
-                if (!extract_file(d, first, be32(hdr + 0x144), path)) return 0;
-                (*files)++;
+                if (!disk_block(d, b, hdr) || be32(hdr) != 2) break;
+                first = be32(hdr + 16);
+                disk_name(hdr, name, (int)sizeof name);
+                if (name[0] == 0) break;
+                self = b;                           /* the entry's own block: a directory's table */
+                b = be32(hdr + 0x1F0);
+                if (first == 0) {                   /* a directory: its own hash table */
+                    if (pass != 0) continue;
+                    if (layout == RT_ASSETS_DOS) {
+                        /* The extracted tree's folder names are already 8.3, but a disk is not a
+                         * trusted file system: refuse one MS-DOS cannot hold instead of writing a
+                         * folder the game will never find again. */
+                        char upper[ADF_NAME_CHARS + 1];
+                        upper_chars(name, ADF_NAME_CHARS, upper);
+                        if (strlen(name) > 8 || strchr(name, '.') != 0) {
+                            sprintf(g_nameError, "The disk data has a folder named '%s', which is "
+                                                 "not a legal MS-DOS name.", name);
+                            return 0;
+                        }
+                        if (!used_add(depth, upper)) {
+                            sprintf(g_nameError, "The disk data has too many entries in '%s'.",
+                                    dirPath);
+                            return 0;
+                        }
+                    }
+                    if ((int)strlen(dirPath) + (int)strlen(name) + 2 > (int)sizeof path) return 0;
+                    sprintf(path, "%s\\%s", dirPath, name);
+                    if (!make_dirs(path)) return 0;
+                    if (!extract_dir(d, self, path, depth + 1, layout, files)) return 0;
+                } else {
+                    char shortName[DOS_NAME_MAX + 1];
+                    const char *leaf = name;
+                    if (layout == RT_ASSETS_DOS && pass == 0)
+                        continue;                   /* DOS: files wait for the folders */
+                    if (layout == RT_ASSETS_DOS) {
+                        char longName[ADF_NAME_CHARS + 1];
+                        if (!short_name(name, depth, shortName)) {
+                            sprintf(g_nameError, "The disk data has a file named '%s', which no "
+                                                 "legal MS-DOS name fits.", name);
+                            return 0;
+                        }
+                        leaf = shortName;
+                        upper_chars(name, ADF_NAME_CHARS, longName);
+                        if (strcmp(longName, shortName) != 0) record_name(longName, shortName);
+                    }
+                    if ((int)strlen(dirPath) + (int)strlen(leaf) + 2 > (int)sizeof path) return 0;
+                    sprintf(path, "%s\\%s", dirPath, leaf);
+                    if (!extract_file(d, first, be32(hdr + 0x144), path)) {
+                        printf("assets: cannot write %s\n", path);
+                        return 0;
+                    }
+                    (*files)++;
+                }
             }
-            b = be32(hdr + 0x1F0);
         }
     }
     return 1;
@@ -495,8 +710,10 @@ fail:
 }
 
 /* The game program - `dshell`, the only hunk executable on the disks - flattened to the image the
- * runtime boots. Written last: its presence is what makes a tree complete. */
-static int flatten_game(const char *dataDir)
+ * runtime boots. Written last: its presence is what makes a tree complete. The DOS release keeps it
+ * in the data folder itself (the front end boots `<dataDir>\DSHELL.IMG`), the Windows export under
+ * `code\dshell4k\`. */
+static int flatten_game(const char *dataDir, int layout)
 {
     char in[ADF_PATH_CHARS];
     char out[ADF_PATH_CHARS];
@@ -505,7 +722,7 @@ static int flatten_game(const char *dataDir)
     u8 *src, *img;
     int ok;
 
-    sprintf(in, "%s\\disk1\\dshell", dataDir);
+    sprintf(in, layout == RT_ASSETS_DOS ? "%s\\DISK1\\DSHELL" : "%s\\disk1\\dshell", dataDir);
     f = plat_open(in);
     if (f == 0) return 0;
     size = plat_size(f);
@@ -524,9 +741,13 @@ static int flatten_game(const char *dataDir)
     }
     plat_free(src);
 
-    sprintf(out, "%s\\code\\dshell4k", dataDir);
-    if (!make_dirs(out)) { plat_free(img); return 0; }
-    sprintf(out, "%s\\code\\dshell4k\\dshell.img", dataDir);
+    if (layout == RT_ASSETS_DOS) {
+        sprintf(out, "%s\\DSHELL.IMG", dataDir);
+    } else {
+        sprintf(out, "%s\\code\\dshell4k", dataDir);
+        if (!make_dirs(out)) { plat_free(img); return 0; }
+        sprintf(out, "%s\\code\\dshell4k\\dshell.img", dataDir);
+    }
     ok = write_file(out, img, imageSize);
     plat_free(img);
     if (ok) printf("assets: %s (%lu bytes, base 0x%lx)\n", out, (unsigned long)imageSize,
@@ -536,15 +757,21 @@ static int flatten_game(const char *dataDir)
 
 /* --- the two entry points ------------------------------------------------------------------ */
 
-u32 rt_assets_ready(const char *dataDir)
+u32 rt_assets_ready(const char *dataDir, int layout)
 {
     char path[ADF_PATH_CHARS];
     int i;
 
     if (dataDir == 0 || *dataDir == 0) return 0;
     for (i = 1; i <= RT_ASSETS_DISK_COUNT; i++) {
-        sprintf(path, "%s\\disk%d", dataDir, i);
+        sprintf(path, layout == RT_ASSETS_DOS ? "%s\\DISK%d" : "%s\\disk%d", dataDir, i);
         if (plat_path_kind(path) != PLAT_PATH_DIR) return 0;
+    }
+    if (layout == RT_ASSETS_DOS) {
+        sprintf(path, "%s\\NAMES.TXT", dataDir);
+        if (plat_path_kind(path) != PLAT_PATH_FILE) return 0;
+        sprintf(path, "%s\\DSHELL.IMG", dataDir);
+        return plat_path_kind(path) == PLAT_PATH_FILE;
     }
     sprintf(path, "%s\\code\\dshell4k\\dshell.img", dataDir);
     return plat_path_kind(path) == PLAT_PATH_FILE;
@@ -559,19 +786,21 @@ static int asset_fail(int code, char *msg, u32 max, const char *text)
     return code;
 }
 
-int rt_assets_ensure(const char *dataDir, const char *diskDir, char *msg, u32 max)
+int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char *msg, u32 max)
 {
     static disk_list list;                  /* ~3 KB: not something a DOS stack wants */
     disk_image *order[ADF_MAX_DISKS];
     disk_image *byVol[RT_ASSETS_DISK_COUNT + 1];
     char path[ADF_PATH_CHARS];
     static char text[ADF_PATH_CHARS * 2];
-    int i, vol, files = 0;
+    int i, vol, files = 0, code;
 
     if (msg != 0 && max > 0) msg[0] = 0;
     if (dataDir == 0 || *dataDir == 0)
         return asset_fail(RT_ASSETS_FAILED, msg, max, "No game data folder was given.");
-    if (rt_assets_ready(dataDir)) return RT_ASSETS_OK;
+    if (rt_assets_ready(dataDir, layout)) return RT_ASSETS_OK;
+    g_nameCount = 0;
+    g_nameError[0] = 0;
 
     /* Only the three original disks make a complete data set: the volume label says which disk a
      * file belongs to (Desert1..3 is what the runtime's dos.library shim maps to disk1..3), and a
@@ -597,26 +826,48 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, char *msg, u32 ma
         vol = disk_volume(order[i]);
         if (vol != 0 && byVol[vol] == 0) byVol[vol] = order[i];
     }
-    if (byVol[1] == 0 || byVol[2] == 0 || byVol[3] == 0)
-        return asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+    if (byVol[1] == 0 || byVol[2] == 0 || byVol[3] == 0) {
+        code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+        goto done;
+    }
 
     printf("assets: extracting the game data from %s\\ into %s\\\n", diskDir, dataDir);
     for (vol = 1; vol <= RT_ASSETS_DISK_COUNT; vol++) {
-        sprintf(path, "%s\\disk%d", dataDir, vol);
+        sprintf(path, layout == RT_ASSETS_DOS ? "%s\\DISK%d" : "%s\\disk%d", dataDir, vol);
         if (!make_dirs(path)) {
             sprintf(text, "Cannot create '%s'. The game needs a writable folder next to the "
                           "executable to extract its data into.", path);
-            return asset_fail(RT_ASSETS_FAILED, msg, max, text);
+            code = asset_fail(RT_ASSETS_FAILED, msg, max, text);
+            goto done;
         }
-        if (!extract_dir(byVol[vol], ADF_ROOT_BLOCK, path, 0, &files)) {
-            sprintf(text, "Cannot extract '%s'. The game needs a writable folder next to the "
-                          "executable to extract its data into.", byVol[vol]->path);
-            return asset_fail(RT_ASSETS_FAILED, msg, max, text);
+        if (!extract_dir(byVol[vol], ADF_ROOT_BLOCK, path, 0, layout, &files)) {
+            if (g_nameError[0] == 0)
+                sprintf(text, "Cannot extract '%s'. The game needs a writable folder next to the "
+                              "executable to extract its data into.", byVol[vol]->path);
+            code = asset_fail(RT_ASSETS_FAILED, msg, max,
+                              g_nameError[0] != 0 ? g_nameError : text);
+            goto done;
         }
     }
-    if (!flatten_game(dataDir))
-        return asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+    /* The DOS release's name map goes in before the image: the image is the completion marker, so
+     * an interrupted extraction is retried rather than half-used. */
+    if (layout == RT_ASSETS_DOS && !write_names(dataDir)) {
+        sprintf(text, "Cannot write '%s\\NAMES.TXT'. The game needs a writable folder next to the "
+                      "executable to extract its data into.", dataDir);
+        code = asset_fail(RT_ASSETS_FAILED, msg, max, text);
+        goto done;
+    }
+    if (!flatten_game(dataDir, layout)) {
+        code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+        goto done;
+    }
 
     printf("assets: %d file(s) from 3 disk image(s)\n", files);
-    return RT_ASSETS_OK;
+    code = RT_ASSETS_OK;
+
+done:
+    /* Closed here, not leaked: a first start extracts and then boots the game in the same process,
+     * and the DOS file handles are what the engine's own dos.library handles come out of. */
+    for (i = 0; i < list.count; i++) plat_close(list.disk[i].f);
+    return code;
 }

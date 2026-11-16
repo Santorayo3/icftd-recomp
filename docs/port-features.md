@@ -769,9 +769,14 @@ headless run from the extracted release folder is **frame-record identical** to 
 tree's (`--state` dumps, 84 records). The extraction is a pure function of the images, so identity
 of the tree is identity of everything downstream.
 
-The DOS front end does not call `rt_assets_ensure` yet: its tree (`DISK1..3`, `DSHELL.IMG`,
-`NAMES.TXT`, 8.3 names) is a staging layout, not the Win32 one, and wiring it is the next step —
-the module itself is platform-neutral and uses only `plat_*`, so that call is the whole job.
+The DOS front end calls the same `rt_assets_ensure`, with a second layout (`RT_ASSETS_DOS`): the
+release tree there is `DISK1..3\` under 8.3 names, `NAMES.TXT` recording long=short (which is what
+`plat_dos.c`'s failed-open retry reads) and `DSHELL.IMG` in the data folder, image last. The DOS
+release itself is `ICFTD.EXE` plus an empty `DISKS\` (and `SAVES\`, `ICFTD.CONF`), so no game data
+is distributed there either. The naming is `tools\dos-pack.ps1 -Data`'s, character for character, so
+an extracted tree and a staged one are the same bytes — `tools\dos-extract-check.ps1` asserts
+exactly that in DOSBox, including a first start that extracts and then boots the same machine as the
+staged reference tree.
 
 ## The dev loop
 

@@ -7,8 +7,9 @@
 
 The scope was agreed as **full parity**: the DOS build gets the pointer-driven screens too, which
 means a real DOS mouse driver, and the first start extracts the player's own floppy images into the
-DOS 8.3 release layout (`DISK1..3`, `DSHELL.IMG`, `NAMES.TXT`) exactly as `tools\dos-pack.ps1`
-stages it.
+DOS 8.3 release layout (`DISK1..3`, `DSHELL.IMG`, `NAMES.TXT`) exactly as
+`tools\dos-pack.ps1 -Data` stages it. The release itself is `ICFTD.EXE` plus an empty `DISKS\`
+(the images), an empty `SAVES\` and `ICFTD.CONF` — no game data, like the Windows release.
 
 Nothing here is a symptom fix: every item is a port feature (the original has no such code), so it
 is done when its own claim is measured (see "Done" in [`port-features.md`](./port-features.md)),
@@ -44,6 +45,7 @@ scripted form of one (`--mouse`, `--cheat`) — installs `rc_entryHook`; a measu
 | **Task 1 — pointer state and seams** | **Done for the map, room, phone, menu-hover, crosshair and both aims; measured on the map** | `dos_main.c`: `g_ptrKnown/g_ptrActive/g_hoverOwn/g_ptrX/g_ptrY`, the mode-13h → picture mapping, `pointer_input`/`aim_input`/`pointer_present`, `crosshair_present` at the frame boundary, and the entry-hook seams for `FUN_00003b1e`, `FUN_00005eac`/`FUN_00005824`, `FUN_00004d76`/`FUN_0001d1da`, `FUN_00005fbe`, `FUN_00007934`, `FUN_000086a0`, `FUN_0000b97c`. Map cursor, window edge and scrolling measured from a RAM dump (below); the resting seams have no DOS measurement yet. |
 | **Task 2 — map save-slot picker** | **Done, measured end to end** | `dos_main.c`: the Windows picker state machine (`save_click_note`, `save_fake_view`, `save_mark_click`, `save_owns_input`, `save_ui_frame`, `save_ui_watch`, `save_ui_draw` in `dos_present`, Escape first). Measured headless (below): mark click opens the list, the map words stay put while it is up, Back restores the pointer-driven cursor, and the chosen slot reaches the engine's own save — `SAVES\SLOT10\ICFTD`, 12 444 bytes. |
 | **Task 3 — loading line** | **Done, measured** | `dos_main.c`: `g_loadRanges`/`load_pc`, `load_pc` as an entry-hook seam, `loading_frame` in `dos_frame` before `oracle_tick`, `host_loading_hold` arming the 10-second hold and `rt_osd_text(m, "Loading", 2)`. Measured headless: line up/down on the boot load (42..136) and the injected world loop's picture-bank load (387..447), the title's Load Game hold up at 37 and down at 403; a plain measurement logs no line. See Task 3. |
+| **Task 4 — DOS first start** | **Done, measured as a byte identity** | `assets.c`/`.h`: a layout parameter (`RT_ASSETS_WINDOWS`/`RT_ASSETS_DOS`) on the same OFS reader and hunk flattener; the DOS branch names every file with `dos-pack.ps1`'s `Get-ShortName` rule, records `long=short`, writes `NAMES.TXT` (same bytes, packer sort order) and the image last. `dos_main.c`: `--data`/`--disks`/`--image`/`--extract`, the image default `<dataDir>\DSHELL.IMG` (falling back to a `code\dshell4k\dshell.img` export tree), the message and exit 1. `tools\build-dos.ps1` compiles `assets.c`; `tools\dos-extract-check.ps1` measures it in DOSBox (below). |
 
 **Trap learned the hard way:** in the 32-bit Watcom target `union REGS` has `x` = `DWORDREGS`
 (`eax`/`ebx`/…), not `ax`/`bx`, and `int86()` is not declared for it. Use
@@ -52,9 +54,10 @@ scripted form of one (`--mouse`, `--cheat`) — installs `rc_entryHook`; a measu
 
 ### Not done (the rest of this file)
 
-The DOS front end has a live pointer, the pointer seams, the map's save-slot picker and the loading
-line, but **no first-start extraction** (Task 4). Task 4 is independent of everything above;
-Task 6 is the documentation/verification pass.
+Task 4 is in: a first start on an empty release extracts `DISK1..3`, `NAMES.TXT` and `DSHELL.IMG`
+from the player's own floppy images, byte-identical to what `tools\dos-pack.ps1` stages. What is
+left is Task 6 — the documentation and verification pass (DOSBox runs for every seam, the remaining
+docs, the gate wiring of the extraction check).
 
 ---
 
@@ -323,11 +326,15 @@ the line from the other seams a played run installs.
 
 ## Task 4 — first-start extraction into the DOS 8.3 layout
 
-**Files:** `src\runtime\assets.c`, `src\runtime\assets.h`, `src\host\dos_main.c`,
-maybe `tools\dos-pack.ps1` (as the reference), docs.
+**State: done (2026-11-16), measured as a byte identity in DOSBox.**
 
-Windows calls `rt_assets_ensure(dataDir, diskDir, ...)` and gets `disk1..3` +
-`code\dshell4k\dshell.img`. The DOS release is a different layout and cannot hold long names:
+**Files:** `src\runtime\assets.c`, `src\runtime\assets.h`, `src\host\dos_main.c`,
+`src\host\main.c`, `tools\build-dos.ps1`, `tools\dos-extract-check.ps1`, docs.
+
+Windows calls `rt_assets_ensure(dataDir, diskDir, RT_ASSETS_WINDOWS, ...)` and gets `disk1..3` +
+`code\dshell4k\dshell.img`. The DOS release is a different layout and cannot hold long names. It
+ships **no game data** — `tools\dos-pack.ps1` stages `ICFTD.EXE`, an empty `DISKS\`, an empty
+`SAVES\` and `ICFTD.CONF` — and the first start writes:
 
 ```
 ICFTD.EXE
@@ -373,18 +380,66 @@ ICFTD.INI        created on first start
 ### Acceptance (this is a byte identity, not a picture)
 
 * From an **empty** release folder plus the three ADFs, a first start writes exactly the tree
-  `tools\dos-pack.ps1` stages: every file byte-identical (hash per file, path with 8.3 names), the
-  same `NAMES.TXT`, and a 185 752-byte `DSHELL.IMG` at the root.
+  `tools\dos-pack.ps1 -Data <dir>` stages: every file byte-identical (hash per file, path with 8.3
+  names), the same `NAMES.TXT`, and a 185 752-byte `DSHELL.IMG` at the root.
 * A second start does nothing (no rewrite, no message).
 * An empty `disks\` prints the message and exits 1; the same disk copied twice is refused before
   anything is written (the volume set is incomplete).
 * A headless run from the extracted release folder produces the same frame/`--dump` output as a run
-  from the packaged `bin\dos\game` tree.
+  from the reference tree.
 
 **Simplest verification:** add `tools\dos-extract-check.ps1` that runs the DOS build with
-`--extract` in a scratch DOSBox mount, then compares the result against `bin\dos\game` (excluding
-`ICFTD.EXE`, `SAVES`, logs and the DOSBox config). This can become a gate step later, but is not
-required for every change.
+`--extract` in a scratch DOSBox mount, then compares the result against the tree the packer stages
+for it (`-Data`, excluding `ICFTD.EXE`, `SAVES`, logs and the DOSBox config). This can become a gate
+step later, but is not required for every change.
+
+### Done (2026-11-16)
+
+What landed:
+
+* `assets.h`: `RT_ASSETS_WINDOWS`/`RT_ASSETS_DOS` and the layout argument on `rt_assets_ready` and
+  `rt_assets_ensure` — one reader, one flattener, two trees. `src\host\main.c` passes the Windows
+  layout; nothing else about the Win32 first start changed.
+* `assets.c`: the DOS branch of `extract_dir` walks a directory's hash table twice (folders first,
+  then files) so a folder's name is in the directory's name space before files are named past it —
+  exactly what the packer does. `short_name` is `Get-ShortName` character for character: split at
+  the last dot, uppercase, cut a base over 8 to 6, truncate the extension to 3, then `stem~n` until
+  free. A folder name that is not 8.3 fails loudly (`RT_ASSETS_FAILED` with the name in the
+  message) instead of writing a folder the game could never open again. `record_name` keeps the
+  first mapping and reports a second, like the packer. `write_names` writes the packer's header and
+  sort order — PowerShell's `Sort-Object` gives `-`/`.` no weight, so `DISK-VALIDATOR` comes *after*
+  `DISKFONT.LIBRARY`; an ASCII sort would not reproduce the file. Byte output is CRLF, like
+  `Set-Content -Encoding ascii`. `rt_assets_ready(DOS)` wants `DISK1..3`, `NAMES.TXT` and
+  `DSHELL.IMG`; `NAMES.TXT` is written before the image, so the image stays the completion marker.
+  The three disk images are now closed at the end of the ensure: a first start extracts and then
+  boots in the same process, and the DOS file handles are what the engine's own opens come from.
+* `dos_main.c`: `--data`, `--disks`, `--image`, `--extract`; `dataDir` defaults to the executable's
+  own folder, `disks` to `<exe dir>\disks`, the image to `<dataDir>\DSHELL.IMG` (with a
+  `code\dshell4k\dshell.img` export tree accepted, so `--data Y:\export` still runs). A missing
+  image runs the DOS ensure and, when that fails, prints the message and exits 1.
+* `tools\build-dos.ps1` compiles `assets.c` (the DOS build did not link the extractor at all).
+* `tools\dos-pack.ps1` now stages the release as it ships — `ICFTD.EXE`, an empty `DISKS\` and
+  `SAVES\`, `ICFTD.CONF` — instead of the extracted tree; `-Data <dir>` stages that tree from
+  `export\`, which is the reference the check compares against (the naming rules stay in one
+  place). `play_dos.cmd` mounts the repository's `disks\` and passes `--disks`, `tools\dos-run.ps1`
+  defaults to `--disks Y:\disks`, so both keep working from a freshly staged, empty release.
+* `tools\dos-extract-check.ps1`: the measurement — see below.
+
+Measured (DOSBox, `tools\dos-extract-check.ps1`, 300-frame dumps):
+
+| claim | result |
+|---|---|
+| first start from an empty release folder + the three ADFs | 78 files, 11 renamed names, 185 752-byte `DSHELL.IMG`; **every file byte-identical** to the packer's `-Data` tree (SHA-256 per path), same 314-byte `NAMES.TXT`, same image |
+| a second start | no `assets: extracting` line, every file's hash unchanged |
+| an empty `disks\` | the message, exit code 1 (through the DOS shell's `errorlevel`), no `DISK1..3`/`NAMES.TXT`/`DSHELL.IMG` |
+| the same image twice | refused before writing anything (no extracting line, no tree) |
+| headless run from the extracted tree vs the packer's `-Data` tree | `--frames 300 --dump` RAM images **identical** |
+| a first start that extracts and then boots (one process) | the same 300-frame RAM image as the staged release |
+
+The Win32 first start still produces its documented tree: `--extract --data <scratch> --disks disks`
+writes the same 78 files and 185 752-byte `code\dshell4k\dshell.img` (the only differences against
+`export\` are the Ghidra artefacts `tools\extract.ps1 -RunGhidra` writes, which the runtime never
+did), and `tools\build-host.ps1` links both front ends.
 
 ---
 
@@ -480,10 +535,10 @@ rasters, and the title menu still runs to its script bound (624 frames).
 3. **Task 2 — save picker** — depends on Task 1 (map seam + click state). *Done.*
 4. **Task 3 — loading line** — independent of 1/2. *Done.*
 5. **Task 4 — first-start extraction** — independent of 1/2/3; needs `assets.c` and `dos_main.c`.
-   **Next.**
+   *Done, measured as a byte identity.*
 6. **Task 5 — `--mouse`/`--shot`/`--input` seams** — *done* (before Tasks 1–3, as planned; `--input`
    added with Task 2).
-7. **Task 6 — verification + docs** — after all.
+7. **Task 6 — verification + docs** — after all. **Next.**
 
 A sensible split over sessions:
 
@@ -491,7 +546,7 @@ A sensible split over sessions:
 |---|---|---|
 | A | Task 5 + Task 1 | *done*: pointer works live and headless; map/room/phone/aim/crosshair seams installed, the map's cursor and scrolling measured |
 | B | Task 2 + Task 3 | *done: picker and loading line* — picker opens, freezes the map, Back restores it, the chosen slot reaches the engine's 12 444-byte save; the line covers the boot, world-loop and title-hold loads |
-| C | Task 4 | first start done; release can ship empty folders |
+| C | Task 4 | *done: first start* — an empty release folder extracts itself; the tree is byte-identical to the packer's `-Data` staging and boots the same machine |
 | D | Task 6 | docs and full DOSBox checks |
 
 ---
@@ -505,9 +560,11 @@ A sensible split over sessions:
 | Shared port features | `src\host\cheat.c`, `time_freeze.c`, `hospital_camera.c`, `save_button.c`, `save_ui.c`, `title.c`, `title_button.c` |
 | Platform contract | `src\runtime\platform.h` |
 | DOS platform (VGA, keyboard, now mouse) | `src\runtime\plat\dos\plat_dos.c` |
-| First-start extractor | `src\runtime\assets.c` / `.h` |
-| DOS release reference | `tools\dos-pack.ps1` |
+| First-start extractor (both layouts) | `src\runtime\assets.c` / `.h` |
+| DOS release staging (empty `DISKS\`/`SAVES\`, `ICFTD.CONF`) | `tools\dos-pack.ps1` |
+| Extracted 8.3 tree (naming rules, the check's reference) | `tools\dos-pack.ps1 -Data <dir>` |
 | DOS run harness | `tools\dos-run.ps1` |
+| DOS first-start check (DOSBox) | `tools\dos-extract-check.ps1` |
 | Build | `tools\build-dos.ps1` (object dir `bin\dos\obj`) |
 
 ## Known traps
@@ -527,6 +584,17 @@ A sensible split over sessions:
   seam must stay inert — that is the DOSBox `sbtype=none`-style fallback.
 * **8.3 naming is per directory.** The packer's map is keyed by the uppercased file name and ignores
   the directory; reproduce that exactly so `NAMES.TXT` is identical. The image is written last.
+  Two details bite: a folder's name is reserved *before* the directory's files are named (hence the
+  two passes over the hash table in `extract_dir`), and the map is sorted with PowerShell's
+  `Sort-Object` rules — `-` and `.` carry no weight, so a plain ASCII sort produces a different
+  `NAMES.TXT`: it puts `DISK-VALIDATOR` before `DISKFONT.LIBRARY`, the packer puts it after.
+* **A DOS dev run points `--data` at the export tree.** The image default is `<dataDir>\DSHELL.IMG`,
+  so `--data Y:\export` falls back to `Y:\export\code\dshell4k\dshell.img` when that exists rather
+  than extracting; without the fallback the run would ask for `Y:\export\DISK1` and stop. `disks\`
+  for such a run is still next to the executable.
+* **The DOS shell's exit code is only visible through `if errorlevel`.** `tools\dos-run.ps1` takes
+  one autoexec line, so a check that needs the code writes its own DOSBox config with several lines
+  (`tools\dos-extract-check.ps1`); a batch file run as the last autoexec line leaves DOSBox hanging.
 * **Do not gate a fix behind a flag.** The seams must be installed in a normal played launch; the
   existing played-run condition in `dos_main.c` is the model. A measurement run must not install
   `rc_entryHook`.

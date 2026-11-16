@@ -147,16 +147,25 @@ machine - the hardware this port is aimed at - so what you see is the real targe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1     # -> bin\dos\ICFTD.EXE
-powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1      # -> bin\dos\game (runnable release)
+powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1      # -> bin\dos\game (empty release)
 powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1       # DOSBox, cycles=max, core=dynamic
 ```
 
-`bin\dos\game` holds exactly what a release needs: `ICFTD.EXE`, `DSHELL.IMG`, `DISK1..DISK3` and
-`NAMES.TXT`. The last one exists because the engine asks for AmigaDOS names that FAT cannot hold
-(`fonts\newnem.font`); the packer renames those files to 8.3 and the platform layer retries a failed
-open through that map. `ICFTD.CONF` is a DOSBox config for it - start it with
-`dosbox -conf ICFTD.CONF`. Save slots are directories next to the executable (`SAVES\SLOT1..4`),
-holding the engine's `ICFTD` file, exactly as on Windows.
+`bin\dos\game` is the release as it ships: `ICFTD.EXE`, an empty `DISKS\` (the player's three
+original floppy images go there), an empty `SAVES\` and `ICFTD.CONF`, a DOSBox config for it -
+start it with `dosbox -conf ICFTD.CONF`. There is **no game data** in it: the game extracts the
+player's own disks on its first start and shows
+
+```
+Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart.
+```
+
+when they are not there. What that first start writes is the tree the engine runs from: `DISK1..3`
+(the three filesystems, every file under a legal DOS 8.3 name), `NAMES.TXT` and `DSHELL.IMG` (the
+game program flattened at 0x4000), plus `ICFTD.INI`. `NAMES.TXT` exists because the engine asks for
+AmigaDOS names FAT cannot hold (`fonts\newnem.font`); the extractor renames those files to 8.3 and
+the platform layer retries a failed open through that map. Save slots are directories next to the
+executable (`SAVES\SLOT1..4`), holding the engine's `ICFTD` file, exactly as on Windows.
 
 **The mouse works on DOS.** The platform layer reads the DOS driver through INT 33h, so the title
 menu's buttons, the Load Game list and the Settings view are clicked with the pointer, and on the
@@ -164,9 +173,15 @@ situation map the game's own cursor follows it — pushed past the travel window
 and the SAVE GAME mark holds the window still while the pointer is over it. The room screens' arrow,
 the menu-line hover, the fight's crosshair and the two minigame aims are installed as well, and a
 click on the map's SAVE GAME mark opens the same ten-slot picker Windows has. The engine's long
-screen transitions say `Loading` while the game's own loader runs, as on Windows. The first-start
-extraction into empty folders is the one remaining DOS item
-([`docs\dos-parity.md`](docs/dos-parity.md)).
+screen transitions say `Loading` while the game's own loader runs, as on Windows.
+
+**A first start extracts itself.** `play_dos.cmd` hands the game the repository's `disks\` folder
+(`--disks`), so the first run in a freshly staged `bin\dos\game` fills it with the tree above and
+boots. A release is the same thing with the player's own images dropped into `DISKS\`; with none
+there the game prints the message and exits, and `ICFTD.EXE --extract` does the extraction on its
+own. `DSHELL.IMG` is written last, so an interrupted extraction is simply redone, and the tree is
+byte-identical to what `tools\dos-pack.ps1 -Data <dir>` stages from the development `export\` tree
+(`tools\dos-extract-check.ps1` is the check).
 
 **DOSBox settings matter:** `core=dynamic` (the JIT) is roughly ten times faster than `core=normal`,
 and the cycle count is the emulated CPU: `30000` is about a 486DX2-66, `3000` a 386 (the stock
@@ -208,8 +223,9 @@ docs/                  architecture, plan, program model
 | `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
 | `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (ICFTD.EXE + empty `export\`, `disks\`, `saves\`) and zip it |
 | `tools\build-dos.ps1` | build `bin\dos\ICFTD.EXE`: the game for MS-DOS (DOS/32A extender) |
-| `tools\dos-pack.ps1` | stage a runnable DOS release in `bin\dos\game` (8.3 names + `NAMES.TXT`) |
+| `tools\dos-pack.ps1` | stage the DOS release in `bin\dos\game` (ICFTD.EXE, empty `DISKS\`/`SAVES\`, `ICFTD.CONF`); `-Data <dir>` stages the extracted 8.3 tree the first start writes (the check's reference) |
 | `tools\dos-run.ps1` | run the DOS build under DOSBox with a generated config |
+| `tools\dos-extract-check.ps1` | the DOS first start: an empty release folder plus the floppy images extracts the tree `dos-pack.ps1 -Data` stages (8.3 paths, `NAMES.TXT`, `DSHELL.IMG`), a second start does nothing, an empty or incomplete `disks\` is refused, and the run boots the same machine |
 | `tools\recomp-fixtures.ps1` | translated vs interpreted, one fixture at a time (`-Rand n` for random fields) |
 | `tools\musashi-gen.ps1` | generate Musashi's `m68kops.c` (git-ignored) |
 | `tools\extract.ps1` | disk images → `export\` |

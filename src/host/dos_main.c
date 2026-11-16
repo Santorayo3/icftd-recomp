@@ -6,12 +6,17 @@
  * no development flags, no state dumps: it opens the display, plays at 50 Hz until Esc, and
  * writes its settings file on the first start.
  *
- *   ICFTD.EXE [<image>] [--data <dir>] [--slot <n>] [--frames <n>]
+ *   ICFTD.EXE [<image>] [--data <dir>] [--disks <dir>] [--slot <n>] [--frames <n>]
  *
- * The image defaults to DSHELL.IMG next to the executable and the game data to the executable's
- * own directory, which is what the DOS release ships in: ICFTD.EXE, DSHELL.IMG and DISK1..DISK3.
- * Save slots are directories the engine writes its ICFTD file into, exactly as on Windows:
- * SAVES\SLOT1..SLOT4 next to the executable.
+ * The image defaults to DSHELL.IMG in the data folder and the game data to the executable's own
+ * directory, which is what the DOS release ships in: ICFTD.EXE, DSHELL.IMG, NAMES.TXT and
+ * DISK1..DISK3. Save slots are directories the engine writes its ICFTD file into, exactly as on
+ * Windows: SAVES\SLOT1..SLOT4 next to the executable.
+ *
+ * A first start on an empty release extracts the data itself: the player's own three floppy images
+ * in `disks\` next to the executable are read and written as the 8.3 tree above (DISK1..3 with
+ * MS-DOS names, NAMES.TXT recording long=short, DSHELL.IMG last). Without them the game says what is
+ * missing and stops. --extract is the same step on its own.
  *
  * Development flags (same machinery as src\host\main.c, used for the DOS port's own testing):
  *   --perf              per-frame cost in 8254 counts, split into vblank / present
@@ -25,7 +30,7 @@
  *   --hoverlog          the text-menu lines recorded and what the pointer picks
  *   --titlekey <n>       take a title screen menu choice (0 the game, 1..7 the minigames, 8..10
  *                        the endings, 11/12 the menu's Load Game / New Game)
- *                        the endings)
+ *   --extract            extract the game data from `disks\` into the data folder and exit
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
  *   --timefreeze <f>[,<f>...]  press left Ctrl+T at each of those frames (the clock freeze's seam)
@@ -36,6 +41,7 @@
 #include <string.h>
 
 #include "audio.h"
+#include "assets.h"
 #include "config.h"
 #include "display.h"
 #include "machine.h"
@@ -1237,9 +1243,12 @@ int main(int argc, char **argv)
 {
     rt_machine m;
     cpu_t c;
-    char imagePath[160];
+    char imagePath[200];
+    char diskPath[200];
     const char *image = 0;
     const char *dataDir = 0;
+    const char *diskDir = 0;
+    int extractOnly = 0;            /* --extract: fill the data folder and stop */
     u32 frameLimit = 0;
     int slot = 1;
     int titleKey = -1;              /* --titlekey: take this title screen menu choice */
@@ -1256,6 +1265,9 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
+        if (strcmp(argv[i], "--disks") == 0 && i + 1 < argc) { diskDir = argv[++i]; continue; }
+        if (strcmp(argv[i], "--image") == 0 && i + 1 < argc) { image = argv[++i]; continue; }
+        if (strcmp(argv[i], "--extract") == 0) { extractOnly = 1; continue; }
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc)
         {
             frameLimit = (u32)strtoul(argv[++i], 0, 0);
@@ -1329,12 +1341,54 @@ int main(int argc, char **argv)
         if (argv[i][0] == '-') continue;
         image = argv[i];
     }
+    if (dataDir == 0) dataDir = plat_exe_dir();
+    if (diskDir == 0)
+    {
+        sprintf(diskPath, "%s\\disks", plat_exe_dir());
+        diskDir = diskPath;
+    }
+
+    /* First start: the data folder is filled from the player's own three floppy images, once, and
+     * in the layout this release ships (DISK1..3 under 8.3 names, NAMES.TXT, DSHELL.IMG last). The
+     * extraction is skipped when there is already something to boot: `--image`, the release's own
+     * DSHELL.IMG, or the tree tools\extract.ps1 writes, which is what a development run pointed at
+     * the Windows export with --data uses. */
+    if (extractOnly)
+    {
+        char msg[600];
+        if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg, (u32)sizeof msg) != RT_ASSETS_OK)
+        {
+            printf("icftd: %s\n", msg);
+            return 1;
+        }
+        return 0;
+    }
     if (image == 0)
     {
-        sprintf(imagePath, "%s\\%s", plat_exe_dir(), DOS_IMAGE);
+        char devImage[200];
+        if ((int)strlen(dataDir) + (int)strlen(DOS_IMAGE) + 2 > (int)sizeof imagePath ||
+            (int)strlen(dataDir) + 27 > (int)sizeof devImage)
+        {
+            printf("icftd: the data folder path is too long\n");
+            return 2;
+        }
+        sprintf(imagePath, "%s\\%s", dataDir, DOS_IMAGE);
+        sprintf(devImage, "%s\\code\\dshell4k\\dshell.img", dataDir);
+        if (plat_path_kind(imagePath) != PLAT_PATH_FILE &&
+            plat_path_kind(devImage) == PLAT_PATH_FILE)
+            strcpy(imagePath, devImage);
+        if (plat_path_kind(imagePath) != PLAT_PATH_FILE)
+        {
+            char msg[600];
+            if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg,
+                                 (u32)sizeof msg) != RT_ASSETS_OK)
+            {
+                printf("icftd: %s\n", msg);
+                return 1;
+            }
+        }
         image = imagePath;
     }
-    if (dataDir == 0) dataDir = plat_exe_dir();
 
     printf("It Came from the Desert - %s (base %ld)\n", image, (long)RC_BASE);
     /* Conventional memory left once the extender and this EXE are in place: the audio ring, the
