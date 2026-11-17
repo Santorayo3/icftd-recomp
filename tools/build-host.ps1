@@ -72,6 +72,9 @@ $sources = @(
     (Join-Path $mus 'softfloat\softfloat.c')
 )
 $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullName } | Sort-Object
+# Hand-written replacements for hot generated functions (the override seam, docs\recomp-architecture.md):
+# the dispatch consults rc_native_fns (src\recomp\cpu.c) before the generated table.
+$sources += Get-ChildItem (Join-Path $rc 'patches') -Filter *.c | ForEach-Object { $_.FullName } | Sort-Object
 
 # Hundreds of sources do not fit in one command line, so compile in batches from an object
 # directory with relative paths (the repo path has spaces, which Watcom splits on unquoted).

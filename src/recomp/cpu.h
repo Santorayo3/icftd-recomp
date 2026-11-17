@@ -141,6 +141,22 @@ u32  rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size);
  * `jsr/jmp (d16,A6)` -> rc_os_call_a6(): stack convention, the return address is popped. */
 typedef void (*rc_fn)(cpu_t *c, rt_machine *m);
 
+/* --- hand-written replacements ---------------------------------------------------------------
+ * src\recomp\patches holds readable C for generated functions that are hot enough to be worth
+ * writing by hand (docs\recomp-architecture.md, the override seam). The dispatch consults this
+ * table before the generated one, so a patch takes over its address without a generated file
+ * being edited or dropped; the generated body stays linked and still runs when a computed jump
+ * lands inside the function, which is what rc_containing exists for. Sorted by address and
+ * terminated by fn == 0, like rc_functions. */
+typedef struct rc_native
+{
+    u32   addr;                 /* the function's entry, RC_ADDR()'d like every emitted address */
+    rc_fn fn;
+} rc_native;
+
+extern const rc_native rc_native_fns[];
+rc_fn rc_native_lookup(u32 addr);
+
 void rc_call(cpu_t *c, rt_machine *m, u32 addr);
 /* Reported by the generated dispatch when an address is not an instruction of that function. */
 void rc_bad_entry(cpu_t *c, rt_machine *m);
@@ -185,6 +201,12 @@ void rc_tick(void);
  * run the game's own interrupt servers - and returns with the register file as they left it. */
 extern void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
 void rc_step(cpu_t *c, rt_machine *m, u32 cycles);
+/* The same charge for a *group* of instructions a hand-written replacement performs in one go
+ * (src\recomp\patches): the cycles of the instructions it replaces and the bus words they would
+ * have transferred. Charging one opcode's words for a whole routine would quietly hand the guest
+ * back the time the AGNUS contention took, i.e. it would run the scene faster than the A500 -
+ * that is why this exists instead of a plain rc_step with the summed cost. */
+void rc_step_words(cpu_t *c, rt_machine *m, u32 cycles, int words);
 /* Bisection seam: stop the run once m->insns reaches this count (0 = never). The stop is exact
  * per instruction, also in the middle of a translated function: rc_step leaves the stream with
  * c->pc on the instruction that has not run, which is where the interpreter stops too. */

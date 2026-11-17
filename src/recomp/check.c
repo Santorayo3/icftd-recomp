@@ -7,6 +7,13 @@
  * start from the same machine.
  *
  *   recomp-check <fixture.fx> [--dump <out.txt>] [--image <dshell.img>]
+ *   recomp-check --collide [<cases>]
+ *
+ * --collide is the same comparison for the hand-written patches in src\recomp\patches: the native
+ * routine and the generated translation of the very same 68000 routine are run from identical
+ * machine state, and must agree on D0, the CCR, A7, every byte of RAM they write and the cycles
+ * they charge to the frame budget. The fixtures cannot cover those (there is no 68000 code left to
+ * interpret them against), so the generated body - which the fixtures *do* cover - is the reference.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +142,211 @@ static void dump(FILE *f, u32 entry, int stopError)
     }
 }
 
+/* --- --collide: the native patches against the generated translation -------------------------
+ * Same idea as a fixture replay, one level up: run both implementations of a patched routine from
+ * the same machine state and compare what the routine's caller can see. RAM is compared byte for
+ * byte except the scratch a real caller cannot see - the words below SP, which hold the argument
+ * block and whatever the routine pushed over it. */
+
+#define COLL_RAM     0x0100000u       /* the patch check needs no more: image + five planes */
+#define COLL_A4      0x29A56u         /* the 0x4000 build's data base (0x2DA56) minus its load address */
+#define COLL_PLANES  0x40000u
+#define COLL_STRIDE  0x4000u
+#define COLL_GUARD   0x40u
+
+static u8 *coll_image;
+static u32 coll_imageLen;
+static u8 *coll_pristine;
+static u8 *coll_case;
+static u8 *coll_before;
+static u8 *coll_after;
+static unsigned long coll_rng = 12345;
+static cpu_t coll_start;
+
+static u32 coll_rnd(void)
+{
+    coll_rng = coll_rng * 1103515245ul + 12345ul;
+    return (u32)(coll_rng >> 16) & 0x7FFFu;
+}
+
+static void coll_quiet(cpu_t *c, rt_machine *m) { (void)c; (void)m; }
+
+static u32 coll_entry(int which)
+{
+    if (which == 0) return 0x0001a6fau;
+    if (which == 1) return 0x0001a7beu;
+    return 0x0001aa04u;
+}
+
+static const char *coll_name(int which)
+{
+    return (which == 0) ? "fn_0001a6fa" : (which == 1) ? "fn_0001a7be" : "fn_0001aa04";
+}
+
+/* One machine state: the image, five planes of random bytes, the words the routine reads around
+ * them, and the argument block its caller leaves on the stack. */
+static void coll_setup(int which, s32 x, s32 y, s32 radius, u32 mask, int randomPlanes)
+{
+    u32 i, a4 = COLL_A4;
+
+    memcpy(g_m.mem.base, coll_pristine, COLL_RAM);
+    rt_mem_load(&g_m.mem, 0, coll_image, coll_imageLen);
+
+    rt_write16(&g_m.mem, a4 - 0xD32u, 40u);
+    for (i = 0; i < 5; i++)
+        rt_write32(&g_m.mem, a4 - 0xCDAu + i * 4u, COLL_PLANES + i * COLL_STRIDE);
+    for (i = 0; i < 5u * 8000u; i++)
+        g_m.mem.base[COLL_PLANES + i] = randomPlanes ? (u8)coll_rnd() : (u8)(i * 37u + i / 40u);
+
+    rt_write16(&g_m.mem, a4 + 0x470u, (u16)coll_rnd());     /* the screen origin */
+    rt_write16(&g_m.mem, a4 + 0x472u, (u16)coll_rnd());
+    rt_write16(&g_m.mem, a4 + 0x70Cu, (u16)coll_rnd());     /* leftovers of the previous call */
+    rt_write16(&g_m.mem, a4 + 0x70Eu, (u16)coll_rnd());
+
+    memset(&coll_start, 0, sizeof coll_start);
+    coll_start.a[7] = 0x0080000u;
+    coll_start.sr = 0x2700u;
+    coll_start.pc = coll_entry(which);
+    rt_write32(&g_m.mem, coll_start.a[7], 0x0003FFFEu);     /* where the rts returns to */
+    rt_write16(&g_m.mem, coll_start.a[7] + 4u, (u16)x);
+    rt_write16(&g_m.mem, coll_start.a[7] + 6u, (u16)y);
+    if (which == 2) rt_write32(&g_m.mem, coll_start.a[7] + 8u, mask);
+    else            rt_write16(&g_m.mem, coll_start.a[7] + 8u, (u16)radius);
+    rt_write16(&g_m.mem, coll_start.a[7] + 10u, 0x0004u);
+    for (i = 0; i < 8; i++) coll_start.d[i] = 0x11110000u + i;
+    for (i = 0; i < 7; i++) coll_start.a[i] = 0x22220000u + i * 0x100u;
+    coll_start.a[4] = a4;
+
+    memcpy(coll_case, g_m.mem.base, COLL_RAM);
+}
+
+/* Enter the routine (native or generated) and follow the call stream until its own rts unwinds the
+ * outermost frame, which is what the dispatcher in src\recomp\cpu.c does. */
+static u32 coll_run(int which, int native, long budget, cpu_t *out, u8 *memOut)
+{
+    cpu_t c = coll_start;
+
+    memcpy(g_m.mem.base, coll_case, COLL_RAM);
+    g_m.cyclesToTick = budget;
+    g_m.insns = 0;
+    g_m.stop = 0;
+    rc_depth = 1;
+    rc_stopOnReturn = 0;
+    while (rc_depth > 0 && !g_m.stop)
+    {
+        rc_fn fn = native ? rc_native_lookup(c.pc) : rc_lookup(c.pc);
+
+        if (fn == 0)
+        {
+            const rc_entry *owner = rc_containing(c.pc);
+            if (owner != 0) fn = owner->fn;
+        }
+        if (fn == 0) { printf("recomp-check: no code at %06lX\n", (unsigned long)c.pc); exit(1); }
+        fn(&c, &g_m);
+    }
+    *out = c;
+    if (memOut != g_m.mem.base) memcpy(memOut, g_m.mem.base, COLL_RAM);
+    return (u32)(budget - g_m.cyclesToTick);
+}
+
+static int collide_check(long cases, const char *imagePath)
+{
+    long n, failed = 0, regFail = 0, memFail = 0, cycFail = 0, shown = 0;
+    cpu_t afterA, afterB;
+    u32 cycA, cycB, i;
+
+    if (rc_native_lookup(coll_entry(0)) == 0)
+    {
+        printf("recomp: no native patch at %06lX - nothing to check\n", (unsigned long)coll_entry(0));
+        return 0;
+    }
+    memset(&g_m, 0, sizeof g_m);
+    if (!rt_mem_init(&g_m.mem, COLL_RAM)) { printf("recomp-check: out of memory\n"); return 1; }
+    rt_current = &g_m;
+    rc_frame_hook = coll_quiet;
+
+    {
+        FILE *f = fopen(imagePath, "rb");
+        if (f == 0) { printf("recomp-check: cannot read the image %s\n", imagePath); return 1; }
+        fseek(f, 0, SEEK_END); coll_imageLen = (u32)ftell(f); fseek(f, 0, SEEK_SET);
+        coll_image = (u8 *)malloc(coll_imageLen);
+        if (coll_image == 0 || fread(coll_image, 1, coll_imageLen, f) != coll_imageLen) { fclose(f); return 1; }
+        fclose(f);
+    }
+    coll_pristine = (u8 *)calloc(COLL_RAM, 1);
+    coll_case     = (u8 *)malloc(COLL_RAM);
+    coll_before   = (u8 *)malloc(COLL_RAM);
+    coll_after    = (u8 *)malloc(COLL_RAM);
+    if (!coll_pristine || !coll_case || !coll_before || !coll_after) { printf("recomp-check: out of memory\n"); return 1; }
+
+    for (n = 0; n < cases; n++)
+    {
+        int which = (int)(n % 3);
+        s32 x, y, radius;
+        u32 mask, memDiff = 0;
+        long budget = (n % 5 == 4) ? 700L : (long)EMU_CYCLES_PER_FRAME;  /* tight: the fallback path */
+        int bad = 0;
+
+        if (n < 3 * 240)
+        {
+            x = (s32)(n / 3) - 60;                          /* the screen and its margin */
+            y = (s32)((n * 7) % 240) - 24;
+            radius = (s32)((n * 13) % 64);
+            mask = 0xFFFF83FFu;
+            coll_setup(which, x, y, radius, mask, (int)(n & 1));
+        }
+        else
+        {
+            x = (s32)(coll_rnd() % 420) - 40;
+            y = (s32)(coll_rnd() % 260) - 30;
+            radius = (s32)(coll_rnd() % 200) - 20;
+            mask = (coll_rnd() & 1) ? 0xFFFF83FFu : ((coll_rnd() & 1) ? 0xF8F81FCu : coll_rnd());
+            coll_setup(which, x, y, radius, mask, (int)(n & 1));
+        }
+
+        cycA = coll_run(which, 0, budget, &afterA, coll_before);
+        cycB = coll_run(which, 1, budget, &afterB, coll_after);
+        for (i = 0; i < COLL_RAM && !memDiff; i++)
+        {
+            if (coll_before[i] == coll_after[i]) continue;
+            if (i + 1u > coll_start.a[7] - COLL_GUARD && i < coll_start.a[7] + 16u) continue;
+            memDiff = i + 1u;
+        }
+
+        if (cycA != cycB) { cycFail++; bad = 1; }
+        if (afterA.d[0] != afterB.d[0] || (afterA.sr & 0x1Fu) != (afterB.sr & 0x1Fu) ||
+            afterA.a[7] != afterB.a[7]) { regFail++; bad = 1; }
+        if (memDiff) { memFail++; bad = 1; }
+        if (bad)
+        {
+            failed++;
+            if (shown < 8)
+            {
+                shown++;
+                printf("FAIL %s x=%ld y=%ld r=%ld mask=%08lx budget=%ld: "
+                       "d0 %08lx/%08lx sr %04lx/%04lx cycles %lu/%lu%s",
+                       coll_name(which), (long)x, (long)y, (long)radius, (unsigned long)mask, budget,
+                       (unsigned long)afterA.d[0], (unsigned long)afterB.d[0],
+                       (unsigned long)afterA.sr, (unsigned long)afterB.sr,
+                       (unsigned long)cycA, (unsigned long)cycB,
+                       memDiff ? " memory differs" : "");
+                if (memDiff) printf(" at %06lx: %02x vs %02x", (unsigned long)(memDiff - 1),
+                                    coll_before[memDiff - 1], coll_after[memDiff - 1]);
+                printf("\n");
+            }
+        }
+    }
+
+    printf("recomp: native patches: %ld case(s), D0/CCR/A7 %ld, RAM %ld, cycles %ld differ%s\n",
+           cases, regFail, memFail, cycFail, failed ? "" : " - all agree");
+    free(coll_pristine);
+    free(coll_case);
+    free(coll_before);
+    free(coll_after);
+    free(coll_image);
+    return failed != 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *path = 0, *dumpPath = 0, *imagePath = CHECK_IMAGE;
@@ -150,11 +362,18 @@ int main(int argc, char **argv)
     {
         if (strcmp(argv[k], "--dump") == 0 && k + 1 < argc) { dumpPath = argv[++k]; continue; }
         if (strcmp(argv[k], "--image") == 0 && k + 1 < argc) { imagePath = argv[++k]; continue; }
+        if (strcmp(argv[k], "--collide") == 0)
+        {
+            long cases = 3000;
+            if (k + 1 < argc && argv[k + 1][0] >= '0' && argv[k + 1][0] <= '9') cases = strtol(argv[++k], 0, 0);
+            return collide_check(cases, imagePath);
+        }
         if (path == 0) { path = argv[k]; continue; }
     }
     if (path == 0)
     {
-        printf("usage: recomp-check <fixture.fx> [--dump <out.txt>] [--image <dshell.img>]\n");
+        printf("usage: recomp-check <fixture.fx> [--dump <out.txt>] [--image <dshell.img>]\n"
+               "       recomp-check --collide [<cases>] [--image <dshell.img>]\n");
         return 1;
     }
     f = fopen(path, "rb");

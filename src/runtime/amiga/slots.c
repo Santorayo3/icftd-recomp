@@ -554,24 +554,28 @@ static int bus_accesses(rt_machine *m, long cost, u16 opcode, u32 pc)
     return accesses;
 }
 
-long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
+/* The charge itself. `fetch` is how many of the words are the instruction's own fetch, which the
+ * slow reference walker places before the operand words; -1 walks them in one run (a group of
+ * instructions a hand-written replacement stands in for has no single fetch length). */
+static long charge(rt_machine *m, long cost, int accesses, int fetch)
 {
     rt_slots *s = &m->slots;
     long at, start, spent;
-    int accesses;
 
     if (!s->valid) return cost;
     if (s->dirty) rt_slots_update(m);
 
-    accesses = bus_accesses(m, cost, opcode, pc);
+    if (accesses < 0) accesses = 0;
+    /* Clamp: a memory cycle is 4 clock cycles, so an instruction cannot have more bus words than
+     * half its cycle count. */
+    if ((long)accesses * 2L > cost) accesses = (int)(cost / 2L);
     at = start = frame_cursor(m);
 
     if (g_busReference)
     {
-        int fetch = (int)rt_inst_len[opcode];
         long pos;
 
-        if (fetch > accesses) fetch = accesses;
+        if (fetch < 0 || fetch > accesses) fetch = accesses;
         pos = beam_pass_ref(m, start, (int)((cost - 2L * (long)accesses) / 2L));
         pos = walk_slots_ref(m, pos, fetch);
         pos = walk_slots_ref(m, pos, accesses - fetch);
@@ -592,6 +596,17 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
     }
     spent += bus_words(m, &at, accesses);
     return spent;
+}
+
+long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
+{
+    if (!m->slots.valid) return cost;
+    return charge(m, cost, bus_accesses(m, cost, opcode, pc), (int)rt_inst_len[opcode]);
+}
+
+long rt_bus_charge_words(struct rt_machine *m, long cost, int words)
+{
+    return charge(m, cost, words, -1);
 }
 
 /* --- the --slots report -------------------------------------------------------------------- */

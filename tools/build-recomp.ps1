@@ -53,6 +53,9 @@ $sources = @(
 )
 # Every translated function: one file per function, discovered so the script never needs editing.
 $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullName } | Sort-Object
+# Hand-written replacements for hot generated functions (the override seam, docs\recomp-architecture.md):
+# the dispatch consults rc_native_fns (src\recomp\cpu.c) before the generated table.
+$sources += Get-ChildItem (Join-Path $rc 'patches') -Filter *.c | ForEach-Object { $_.FullName } | Sort-Object
 
 # Hundreds of sources do not fit in one command line, so compile in batches into an object
 # directory and link once. Watcom splits unquoted arguments on spaces, and the repository path has

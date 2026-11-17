@@ -12,6 +12,9 @@
       2. oracle build          (tools\build-oracle.ps1 - the original binary on Musashi + runtime)
       3. interpreter fixtures  (tools\harness-check.ps1 - hand-checked 68k cases + SMS planes)
       4. translated vs interpreted (tools\recomp-fixtures.ps1 - src\recomp against rcmp, per fixture)
+         and the native patches  (recomp-check --collide - src\recomp\patches against the generated
+                                translation of the same 68000 routine, per case: D0, CCR, A7, the
+                                bytes written and the cycles charged)
 
       port checks (-Full: minutes, the presenter alone takes two; needs bin\win32\icftd-recomp.exe)
 
@@ -137,6 +140,7 @@ $all = @(
     @{ Name = 'oracle build';                         Port = $false; Build = $true;  Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-oracle.ps1 } },
     @{ Name = 'interpreter fixtures';                 Port = $false; Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\harness-check.ps1 } },
     @{ Name = 'translated vs interpreted (fixtures)'; Port = $false; Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\recomp-fixtures.ps1 } },
+    @{ Name = 'native patches (vs translation)';      Port = $false; Build = $false; Body = { bin\win32\recomp-check.exe --collide 6000 } },
     @{ Name = 'presentation (raster)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\present-check.ps1 } },
     @{ Name = 'title menu (scenes)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\title-check.ps1 } },
     @{ Name = 'title settings (menu, volumes)';       Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\settings-check.ps1 } },

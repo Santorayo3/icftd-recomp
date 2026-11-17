@@ -42,8 +42,9 @@ static jmp_buf *rc_stopJump;
  * oracle_run): the instruction's cycles are charged before it, going negative runs the vblank
  * first, and the bisection stop leaves the stream on the instruction that has not run. The emitted
  * code sets c->pc to that instruction before calling rc_step, so a stop reports the state the
- * interpreter reports. */
-static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
+ * interpreter reports. `words` >= 0 replaces the opcode's bus word count: a hand-written
+ * replacement of translated code charges the words of the whole group it stands in for. */
+static void step_budget(cpu_t *c, rt_machine *m, u32 cost, int words)
 {
     tick();
     if (m->traceTo != 0) rt_trace(m, c->pc);
@@ -93,7 +94,9 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
     }
     if (rc_frame_hook != 0)
     {
-        long bus = rt_bus_charge(m, (long)cost, rt_read16(&m->mem, c->pc), c->pc);
+        long bus = (words < 0)
+                 ? rt_bus_charge(m, (long)cost, rt_read16(&m->mem, c->pc), c->pc)
+                 : rt_bus_charge_words(m, (long)cost, words);
 
         /* rt_bus_charge walks the instruction's bus words through the slot map (slots.c): internal
          * cycles run at the 68000's full rate, each bus word waits for a colour clock Agnus did not
@@ -113,7 +116,12 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost)
 
 void rc_step(cpu_t *c, rt_machine *m, u32 cycles)
 {
-    step_budget(c, m, cycles);
+    step_budget(c, m, cycles, -1);      /* the words come from the opcode at c->pc */
+}
+
+void rc_step_words(cpu_t *c, rt_machine *m, u32 cycles, int words)
+{
+    step_budget(c, m, cycles, words);
 }
 
 static u32 mask_size(int size)
@@ -585,7 +593,8 @@ static void rc_stream(cpu_t *c, rt_machine *m)
         /* 0 is the host's "returned" sentinel: the fixture harness and the game's entry both use it. */
         if (c->pc == 0u || m->stop) return;
         tick();
-        fn = rc_lookup(c->pc);
+        fn = rc_native_lookup(c->pc);
+        if (fn == 0) fn = rc_lookup(c->pc);
         if (fn == 0)
         {
             /* The engine's tables call into the middle of a function: run the owner, which
@@ -626,6 +635,18 @@ void rc_bad_entry(cpu_t *c, rt_machine *m)
 {
     printf("recomp: %06lX is not an instruction of the function it entered\n", (unsigned long)c->pc);
     m->stop = 1;
+}
+
+/* --- hand-written replacements ---------------------------------------------------------------
+ * Linear over a table of a few entries, and only once per dispatched function (not per
+ * instruction): a handful of compares against a frame that no translated instruction can see. */
+rc_fn rc_native_lookup(u32 addr)
+{
+    const rc_native *n;
+
+    for (n = rc_native_fns; n->fn != 0; n++)
+        if (n->addr == addr) return n->fn;
+    return 0;
 }
 
 /* A library call. The caller has already arranged the arguments on the stack and pushed the return
@@ -673,7 +694,7 @@ void rc_os_call_a6(cpu_t *c, rt_machine *m, s32 lvo)
      * interpreter charges the cycle table entry of the word at that address, and a library entry is
      * inside the zero-filled stub area. */
     c->pc = c->a[6] + (u32)lvo;
-    step_budget(c, m, 0);
+    step_budget(c, m, 0, -1);
     if (m->stop) return;
 
     c->d[0] = os_call(c, m, lib, lvo);

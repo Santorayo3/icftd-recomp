@@ -3739,3 +3739,84 @@ the same way at a fixed clock - `ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 -
 Y:\out\HOSPWALK.TXT --srcdiff --frames 700` through `tools\dos-run.ps1 -Cycles 100000` - but a
 `--call` + `--mouse` run there stops at the intro (frame 73), so the port's camera is measured on
 the host build; the played game installs the same seam itself.
+
+## Native collision probes (2026-11-17)
+
+`fn_0001aa04` is "is the pixel at (x,y) a solid colour?" - bounds, byte offset, bit mask, five plane
+bytes, a 5-bit colour index, the caller's mask - and it was 36 translated instructions executed
+~35 times a frame: 9.7 ms of the hospital pass, a quarter of it with `fn_0001a6fa` (eight probes
+around a point) and `fn_0001a7be` (four along the axes), which re-derived the row stride, the five
+plane bases and the pixel bit for every single probe (`docs\dos-hospital-perf.txt`).
+
+**The change.** `src\recomp\patches\collide.c` holds all three as C: the byte offset from the
+stride, the bit from the x coordinate, five plane bytes, the colour as `1 << plane`, the caller's
+mask - the original's arithmetic, its 16-bit truncation after the `muls.w`/`add.w` pair, its clamps
+to [-1,1], its tables read from the same A4-relative words. It is reached through a seam rather than
+by editing generated code: `rc_native_fns` (`src\recomp\cpu.c`) is consulted before the generated
+table, so a patch owns its entry address while the generated body stays linked for the computed
+jumps that enter a function half-way (`rc_containing`) and for the frame-boundary fallback below.
+
+**The clock, which is the part a native body usually gets wrong.** The probes charge what the 68000
+instructions they replace charge - per path, from the emitter's own per-instruction cycles and
+`rt_bus_cycles[opcode]` (a full probe is 1278 cycles and 270 bus words; the early outs 90/27,
+116/33, 148/38, 174/43; the groups' prologue, iteration, accumulate and tail 108/24, 272/47,
+100/20, 144/31, plus 12/2 per set plane bit and 16/4 per clamp store). `rc_step_words`
+(`src\recomp\cpu.c` -> `rt_bus_charge_words`, `slots.c`) charges a group with its own bus word
+count, because handing one opcode's count to a whole routine gives the guest back the AGNUS
+contention it should have paid. The machine run of the hospital pass goes from 91.8 to 84.0 ms.
+
+**The one divergence, named.** The original charges 36 instruction boundaries inside a probe; a
+native body charges the probe in one step. Two consequences, both measured:
+
+1. *A vblank that lands inside a probe.* The original takes the boundary between two of the probe's
+   instructions, a one-step charge takes it before the probe. That is a different machine state and
+   it showed at once (first collision frame, 416: 115 bytes of game data). Fixed by falling back to
+   the generated body whenever `m->cyclesToTick` is within 1.5x of the group's cost: it charges
+   instruction by instruction exactly as the 68000 does. About one group call in eight takes that
+   path; after it, no vblank lands inside a native charge.
+2. *AGNUS contention inside a probe.* The original walks its 270 bus words interleaved with its
+   internal cycles, one instruction at a time; the group charge walks them in one run. The totals
+   differ by a few cycles per probe, so the beam position a later instruction sees differs, and the
+   engine folds `$DFF006` into its entropy (`FUN_00016e56`). A run is therefore bit-identical to the
+   translation up to frame 415 and then drifts by entropy-derived values - 23 bytes of game RAM at
+   frame 416, 545 of 2 MB at frame 699 (0.03 %), the pass cadence unchanged. Removing it means
+   charging per instruction, i.e. giving up the win.
+
+**Validated per call, exactly.** `bin\win32\recomp-check.exe --collide 6000` (gate step 4, "native
+patches") runs the patch and the translation of the same 68000 routine from identical machine state
+- the image, five planes of pseudo-random bytes, random origin/stride/plane bases, screen corners
+and margins, off-screen and edge coordinates, both masks, radii that make every probe hit, and every
+fifth case with the frame boundary forced inside the group (the fallback) - and compares D0, the
+CCR, A7, every RAM byte outside the caller's scratch and the cycles each side charges: 6000 cases, 0
+differ. It found three real bugs while it was being written: the origin words were read
+`(A4-0x470)` instead of `(A4+0x470)`, the colour index had the planes the wrong way round (the
+original's `bset #5,D6 / asr.w #1,D6` pair puts plane 0 in the *least* significant bit), and the
+groups take their radius from the word at `SP+8`, not the mask.
+
+**DOS, fixed 100,000 cycles**, hospital walk (`--call 0x1C19A:100`, the camera check's script,
+`--perf --perfafter 500 --frames 700`, window 500..699), `bin\dos\game\ICFTD.INI` at
+`[AUDIO] sound=1, music=1` - `tools\dos-pack.ps1` writes the release's 10/10, so set it before
+measuring, and measure a *warmed* tree: a freshly packed release fills its own `DISKS\` on the first
+start, and that run reads 97.3 ms (the same warm-up `tools\perf-dos.ps1` skips):
+
+| | before | after | |
+|---|---|---|---|
+| machine run | 91.8 ms/frame | 84.0 ms | the collision calls |
+| vblank | 8.2 | 8.0 | conversion untouched |
+| **frame** | **100.0 ms (10.00 fps)** | **92.0 ms (10.87 fps)** | **1.09x** |
+| instructions/frame | 9,578 | 7,232 | -2,346: what the three routines cost |
+
+**Measuring this again.** The patch check is one command (`tools\gate.ps1 -Only native`). The frame
+numbers come from the same DOS run the perf report uses:
+
+    powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1
+    powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1
+    # then set sound=1, music=1 in bin\dos\game\ICFTD.INI
+    powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 -Cycles 100000 -Autoexec "ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --perf --perfafter 500 --frames 700 > ICFTD.LOG"
+
+and the whole-run state comparison against a previous build is the host front end with `--ram`:
+
+    bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 8000000 --call 0x1C19A:100 --input out\HOSPWALK.TXT --data export --ram 416,699 --state out\collide\run
+
+`fn_0001a59a`, `fn_0001a880` and `fn_0001a942` also call the probe (one probe per call); they keep
+their translation and get the native probe through the dispatcher.

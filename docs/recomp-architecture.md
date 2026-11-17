@@ -114,9 +114,15 @@ the parts that fit.
 
 1. **Override seam.** The translator emits one function per file with a *stable* name
    (`fn_0001fa02`, or better `Move_Walk` once annotated) into `recomp/`. Hand-written replacements
-   live in `src/recomp/patches/` and are linked **before** the generated objects, so the linker
-   prefers them - the same trick N64Recomp documents ("single file output mode" for patches). A mod
-   is a directory of readable C functions with the original names, not a diff against generated code.
+   live in `src\recomp\patches\` and stand in for their generated function through
+   `rc_native_fns` (`src\recomp\cpu.c`, looked up before the generated table): a patch takes over
+   an entry address without a generated file being edited or dropped, and the generated body stays
+   linked for a computed jump that lands inside the function. A mod is a directory of readable C
+   functions with the original names, not a diff against generated code. `recomp-check --collide`
+   (gate step 4) is what keeps a patch honest: it runs the patch and the translation of the same
+   68000 routine from identical machine state and compares D0, the CCR, A7, every byte written and
+   the cycles charged. `src\recomp\patches\collide.c` is the first one - the collision probes. See
+   `docs\next-session.md`, "Native collision probes".
 2. **Hook seam.** The runtime exposes named events (`scene_enter`, `frame_end`, `text_shown`,
    `sprite_draw`, ...) that a mod can attach to with one call, so most tweaks need no patching.
 3. **Data seam.** Art, palettes and MovE scripts stay in `assets\game.pak`, which is our own

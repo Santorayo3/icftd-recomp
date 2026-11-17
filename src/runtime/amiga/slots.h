@@ -84,6 +84,12 @@ void rt_bus_set_reference(int on);
  * Returns the time to charge to the frame budget. */
 long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc);
 
+/* The same charge with the bus word count given instead of derived from an opcode: a hand-written
+ * replacement of translated code stands in for a group of instructions and knows the words the
+ * whole group transfers (src\recomp\patches). The count is clamped the same way - an access is one
+ * colour clock, so it cannot exceed half the group's cycles. */
+long rt_bus_charge_words(struct rt_machine *m, long cost, int words);
+
 long rt_blit_wait(struct rt_machine *m);
 
 /* Nobody is using the bus for `cycles` 68000 cycles (an idle frame, a dos.Delay): the clock keeps
