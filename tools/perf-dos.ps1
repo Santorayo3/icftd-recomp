@@ -38,11 +38,17 @@ if (-not $NoBuild) {
 Write-Output ("{0,-10} {1,10} {2,10} {3,12} {4,12}" -f 'cycles', 'ms/frame', 'frame/s', '% of 20 fps', '% of 50 Hz')
 foreach ($clk in ($Clocks -split ',')) {
     $clk = [int]$clk.Trim()
+    # A first, unmeasured run: a freshly packed release has an empty DISKS\ and the game fills it
+    # from the repository's disks on its first start, so that work would otherwise be charged to
+    # the 60-frame run and the difference would make the machine look faster than it is.
+    $o = (& $ps -NoProfile -ExecutionPolicy Bypass -File $run -Cycles $clk -DosBox $DosBox `
+            -Autoexec "ICFTD.EXE --disks Y:\disks --frames 60 > ICFTD.LOG" -TimeoutSec 1800 2>&1 | Out-String)
+    if ($o -match 'Please put the three original') { throw "no game data: $($o.Trim())" }
     # 200 frames apart; at 100000 that is ~12 s of emulation.
     $w = @()
     foreach ($f in 60, 260) {
         $o = (& $ps -NoProfile -ExecutionPolicy Bypass -File $run -Cycles $clk -DosBox $DosBox `
-                -Autoexec "ICFTD.EXE --frames $f > ICFTD.LOG" -TimeoutSec 1800 2>&1 | Out-String)
+                -Autoexec "ICFTD.EXE --disks Y:\disks --frames $f > ICFTD.LOG" -TimeoutSec 1800 2>&1 | Out-String)
         if ($o -match 'wall clock: ([\d.,]+)') { $w += [double](($matches[1]) -replace ',', '.') }
         else { throw "no wall clock for frames=$f at cycles=$clk" }
     }

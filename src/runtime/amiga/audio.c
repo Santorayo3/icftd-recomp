@@ -12,11 +12,12 @@
 #define CPU_CLOCK 7093790u
 #define CPU_PER_E EMU_CYCLES_PER_E     /* machine.h: the same number the translated clock uses */
 
-/* Sample emission is counted in thousandths of those clocks (the codebase has no 64-bit type, and
- * a frame's worth of cycles times the rate would not fit a u32): one host frame per
- * CPU_CLOCK/1000 ticks of `frac`, i.e. 44.1 kHz within 0.003 %. */
-#define STEP_RATE (EMU_AUD_RATE / 1000u)
-#define STEP_CPU  (CPU_CLOCK / 1000u)
+/* Sample emission is counted in fiftieths of those clocks (the codebase has no 64-bit type, and
+ * a frame's worth of cycles times the rate would not fit a u32): one host sample per
+ * CPU_CLOCK/50 ticks of `frac`. Both the Amiga build's 44.1 kHz and the DOS port's 22.05 kHz
+ * divide by 50 exactly, so the divide is on the requested rate, not on a fixed one. */
+#define STEP_RATE(rate) ((rate) / 50u)
+#define STEP_CPU        (CPU_CLOCK / 50u)
 
 /* --- audio --------------------------------------------------------------------------------- */
 
@@ -152,7 +153,7 @@ static void aud_render(rt_machine *m, u32 cycles)
     rt_audio *a = &m->audio;
 
     if (!a->on) return;                 /* no device: only the registers are modelled */
-    a->frac += (u32)cycles * STEP_RATE;
+    a->frac += (u32)cycles * STEP_RATE(a->rate);
     while (a->frac >= STEP_CPU) {
         a->frac -= STEP_CPU;
         aud_sample(m);

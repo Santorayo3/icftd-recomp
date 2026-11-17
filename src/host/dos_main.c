@@ -68,6 +68,11 @@
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 10
 
+/* Paula is mixed at this rate on DOS, half the Amiga build's 44.1 kHz (EMU_AUD_RATE): the mixer is
+ * emulated code here, so every mixed frame costs the modelled machine time. The card is programmed
+ * with the same rate, so nothing resamples between the mixer and the device. */
+#define DOS_AUD_RATE   22050u
+
 static cpu_t *g_cpu;
 static int    g_trace;          /* --trace: the dispatch and CIA path, for a DOS-only defect */
 static const char *g_dumpPath;  /* --dump <frame> <file>: the RAM image at that vblank */
@@ -1550,7 +1555,7 @@ int main(int argc, char **argv)
      * told on screen instead of wondering why the game is silent. */
     if (!g_noAudio)
     {
-        rt_audio_open(&m, EMU_AUD_RATE);
+        rt_audio_open(&m, DOS_AUD_RATE);
         if (!m.audio.device)
             rt_osd_text(&m, "BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)", EMU_OSD_FRAMES * 8);
     }
@@ -1696,7 +1701,7 @@ int main(int argc, char **argv)
             m.traceFrom = traceFrom;
             m.traceTo = traceTo;
             rt_audio_set_gain(&m, soundGain, musicGain);
-            if (!g_noAudio && hadAudio) rt_audio_open(&m, EMU_AUD_RATE);
+            if (!g_noAudio && hadAudio) rt_audio_open(&m, DOS_AUD_RATE);
             m.on_frame = dos_input;
             m.on_present = dos_present;
             oracle_boot(EMU_ENTRY, EMU_A4);

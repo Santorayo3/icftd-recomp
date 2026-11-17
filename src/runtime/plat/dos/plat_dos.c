@@ -633,8 +633,9 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
 }
 
 /* --- Sound Blaster ---------------------------------------------------------------------------
- * The runtime mixes Paula at 44.1 kHz into interleaved s16 stereo (audio.h) and hands it over in
- * 512-frame chunks; this layer plays it on whatever the BLASTER variable names.
+ * The runtime mixes Paula into interleaved s16 stereo (audio.h) and hands it over in 512-frame
+ * chunks; this layer plays it on whatever the BLASTER variable names, at the rate the front end
+ * asked for.
  *
  *   BLASTER=A220 I5 D1 H5 T6    ->  base 0x220, IRQ 5, 8-bit DMA 1, 16-bit DMA 5, SB16
  *
@@ -644,9 +645,11 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
  * interrupts off in translated code.
  *
  * Formats, chosen from the DSP version rather than the T token (which users get wrong):
- *   DSP >= 4.00 (SB16)   16-bit stereo at 44100 Hz - the mixer's own rate, copied straight.
- *   DSP 3.x (Pro)         8-bit stereo at 22050 Hz - two mixer frames averaged into one.
- *   DSP 1.x/2.x (mono)    8-bit mono   at 22050 Hz.
+ *   DSP >= 4.00 (SB16)   16-bit stereo at the mixer's rate - copied straight, the card is
+ *                        programmed with that rate.
+ *   DSP 3.x (Pro)         8-bit stereo at 22050 Hz - each device frame is the average of the
+ *                        mixer frames it spans (two of them when the mixer runs at 44100).
+ *   DSP 1.x/2.x (mono)    8-bit mono   at 22050 Hz, averaged the same way.
  * Without the variable, or when the card does not answer, no device is opened and the mixer never
  * starts (rt_time_slice then keeps its cheap path as well).
  */
@@ -670,8 +673,8 @@ static const u8 g_page16[4] = { 0x8F, 0x8B, 0x89, 0x8A };
 #define DMA16_MODE     0xD6u
 #define DMA16_CLEAR_FF 0xD8u
 
-/* 32 KB of audio = 186 ms at 44,100 Hz stereo. It has to absorb the writer's per-frame burst
- * (3528 B every 20 ms) and DOSBox's mixer blocks (1024 samples = 23 ms), and a frame can be a few
+/* 32 KB of audio = 372 ms at 22,050 Hz stereo. It has to absorb the writer's per-frame burst
+ * (1764 B every 20 ms) and DOSBox's mixer blocks (1024 samples = 46 ms), and a frame can be a few
  * milliseconds late without the card noticing. The allocator takes twice the ring so it can step
  * over a DMA page boundary, so this costs 64 KB of the 583 KB of base memory left; the 64 KB window
  * an 8-bit channel needs is exactly this size, which is why it is the largest that is safe there. */
@@ -1097,9 +1100,17 @@ u32 plat_audio_open(u32 rate)
     g_sb.major = (u8)ver;
     g_sb.minor = (u8)sb_read();
 
-    if (g_sb.major >= 4) { g_sb.bits = 16; g_sb.stereo = 1; g_sb.rate = 44100u; g_sb.decim = 1; }
-    else if (g_sb.major == 3) { g_sb.bits = 8; g_sb.stereo = 1; g_sb.rate = 22050u; g_sb.decim = 2; }
-    else { g_sb.bits = 8; g_sb.stereo = 0; g_sb.rate = 22050u; g_sb.decim = 2; }
+    if (g_sb.major >= 4)
+    {
+        /* SB16: 16-bit stereo, and the card is programmed with the rate the mixer produces. */
+        g_sb.bits = 16; g_sb.stereo = 1;
+        g_sb.rate = (rate != 0u) ? rate : 44100u;
+    }
+    else if (g_sb.major == 3) { g_sb.bits = 8; g_sb.stereo = 1; g_sb.rate = 22050u; }
+    else { g_sb.bits = 8; g_sb.stereo = 0; g_sb.rate = 22050u; }
+    /* Mixer frames per device frame: the older cards only do 22050, so a faster mixer is
+     * decimated. A card at the mixer's rate takes every frame. */
+    g_sb.decim = (rate > g_sb.rate) ? (rate / g_sb.rate) : 1u;
     g_sb.bytesFrame = (u32)(g_sb.bits / 8) * (u32)(g_sb.stereo ? 2 : 1);
 
     freeBefore = plat_free_base_kb();
@@ -1168,7 +1179,6 @@ u32 plat_audio_open(u32 rate)
            (unsigned)g_sb.major, (unsigned)g_sb.minor, g_sb.base, (unsigned)g_sb.irq,
            (unsigned)g_sb.dma8, (unsigned)g_sb.dma16, (unsigned long)g_sb.rate,
            (unsigned)g_sb.bits, g_sb.stereo ? "stereo" : "mono", (unsigned long)tcUsed);
-    (void)rate;
     return 1;
 
 fail:
@@ -1420,11 +1430,12 @@ void plat_audio_probe(void)
 
 void plat_audio_write(const s16 *frames, u32 count)
 {
-    u32 out, i;
+    u32 out, i, k, step;
 
     if (!g_sb.open || frames == 0 || count == 0) return;
 
-    if (g_sb.decim == 1)
+    step = g_sb.decim;
+    if (g_sb.bits == 16 && g_sb.stereo && step == 1)
     {
         /* 16-bit stereo at the mixer's rate: the bytes are already what the card wants. */
         sb_wait_for_room(count * 4u);
@@ -1432,15 +1443,17 @@ void plat_audio_write(const s16 *frames, u32 count)
         return;
     }
 
-    out = count / g_sb.decim;
+    out = count / step;
     if (out > SB_MAX_FRAMES) out = SB_MAX_FRAMES;
     sb_wait_for_room(out * g_sb.bytesFrame);
     for (i = 0; i < out; i++)
     {
-        const s16 *f0 = frames + (i * g_sb.decim) * 2;
-        const s16 *f1 = f0 + 2;
-        int l = ((int)f0[0] + (int)f1[0]) / 2;
-        int r = ((int)f0[1] + (int)f1[1]) / 2;
+        const s16 *f = frames + (i * step) * 2;
+        int l = 0, r = 0;
+
+        for (k = 0; k < step; k++) { l += (int)f[k * 2]; r += (int)f[k * 2 + 1]; }
+        l /= (int)step;
+        r /= (int)step;
 
         if (g_sb.stereo)
         {
