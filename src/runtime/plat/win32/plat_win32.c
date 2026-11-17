@@ -1,6 +1,15 @@
 /* Win32 platform layer: one 8-bit DIB section the size of the picture the core presents, one
  * logical palette, BitBlt to the window, 50 Hz pacing, keyboard and mouse.
  *
+ * The window has a resizable frame. The game's screen - 320x200 - scales with the client's *height*
+ * (one scale for both axes when windowed, the 4:3 an Amiga monitor shows on when fullscreen), so a
+ * wider window only widens the bars beside it, which the port's border art fills (border.c), and a
+ * client narrower than the screen's shape shows the bars above and below instead of cropping it.
+ * The picture is fitted into the screen's rectangle at the screen's own pixel shape (see
+ * picture_rect), so a scene with its own, larger screen - the chicken race's 368x216 window - is the
+ * same shape as the rest of the game instead of a shape of its own. Both go through one 32-bit
+ * frame the picture is stretched into, blitted to the window in one BitBlt.
+ *
  * Built with: wcl386 -bt=nt -5s -ox -i=..\core ..\core\main.c ..\core\gfx.c plat_win32.c
  */
 #include <windows.h>
@@ -40,14 +49,19 @@ static u32           g_mouse_motion;      /* WM_MOUSEMOVE messages seen, for "di
 static u32           g_mouse_motion_seen; /* ... and the count the last plat_pump reported */
 static u32           g_mouse_clicks;      /* WM_LBUTTONDOWN messages seen, for the press edge */
 static u32           g_mouse_clicks_seen; /* ... and the count the last plat_pump reported */
-static int           g_pic_x, g_pic_y, g_pic_w, g_pic_h;  /* fullscreen: where the picture is */
+static int           g_pic_x, g_pic_y, g_pic_w, g_pic_h;  /* where the picture is, when scaled */
 static int           g_cursorHidden;     /* ShowCursor(TRUE) calls owed to the desktop */
+static int           g_inSizeMove;       /* a size/move loop owns the pointer while it runs */
+static int           g_hasFocus;         /* the window owns the pointer while it has the focus */
+static u32           g_win_w, g_win_h;   /* windowed client size to come back to (0 = the picture) */
 
 /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
  * granularity cannot express the Amiga's 20 ms frame. */
 static __int64       g_qpcFreq;          /* QueryPerformanceFrequency, 0 = not available */
 static __int64       g_nextFrame;        /* QPC tick of the next frame boundary */
 static __int64       g_frame_ticks;      /* QPC ticks per frame */
+
+static void present_dc(HDC dc);
 
 static __int64 qpc_now(void)
 {
@@ -64,46 +78,62 @@ static void frame_ticks_recalc(void)
     g_frame_ticks = g_qpcFreq * (__int64)g_frame_ms / 1000;
 }
 
-/* The game is keyboard-only, so while its window has the focus the pointer is hidden and confined
- * to the picture: a cursor sitting on top of the graphics is a piece of desktop in the middle of a
- * 1989 game, and one that can be dragged off the window makes the player find it again to click
- * back in. Both are undone when the focus leaves, so the mouse is a normal mouse everywhere else.
+/* While the window has the focus it owns the pointer, exactly as the fixed 320x200 window always
+ * did: the system cursor is hidden - the game draws its own arrow where it needs one (display.c) -
+ * and the pointer is confined to the picture, which also pulls it in when it was outside. Letting
+ * the window lose the focus gives it back (Alt+Tab), and that is how the frame is reached: a frame
+ * that can be grabbed while the game is playing is a frame the pointer has to be free for.
+ *
+ * Confining the pointer *during* a drag is what broke resizing in the first place - Windows
+ * measures a dragged frame from the pointer, so a pointer held inside a client that the window is
+ * itself shrinking follows the shrink, and the window runs down to its minimum tracking size
+ * (measured: 336 -> 176 px clipped, 336 -> 465 px unclipped). A size or move loop therefore
+ * releases the pointer for as long as it runs, and it is confined again once it is over.
+ * A frame click also *activates* the window before the loop starts, so the activation itself must
+ * not confine the pointer either (see WM_SETFOCUS): that is the one case where hiding without
+ * confining is right.
  *
  * ShowCursor is a counter, not a flag, and other code in the process may have moved it: ask until
  * the answer is negative (hidden) and remember how many calls that took, which is exactly the
- * number to give back. The clip rectangle is in screen coordinates. */
-static void cursor_clip(void)
+ * number to give back. ClipCursor takes screen coordinates. */
+static void cursor_clip(int on)
 {
-    RECT cr;
+    RECT r;
 
-    if (g_cursorHidden == 0) return;
-    if (GetClientRect(g_hwnd, &cr))
+    if (!on || g_hwnd == 0) { ClipCursor(0); return; }
+    if (!GetClientRect(g_hwnd, &r)) { ClipCursor(0); return; }
+    MapWindowPoints(g_hwnd, 0, (POINT *)&r, 2);
+    ClipCursor(&r);
+}
+
+static void cursor_hide(void)
+{
+    if (g_cursorHidden != 0) return;
+    for (;;)
     {
-        MapWindowPoints(g_hwnd, 0, (POINT *)&cr, 2);
-        ClipCursor(&cr);
+        int count = ShowCursor(FALSE);
+        g_cursorHidden++;
+        if (count < 0) break;
     }
 }
 
-static void cursor_capture(int on)
+static void cursor_release(void)
 {
-    if (on)
+    ClipCursor(0);
+    while (g_cursorHidden > 0) { ShowCursor(TRUE); g_cursorHidden--; }
+}
+
+/* The pointer's owner, decided by the focus: while the game is being played the pointer is the
+ * game's (hidden and confined to the picture); a size or move loop, or the window not being the one
+ * in use, makes it the desktop's again. */
+static void cursor_update(void)
+{
+    if (g_hasFocus && !g_inSizeMove)
     {
-        if (g_cursorHidden != 0) return;
-        cursor_clip();
-        for (;;)
-        {
-            int count = ShowCursor(FALSE);
-            g_cursorHidden++;
-            if (count < 0) break;
-        }
-        cursor_clip();
+        cursor_hide();
+        cursor_clip(1);
     }
-    else
-    {
-        if (g_cursorHidden == 0) return;
-        ClipCursor(0);
-        while (g_cursorHidden > 0) { ShowCursor(TRUE); g_cursorHidden--; }
-    }
+    else cursor_release();
 }
 
 /* The arrow cluster and W/A/S/D are the same four directions, so one direction can be held by two
@@ -118,6 +148,99 @@ static void dir_key(int dir, int wasd, int down)
     g_keys[KEY_UP + dir] = (u8)(g_dirHeld[dir] != 0);
 }
 
+/* The windowed frame: a caption, a close box, and the resizable border the picture is scaled
+ * into. A maximized window is the same picture on a bigger scale, so it is allowed too. */
+static DWORD window_style(void)
+{
+    return WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+}
+
+/* The window's own size, kept so that a switch to fullscreen and back does not lose it and so the
+ * host can write it to icftd.ini: the player chose it, so nothing of the game may overwrite it
+ * (a scene with its own overscan size used to resize the window; it does not any more). */
+static void remember_window_size(void)
+{
+    RECT cr;
+
+    if (g_hwnd == 0 || g_fullscreen) return;
+    if (!GetClientRect(g_hwnd, &cr)) return;
+    if (cr.right - cr.left <= 0 || cr.bottom - cr.top <= 0) return;
+    g_win_w = (u32)(cr.right - cr.left);
+    g_win_h = (u32)(cr.bottom - cr.top);
+}
+
+/* The client size a windowed mode uses: the size a previous run left behind, or the picture at one
+ * emulated pixel per desktop pixel, and never more than the desktop's work area can show - a size
+ * saved on a bigger monitor has to be shrunk to fit this one. */
+static void window_client_size(int *w, int *h)
+{
+    RECT r, wa;
+    int cw = g_win_w != 0 ? (int)g_win_w : SCREEN_W;
+    int ch = g_win_h != 0 ? (int)g_win_h : SCREEN_H;
+
+    r.left = 0; r.top = 0;
+    r.right = cw; r.bottom = ch;
+    AdjustWindowRect(&r, window_style(), FALSE);
+    if (SystemParametersInfo(SPI_GETWORKAREA, 0, &wa, 0)) {
+        int overW = (r.right - r.left) - (wa.right - wa.left);
+        int overH = (r.bottom - r.top) - (wa.bottom - wa.top);
+
+        if (overW > 0) cw -= overW;
+        if (overH > 0) ch -= overH;
+        if (cw < 64) cw = 64;
+        if (ch < 64) ch = 64;
+    }
+    *w = cw;
+    *h = ch;
+}
+
+/* The rectangle the picture takes in a cw x ch client. What the client is laid out for is the
+ * game's own screen, 320x200: fullscreen shows it at the 4:3 an Amiga monitor shows it on, a window
+ * at one emulated pixel per desktop pixel at scale 1, the height driving the scale, so a wider
+ * client only widens the bars beside it and a client narrower than the screen's shape puts them
+ * above and below instead of cropping it.
+ *
+ * The picture is then fitted *into* that screen's rectangle at the screen's own pixel shape, which
+ * for every scene but one is the picture itself. The chicken race is the exception: its copper list
+ * programs a DIW window of 368x216, its own overscan, 32 pixels left of the standard edge - 15%
+ * wider than the screen and 8% taller. Taking that window as the shape of the display gave the
+ * scene a pixel shape of its own: fullscreen squeezed it into the 4:3 (everything 6% narrower than
+ * the rest of the game), and a window fitted it by its own height, which made it 6.5% wider and
+ * 6.6% taller than the screen, over the border art. It is scaled down to fit the screen instead, so
+ * every scene has the screen's pixel shape and the border stays where the other scenes leave it; no
+ * column or row of the picture is dropped. */
+static void picture_rect(int cw, int ch, int *px, int *py, int *pw, int *ph)
+{
+    int fx, fy, fw, fh;                  /* the 320x200 screen's rectangle */
+    int w, h;                            /* the picture, at that screen's pixel size */
+
+    if (g_fullscreen) {
+        fw = ch * 4 / 3;
+        if (fw > cw) { fw = cw; fh = cw * 3 / 4; } else fh = ch;
+    } else {
+        fw = ch * SCREEN_W / SCREEN_H;
+        if (fw > cw) { fw = cw; fh = cw * SCREEN_H / SCREEN_W; } else fh = ch;
+    }
+    fx = (cw - fw) / 2;
+    fy = (ch - fh) / 2;
+    w = fw * g_fb_w / SCREEN_W;
+    h = fh * g_fb_h / SCREEN_H;
+    if (w <= 0) w = 1;
+    if (h <= 0) h = 1;
+    if (w > fw || h > fh) {
+        /* One factor for both axes, so the picture keeps its shape: whichever axis overflows most
+         * decides it. */
+        if (fw * h <= fh * w) { h = h * fw / w; w = fw; }
+        else { w = w * fh / h; h = fh; }
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+    }
+    *px = fx + (fw - w) / 2;
+    *py = fy + (fh - h) / 2;
+    *pw = w;
+    *ph = h;
+}
+
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -127,13 +250,72 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_ERASEBKGND:
         return 1;
-    /* Focus decides who owns the pointer: the game hides and confines it while it is being played,
-     * and gives it back the moment the window is not the one being used. */
+    /* A window with a resizable frame: the client changed, so the picture is composed again at the
+     * new size and the window repainted there and then - the game's own loop is inside Windows'
+     * sizing loop meanwhile, and a frame nobody composed would leave the old picture in the new
+     * client. WM_PAINT redraws the frame the last present composed (PrintWindow, and whatever else
+     * invalidates part of the client); WM_PRINTCLIENT is how PrintWindow (tools\*-check.ps1) reads
+     * the client area, so it answers with the same present instead of an empty bitmap. */
+    case WM_GETMINMAXINFO: {
+        MINMAXINFO *mm = (MINMAXINFO *)lp;
+        RECT mr;
+
+        mr.left = 0; mr.top = 0;
+        mr.right = 160; mr.bottom = 120;             /* the smallest client worth showing */
+        AdjustWindowRect(&mr, (DWORD)GetWindowLong(h, GWL_STYLE), FALSE);
+        mm->ptMinTrackSize.x = mr.right - mr.left;
+        mm->ptMinTrackSize.y = mr.bottom - mr.top;
+        return 0;
+    }
+    case WM_SIZE:
+        if (h != g_hwnd) return 0;                   /* the window is still being created */
+        remember_window_size();
+        cursor_update();                             /* the picture moved: re-confine, or release */
+        plat_present();                              /* the new client, composed and blitted */
+        return 0;
+    /* The window owns the pointer while it has the focus, so no cursor shape is set - and the frame
+     * gets its resize cursor back the moment a size or move loop releases the pointer. The capture
+     * is re-asserted here as well, so nothing that cleared the clip behind our back keeps it. */
+    case WM_SETCURSOR:
+        if ((HWND)wp != g_hwnd) break;
+        if (g_hasFocus && !g_inSizeMove) {
+            cursor_update();
+            return TRUE;
+        }
+        break;                                       /* DefWindowProc sets the shape */
+    case WM_ENTERSIZEMOVE:
+        /* The loop measures itself from the pointer: it may not be hidden or confined meanwhile. */
+        g_inSizeMove = 1;
+        cursor_update();
+        return 0;
+    case WM_EXITSIZEMOVE:
+        g_inSizeMove = 0;
+        cursor_update();                             /* back to the game (or the desktop) */
+        return 0;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+
+        present_dc(dc);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_PRINTCLIENT:
+        if (h == g_hwnd) present_dc((HDC)wp);
+        return 0;
+    /* The window captures the pointer while it has the focus (hidden and confined to the picture),
+     * and gives it back the moment it is not the window being used. A click on the frame activates
+     * the window and starts a size loop right after it: confining the pointer here would pull it
+     * into the picture, and the loop would then measure its first size from the wrong place, so a
+     * click that is still held only hides it. */
     case WM_SETFOCUS:
-        cursor_capture(1);
+        g_hasFocus = 1;
+        if (GetKeyState(VK_LBUTTON) < 0) cursor_hide();
+        else cursor_update();
         return 0;
     case WM_KILLFOCUS:
-        cursor_capture(0);
+        g_hasFocus = 0;
+        cursor_release();
         /* A key-up that lands in another window never arrives here, so nothing may stay held: a
          * later W press would otherwise still be the cheat chord (src\host\cheat.c), and a
          * direction would stay down with no key to release it. */
@@ -149,6 +331,19 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_LBUTTONUP:   g_mouse_buttons &= (u8)~1; return 0;
     case WM_RBUTTONDOWN: g_mouse_buttons |= 2; return 0;
     case WM_RBUTTONUP:   g_mouse_buttons &= (u8)~2; return 0;
+    /* Alt+Enter arrives as a *system* key - WM_SYSKEYDOWN, never WM_KEYDOWN - and
+     * DefWindowProc's default handling of it (and of the WM_SYSCHAR TranslateMessage makes from
+     * it) is a beep. It is the port's own window-mode switch, read as an edge out of input_state
+     * (KEY_FULLSCREEN) by whichever front-end loop is running, so it is answered here instead. */
+    case WM_SYSKEYDOWN:
+        if (wp == VK_RETURN && ((lp >> 29) & 1)) { g_keys[KEY_FULLSCREEN] = 1; return 0; }
+        break;
+    case WM_SYSKEYUP:
+        if (wp == VK_RETURN) { g_keys[KEY_FULLSCREEN] = 0; return 0; }
+        break;
+    case WM_SYSCHAR:
+        if (wp == VK_RETURN) return 0;
+        break;
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 1;
         if (wp == VK_UP)     dir_key(0, 0, 1);
@@ -184,7 +379,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == 'S')       dir_key(1, 1, 0);
         if (wp == 'A')       dir_key(2, 1, 0);
         if (wp == 'D')       dir_key(3, 1, 0);
-        if (wp == VK_RETURN) g_keys[KEY_ENTER] = 0;
+        if (wp == VK_RETURN) { g_keys[KEY_ENTER] = 0; g_keys[KEY_FULLSCREEN] = 0; }
         if (wp == VK_SPACE)  g_keys[KEY_FIRE] = 0;
         if (wp == VK_F1)     g_keys[KEY_F1] = 0;
         if (wp == VK_F2)     g_keys[KEY_F2] = 0;
@@ -206,7 +401,7 @@ static int make_window(const char *title)
 {
     WNDCLASS wc;
     RECT r;
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD style = window_style();
     int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w, h;
 
     memset(&wc, 0, sizeof wc);
@@ -224,8 +419,11 @@ static int make_window(const char *title)
         w = GetSystemMetrics(SM_CXSCREEN);
         h = GetSystemMetrics(SM_CYSCREEN);
     } else {
+        int cw, ch;
+
+        window_client_size(&cw, &ch);
         r.left = 0; r.top = 0;
-        r.right = g_fb_w; r.bottom = g_fb_h;
+        r.right = cw; r.bottom = ch;
         AdjustWindowRect(&r, style, FALSE);
         w = r.right - r.left;
         h = r.bottom - r.top;
@@ -234,7 +432,10 @@ static int make_window(const char *title)
     g_hwnd = CreateWindow("ICFTD", title, style, x, y, w, h, 0, 0, wc.hInstance, 0);
     if (!g_hwnd) return 0;
     ShowWindow(g_hwnd, SW_SHOW);
-    if (g_fullscreen) SetForegroundWindow(g_hwnd);
+    /* A game window starts as the window in use, fullscreen or not: the console the game was
+     * started from (this is a console binary) can otherwise hold the foreground, and the pointer
+     * would not be captured until the player clicked the picture. */
+    SetForegroundWindow(g_hwnd);
     UpdateWindow(g_hwnd);
     return 1;
 }
@@ -304,8 +505,10 @@ u32 plat_init(const char *title)
     if (!make_window(title)) return 0;
     if (!make_dib(g_fb_w, g_fb_h)) return 0;
     if (!make_palette()) return 0;
-    /* The window has the focus by now in the usual case; WM_SETFOCUS covers the rest. */
-    cursor_capture(1);
+    /* Whether the window really has the focus (GetFocus answers for our own thread); WM_SETFOCUS and
+     * WM_KILLFOCUS keep it current after that. */
+    g_hasFocus = GetFocus() == g_hwnd;
+    cursor_update();
     /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
      * granularity cannot express the Amiga's 20 ms frame. */
     if (!QueryPerformanceFrequency((LARGE_INTEGER *)&g_qpcFreq)) g_qpcFreq = 0;
@@ -325,7 +528,7 @@ u32 plat_init(const char *title)
  * composed once here so the new client rectangle never shows what the old mode left in it. */
 static void apply_window_mode(void)
 {
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD style = window_style();
 
     if (g_hwnd == 0) return;
     if (g_fullscreen) {
@@ -336,20 +539,21 @@ static void apply_window_mode(void)
     } else {
         RECT r;
         int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+        int cw, ch;
 
+        window_client_size(&cw, &ch);       /* the size the player left it at */
         style |= WS_VISIBLE;
         r.left = 0; r.top = 0;
-        r.right = g_fb_w; r.bottom = g_fb_h;
+        r.right = cw; r.bottom = ch;
         SetWindowLong(g_hwnd, GWL_STYLE, style);
         AdjustWindowRect(&r, style, FALSE);
         SetWindowPos(g_hwnd, HWND_TOP, (sw - (r.right - r.left)) / 2, (sh - (r.bottom - r.top)) / 2,
                      r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     }
-    /* The picture's rectangle and the pointer's clip both depend on the mode. In windowed mode the
-     * client is the picture 1:1 again, so nothing has to be mapped. */
+    /* The picture's rectangle and the pointer both depend on the mode. */
     g_pic_w = g_pic_h = 0;
     plat_present();                      /* this frame, in the new mode, at once */
-    cursor_clip();
+    cursor_update();
 }
 
 void plat_set_fullscreen(u32 on)
@@ -357,6 +561,9 @@ void plat_set_fullscreen(u32 on)
     u32 want = on ? 1u : 0u;
 
     if (want == g_fullscreen) return;
+    /* Into fullscreen the client is about to become the screen; the window's own size is the one a
+     * later windowed mode comes back to, so it is taken before the style changes. */
+    if (want) remember_window_size();
     g_fullscreen = want;
     apply_window_mode();
 }
@@ -364,6 +571,24 @@ void plat_set_fullscreen(u32 on)
 u32 plat_has_fullscreen(void)
 {
     return 1;                                    /* the windowed build has a mode to choose */
+}
+
+/* A size a previous run left behind, or none at all: make_window uses the picture at 1:1. */
+void plat_set_window_size(u32 w, u32 h)
+{
+    if (w < 64 || h < 64 || w > 16384 || h > 16384) return;   /* a broken line in the ini */
+    g_win_w = w;
+    g_win_h = h;
+}
+
+u32 plat_window_size(u32 *w, u32 *h)
+{
+    int cw, ch;
+
+    window_client_size(&cw, &ch);        /* also while fullscreen: the size a window returns to */
+    if (w != 0) *w = (u32)cw;
+    if (h != 0) *h = (u32)ch;
+    return 1;
 }
 
 /* GetModuleFileName knows the executable's path, so the argument is not needed here. */
@@ -389,17 +614,22 @@ void plat_clock_report(plat_clock_info *info)
     memset(info, 0, sizeof *info);
 }
 
-/* The windowed build has a video mode to choose, so its ini carries it. */
+/* The windowed build has a video mode to choose, so its ini carries it. The window's own size is
+ * written back by the host when the game closes (window_width/window_height, in desktop pixels):
+ * Windows keeps no such thing for an application's own window. */
 const char *plat_default_ini(void)
 {
     return "; ICFTD runtime settings. Written with these defaults on the first start.\r\n"
            "; Sections use [BRACKETS]; ';' or '#' at the start of a line is a comment.\r\n"
            "\r\n"
            "[VIDEO]\r\n"
-           "; false = window the size of the screen, one emulated pixel per desktop pixel\r\n"
-           ";            (320x200, and the scene's own overscan size where it uses one);\r\n"
+           "; false = window, one emulated pixel per desktop pixel at first. The window has a\r\n"
+           ";            resizable frame: the game's 320x200 screen scales with the window's height\r\n"
+           ";            and keeps its shape, a wider window shows the border art either side, and\r\n"
+           ";            the size the window was left at is written back as window_width /\r\n"
+           ";            window_height below.\r\n"
            "; true = fullscreen, the whole 4:3 picture scaled up to fit with the border art\r\n"
-           ";            either side.\r\n"
+           ";            either side (a scene with a screen of its own is letterboxed inside it).\r\n"
            "fullscreen=true\r\n"
            "\r\n"
            "[AUDIO]\r\n"
@@ -416,7 +646,7 @@ u32 plat_fullscreen(void)
 void plat_shutdown(void)
 {
     plat_audio_close();
-    cursor_capture(0);
+    cursor_release();
     if (g_frame_dib) DeleteObject(g_frame_dib);
     if (g_frame_dc) DeleteDC(g_frame_dc);
     g_frame_dib = 0;
@@ -435,36 +665,30 @@ u8 *plat_framebuffer(void)
     return g_bits;
 }
 
-/* The picture is the screen the copper list programs, so the DIB takes its size. Windowed the
- * window follows it: the chicken race's narration page is 368 columns across (its text is laid out
- * over the overscan) and squeezing that into a 320-pixel window drops every eighth column, which
- * is exactly what turned its letters into noise. Fullscreen needs nothing here - plat_present
- * scales the whole DIB into the 4:3 area. */
+/* The picture is the screen the copper list programs, so the DIB takes its size. The window does
+ * not follow it: the client is the player's (it can be resized), and plat_present scales the
+ * picture into it, so the chicken race's narration page - 368 columns across, its text laid out
+ * over the overscan - is shown whole in the same window instead of moving the window. Squeezing
+ * that page into the 320-column picture dropped every eighth column, which is what turned its
+ * letters into noise; the scale is uniform, so no column is dropped. */
 u32 plat_set_framebuffer_size(u32 w, u32 h)
 {
     int nw = (int)w, nh = (int)h;
-    RECT r;
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
     if (nw <= 0 || nh <= 0 || nw > 1024 || nh > 1024) return 0;
     if (nw != g_fb_w || nh != g_fb_h) {
         if (!make_dib(nw, nh)) return 0;
-        if (!g_fullscreen) {
-            r.left = 0; r.top = 0;
-            r.right = nw; r.bottom = nh;
-            AdjustWindowRect(&r, style, FALSE);
-            SetWindowPos(g_hwnd, 0, 0, 0, r.right - r.left, r.bottom - r.top,
-                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        cursor_clip();
+        g_pic_w = g_pic_h = 0;               /* the picture's rectangle is this frame's */
+        cursor_update();
     }
     /* A DIB row is padded to a longword: that, not the width, is the row the core copies. */
     return (u32)((nw + 3) & ~3);
 }
 
-/* Fullscreen composes into its own screen-sized buffer: a FillRect followed by a StretchBlt on the
- * window DC lets the display show the black fill between the two, which is the one-frame black
- * flash that made the scaled picture flicker. Here the window sees exactly one BitBlt per frame. */
+/* The frame behind the picture: the border art over a client (or the whole screen), which the
+ * picture is then stretched over. Composing into the buffer and blitting it to the window in one
+ * go - rather than a FillRect followed by a StretchBlt on the window DC - is what keeps the
+ * scaled picture from flickering: the window sees exactly one BitBlt per frame. */
 static void free_frame(void)
 {
     if (g_frame_dib) DeleteObject(g_frame_dib);
@@ -504,56 +728,60 @@ static int make_frame(int w, int h)
     g_frame_bits = (u32 *)bits;
     g_frame_w = w;
     g_frame_h = h;
-    /* The bars never change, so they are painted once and only the picture rect is rewritten.
-     * They are the port's border art, not black: the picture is 4:3, so a widescreen window shows
-     * the curtain either side of it (border.c). */
+    /* They are the port's border art, not black: a client wider than the screen shows the curtain
+     * either side of it (border.c). present_dc paints them again whenever the picture's rectangle
+     * moves, because a scene with a screen of its own leaves a different rectangle behind. */
     border_paint(g_frame_bits, w, h);
     return 1;
+}
+
+/* One frame into dc: the 8-bit picture as it is where it covers the client exactly (the 320x200
+ * window, no bars, and the palette goes to the window as before), and the composed frame - border
+ * art under the scaled picture - everywhere else. */
+static void present_dc(HDC dc)
+{
+    RECT cr;
+    int cw, ch, px, py, pw, ph;
+
+    if (dc == 0 || g_hwnd == 0 || g_bits == 0 || g_memdc == 0) return;
+    if (!GetClientRect(g_hwnd, &cr)) return;
+    cw = cr.right - cr.left;
+    ch = cr.bottom - cr.top;
+    if (cw <= 0 || ch <= 0) return;
+    /* The client is the picture and the picture is the screen: nothing is scaled, so the 8-bit DIB
+     * goes to the window as it always did. */
+    if (!g_fullscreen && cw == g_fb_w && ch == g_fb_h &&
+        g_fb_w == SCREEN_W && g_fb_h == SCREEN_H) {
+        g_pic_w = g_pic_h = 0;                   /* the client is the picture: nothing to map */
+        SelectPalette(dc, g_pal, FALSE);
+        RealizePalette(dc);
+        BitBlt(dc, 0, 0, g_fb_w, g_fb_h, g_memdc, 0, 0, SRCCOPY);
+        return;
+    }
+    picture_rect(cw, ch, &px, &py, &pw, &ph);
+    /* The bars are painted with the client, not with the frame: a picture of another size - a scene
+     * with its own screen - leaves the previous one in the bands it no longer covers, so the art is
+     * painted again whenever the picture's rectangle moves, not only when the client does. */
+    if (cw != g_frame_w || ch != g_frame_h || px != g_pic_x || py != g_pic_y ||
+        pw != g_pic_w || ph != g_pic_h) {
+        g_pic_x = px; g_pic_y = py; g_pic_w = pw; g_pic_h = ph;
+        if (cw != g_frame_w || ch != g_frame_h) {
+            if (!make_frame(cw, ch)) return;
+        } else border_paint(g_frame_bits, cw, ch);
+    }
+    SetStretchBltMode(g_frame_dc, COLORONCOLOR);
+    StretchBlt(g_frame_dc, g_pic_x, g_pic_y, g_pic_w, g_pic_h, g_memdc, 0, 0, g_fb_w, g_fb_h, SRCCOPY);
+    BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
 }
 
 void plat_present(void)
 {
     HDC dc;
-    if (!g_hwnd || !g_bits) return;
-    dc = GetDC(g_hwnd);
-    if (g_fullscreen) {
-        RECT cr;
-        int cw, ch, w, h, x, y;
 
-        GetClientRect(g_hwnd, &cr);
-        cw = cr.right - cr.left;
-        ch = cr.bottom - cr.top;
-        if (cw <= 0 || ch <= 0) {
-            ReleaseDC(g_hwnd, dc);
-            return;
-        }
-        if (cw != g_frame_w || ch != g_frame_h) {
-            if (!make_frame(cw, ch)) {
-                ReleaseDC(g_hwnd, dc);
-                return;
-            }
-        }
-        /* 320x200 is a 4:3 picture with non-square pixels, as on an Amiga monitor: fit the
-         * largest 4:3 rectangle into the screen and leave the rest to the border art painted
-         * under it. */
-        w = ch * 4 / 3;
-        if (w > cw) {
-            w = cw;
-            h = cw * 3 / 4;
-        } else {
-            h = ch;
-        }
-        x = (cw - w) / 2;
-        y = (ch - h) / 2;
-        g_pic_x = x; g_pic_y = y; g_pic_w = w; g_pic_h = h;
-        SetStretchBltMode(g_frame_dc, COLORONCOLOR);
-        StretchBlt(g_frame_dc, x, y, w, h, g_memdc, 0, 0, g_fb_w, g_fb_h, SRCCOPY);
-        BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
-    } else {
-        SelectPalette(dc, g_pal, FALSE);
-        RealizePalette(dc);
-        BitBlt(dc, 0, 0, g_fb_w, g_fb_h, g_memdc, 0, 0, SRCCOPY);
-    }
+    if (g_hwnd == 0 || g_bits == 0) return;
+    dc = GetDC(g_hwnd);
+    if (dc == 0) return;
+    present_dc(dc);
     ReleaseDC(g_hwnd, dc);
 }
 
@@ -725,16 +953,16 @@ u32 plat_emulated_ms(void)
 u32 plat_free_base_kb(void) { return 0; }
 u32 plat_base_total_kb(void) { return 0; }
 
-/* Client point -> framebuffer pixel. Windowed the client is exactly the picture, so the point is
- * used as it is; fullscreen the picture is a 4:3 rectangle centred in the window, so the pointer
- * has to be mapped into it. It is clamped: a pointer on the border art then reads as the nearest
- * picture edge, which is what a map cursor pushed past its travel window needs (that is the
- * "scroll this way" input). */
+/* Client point -> framebuffer pixel. Where the picture is the client 1:1 the point is used as it
+ * is; scaled (fullscreen, or a resized window) the picture is a rectangle centred in the client,
+ * so the pointer has to be mapped into it. It is clamped: a pointer on the border art then reads
+ * as the nearest picture edge, which is what a map cursor pushed past its travel window needs
+ * (that is the "scroll this way" input). */
 static void mouse_to_fb(s16 *x, s16 *y)
 {
     long fx = *x, fy = *y;
 
-    if (g_fullscreen && g_pic_w > 0 && g_pic_h > 0) {
+    if (g_pic_w > 0 && g_pic_h > 0) {
         fx = ((fx - g_pic_x) * g_fb_w) / g_pic_w;
         fy = ((fy - g_pic_y) * g_fb_h) / g_pic_h;
     }

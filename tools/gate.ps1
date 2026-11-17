@@ -68,27 +68,32 @@
                                 against a simulated machine: the same elapsed time at any sampling rate,
                                 both PIT modes, racing latches, late BIOS ticks and midnight)
 
+     22. window               (tools\window-check.ps1 - the windowed window resizes, the picture
+                                scales with its height with the border art in the bars, a wider
+                                window leaves the picture alone, a scene with a screen of its own
+                                keeps the screen's shape, and the size is kept in icftd.ini)
+
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-21 cover the port's
-    own surfaces - the presenter, the title menu and its settings and farewell, the map cursor, the
-    save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
-    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys and the Ctrl+T
-    clock freeze - which have no counterpart in the original to diff against; they can only fail on
-    their own terms.
+    capture or reference-image test can prove a translated function. Steps 5-22 cover the port's
+    own surfaces - the presenter, the title menu and its settings and farewell, the window's own
+    size, the map cursor, the save picker, the room pointer, the fight's crosshair, the fullscreen
+    border, the loading line, the two aims, the Ctrl+W cheat, the hospital's camera, the art
+    tables, the keys and the Ctrl+T clock freeze - which have no counterpart in the original to
+    diff against; they can only fail on their own terms.
 
     A change is validated by the check that covers it, not by the whole table: while working, run
     the one step (-Only) or the tier (-Full) the change touches. See docs\port-features.md, "The
     dev loop".
 
 .PARAMETER Full
-    Add the port-feature steps (5-21) to the core steps.
+    Add the port-feature steps (5-22) to the core steps.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
 
 .PARAMETER Only
     Run only the steps whose name matches this wildcard, instead of the tier. A group keyword
-    selects a tier:     'core' (1-4), 'port' (5-21), 'build' (1-2).
+    selects a tier:     'core' (1-4), 'port' (5-22), 'build' (1-2).
     e.g. -Only pointer, -Only recomp, -Only port.
 
 .EXAMPLE
@@ -163,7 +168,8 @@ $all = @(
     @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
     @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
     @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } },
-    @{ Name = 'profiler clock (8254)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } }
+    @{ Name = 'profiler clock (8254)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } },
+    @{ Name = 'window (resize, ini, screen shape)';   Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\window-check.ps1 } }
 )
 
 if ($Only) {

@@ -17,6 +17,46 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## The chicken race is the same shape as the rest of the game (2026-11-17)
+
+Reported as "the chicken mini game seems to have a different aspect ratio than the rest of the game.
+It even draws over the curtain/border elements we added to extend the 4:3 to 16:9". The window has
+no counterpart in the original - it is the present backend - so there is nothing to diff; the rules
+it has to hold are in [`port-features.md`](port-features.md), and the one it broke is that the
+client is laid out for the game's own 320x200 screen.
+
+**The divergence (in the port's own terms).** `picture_rect` derived the display's shape from *this
+frame's* framebuffer. That is the game's screen for every scene but one: `FUN_0001BE80` programs
+DIW `0x1D61..0xF5D1`, 368x216 - the scene's own overscan, 32 pixels left of the standard edge, 15%
+wider and 8% taller than the screen, and the narration page's text is laid out across it. So the one
+scene with a bigger window was given a pixel shape (and a size) of its own: fullscreen squeezed
+368x216 into the 4:3, which made everything in it 6% narrower than in every other scene (most
+visible on the round dashboard dials), and a window fitted the picture by its own height, which made
+it 6.5% wider and 6.6% taller than the screen - 47 pixels wider at the 902x454 window the report's
+player had, i.e. 23 pixels of curtain covered either side.
+
+**The fix.** `picture_rect` now lays the client out for 320x200 (4:3 fullscreen, height-driven 1:1
+windowed, unchanged) and fits the picture *inside* that screen's rectangle at the screen's own pixel
+shape, one factor for both axes. Every other scene is its own screen and is presented exactly as
+before (the 320x200 window is still the 1:1 fast path); the chicken's picture becomes 640x375 in a
+960x400 client, whole (no column or row dropped) and centred, with the border art around it.
+`present_dc` also repaints the art when the picture's rectangle moves rather than only when the
+client does, because a scene with a bigger screen would otherwise leave the previous picture in the
+bands it no longer covers.
+
+**Measured** with `tools\window-check.ps1` (the feature's own check, gate step 22), claim 9: a
+`--titlekey 5` run at a 960x400 client - the 640x400 screen with the 368x216 picture fitted into it
+as 640x375 - has **0** pixels outside 640x375 that are not `border.png` point-sampled, while 74% of
+the 8-pixel ring just inside it is picture (so the picture really occupies the rectangle, it is not
+merely smaller). The same measurement on the pre-fix composition: 56 673 picture pixels where the
+claim allows none. Fullscreen at 2048x1152 measured the same way - a 1536x1152 screen and the
+picture 1536x1081 at y = 35 (the letterbox the scene's extra rows cost) - has 0 of the 698 880
+pixels outside that rectangle that are not the art, so the scene no longer covers the curtain and
+its dashboard dial is round like every other scene's circles.
+Nothing of the game moved - the change is `plat_win32.c`'s present path only, which reads no machine
+state - and `border-check` is unchanged (356x200 art, 100% of the bars are curtain at the 4:3
+aspect).
+
 ## The DOS game writes no text to the console (2026-11-17)
 
 Asked for: the DOS build printed debug and error lines while it ran - the start banner and memory

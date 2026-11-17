@@ -44,6 +44,12 @@ void host_loading_hold(rt_machine *m);
  * its --mouse script, the DOS one (no pointer at all) has nothing to say. */
 int host_title_pointer(rt_machine *m, input_state *in);
 
+/* Switch the window mode from `current` to its opposite and write [VIDEO] fullscreen, wherever the
+ * player is: Alt+Enter (the front end's frame hook asks for it, and so does every loop title.c
+ * drives) and the settings view's toggle both go through here. Returns the mode it switched to
+ * (0/1), or -1 on a platform with no window mode of its own, where nothing is switched or written. */
+int host_fullscreen_toggle(int current);
+
 /* Call from the main loop before executing `pc`. Returns 1 when the title did something and the
  * loop must re-read the PC (a call was injected, or the PC was left where it was). */
 int host_title_check(rt_machine *m, u32 pc);

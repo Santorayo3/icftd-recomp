@@ -44,6 +44,10 @@ enum {
     KEY_C,
     KEY_T,
     KEY_CTRL,                           /* left Control, held: the Ctrl+W minigame cheat (cheat.c) */
+    KEY_FULLSCREEN,                     /* Alt+Enter, pressed: switch between windowed and fullscreen
+                                         * on whichever screen is up - a scene (src\host\main.c's
+                                         * frame hook) or the title's own loop (src\host\title.c). A
+                                         * platform with no window mode never reports it. */
     KEY_COUNT
 };
 
@@ -70,11 +74,27 @@ void plat_set_program(const char *argv0);
  * platform (fullscreen) are only in that platform's default text. */
 const char *plat_default_ini(void);
 
-/* Window mode, from icftd.ini [VIDEO] fullscreen; call before plat_init.  Off keeps the window
- * at exactly the framebuffer size and blits it 1:1; on takes the whole screen and scales the
- * picture up.  May be a no-op - plat_has_fullscreen says whether it is one - and where it is not,
- * a call after plat_init switches the window there and then (the title menu's settings). */
+/* Window mode, from icftd.ini [VIDEO] fullscreen; call before plat_init.  Off opens a window with
+ * a resizable frame laid out for the game's 320x200 screen, one emulated pixel per desktop pixel at
+ * scale 1: the screen scales with the client's height (both axes by the same factor, so its aspect
+ * is kept), a wider window shows the platform's border art in the bars beside it, and a client
+ * narrower than the screen's shape shows the bars above and below instead of cropping it.  A picture
+ * larger than the screen (the chicken race's 368x216 window, a scene's own overscan) keeps the
+ * screen's pixel shape and is fitted inside the screen's rectangle.  On takes the whole screen and
+ * scales the screen up.  May be a no-op - plat_has_fullscreen says whether it is one - and where it
+ * is not, a call after plat_init switches the window there and then (the title menu's settings). */
 void plat_set_fullscreen(u32 on);
+
+/* The client size windowed mode uses, in desktop pixels; 0x0 (or not calling it at all) is the
+ * picture at 1:1.  Call before plat_init.  Windows keeps no size for an application's own window,
+ * so the host keeps it: it reads [VIDEO] window_width / window_height and writes them back with
+ * plat_window_size when the game closes.  A size the desktop cannot show is shrunk to fit. */
+void plat_set_window_size(u32 w, u32 h);
+
+/* The client size a windowed mode uses now - the window's own size, or the size a windowed mode
+ * would come back to while it is fullscreen.  1 when the platform has a window at all, 0 when it
+ * has none (DOS), so the host knows whether there is a size worth writing back. */
+u32  plat_window_size(u32 *w, u32 *h);
 
 u32  plat_fullscreen(void);
 
@@ -94,8 +114,12 @@ void plat_present(void);
  *
  * Returns the row stride in bytes (a platform may pad a row to its own alignment), or 0 when the
  * video mode is fixed (DOS: VGA mode 13h) - the core then has to fit the picture into the mode it
- * has. Windowed, the window takes the picture's size, one emulated pixel per desktop pixel;
- * fullscreen, the whole picture is scaled into the 4:3 area, so no column or row is ever dropped. */
+ * has. Windowed, the picture is scaled into the window (so the window's own size is not touched by
+ * a scene with a different screen size); fullscreen, it is scaled into the 4:3 area. Both fit it
+ * into the rectangle of the game's 320x200 screen at that screen's pixel shape, so a scene whose
+ * window is larger than the screen - the chicken race's 368x216, its own overscan - is shown whole
+ * at the same pixel shape as every other scene instead of at a shape and a size of its own. Neither
+ * drops a column or a row. */
 u32  plat_set_framebuffer_size(u32 w, u32 h);
 
 /* rgb holds count*3 bytes, each 0..255, for palette entries first..first+count-1. */

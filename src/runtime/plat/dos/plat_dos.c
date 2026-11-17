@@ -553,6 +553,20 @@ u32 plat_has_fullscreen(void)
     return 0;                                   /* no window mode: no [VIDEO] settings either */
 }
 
+/* No window and no mode to choose, so there is no size to set or to write back. */
+void plat_set_window_size(u32 w, u32 h)
+{
+    (void)w;
+    (void)h;
+}
+
+u32 plat_window_size(u32 *w, u32 *h)
+{
+    (void)w;
+    (void)h;
+    return 0;
+}
+
 /* No window mode to choose, so the default ini does not carry one. */
 const char *plat_default_ini(void)
 {

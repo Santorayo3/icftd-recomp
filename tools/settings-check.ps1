@@ -16,6 +16,9 @@
 #   * where a desktop can give the game a window, the toggle is measured as the window's own
 #     geometry: 320x200, then the whole screen after the click, then 320x200 after the second one
 #     (a headless machine SKIPs that part, like tools\keys-check.ps1).
+#   * Alt+Enter is the same switch without a click, on the title's settings view as anywhere else:
+#     the posted key takes the live window to the whole screen, writes [VIDEO] fullscreen, and the
+#     click that follows says the view took the key's state (it switches the window *back*).
 #
 # The screen is only reachable from a played game, so the run uses the two dev seams the other title
 # checks use: `--titlekey 14` puts the menu up for the run's `--mouse` script to click, and the
@@ -42,6 +45,20 @@ Get-ChildItem $Work -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -
 $fail = 0
 function Fail([string]$text) { Write-Output "settings: FAIL - $text"; $script:fail++ }
 function Ok([string]$text) { Write-Output "settings: $text" }
+
+# A log the game is still writing to - the Alt+Enter run has to know when the settings view is up
+# before it can post the key, so this reads the file sharing it with the process.
+function ReadLog([string]$path)
+{
+    $fs = $null
+    $sr = $null
+    try {
+        $fs = [System.IO.File]::Open($path, 'Open', 'Read', [System.IO.FileShare]::ReadWrite)
+        $sr = New-Object System.IO.StreamReader($fs)
+        return $sr.ReadToEnd()
+    } catch { return '' }
+    finally { if ($sr) { $sr.Close() }; if ($fs) { $fs.Close() } }
+}
 
 $ini = Join-Path (Split-Path -Parent (Resolve-Path $Exe)) 'icftd.ini'
 $backup = Join-Path $Work 'icftd.ini.backup'
@@ -200,6 +217,7 @@ public class ICFTDWindow {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
 }
 '@
@@ -246,6 +264,82 @@ public class ICFTDWindow {
         } elseif ($hidden) {
             Fail 'a mode change hid the game window (the new style dropped WS_VISIBLE)'
         } else { Ok 'the toggle takes the live window to the whole screen and back, still visible' }
+
+        # 8. Alt+Enter, the same switch with no click - and on the settings view, where it also has
+        #    to leave the toggle showing what the window is. The run starts windowed, opens the view,
+        #    and the key is posted once the view is up ("title: settings: ..." in its log), so the
+        #    click that follows can only switch the window *back* if the view took the key's state.
+        $startIni.Replace('fullscreen=true', 'fullscreen=false') | Set-Content -Encoding ascii $ini
+        @'
+40 266 133 1
+44 266 133 0
+250 256 90 1
+254 256 90 0
+300 266 170 1
+304 266 170 0
+340 266 171 1
+344 266 171 0
+'@ | Set-Content -Encoding ascii (Join-Path $Work 'alt-enter.txt')
+        $altLog = Join-Path $Work 'alt-enter.log'
+        $proc2 = Start-Process -FilePath (Resolve-Path $Exe).Path -PassThru -RedirectStandardOutput $altLog `
+                    -ArgumentList @($Image, '60000000', '--data', $DataDir, '--window', '--titlekey', '14',
+                                   '--mouse', (Join-Path $Work 'alt-enter.txt'))
+        $h2 = [IntPtr]::Zero
+        for ($i = 0; $i -lt 200; $i++) {
+            Start-Sleep -Milliseconds 50
+            $h2 = [ICFTDWindow]::FindWindow('ICFTD', 'It Came from the Desert (recomp)')
+            if ($h2 -ne [IntPtr]::Zero) { break }
+            if ($proc2.HasExited) { break }
+        }
+        $sizes2 = New-Object System.Collections.Generic.List[string]
+        if ($h2 -ne [IntPtr]::Zero) {
+            $r2 = New-Object ICFTDWindow+RECT
+            [void][ICFTDWindow]::GetClientRect($h2, [ref]$r2)
+            $sizes2.Add(("{0}x{1}" -f ($r2.Right - $r2.Left), ($r2.Bottom - $r2.Top)))
+        }
+        $viewUp = $false
+        for ($i = 0; $i -lt 240 -and -not $viewUp; $i++) {
+            Start-Sleep -Milliseconds 50
+            if ((ReadLog $altLog) -match 'title: settings: music') { $viewUp = $true }
+            if ($proc2.HasExited) { break }
+        }
+        if ($viewUp) {
+            # Alt+Enter is a system key (WM_SYSKEYDOWN, VK_RETURN, scan 0x1C, the Alt context bit),
+            # and a key is *level* state: the down has to live across a frame to be seen as a press.
+            [void][ICFTDWindow]::PostMessage($h2, 0x0104, [IntPtr]13, [IntPtr]0x201C0001)
+            Start-Sleep -Milliseconds 150
+            [void][ICFTDWindow]::PostMessage($h2, 0x0105, [IntPtr]13, [IntPtr]0xC01C0001)
+        }
+        $deadline = [DateTime]::UtcNow.AddSeconds(14)
+        while ([DateTime]::UtcNow -lt $deadline -and -not $proc2.HasExited -and $sizes2.Count -lt 3) {
+            Start-Sleep -Milliseconds 50
+            $hh = [ICFTDWindow]::FindWindow('ICFTD', 'It Came from the Desert (recomp)')
+            if ($hh -eq [IntPtr]::Zero) { continue }
+            $r2 = New-Object ICFTDWindow+RECT
+            [void][ICFTDWindow]::GetClientRect($hh, [ref]$r2)
+            $size2 = "{0}x{1}" -f ($r2.Right - $r2.Left), ($r2.Bottom - $r2.Top)
+            if ($sizes2.Count -eq 0 -or $sizes2[$sizes2.Count - 1] -ne $size2) { $sizes2.Add($size2) }
+        }
+        [void]$proc2.WaitForExit(40000)
+        $alt = Get-Content $altLog -Raw
+        $want2 = @('320x200', ("{0}x{1}" -f $screenW, $screenH), '320x200')
+        $geo2 = $sizes2.Count -ge 3 -and $sizes2[0] -eq $want2[0] -and $sizes2[1] -eq $want2[1] `
+                -and $sizes2[2] -eq $want2[2]
+        if (-not $viewUp) {
+            Fail 'Alt+Enter: the settings view never came up (the run could not be measured)'
+        } elseif ($alt -notmatch 'title: fullscreen on \(Alt\+Enter') {
+            Fail 'Alt+Enter did not switch the window mode on the settings view'
+        } elseif ($alt -notmatch 'title: fullscreen off \(frame \d+\)') {
+            Fail 'the toggle click after Alt+Enter switched the window the wrong way (the view kept the old state)'
+        } elseif ((Value $ini 'fullscreen') -ne '0') {
+            Fail ("Alt+Enter left [VIDEO] fullscreen='{0}' in the ini, not the mode the toggle clicked back to" -f
+                  (Value $ini 'fullscreen'))
+        } elseif (-not $geo2) {
+            Fail ("Alt+Enter did not take the live window {0} -> {1} -> {2} (saw {3})" -f
+                  $want2[0], $want2[1], $want2[2], ($sizes2 -join ' -> '))
+        } else {
+            Ok 'Alt+Enter switches the window and the settings view takes its state (windowed -> screen -> windowed, ini follows)'
+        }
     }
 }
 finally {
@@ -254,5 +348,5 @@ finally {
 }
 
 if ($fail -ne 0) { Write-Output ("settings: {0} check(s) failed" -f $fail); exit 1 }
-Write-Output 'settings: the menu opens, its three controls take effect and are saved, and Back restores the menu'
+Write-Output 'settings: the menu opens, its three controls take effect and are saved, Back restores the menu, and Alt+Enter switches the window from anywhere'
 exit 0

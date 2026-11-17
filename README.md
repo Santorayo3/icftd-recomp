@@ -128,7 +128,9 @@ and F5 steps to the next one, and the title screen's `1`–`7` and `W`/`C`/`T` s
 The title's own menu is clicked with the pointer: New Game, Load Game (the ten save slots), Settings
 (the fullscreen toggle and the two volume rows, which take effect at once and are written back to
 `icftd.ini`) and Quit Game, which shows a ten-second notice naming the successor on a black screen
-before the application closes. Two cheats: left Ctrl+W ends a minigame in that scene's own success
+before the application closes. Alt+Enter is the shortcut for the same window switch, on every
+screen the game has (the settings view's toggle shows it there and then), and it writes
+`[VIDEO] fullscreen` back as well. Two cheats: left Ctrl+W ends a minigame in that scene's own success
 state, and left Ctrl+T on the situation map freezes the game's clock (`Time frozen`, then
 `Time unfrozen` again), holding it through every screen until the game is restarted or a new game is
 started from the title.
@@ -239,7 +241,7 @@ docs/                  architecture, plan, program model
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
 | `tools\mksettingsart.ps1` | PNG → `src\host\settings_art.h`, the minus and plus buttons and the fullscreen toggle the title's settings view draws |
 | `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title) |
-| `tools\settings-check.ps1` | the title's settings menu: the Settings button opens it, the fullscreen toggle and the two volumes change the machine and are written back to icftd.ini, and Back restores the menu |
+| `tools\settings-check.ps1` | the title's settings menu: the Settings button opens it, the fullscreen toggle and the two volumes change the machine and are written back to icftd.ini, Back restores the menu, and Alt+Enter (posted to the live window) switches the window from the view and leaves the toggle showing the state it took |
 | `tools\quit-check.ps1` | Quit Game's farewell: the click replaces the menu with the two requested lines on black, centred, held for ten seconds (500 frames), then the application closes; a measurement run is untouched |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
 | `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |

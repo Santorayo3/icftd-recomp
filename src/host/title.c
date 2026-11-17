@@ -401,6 +401,10 @@ static void title_quit_notice(rt_machine *m)
     for (i = 0; i < TITLE_NOTICE_FRAMES; i++)
     {
         if (!plat_pump(&in)) break;              /* the window was closed */
+        /* Alt+Enter works here too: the farewell is a screen like any other. */
+        if (in.pressed[KEY_FULLSCREEN] && host_fullscreen_toggle((int)plat_fullscreen()) >= 0)
+            printf("title: fullscreen %s (Alt+Enter, frame %lu)\n",
+                   plat_fullscreen() ? "on" : "off", (unsigned long)m->frame);
         title_notice_draw(m);
         plat_present();
         title_tick(m);
@@ -450,6 +454,24 @@ static void title_settings_volume(rt_machine *m, title_settings *settings, int m
            music ? m->audio.musicGain : m->audio.soundGain, (unsigned long)m->frame);
 }
 
+/* The window mode, wherever the player is: the settings view's toggle and Alt+Enter (the front
+ * end's frame hook, and every loop this file drives) both come through here, so the window, the
+ * settings view and icftd.ini cannot disagree about it. `current` is the mode being left, which is
+ * what the caller shows: the settings view's own value there (a headless run never primed the
+ * platform's), the live platform state otherwise. Returns the mode it switched to (0/1), or -1 on
+ * a platform with no window mode of its own (DOS), where there is nothing to switch and nothing to
+ * write. */
+int host_fullscreen_toggle(int current)
+{
+    int on;
+
+    if (!plat_has_fullscreen()) return -1;
+    on = current ? 0 : 1;
+    plat_set_fullscreen((u32)on);
+    rt_config_save_int("VIDEO", "fullscreen", on);
+    return on;
+}
+
 /* A click in the settings view. Returns 1 while the view stays up, 0 when Back closed it. */
 static int title_settings_click(rt_machine *m, title_settings *settings)
 {
@@ -464,9 +486,10 @@ static int title_settings_click(rt_machine *m, title_settings *settings)
     case TITLE_SETTING_FULLSCREEN:
         /* The window mode is the platform's, so it changes there and then - not on the next
          * start - and the ini records it for that next start. */
-        settings->fullscreen = !settings->fullscreen;
-        plat_set_fullscreen((u32)settings->fullscreen);
-        rt_config_save_int("VIDEO", "fullscreen", settings->fullscreen);
+        {
+            int on = host_fullscreen_toggle(settings->fullscreen);
+            if (on >= 0) settings->fullscreen = on;
+        }
         printf("title: fullscreen %s (frame %lu)\n", settings->fullscreen ? "on" : "off",
                (unsigned long)m->frame);
         break;
@@ -522,6 +545,18 @@ static int title_play(rt_machine *m)
         }
         if (!plat_pump(&in)) { pick = TITLE_PICK_QUIT; break; }        /* the window was closed */
         host_title_pointer(m, &in);      /* --mouse: the pointer a headless run feeds */
+        /* Alt+Enter on the title's screens as well - and the settings view, when it is up, takes
+         * the state the switch left behind, so its toggle shows what the window is. */
+        if (in.pressed[KEY_FULLSCREEN])
+        {
+            int fs = host_fullscreen_toggle(settings.fullscreen);
+            if (fs >= 0)
+            {
+                settings.fullscreen = fs;
+                printf("title: fullscreen %s (Alt+Enter, frame %lu)\n", fs ? "on" : "off",
+                       (unsigned long)m->frame);
+            }
+        }
         if (showSettings)
         {
             title_settings_pointer(&settings, in.mouse_present, in.mouse_x, in.mouse_y);

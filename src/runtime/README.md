@@ -44,6 +44,32 @@ uses (`src\host\dos_main.c`, `tools\build-dos.ps1`):
   not in the release.
 * **Settings**: `plat_default_ini()` is per platform - the DOS build writes no `[VIDEO] fullscreen`.
 
+## The window (Win32)
+
+The windowed window has a resizable frame, and the picture is scaled into it. The client is laid out
+for the game's 320x200 screen: both axes by the client height over the screen height, so the aspect
+is kept, a wider window only widens the bars beside the screen (the border art fills them,
+`border.c`) and a taller one scales it up. A client narrower than the screen's shape keeps the screen
+whole and puts the bars above and below instead of cropping it. Fullscreen keeps the 4:3 an Amiga
+monitor shows the screen on. A picture larger than the screen - the chicken race's 368x216 window, a
+scene's own overscan - is fitted into the screen's rectangle at the screen's own pixel shape
+(`picture_rect`), so it is the same shape as the rest of the game and never grows over the border
+art; no column or row of it is dropped. Both go through one composed 32-bit frame blitted to the
+window in one BitBlt; the 320x200 window is the picture at 1:1 and blits the 8-bit DIB as it always
+did. The picture's rectangle is what the pointer is mapped back into (`mouse_to_fb`), so the game
+keeps reading framebuffer coordinates.
+
+The window belongs to the player: nothing of the game resizes it (the chicken race's 368x216
+narration page used to), and a switch to fullscreen remembers the client size it has to come back
+to. The window captures the pointer while it has the focus - the system cursor is hidden and the
+pointer confined to the picture, as it always was (`cursor_update`, `ClipCursor`, and the window
+takes the foreground at startup) - and a size or move loop releases it while it runs, because
+Windows measures a dragged frame from the pointer; without that release the window ran down to its
+minimum size. Windows keeps no size for an
+application's own window, so the host does: it reads `[VIDEO] window_width` / `window_height` into
+`plat_set_window_size` before `plat_init`, and writes what `plat_window_size` reports back when the
+game closes.
+
 ## Settings (`icftd.ini`)
 
 A player-editable INI next to the executable. **The game writes it with these defaults the first
@@ -52,7 +78,9 @@ reads it and hands the result to the platform layer, so the ini format never rea
 
 ```ini
 [VIDEO]
-fullscreen=true     ; false = 320x200 window, 1:1; true = whole screen, scaled 4:3, border art in the bars
+fullscreen=true     ; false = 320x200 window at 1:1, resizable; true = whole screen, scaled 4:3, border art in the bars
+window_width=320    ; written when the game closes: the size a windowed start comes back to
+window_height=200   ;   (a cross the desktop cannot show is shrunk to fit)
 
 [AUDIO]
 sound=10            ; 0..10, 0 = sound effects off
@@ -60,13 +88,21 @@ music=10            ; 0..10, 0 = music off
 ```
 
 It is not read-only: the title's settings menu writes the three values back with
-`rt_config_save_int`, which patches the file in place and re-reads it. Every other line - the
+`rt_config_save_int`, which patches the file in place and re-reads it, and the window size is
+written the same way at exit. Every other line - the
 comments, the order of the sections, keys this build does not know - is written back unchanged, and
 a key the file lacks is added under its section header; a file too large for its own limit is left
 exactly as it was instead of being half written. The values are applied at once, not on the next
 start: the fullscreen toggle calls `plat_set_fullscreen` (the Win32 layer restyles the live window)
 and the volumes call `rt_audio_set_gain`. `plat_has_fullscreen` says whether a platform has a window
 mode at all, which is what keeps the toggle out of the DOS build's menu.
+
+**Alt+Enter** is the same switch anywhere, without the menu: the front end's frame hook
+(`host_input`) and the title's own loop ask the same helper the settings toggle uses
+(`host_fullscreen_toggle`, `src\host\title.c`), so the window, the view and the file cannot
+disagree. The Windows layer reports the key as `input_state`'s `KEY_FULLSCREEN` (a `WM_SYSKEYDOWN`
+for `VK_RETURN` with Alt down - Alt+Enter is a system key and never arrives as a `WM_KEYDOWN`); the
+DOS layer has no window mode and never sets it.
 
 ## Audio
 

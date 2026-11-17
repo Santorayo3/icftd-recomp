@@ -188,8 +188,11 @@ if (-not ('QuitNoticeCheck' -as [type])) {
 
 try {
     # A 320x200 windowed run: the notice is then exactly the picture, not a scaled 4:3 rectangle.
+    # The window size a previous run may have left in the file is dropped for the same reason (the
+    # game writes one back when it closes - tools\window-check.ps1 is what measures that).
     $iniText = Get-Content $ini -Raw
-    ($iniText -replace '(?m)^\s*fullscreen\s*=.*$', 'fullscreen=0') |
+    ($iniText -replace '(?m)^\s*fullscreen\s*=.*$', 'fullscreen=0' `
+             -replace '(?m)^\s*window_(width|height)\s*=.*\r?\n?', '') |
         Set-Content -Encoding ascii $ini
 
     $winLog = Join-Path $Work 'window.log'

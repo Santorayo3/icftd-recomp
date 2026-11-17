@@ -1343,6 +1343,15 @@ static void host_input(rt_machine *m)
         }
         else host_title_escape(m);
     }
+    /* Alt+Enter, on every screen the game itself puts up: the window switches now and the ini keeps
+     * the choice for the next start. The title's own loop asks the same helper (title.c). */
+    if (in.pressed[KEY_FULLSCREEN])
+    {
+        int fs = host_fullscreen_toggle((int)plat_fullscreen());
+        if (fs >= 0)
+            printf("recomp: fullscreen %s (Alt+Enter, frame %lu)\n", fs ? "on" : "off",
+                   (unsigned long)m->frame);
+    }
     host_cheat_input(m, &in);
     /* Left Ctrl+T freezes the game's clock, on the situation map only: the map's own script ran
      * within MAP_IDLE_FRAMES, which is how the front end knows the screen (a room, the phone, the
@@ -1887,7 +1896,13 @@ int main(int argc, char **argv)
     if (g_window)
     {
         int fs = 0;
+        int ww, wh;
         fs = rt_config_bool("VIDEO", "fullscreen", 1);
+        /* The window's own size, as the last run left it (the platform has it applied before the
+         * window is created, so a windowed start comes back at the size the player chose). */
+        ww = rt_config_int("VIDEO", "window_width", 0, 0, 16384);
+        wh = rt_config_int("VIDEO", "window_height", 0, 0, 16384);
+        if (ww > 0 && wh > 0) plat_set_window_size((u32)ww, (u32)wh);
         plat_set_fullscreen((u32)fs);
         if (!plat_init("It Came from the Desert (recomp)"))
         {
@@ -1895,8 +1910,13 @@ int main(int argc, char **argv)
             rt_shutdown(&m);
             return 1;
         }
-        printf("recomp: video %s, fullscreen=%d\n",
-               rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
+        {
+            u32 cw = 0, ch = 0;
+            if (plat_window_size(&cw, &ch))
+                printf("recomp: video %s, fullscreen=%d, window %lux%lu\n",
+                       rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs,
+                       (unsigned long)cw, (unsigned long)ch);
+        }
         rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
                               rt_config_int("AUDIO", "music", 10, 0, 10));
         if (plat_audio_open(EMU_AUD_RATE))
@@ -2205,7 +2225,22 @@ int main(int argc, char **argv)
     if (slotsDump) rt_slots_print(&m);
     if (busTablePath != 0) oracle_bus_dump(busTablePath);
     rt_shutdown(&m);
-    if (g_window) plat_shutdown();
+    if (g_window)
+    {
+        /* The window's own size, written back so the next windowed start comes back to it -
+         * Windows keeps no such thing for an application's window. It is also the size a windowed
+         * mode returns to, so quitting from fullscreen keeps it too. */
+        u32 ww = 0, wh = 0;
+        if (plat_window_size(&ww, &wh))
+        {
+            /* Height first: a key the file does not have is inserted under its section's header,
+             * so the second write lands above the first and the file reads window_width, then
+             * window_height. */
+            rt_config_save_int("VIDEO", "window_height", (int)wh);
+            rt_config_save_int("VIDEO", "window_width", (int)ww);
+        }
+        plat_shutdown();
+    }
     rc = 0;
     return rc;
 }
