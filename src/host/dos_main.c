@@ -19,7 +19,13 @@
  * missing and stops. --extract is the same step on its own.
  *
  * Development flags (same machinery as src\host\main.c, used for the DOS port's own testing):
- *   --perf              per-frame cost in 8254 counts, split into vblank / present
+ *   --perf              where a frame's time goes, in milliseconds of the 8254 clock: the vblank
+ *                        and the machine's run between two of them, and inside those the
+ *                        conversion, the present copy, the blitter and the interrupt servers
+ *   --perfafter <frame> with --perf: open the measurement window at that frame, so a settled scene
+ *                        (the hospital room, say) is measured without the startup, the loads and
+ *                        the menus. Every counter starts at that boundary, and the window ends at
+ *                        the last complete frame - one unit covers everything the report says
  *   --ticklog           oracle_tick's `tick N in|out` lines, to compare pacing with the host
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
@@ -72,11 +78,31 @@ u32    g_dumpFrame;
 static int    g_dumped;
 static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
 
-/* --perf: where a frame's emulated time goes, in 8254 counts (1.193 MHz). */
-static int    g_perf;
-static u32    g_perfLast, g_perfTotal, g_perfVblank, g_perfPresent, g_perfFrames, g_perfWait;
-static long   g_perfCiaInsns;           /* instructions run by the CIA handlers (the music driver) */
-static u32    g_perfCiaRuns;
+/* --perf: where a frame's time goes, in plat_pit_now() counts (plat_pit_per_second() says how many
+ * make a second). The emulated work the runtime owns - the conversion, the blitter's pixel loop and
+ * the interrupt servers, which run on the interpreter - is accumulated on the machine
+ * (rt_machine::perf); what lives here is the frame as a whole, which only the front end can see.
+ *
+ * All of it is one measurement window: a run of complete frames. `perf_open` zeroes every counter
+ * at one frame boundary and takes the clock and the CMOS clock there, and `frame_measure_in`
+ * commits a frame only once its vblank and the run after it have both been measured - so the vblank
+ * and machine halves add up to the frames counted, and the conversion/present/blitter/handler
+ * figures cover exactly those frames. Reporting does not read a clock at all: it uses what the
+ * window captured, before shutdown. */
+static int    g_perf;                   /* --perf requested                               */
+static u32    g_perfFrom;               /* --perfafter: open the window at this frame     */
+static int    g_perfOpen;               /* the window is open                             */
+static u32    g_perfFirstFrame;         /* the emulated frame it opened at, for the header */
+static u32    g_perfFrames;             /* complete frames measured                       */
+static u32    g_perfVblank, g_perfMachine;   /* the two halves, which add up to the frame  */
+static u32    g_perfPresent, g_perfPresented, g_perfWait;   /* front-end sums in the window  */
+static u32    g_perfFrameIn;            /* clock at the top of the vblank being measured  */
+static u32    g_perfFrameOut;           /* ... at its end, where the machine's run starts */
+static int    g_perfHaveOut;            /* the vblank above is measured, waiting for its run */
+static u32    g_perfRtcIn, g_perfRtcOut;     /* the CMOS clock at the same two boundaries   */
+static long   g_perfInsnsIn;            /* instructions at the window's start             */
+static u32    g_perfLastFrame;          /* the emulated frame of the last boundary seen   */
+static plat_clock_info g_perfClockIn;   /* the platform clock's state at its start        */
 static u32    g_escFrame;               /* --esc <frame>: press Escape at that frame */
 static int    g_escDone;
 static u32    g_cheatFrame;             /* --cheat <frame>: press left Ctrl+W at that frame */
@@ -131,17 +157,20 @@ static void scatter(cpu_t *c, rt_machine *m)
  * something a 1994 port would have done. */
 static int g_crashLog;
 
-static void note_state(rt_machine *m, cpu_t *c)
+static void note_state(rt_machine *m)
 {
+    u32 r[18];
     char text[256];
 
     if (!g_crashLog) return;
+    oracle_regs_get(r);       /* the core holds the state: after gather in translated code, always
+                               * in the interpreter, which is why no cpu_t is needed here */
     sprintf(text, "frame %lu  insns %ld  pc %06lX\nD0 %08lX  D1 %08lX  A0 %08lX  A6 %08lX  "
                   "A7 %08lX  SR %04lX  cpu pc %08lX  presents %lu\n",
             (unsigned long)m->frame, (long)m->insns, (unsigned long)m->pc,
-            (unsigned long)c->d[0], (unsigned long)c->d[1], (unsigned long)c->a[0],
-            (unsigned long)c->a[6], (unsigned long)c->a[7], (unsigned long)c->sr,
-            (unsigned long)c->pc, (unsigned long)m->gfx.frames);
+            (unsigned long)r[REGS_D + 0], (unsigned long)r[REGS_D + 1], (unsigned long)r[REGS_A + 0],
+            (unsigned long)r[REGS_A + 6], (unsigned long)r[REGS_A + 7], (unsigned long)r[REGS_SR],
+            (unsigned long)r[REGS_PC], (unsigned long)m->gfx.frames);
     plat_crash_state(text);
 }
 
@@ -151,21 +180,70 @@ static void note_state(rt_machine *m, cpu_t *c)
 static void crosshair_present(rt_machine *m);
 static void loading_frame(rt_machine *m);
 
-/* The vertical blank, reached from inside translated code: the register file goes to the core,
- * the game's own servers run there, and what they leave comes back. */
-static void dos_frame(cpu_t *c, rt_machine *m)
+/* Opens the measurement window at a frame boundary. Every counter the report divides by starts
+ * here, at the same instant, so "per frame" means the same frames in every line. */
+static void perf_open(rt_machine *m, u32 now)
 {
-    /* Milliseconds, not PIT counts: plat_pit_now() extends a 16-bit counter snapshot, so it is
-     * only exact for intervals under 65,536 counts (55 ms) - and a frame at the 486-66 clock is
-     * three times that, which is what truncated the first version of this report. */
-    u32 t0 = g_perf ? plat_ticks_ms() : 0;
+    m->perfOn = 1;
+    memset(&m->perf, 0, sizeof m->perf);
+    g_perfFrames = g_perfVblank = g_perfMachine = 0;
+    g_perfPresent = g_perfPresented = g_perfWait = 0;
+    g_perfFrameIn = g_perfFrameOut = now;
+    g_perfHaveOut = 0;
+    g_perfRtcIn = g_perfRtcOut = plat_rtc_elapsed_ms();
+    g_perfInsnsIn = m->insns;
+    g_perfFirstFrame = m->frame;
+    g_perfLastFrame = m->frame;
+    plat_clock_report(&g_perfClockIn);
+    g_perfOpen = 1;
+}
 
-    if (g_perf)
+/* The two halves of a frame boundary. `in` closes the machine's run that began at the previous
+ * `out` and commits that frame (so a frame is counted only when both halves of it are measured);
+ * `out` marks where the vblank ended and the machine's run starts. Both are no-ops unless --perf
+ * asked for them, and neither runs the emulated machine: the register file is the caller's
+ * business (see frame_vblank). */
+static void frame_measure_in(rt_machine *m)
+{
+    u32 now;
+
+    if (!g_perf) return;
+    now = plat_pit_now();
+    if (!g_perfOpen)
     {
-        g_perfTotal += t0 - g_perfLast;
-        g_perfLast = t0;
-        g_perfFrames++;
+        if (m->frame < g_perfFrom) return;      /* the settled scene has not been reached yet */
+        perf_open(m, now);
+        return;
     }
+    if (g_perfHaveOut && m->frame == g_perfLastFrame + 1u)
+    {
+        g_perfMachine += now - g_perfFrameOut;
+        g_perfVblank += g_perfFrameOut - g_perfFrameIn;
+        g_perfFrames++;
+        g_perfRtcOut = plat_rtc_elapsed_ms();   /* the window's end, at the same boundary */
+    }
+    /* Frames that ran without this boundary (the title screen's own tick loop, a restart) are not
+     * part of the window: their span is dropped rather than attributed to a vblank that never
+     * happened, and the measurement continues from here. */
+    g_perfFrameIn = now;
+    g_perfHaveOut = 0;
+    g_perfLastFrame = m->frame;
+}
+
+static void frame_measure_out(void)
+{
+    if (!g_perfOpen) return;
+    g_perfFrameOut = plat_pit_now();
+    g_perfHaveOut = 1;
+}
+
+/* One vertical blank, whichever core is running: the port's per-frame seams, the game's own
+ * interrupt servers, and the measurement on either side of them. It takes no cpu_t on purpose - the
+ * translated path scatters its mirror into the core before the call and gathers it back after, and
+ * the interpreter is already the core, so neither path can hand this stale registers. */
+static void frame_vblank(rt_machine *m)
+{
+    frame_measure_in(m);
     /* A frozen clock: the engine's own pause is held and its date and time put back before the
      * vblank's interrupt servers tick it (src\host\time_freeze.c). Inert unless frozen. */
     while (g_freezePos < g_freezeCount && m->frame >= g_freezeAt[g_freezePos])
@@ -177,40 +255,56 @@ static void dos_frame(cpu_t *c, rt_machine *m)
     host_time_freeze_frame(m);
     loading_frame(m);                 /* arms the OSD line while a load runs, before the present */
     crosshair_present(m);             /* composed by the present inside oracle_tick */
-    scatter(c, m);
     oracle_tick(m);
-    gather(c, m);
-    if (g_perf) g_perfVblank += plat_ticks_ms() - t0;
     dump_ram(m);
-    note_state(m, c);
+    note_state(m);
     /* A frame limit is only exact here: the game spends long stretched inside one translated
      * function, so checking it between rc_call()s would overshoot by hundreds of frames. */
     if (g_frameLimit != 0 && m->frame >= g_frameLimit) m->stop = 1;
     if (g_trace)
     {
+        u32 r[18];
+
+        oracle_regs_get(r);
         printf("  frame %lu insns %ld pc %06lX\n", (unsigned long)m->frame, (long)m->insns,
-               (unsigned long)c->pc);
+               (unsigned long)r[REGS_PC]);
         if (m->frame >= 6 && m->frame <= 12)
         {
             printf("ringdump frame %lu\n", (unsigned long)m->frame);
             oracle_ring_print(m);
         }
     }
+    frame_measure_out();
 }
 
-/* A CIA timer expiry (the engine's music driver) can land inside translated code too. */
+/* The vertical blank, reached from inside translated code: the register file goes to the core, the
+ * game's own servers run there, and what they leave comes back. */
+static void dos_frame(cpu_t *c, rt_machine *m)
+{
+    scatter(c, m);
+    frame_vblank(m);
+    gather(c, m);
+}
+
+/* The same vblank on the interpreter, which has no mirror to scatter: the core already holds the
+ * program's registers, and it must not be overwritten from the translated mirror (which is stale
+ * there). This is the other half of "both execution paths count their frames": before it, a frame
+ * that ran interpreted skipped the hook and its measurement entirely. */
+static void interp_frame(rt_machine *m)
+{
+    frame_vblank(m);
+}
+
+/* A CIA timer expiry (the engine's music driver) can land inside translated code too. It runs on
+ * the interpreter, and its cost is timed where it runs (oracle_run_icr, src\oracle\cpu.c). */
 static void dos_cia(rt_machine *m, u32 code)
 {
-    long before;
-
     if (g_cpu == 0) return;
     if (g_trace) printf("  cia in %06lX frame %lu pc %06lX\n", (unsigned long)code,
                        (unsigned long)m->frame, (unsigned long)g_cpu->pc);
-    before = g_perf ? m->insns : 0;
     scatter(g_cpu, m);
     oracle_run_icr(m, code, m->ciaData);
     gather(g_cpu, m);
-    if (g_perf) { g_perfCiaInsns += m->insns - before; g_perfCiaRuns++; }
     if (g_trace) printf("  cia out pc %06lX\n", (unsigned long)g_cpu->pc);
 }
 
@@ -1128,9 +1222,9 @@ static void dos_input(rt_machine *m)
         /* Time spent waiting for the next frame slot. It is the difference between the pacing
          * interval --perf reports and the work the frame actually costs, so without it the split
          * looks as if the machine used the whole slot even when the host is ten times fast enough. */
-        u32 w0 = g_perf ? plat_ticks_ms() : 0;
+        u32 w0 = g_perfOpen ? plat_pit_now() : 0;
         plat_frame_sync();
-        if (g_perf) g_perfWait += plat_ticks_ms() - w0;
+        if (g_perfOpen) g_perfWait += plat_pit_now() - w0;
     }
 }
 /* Writes the composed raster as a 24-bit BMP (bottom-up); --shot makes screen content testable.
@@ -1185,7 +1279,7 @@ static void dos_present(rt_machine *m)
     u8 *dst;
     int w = rt_gfx_width(), h = rt_gfx_height();
     int x, y;
-    u32 stride, t0 = g_perf ? plat_ticks_ms() : 0;
+    u32 stride, t0 = g_perfOpen ? plat_pit_now() : 0;
 
     if (fb == 0 || pal == 0) return;
     /* The save picker sits on top of the composed frame and under the pointer, so it also reaches
@@ -1202,7 +1296,11 @@ static void dos_present(rt_machine *m)
         for (y = 0; y < h; y++)
             memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
         plat_present();
-        if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
+        if (g_perfOpen)
+        {
+            g_perfPresent += plat_pit_now() - t0;
+            g_perfPresented++;
+        }
         (void)m;
         return;
     }
@@ -1235,7 +1333,11 @@ static void dos_present(rt_machine *m)
         }
     }
     plat_present();
-    if (g_perf) g_perfPresent += plat_ticks_ms() - t0;
+    if (g_perfOpen)
+    {
+        g_perfPresent += plat_pit_now() - t0;
+        g_perfPresented++;
+    }
     (void)m;
 }
 
@@ -1258,9 +1360,17 @@ int main(int argc, char **argv)
     u32 lastTraced = 0xFFFFFFFFu, prevTraced = 0xFFFFFFFFu;
     u32 translated = 0, interpreted = 0;
     u32 audioPlayed = 0, audioDropped = 0, audioStarved = 0;
+    /* Read before rt_shutdown/plat_shutdown, and used by the summary and the --perf report, so both
+     * describe the same run and neither re-reads a clock after the machine is gone. */
+    u32 runFrames = 0, runRasters = 0, runMs = 0, runRtcMs = 0, runEmuMs = 0, perfClocks = 0;
+    long runInsns = 0;
+    rt_perf perfRt;
+    plat_clock_info perfClockOut;
     plat_set_program(argc > 0 ? argv[0] : 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     memset(&c, 0, sizeof c);
+    memset(&perfRt, 0, sizeof perfRt);
+    memset(&perfClockOut, 0, sizeof perfClockOut);
 
     for (i = 1; i < argc; i++)
     {
@@ -1284,6 +1394,12 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--noaudio") == 0) { g_noAudio = 1; continue; }
         if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
+        if (strcmp(argv[i], "--perfafter") == 0 && i + 1 < argc)
+        {
+            g_perf = 1;
+            g_perfFrom = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--call") == 0 && i + 1 < argc)
         {
             char *p = argv[++i];
@@ -1409,6 +1525,8 @@ int main(int argc, char **argv)
     m.dataDir = dataDir;
     m.saveSlot = slot;
     g_frameLimit = frameLimit;
+    /* perfOn is the window's, not the run's: perf_open() turns it on at the boundary the window
+     * starts at, so nothing before it pays for instrumentation or lands in its counters. */
     m.tickLog = tickLog;
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
@@ -1531,14 +1649,14 @@ int main(int argc, char **argv)
             /* Not translated (the translator refused the construct): run it on the core, one
              * instruction, with the same time accounting as the oracle. */
             interpreted++;
-            while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); oracle_tick(&m); }
+            while (m.waitFrames > 0) { m.waitFrames--; rt_time_idle(&m); interp_frame(&m); }
             {
                 u32 cost = oracle_instruction_cost(&m, pc);
     
                 m.cyclesToTick -= (long)cost;
                 rt_time_run(&m, (long)cost);       /* Paula + CIA timers, as in oracle_run */
                 rt_cia_service(&m);
-                if (m.cyclesToTick < 0) oracle_tick(&m);
+                if (m.cyclesToTick < 0) interp_frame(&m);
             }
             if (!oracle_step(&m)) break;
             if (g_trace && m.mem.bad != 0 && !badReported)
@@ -1617,9 +1735,17 @@ int main(int argc, char **argv)
             g_loadHold = g_loadHoldSeen = 0;
             g_loadOn = g_loadShown = 0;
             g_loadSeen = g_loadStart = 0;
-            g_perfFrames = g_perfTotal = g_perfVblank = g_perfPresent = g_perfWait = 0;
-            g_perfCiaInsns = 0;
-            g_perfCiaRuns = 0;
+            /* A restart starts the measurement again: close the window, and the next boundary that
+             * passes --perfafter opens a fresh one with every counter at zero. */
+            m.perfOn = 0;
+            g_perfOpen = 0;
+            g_perfFrames = g_perfVblank = g_perfMachine = 0;
+            g_perfPresent = g_perfPresented = g_perfWait = 0;
+            g_perfFrameIn = g_perfFrameOut = 0;
+            g_perfHaveOut = 0;
+            g_perfLastFrame = 0;
+            g_perfRtcIn = g_perfRtcOut = 0;
+            g_perfInsnsIn = 0;
             badReported = 0;
             traced = 0;
             lastTraced = prevTraced = 0xFFFFFFFFu;
@@ -1630,57 +1756,116 @@ int main(int argc, char **argv)
     }
 
     rt_lvo_report();
-    /* rt_shutdown closes the device and clears the flag, so the counters are read first. */
+    /* rt_shutdown closes the device and clears the flag, so the counters are read first - and so is
+     * every clock the report divides. The endpoint of the run and of the --perf window is here, not
+     * after the shutdown and not after the messages: the window's own endpoint was taken at the last
+     * complete frame boundary (frame_measure_in), which is earlier still than this. */
     audioPlayed = m.audio.device ? plat_audio_played() : 0;
     audioDropped = m.audio.device ? plat_audio_dropped() : 0;
     audioStarved = m.audio.device ? plat_audio_starved() : 0;
+    {
+        runFrames = m.frame;
+        runRasters = rt_gfx_frames();
+        runInsns = m.insns;
+        runMs = plat_ticks_ms();
+        runRtcMs = plat_rtc_elapsed_ms();
+        runEmuMs = plat_emulated_ms();
+        perfClocks = plat_pit_per_second();
+        perfRt = m.perf;
+        plat_clock_report(&perfClockOut);
+    }
     rt_shutdown(&m);
     plat_shutdown();
 
     /* Text mode again: the messages the runtime printed into the graphics screen are gone, so
      * the run summary is the one thing the player sees. */
     printf("icftd: %lu frame(s), %lu raster(s), %ld instruction(s)\n",
-           (unsigned long)m.frame, (unsigned long)rt_gfx_frames(), (long)m.insns);
+           (unsigned long)runFrames, (unsigned long)runRasters, (long)runInsns);
     printf("icftd: %lu translated entry(ies), %lu interpreted instruction(s)\n",
            (unsigned long)translated, (unsigned long)interpreted);
     {
-        u32 ms = plat_ticks_ms();
-        if (ms != 0)
-            printf("icftd: %.1f frame/s\n", (double)m.frame * 1000.0 / (double)ms);
+        if (runMs != 0)
+            printf("icftd: %.1f frame/s\n", (double)runFrames * 1000.0 / (double)runMs);
         /* The two clocks measure the whole run: if they disagree, the game's pacing clock is not
          * real time and every speed figure - frames and audio both - is scaled by the ratio. */
         printf("icftd: %lu ms by the 8254, %lu ms by the RTC\n",
-               (unsigned long)ms, (unsigned long)plat_rtc_elapsed_ms());
+               (unsigned long)runMs, (unsigned long)runRtcMs);
         /* Emulated time: at a fixed DOSBox cycle setting (cycles per emulated millisecond) this
          * times the setting is the host instruction count of the run, so dividing by the frame
          * count says what a frame really costs. */
         printf("icftd: %lu ms of machine time, %lu ms/frame\n",
-               (unsigned long)plat_emulated_ms(),
-               (unsigned long)(m.frame != 0 ? plat_emulated_ms() / m.frame : 0));
+               (unsigned long)runEmuMs,
+               (unsigned long)(runFrames != 0 ? runEmuMs / runFrames : 0));
     }
-    if (g_perf && g_perfFrames != 0)
+    if (g_perf && g_perfFrames != 0 && perfClocks != 0)
     {
-        /* Milliseconds. Run this with -Cycles max: there the 8254 tracks real time and a frame is
-         * short enough for the 16-bit counter snapshots to stay exact (a fixed 30000 clock makes a
-         * frame ~180 ms, so the samples straddle more than one wrap and the split lies). The
-         * headline number - frames per second at the launcher's 30000 clock - comes from the wall
-         * clock outside the program, which needs no emulated timer at all. */
+        /* One unit for everything: counts of the platform's clock, divided by its own
+         * counts-per-second, so the two halves add up to the frame and the frame to the frame rate.
+         * Every figure covers the same window - the complete frames between the boundary the
+         * window opened at and the last one whose vblank *and* machine run were both measured - and
+         * the counters behind them were zeroed together at the opening boundary.
+         *
+         * The order of the lines is the nesting: `vblank + machine run` is the whole frame; `idle
+         * waiting for the slot` is inside the vblank; conversion, the screen copy, the blitter and
+         * the interrupt servers happen wherever they happen (a LoadView converts and presents
+         * inside the machine's run too, not only at the vblank), so they are exclusive timings
+         * inside one of those halves, never parts to be added up.
+         *
+         * The scale is the platform's own counts-per-second, the same factor plat_ticks_ms uses. It
+         * comes from one CMOS-clock calibration at startup, and an emulated 8254 does not tick at
+         * one rate (DOSBox fast-forwards an idle polling loop and not our C), so the headline
+         * carries the same window measured on the CMOS clock as well: where the two disagree, that
+         * is the scale and not the split. The wall clock outside the program settles it
+         * (tools\perf-dos.ps1). */
         double n = (double)g_perfFrames;
-        double total = (double)g_perfTotal / n;
-        double vb = (double)g_perfVblank / n;
-        double conv = (double)rt_gfx_perf_conv / 1193.182 / n;   /* PIT counts -> ms */
-        double blit = (double)rt_blit_perf / 1193.182 / n;
-        double wait = (double)g_perfWait / n;
-        double pres = (double)g_perfPresent / n;
-        printf("perf: %.1f ms/frame = %.2f frame/s\n", total, 1000.0 / total);
-        printf("perf:   vblank %.1f ms, of it conversion %.1f; present copy %.1f; blitter %.1f\n",
-               vb, conv, pres, blit);
-        printf("perf:   machine code %.1f ms, idle waiting for the slot %.1f ms, work %.1f ms\n",
-               total - vb - pres - wait, wait, total - wait);
-        printf("perf:   conversion runs %.2f time(s)/frame; %.0f instruction(s)/frame, "
-               "%.0f of them in the %.2f CIA run(s)/frame\n",
-               (double)rt_gfx_frames() / n, (double)m.insns / n, (double)g_perfCiaInsns / n,
-               (double)g_perfCiaRuns / n);
+        double toMs = 1000.0 / (double)perfClocks;
+        double vb = (double)g_perfVblank * toMs / n;
+        double machine = (double)g_perfMachine * toMs / n;
+        double total = vb + machine;
+        double conv = (double)perfRt.conv * toMs / n;
+        double blit = (double)perfRt.blit * toMs / n;
+        double handlers = (double)perfRt.vblank * toMs / n;
+        double cia = (double)perfRt.cia * toMs / n;
+        double wait = (double)g_perfWait * toMs / n;
+        double pres = (double)g_perfPresent * toMs / n;
+        double insns = (double)(runInsns - g_perfInsnsIn);
+        u32 rtc = g_perfRtcOut >= g_perfRtcIn ? g_perfRtcOut - g_perfRtcIn : 0;
+
+        printf("perf: window: frames %lu..%lu, %lu complete; clock %lu counts/s (%.2f x 1.193182 "
+               "MHz)\n",
+               (unsigned long)g_perfFirstFrame, (unsigned long)(g_perfFirstFrame + g_perfFrames),
+               (unsigned long)g_perfFrames, (unsigned long)perfClocks,
+               (double)perfClocks / 1193182.0);
+        printf("perf: clock: 8254 mode %s; %lu samples in the window, %lu without a consistent "
+               "tick, %lu rejected, %lu pending rollover(s)\n",
+               g_perfClockIn.mode == 3 ? "3 (half periods, read-back OUT)"
+                                       : (g_perfClockIn.mode == 2
+                                              ? "2 (one wrap per BIOS tick)"
+                                              : "unknown - linear fallback, timings may depend on "
+                                                "the sampling rate"),
+               (unsigned long)(perfClockOut.samples - g_perfClockIn.samples),
+               (unsigned long)(perfClockOut.snapFails - g_perfClockIn.snapFails),
+               (unsigned long)(perfClockOut.rejects - g_perfClockIn.rejects),
+               (unsigned long)(perfClockOut.pending - g_perfClockIn.pending));
+        printf("perf: %.1f ms/frame = %.2f frame/s", total, 1000.0 / total);
+        if (rtc >= 3000u)                  /* the CMOS clock counts seconds: skip a short run */
+            printf("; the same %lu frame(s) took %.1f ms/frame by the CMOS clock",
+                   (unsigned long)g_perfFrames, (double)rtc / n);
+        printf("\n");
+        printf("perf:   vblank %.1f ms (%.0f%%), of it idle waiting for the slot %.1f; machine run "
+               "%.1f ms (%.0f%%)\n",
+               vb, vb * 100.0 / total, wait, machine, machine * 100.0 / total);
+        printf("perf:   exclusive: conversion %.1f ms over %.2f raster(s)/frame, blitter %.1f ms "
+               "over %.0f row(s)/frame, screen copy %.1f ms over %.2f copy(ies)/frame\n",
+               conv, (double)perfRt.convs / n, blit, (double)perfRt.blitRows / n, pres,
+               (double)g_perfPresented / n);
+        printf("perf:   interrupt servers (inclusive, on the interpreter): vblank %.1f ms, CIA %.1f "
+               "ms in %.2f run(s)/frame\n",
+               handlers, cia, (double)perfRt.ciaRuns / n);
+        printf("perf:   presentation calls %.2f/frame, %.0f instruction(s)/frame, %.0f of them in the "
+               "interrupt handlers\n",
+               (double)perfRt.presents / n, insns / n,
+               (double)(perfRt.vblankInsns + perfRt.ciaInsns) / n);
     }
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);

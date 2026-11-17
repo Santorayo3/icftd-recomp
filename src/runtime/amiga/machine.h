@@ -122,6 +122,30 @@ typedef struct rt_blitter
     u16  holdA, holdB;
 } rt_blitter;
 
+/* --perf: what the emulated work of a frame costs, in plat_pit_now() counts. Only the parts the
+ * runtime owns are here - the frame as a whole, the wait for the slot and the copy to the screen
+ * belong to the front end, which owns the platform's clock. Filled in only while
+ * rt_machine::perfOn is set, so a played run pays nothing for it.
+ *
+ * These are exclusive timings: each covers its own loop and nothing else, so `blit` is inside the
+ * machine run and `conv` covers the planar-to-chunky walk only. `vblank` and `cia` are the
+ * interpreter's interrupt servers, timed around the handler call (inclusive of whatever the handler
+ * runs). The counts next to them say how many times each happened, because "1.0 ms in 1.24 raster"
+ * and "1.0 ms in 0.3 raster" mean very different things. */
+typedef struct rt_perf
+{
+    u32  conv;                          /* planar -> chunky conversion (display.c) */
+    u32  convs;                         /* ... and the conversions that walked the planes */
+    u32  blit;                          /* the blitter's pixel work (blitter.c) */
+    u32  blitRows;                      /* ... and the rows it timed */
+    u32  presents;                      /* rt_gfx_present calls: presentation calls, not frames */
+    u32  vblank;                        /* the vblank servers, which run on the interpreter */
+    u32  cia;                           /* the CIA (music) servers, likewise (oracle\cpu.c) */
+    long vblankInsns;                   /* ... and the instructions those two run */
+    long ciaInsns;
+    u32  ciaRuns;
+} rt_perf;
+
 typedef struct rt_machine
 {
     rt_mem mem;
@@ -183,6 +207,8 @@ typedef struct rt_machine
     u32     releaseAt;                    /* frame to release it again (0 = never) */
     int     stop;                         /* tool hook: set to end the run (window closed) */
     int     dosLog;                       /* log dos Open/Read/Seek/Close */
+    int     perfOn;                       /* --perf: fill `perf` with what the emulated work costs */
+    rt_perf perf;
     int     progress;                     /* heartbeat every 1M steps */
     u32     progressFrom;                 /* ... and the row/palette report from this frame on */
     int     dffLog;                       /* log the first chipset register writes */

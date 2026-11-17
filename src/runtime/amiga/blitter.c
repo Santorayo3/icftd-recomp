@@ -256,8 +256,6 @@ static int blit_words_cost(const rt_blitter *b)
     return 4 - skipB - skipY;
 }
 
-u32 rt_blit_perf;                        /* 8254 counts spent in the pixel loop, for --perf */
-
 /* Everything that happens when a blit starts: the geometry logs, the sprite probe's "before"
  * picture, and the line-mode note. Returns 0 when there is nothing to run. */
 static int rt_blit_begin(rt_machine *m)
@@ -469,8 +467,17 @@ int rt_blit_take_clock(rt_machine *m)
     if (--b->rowLeft <= 0)
     {
         /* This row's slots have gone by: compute and write it. The shift registers carry on to the
-         * next row, which is why they live in the device state. */
+         * next row, which is why they live in the device state. --perf: what the data path costs,
+         * as opposed to the device time the slots above charge for. Exclusive: only blit_row's own
+         * work is inside the two samples. */
+        u32 pt0 = m->perfOn ? plat_pit_now() : 0;
+
         blit_row(m, b->row, b->runWords, b->runDesc ? 1 : 0, &b->holdA, &b->holdB);
+        if (m->perfOn)
+        {
+            m->perf.blit += plat_pit_now() - pt0;
+            m->perf.blitRows++;
+        }
         b->row++;
         if (b->row >= b->runRows)
         {

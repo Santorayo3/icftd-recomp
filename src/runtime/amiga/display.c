@@ -16,8 +16,6 @@
 
 static rt_gfx_state *gfx;                /* the one machine's graphics state */
 
-u32 rt_gfx_perf_conv;                    /* see display.h */
-
 /* --- planar -> chunky ---------------------------------------------------------------------
  * Eight pixels share one byte per plane, so a nibble of two plane bytes names four pixels: the
  * tables below hold those four pixel bytes already OR-ed together (planes 0/1, planes 2/3) plus
@@ -1652,10 +1650,11 @@ void rt_gfx_present(rt_machine *m, u32 view)
     /* Planar -> chunky. This is the one loop that runs over the whole screen every frame - and it
      * used to be 68% of a frame. One conversion per changed picture: see conv_same() above. */
     {
-        u32 pt0 = plat_pit_now();
+        u32 pt0 = m->perfOn ? plat_pit_now() : 0;
         int np = depth < 8 ? depth : 8;
         u32 planes[8];
         int didRows = 0;
+        int converted = 0;              /* --perf: the planes were walked, not merely repainted */
         /* Rows below DIWSTOP are border, exactly as on the hardware: a window shorter than the
          * screen the game built (the hospital room's 180 rows in a 200-row screen) must not show
          * the plane data that happens to start there. */
@@ -1756,6 +1755,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
             }
             conv_saved(m, bm, w, h, bpr, np, planes, -1, -1);
             didRows = 1;
+            converted = 1;
         }
         /* The planes the beam reads come from the copper list, not from the ViewPort: the list is
          * what the copper executes, and it is where the engine scrolls. `MrgCop` fills its list
@@ -1784,6 +1784,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
             if (d1 != 0 || d2 != 0) conv_picture_scrolled(m, w, visH, bpr, np, planes, d1, d2);
             else conv_picture(m, w, visH, bpr, np, planes);
             conv_saved(m, bm, w, visH, bpr, np, planes, d1, d2);
+            converted = 1;
         }
         /* Everything outside the window the list programs is border, which is pen 0 (COLOR00):
          * below DIWSTOP, left of DIWSTRT's horizontal position and right of DIWSTOP's. Only the
@@ -1808,7 +1809,11 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 memset(row + w, 0, (size_t)(EMU_FB_MAX_W - w));
             }
         }
-        if (pt0 != 0) rt_gfx_perf_conv += plat_pit_now() - pt0;
+        if (m->perfOn)
+        {
+            m->perf.conv += plat_pit_now() - pt0;
+            if (converted) m->perf.convs++;
+        }
     }
     if (m->progress)
     {
@@ -1982,6 +1987,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
      * after the game's own table was built. */
     osd_draw(m);
     gfx->frames++;
+    if (m->perfOn) m->perf.presents++;     /* --perf: a presentation call, which is not a frame */
     /* Trace the flip cadence: the emulated frame number each present belongs to is the only way to
      * tell "the intro drew nothing" from "the intro never flipped". */
     if (m->progress && (gfx->frames % 20u) == 0u)

@@ -56,8 +56,12 @@
                                 time, the real keys do it in a window, a save that carries the pause
                                 word loads running, and no run without the key changes)
 
+     21. profiler clock        (tools\pit-clock-check.ps1 - the DOS front end's 8254 clock, checked
+                                against a simulated machine: the same elapsed time at any sampling rate,
+                                both PIT modes, racing latches, late BIOS ticks and midnight)
+
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-20 cover the port's
+    capture or reference-image test can prove a translated function. Steps 5-21 cover the port's
     own surfaces - the presenter, the title menu and its settings and farewell, the map cursor, the
     save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
     the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys and the Ctrl+T
@@ -69,14 +73,14 @@
     dev loop".
 
 .PARAMETER Full
-    Add the port-feature steps (5-20) to the core steps.
+    Add the port-feature steps (5-21) to the core steps.
 
 .PARAMETER Quick
     Skip the two builds; only run the checks.
 
 .PARAMETER Only
     Run only the steps whose name matches this wildcard, instead of the tier. A group keyword
-    selects a tier:     'core' (1-4), 'port' (5-20), 'build' (1-2).
+    selects a tier:     'core' (1-4), 'port' (5-21), 'build' (1-2).
     e.g. -Only pointer, -Only recomp, -Only port.
 
 .EXAMPLE
@@ -148,7 +152,8 @@ $all = @(
     @{ Name = 'WASD keys (aliases)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\keys-check.ps1 } },
     @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
     @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
-    @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } }
+    @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } },
+    @{ Name = 'profiler clock (8254)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } }
 )
 
 if ($Only) {

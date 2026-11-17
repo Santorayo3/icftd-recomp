@@ -89,7 +89,9 @@ s32  rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
 void rt_gfx_load_rgb4(rt_machine *m, u32 vp, u32 table, u32 count);
 void rt_gfx_set_rgb4(rt_machine *m, u32 vp, u32 index, u32 r, u32 g, u32 b);
 
-/* Converts the View's raster into the chunky framebuffer and refreshes the palette. */
+/* Converts the View's raster into the chunky framebuffer and refreshes the palette. What the
+ * conversion itself costs, in plat_pit_now() counts, is added to rt_machine::perf (machine.h)
+ * while rt_machine::perfOn is set - the same place the blitter's pixel loop reports to. */
 void rt_gfx_present(rt_machine *m, u32 view);
 /* The display registers a ViewPort asks graphics.library to program: what the OS turns
  * ViewPort DWidth/DHeight/Modes and the RasInfo's BitMap depth into. MgCop writes them into the
@@ -106,11 +108,6 @@ typedef struct rt_view_regs
 /* Fills `r` from ViewPort `vp` (0 = nothing loaded: the A500 defaults). */
 void rt_gfx_view_regs(rt_machine *m, u32 vp, rt_view_regs *r);
 
-/* 8254 counts spent in the planar->chunky loop, for a front end's --perf split (0 on a platform
- * without a PIT readout). */
-extern u32 rt_gfx_perf_conv;
-/* The same for the software blitter's pixel loop (defined in blitter.c). */
-extern u32 rt_blit_perf;
 /* MrgCop(view): builds the copper list the game walks to find its bitplane pointers. */
 void rt_gfx_mrg_cop(rt_machine *m, u32 view);
 

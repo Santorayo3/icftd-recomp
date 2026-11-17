@@ -1955,9 +1955,10 @@ on a DX2-66, **1.14x** on a DX4-100.
 `cycles=3000`, difference an 11-frame and a 1-frame run) reported the *same* 3,570,000 for the
 per-pixel and the nibble-table conversion - two builds that differ by 4.7x in real work - and the
 same number for `core=normal` and `core=dynamic`. It measures DOSBox's pacing, not our code. And
-`--perf` is only valid at `cycles=max`: `plat_pit_now()`/`plat_ticks_ms()` extend a 16-bit 8254
-snapshot, so any interval over 55 ms (a whole frame at a fixed clock) is truncated. A per-frame
-split needs the interval subdivided - build that profiler before trusting any fine-grained claim.
+`--perf` then was only valid at `cycles=max`: `plat_pit_now()`/`plat_ticks_ms()` extended a 16-bit
+8254 snapshot, so any interval over 55 ms (a whole frame at a fixed clock) was truncated - at
+`cycles=30000` it reported 49.5 ms/frame for a frame that took 340 ms. Fixed since; see "`--perf`
+measures the frame it claims to" at the end of this file.
 
 Landed in `20f9098` (all verified): nibble-table planar->chunky, 4.7x cheaper in that loop and
 byte-identical on five screens (it still runs 1.49 times per frame: `LoadView` converts, then
@@ -2016,8 +2017,9 @@ Revised order, highest measured item first:
    pure function of them, and it does not care who wrote the bytes (blitter, shim or translated
    code). Anything that draws into the chunky buffer itself (graphics primitives on the pseudo
    bitmap, the OSD) invalidates the comparison. `--perf` at `cycles=max`: conversion 6.1 -> 1.8 ms.
-   (The `--perf` line "conversion runs N time(s)/frame" is frames/raster, not conversion passes -
-   it never measured the pass count.)
+   (Those figures are emulated milliseconds, `counts / 1193.182`; `--perf` prints real ones now, so
+   the same run reads about half. The "conversion runs N time(s)/frame" column was frames/raster
+   and never measured the pass count; it is labelled `raster(s)` since.)
 2. **The blitter** (9.0 ms; attributed by switching its pixel loop off, 66.0 -> 57.0). Three measured
    attempts: the per-word accessors had been `rt_read16`/`rt_write16` - a call, a mask and a range
    check per word per channel - and are now inline with the same bounds rule (**66.0 -> 65.0 ms**); a
@@ -3271,3 +3273,165 @@ and the other way round; an arrow press leaves `KEY_W` clear; A+D still report b
 Against the pre-change layer the same check fails six cases. Both builds compile
 (`bin\win32\icftd-recomp.exe`, `bin\dos\ICFTD.EXE` - the DOS layer takes the same state machine over
 scan codes 0x11/0x1E/0x1F/0x20).
+
+
+## `--perf` measures the frame it claims to (2026-11-17)
+
+Five things were wrong with the DOS front end's profiler, and all five were silent - the report read
+plausibly either way, which is why the numbers in the section above came from A/B builds with a loop
+switched off instead.
+
+* **The blitter figure was always 0.** `rt_blit_perf` was declared, printed and never incremented.
+  The pixel loop is timed now (`rt_blit_take_clock`, blitter.c), and so is the conversion
+  (display.c), into `rt_machine::perf` - and only when the front end asked, so a played run pays
+  nothing for it.
+* **`plat_pit_now()` lost whole counter wraps.** The 8254 counter is 16 bits and wraps every 65,536
+  counts - 55 ms, shorter than a frame at every clock this port is measured at - so an interval
+  measured as `(last - now) & 0xFFFF` lost several wraps: at `cycles=30000` `--perf` said 49.5
+  ms/frame for a 340 ms frame, and the summary line said "3066 ms by the 8254, 21000 ms by the RTC".
+  The clock extends the counter with the BIOS tick (0040:006C, one increment per terminal count of
+  that same counter) and is monotonic on top: an emulated counter steps backwards when DOSBox
+  re-derives its phase, and time does not run backwards, so such a step is not counted
+  (`pit_clock()`, `plat_dos.c`).
+* **`plat_ticks_ms()` had the same flaw** - `pit_update()` took its modulo difference - and both now
+  run on that one clock, so the frame pacing, the mixer's millisecond clock and the profiler cannot
+  disagree about how long anything took. Measured side effect: the audio ring went from 112 starved
+  frames to 0, the mixer's clock having run slow.
+* **"machine code" was a residual** of three subtotals that overlap - the present copy and the wait
+  for the frame slot both happen *inside* the vblank - so it was not the machine's time at all. The
+  vblank and the machine's run are now measured on either side of the frame hook and add up to the
+  frame; the work inside them (conversion, present copy, blitter, interrupt servers) is reported per
+  frame, wherever it happens, because a `LoadView` converts and presents during the machine's run
+  too, not only at the vblank.
+* **The vblank and CIA servers run on the interpreter**, and their cost was folded into the
+  machine's time unseen. They are timed and counted where they run (`timed_handler`,
+  `oracle_run_icr`), so the report now says how much a frame puts through Musashi: 593 of 5,856
+  instructions at `cycles=max`, a tenth of the frame's emulated instructions - the piece the
+  "handlers through the translated dispatcher" step has to remove.
+
+One thing the clock needs to work: a `pit_clock()` step has to stay inside one 65,536-count period.
+The frame wait does that already (`plat_frame_sync` polls it in its loop), and the long stretch - the
+machine running between two vblanks - was covered by sampling the platform clock from `rt_time_run()`
+once per 100,000 emulated cycles (`EMU_PERF_SAMPLE`). **That is no longer needed**: the clock below
+counts whole periods from the BIOS tick, so a step may be as long as the caller likes, and the
+sampling (a clock read every 100,000 emulated cycles, on the hottest path in the runtime) is gone.
+
+`--perf` at `cycles=max`, 300 frames:
+
+    perf: 21.5 ms/frame = 46.42 frame/s; the same 298 frame(s) took 23.5 ms/frame by the RTC
+    perf:   vblank 2.6 ms (12%), of it idle waiting for the slot 1.5; machine run 18.9 ms (88%)
+    perf:   of the frame's work, wherever it happens: conversion 1.0 ms in 1.24 raster(s),
+            present copy 0.1, blitter 0.7, interrupt handlers 0.9 in 0.93 CIA run(s)/frame
+    perf:   5856 instruction(s)/frame, 593 of them in the interrupt handlers, which run on the
+            interpreter
+
+46.42 frame/s against the run summary's 46.1 is the check that the two halves really do add up to
+the frame the game paced (2.6 + 18.9 = 21.5). The headline also carries the same run measured on the
+CMOS clock, because the millisecond scale is the platform's startup calibration and an emulated 8254
+does not tick at one rate: DOSBox fast-forwards an idle polling loop and does not fast-forward our
+C, so a loaded host or a fixed `cycles` moves the scale (at `cycles=30000` this build reports 181.4
+ms/frame where the RTC says 333.3; the machine was the limiter there, and its own clock - what
+`plat_emulated_ms()` divides by 1193 - says 372). The shares are unaffected by the scale and are
+exact, which is what the split is for; the wall clock in `tools\perf-dos.ps1` stays the absolute
+figure.
+
+Not fixed by any of this: the handlers still run on Musashi (now measured instead of hidden), and the
+machine's run is still one interval - nothing inside `rc_call` is attributed.
+
+
+## The profile clock is mode-aware now (2026-11-17, later the same day)
+
+A review of the code above found four more things wrong with it, and the target confirmed all of
+them. The heart of it: the 8254 runs channel 0 in **mode 3**, and the clock treated the counter as a
+linear countdown.
+
+What the target actually presents (measured with a 16-bit probe under `tools\dos-run.ps1`'s DOSBox,
+then confirmed by `plat_clock_report` in the game's own report): the counter reads are **always
+even** - it steps by two per input clock - and it **reloads every half period**, so the value ramps
+0, 2, 4 ... 65534 and starts over every 32,768 input clocks, twice per BIOS tick. The value alone
+therefore does not say which half of the period it is in. The **read-back command** (`0xC2` to port
+0x43, then status + LSB + MSB from 0x40) returns a status byte whose mode field is 3 and whose OUT
+bit is high for the half the tick opens and low for the second half - that bit is the missing
+information, and it is why the clock now samples status and count **with one command**.
+
+Measured consequence of the old code: with the counter stepping by two, `65536 - counter` advances
+two counts per clock inside a half, so frequent sampling (the frame wait's own polling loop) counted
+**twice** the time endpoint-only sampling did over the same interval - a 2x error that depended on
+how often the caller looked, and startup calibration could not remove it because it scales both.
+
+What changed:
+
+* `src\runtime\plat\dos\pitclock.h` (new, header-only, no platform calls) is the algorithm. One step
+  is `65536*(tick-lastTick) + 32768*(half-lastHalf) + (phase-lastPhase)` in input clocks, which
+  telescopes, so a sparse sampler and a frequent one measure the same interval exactly. A snapshot
+  whose BIOS tick moved across the latch is retried; a sample that steps backwards is retried and
+  then **dropped without moving the marks** (the next good sample covers the interval); the BIOS's
+  midnight reset (0x1800B0 ticks) is added back; and a counter that is past a period boundary while
+  the BIOS handler has not counted it yet is recognised from the half bit, counted once, and the
+  tick marked as consumed so its later increment is not counted again. Headers are counted in input
+  clocks throughout, so `plat_emulated_ms()` (counts / 1193) is emulated milliseconds again - it was
+  reading 2x high for the same reason.
+* `plat_dos.c` establishes the mode at startup (`clock_setup`, two to four BIOS ticks) from the
+  status byte plus a watch that checks the counter wraps twice per tick and OUT changes level at
+  each wrap. If the chip answers no read-back, or does not behave like mode 3, the clock keeps the
+  old linear reading and the report says so - it never pretends to know the half. The RTC reads used
+  for calibration and for the report now include hours (the old minute*60+second wrapped hourly) and
+  are repeated if the seconds register moved under them.
+* **Both execution paths go through one frame boundary.** `frame_vblank()` (`dos_main.c`) runs the
+  port's per-frame seams and `oracle_tick`; the translated wrapper scatters/gathers around it, and
+  the interpreter calls it directly - so a frame that ran interpreted is measured exactly once and
+  never gets the stale translated mirror scattered over the core. Before, the interpreter's two
+  `oracle_tick` calls bypassed the hook entirely.
+* **One measurement window.** `perf_open()` notes every counter at one frame boundary; a frame is
+  committed only when its vblank *and* the machine's run after it have both been measured, so
+  vblank + machine run = the frames counted, and conversion/blitter/copy/handler sums cover exactly
+  those frames. The endpoint is taken at the last complete frame boundary, before `rt_shutdown` and
+  before any message is printed. `--perfafter <frame>` opens the window late, which is how a settled
+  hospital scene is measured without the startup, the loads and the menus. The report also carries
+  the counts that make the shares readable - presentation calls and actual conversions (a present
+  often re-shows an unchanged picture, `conv_same`), screen copies, blitter rows, handler runs - and
+  labels the exclusive timings apart from the inclusive handler ones.
+
+`--perf` at `cycles=max`, 60 frames, the fast host (a 3D game holding a core made the same run take
+1.5 minutes in other attempts):
+
+    perf: window: frames 0..61, 61 complete; clock 1193168 counts/s (1.00 x 1.193182 MHz)
+    perf: clock: 8254 mode 3 (half periods, read-back OUT); 21376 samples in the window, 0 without a
+          consistent tick, 3 rejected, 0 pending rollover(s)
+    perf: 26.9 ms/frame = 37.22 frame/s
+    perf:   vblank 2.6 ms (10%), of it idle waiting for the slot 1.6; machine run 24.3 ms (90%)
+    perf:   exclusive: conversion 0.5 ms over 0.02 raster(s)/frame, blitter 0.1 ms over 14
+          row(s)/frame, screen copy 0.1 ms over 0.77 copy(ies)/frame
+    perf:   interrupt servers (inclusive, on the interpreter): vblank 0.4 ms, CIA 0.2 ms in 0.92
+          run(s)/frame
+    perf:   presentation calls 0.77/frame, 11004 instruction(s)/frame, 303 of them in the interrupt
+          handlers
+
+26.9 = 2.6 + 24.3, and 37.22 frame/s against the run summary's 35.6 (the summary includes the
+startup frames the window does not) are the checks that the halves and the window agree. The "8254
+ms" line in the run summary now reads 1.74 s against the RTC's 1.00 s for the same run: the emulated
+machine runs faster than real time at `cycles=max`, which is what the calibration factor is for - the
+two clocks no longer disagree about the *shape* of the run, only about its scale.
+
+**Validation actually run.** `tools\pit-clock-check.ps1` (new gate step 21, `-Only profiler`)
+compiles `pitclock.h` into a host console program and drives it from a simulated machine: 143 checks
+- 100/500/1000 ms intervals started on and around both timer boundaries, sampled every 1 to 2^31
+clocks (identical results to the last clock); modes 2 and 3, both OUT polarities; a snapshot whose
+tick raced the latch (retried), a counter reading from the wrong phase (refused, then the interval
+covered by the next good sample), a BIOS handler 0-2000 clocks late, a midnight reset, and 60
+simulated seconds of irregular 1..200,000-clock steps against the exact clock. On the target the
+report above is the run: mode 3 established, 0 lost samples, 3 rejected-and-retried, and the total
+matching the CMOS clock over the window.
+
+**What is still approximate, and the overhead.** The blitter's pixel loop is timed with two clock
+reads per row (`rt_blit_take_clock`), as before; each read is one `outp` + three `inp`, measured at
+~4.6 8254 counts (~4 us of emulated time) on the target, against 14 rows/frame in the intro - that is
+why `--perf` is opt-in and `rt_machine::perfOn` gates every site. A same-build A/B (three interleaved
+`--perf` / no-`--perf` pairs, 20 frames each) showed no systematic penalty, but the host was carrying
+a 3D game throughout the session, so the run-to-run spread (6.8 s to 26.9 s for the same run) made a
+percentage figure meaningless; treat the overhead as "small next to a 27 ms frame, not measured to a
+number on this host". If it ever shows up, the cheapest next step is a latch-only timestamp for the
+row (the half bit is not needed for a segment shorter than 27 ms), which halves the port I/O. Other
+limits: a chip without read-back keeps the linear reading (reported as mode 0), a BIOS tick that
+stops being counted falls back to one period per observed half boundary, and the machine's run is
+still one interval - nothing inside `rc_call` is attributed.

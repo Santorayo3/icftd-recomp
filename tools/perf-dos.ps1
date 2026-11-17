@@ -10,9 +10,12 @@
 #     66000 = ~66M/s = a 486DX2-66 and 100000 = a 486DX4-100 (30000 would be a 30M/s machine).
 #   * At a fixed clock the emulated machine is the limiter (verified: 100000 halves to 200000), so
 #     wall time per frame IS the modelled machine's time. No cycle table is needed or wanted.
-#   * The in-game 8254 helpers (plat_pit_now/plat_ticks_ms) extend a 16-bit counter snapshot and
-#     truncate anything longer than 65,536 counts (55 ms) - a frame at these clocks is longer, so
-#     they must not be used for frame-scale numbers.
+#   * --perf measures inside the program and is the tool for the split (conversion, blitter,
+#     present, the interpreter's interrupt servers, the machine's run), not for this number: the
+#     rate of the emulated 8254 depends on what the guest is doing (DOSBox fast-forwards an idle
+#     polling loop), so its milliseconds are only comparable within one run. The wall clock here is
+#     the absolute figure; run --perf with the same -Cycles setting to attribute it, and add
+#     `--perfafter <frame>` to measure a settled scene instead of the startup and the menus.
 #
 # Two frame counts per clock, differenced, so the ~35M-instruction startup drops out.
 param(

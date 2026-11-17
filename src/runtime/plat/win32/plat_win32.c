@@ -378,6 +378,17 @@ u32 plat_pit_now(void)
     return 0;
 }
 
+u32 plat_pit_per_second(void)
+{
+    return 0;
+}
+
+/* No 8254 here: the counter is a DOS measurement aid. */
+void plat_clock_report(plat_clock_info *info)
+{
+    memset(info, 0, sizeof *info);
+}
+
 /* The windowed build has a video mode to choose, so its ini carries it. */
 const char *plat_default_ini(void)
 {

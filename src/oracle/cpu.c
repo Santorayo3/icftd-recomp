@@ -13,6 +13,7 @@
 #include "display.h"
 #include "m68k.h"
 #include "input.h"
+#include "platform.h"
 #include "state.h"
 
 #include <stdio.h>
@@ -346,6 +347,23 @@ static int oracle_run_handler(rt_machine *m, u32 code, u32 data)
 }
 
 
+/* --perf: one interrupt server, timed into `counts`/`insns`. The vblank servers and the music
+ * tick run on this core in both front ends, and a frame's cost has to show them as the
+ * interpreter work they are instead of folding them into the translated stream's share. */
+static int timed_handler(rt_machine *m, u32 code, u32 data, u32 *counts, long *insns)
+{
+    u32 t0 = m->perfOn ? plat_pit_now() : 0;
+    long i0 = m->insns;
+    int ok = oracle_run_handler(m, code, data);
+
+    if (m->perfOn)
+    {
+        *counts += plat_pit_now() - t0;
+        *insns += m->insns - i0;
+    }
+    return ok;
+}
+
 /* One ICR handler (the engine's CIA timer interrupt, e.g. the music driver at FUN_0000f264): it
  * runs between two instructions of the main program and must leave the register file exactly as
  * it found it. Used as rt_machine::on_cia by both front ends. */
@@ -354,7 +372,8 @@ void oracle_run_icr(rt_machine *m, u32 code, u32 data)
     u32 save[18];
 
     oracle_save_regs(save);
-    if (!oracle_run_handler(m, code, data))
+    if (m->perfOn) m->perf.ciaRuns++;
+    if (!timed_handler(m, code, data, &m->perf.cia, &m->perf.ciaInsns))
         printf("emu: ICR handler %06lx failed at frame %lu\n",
                (unsigned long)code, (unsigned long)m->frame);
     oracle_restore_regs(save);
@@ -403,7 +422,7 @@ void oracle_tick(rt_machine *m)
         /* The vblank is interrupt level 3: count the times the 68000's mask (SR bits 8-10) would
          * have held it off, so the masking rule can be decided on a number. */
         if (((m68k_get_reg(0, M68K_REG_SR) >> 8) & 7u) >= 3u) m->irqDeferredVb++;
-        if (!oracle_run_handler(m, code, m->intData[i])) break;
+        if (!timed_handler(m, code, m->intData[i], &m->perf.vblank, &m->perf.vblankInsns)) break;
         oracle_restore_regs(save);        /* handlers nest in order, each sees the same state */
     }
     oracle_restore_regs(save);

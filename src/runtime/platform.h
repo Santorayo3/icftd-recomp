@@ -208,8 +208,30 @@ void plat_message(const char *title, const char *text);
  * the machine state of the last frame that started. */
 void plat_crash_state(const char *text);
 
-/* A free-running counter for measuring where a frame's emulated time goes (the 8254 clock on
- * DOS, 0 elsewhere). Monotonic, wraps at 2^32. */
+/* A free-running counter for measuring where a frame's time goes (the 8254 clock on DOS, 0
+ * elsewhere). Monotonic, wraps at 2^32; deltas of two samples are exact however far apart they
+ * are, so a segment longer than a frame's worth of counts is measured as it is, and a sparse
+ * sampler measures the same interval as a frequent one. */
 u32  plat_pit_now(void);
+
+/* Counts of that counter per second - the factor that turns a segment into the milliseconds
+ * plat_ticks_ms reports. 0 where plat_pit_now is 0. */
+u32  plat_pit_per_second(void);
+
+/* What the platform's clock established about its timebase, for a --perf header. On DOS this is the
+ * 8254's own mode (3 = the counter steps by two and reloads every half period, 2 = one wrap per
+ * BIOS tick, 0 = the chip's read-back is unavailable and the clock ran on the linear fallback), and
+ * the sample counts that say how clean the readings were. */
+typedef struct plat_clock_info
+{
+    u32 mode;                             /* timer mode the clock uses: 2, 3, or 0 for linear */
+    u32 readBack;                         /* 1: status and count were latched together          */
+    u32 samples;                          /* samples adopted                                    */
+    u32 snapFails;                        /* samples lost: no consistent snapshot               */
+    u32 rejects;                          /* samples lost: the counter read stepped backwards   */
+    u32 pending;                          /* period boundaries the BIOS tick had not counted yet */
+} plat_clock_info;
+
+void plat_clock_report(plat_clock_info *info);
 
 #endif /* ICFTD_PLATFORM_H */

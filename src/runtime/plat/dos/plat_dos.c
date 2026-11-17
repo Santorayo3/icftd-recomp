@@ -30,8 +30,8 @@
 
 #include "types.h"
 #include "platform.h"
+#include "pitclock.h"
 
-#define PIT_HZ      1193182u        /* 8254 input clock */
 #define VGA_MEMORY  0xA0000L        /* mode 13h framebuffer, linear in the DOS extender's map */
 #define PIC_MASTER  0x21            /* interrupt mask register, bit 1 = IRQ1 (keyboard) */
 #define KBC_STATUS  0x64
@@ -51,7 +51,7 @@ static int  g_palUp;                        /* g_pal differs from what was hande
 static int  g_videoMode = 3;                /* mode to restore on shutdown */
 
 static u32  g_period = 23863;               /* PIT counts per frame: 1193182 / 50 */
-static u32  g_lastPit;
+static u32  g_lastPit;                      /* pit_clock_read() at the last pit_update() */
 static u32  g_pitAcc;                       /* counts since the last frame boundary */
 static u32  g_ms, g_msFrac;                 /* plat_ticks_ms accumulator */
 static u32  g_frameHz = 50;
@@ -79,14 +79,149 @@ static char g_exeDir[144] = ".";
 
 /* --- 8254 frame clock -------------------------------------------------------------------- */
 
-static u32 pit_counter(void)
+/* The BIOS's own tick count (0040:006C): one increment per output period of channel 0, i.e. one per
+ * 65,536 input clocks. One 32-bit load reads it whole, which is exact because the BIOS handler
+ * increments it in one instruction too. */
+static u32 bios_tick(void)
 {
-    u32 v;
+    return *(volatile u32 *)0x46Cu;
+}
 
-    outp(0x43, 0x00);                       /* latch channel 0, no effect on the count */
-    v = (u32)inp(0x40);
-    v |= ((u32)inp(0x40)) << 8;
-    return v;
+static int g_pitReadBack = 1;               /* the read-back status/count command answers */
+static pit_clock g_pitClock;
+static int g_pitMode;                       /* 2 or 3 as established, 0 for the linear fallback */
+
+/* One latched reading of channel 0, with the tick on either side of the latch.
+ *
+ * Status and count come from ONE read-back command, so they describe the same instant: the counter's
+ * own value does not say which half of a mode-3 period it is in (see pitclock.h), and reading the
+ * two separately could pair one half with the other's tick. The tick is read before and after the
+ * latch command; one that moved in between makes the pair inconsistent and the caller retries.
+ *
+ * Without read-back the latch is the plain command-0 one and the status stays 0, which pitclock.h
+ * reads as "no OUT bit" and turns into the linear fallback. */
+static int pit_read_snapshot(void *ctx, pit_snapshot *s)
+{
+    u32 t1, t2;
+    u16 c;
+
+    (void)ctx;
+    t1 = bios_tick();
+    if (g_pitReadBack)
+    {
+        outp(0x43, 0xC2);                   /* read-back: latch channel 0's status and count */
+        t2 = bios_tick();
+        s->status = (u8)inp(0x40);
+        c = (u16)inp(0x40);
+        c = (u16)(c | (u16)((u16)inp(0x40) << 8));
+    }
+    else
+    {
+        outp(0x43, 0x00);                   /* plain latch, no effect on the count */
+        t2 = bios_tick();
+        c = (u16)inp(0x40);
+        c = (u16)(c | (u16)((u16)inp(0x40) << 8));
+        s->status = 0;
+    }
+    if (t1 != t2) return 0;
+    s->tick = t1;
+    s->counter = c;
+    return 1;
+}
+
+/* Which mode channel 0 runs in, and which OUT level opens a period: established once, from the
+ * read-back status byte and from watching three BIOS ticks.
+ *
+ * The status byte names the mode; the watch confirms it. A mode-3 counter must wrap twice per tick
+ * (two half periods) and OUT must change level at each wrap, with the level after the tick change
+ * the same every period - that is what makes the counter value unambiguous. A mode-2 counter wraps
+ * once per tick. If the byte does not look like a status, or a mode-3 counter does not behave like
+ * one, the clock keeps the linear reading instead of inventing halves; g_pitMode then says so and
+ * the --perf header reports it. */
+static void clock_setup(void)
+{
+    pit_snapshot s;
+    pit_clock watch;
+    u32 spins;
+    int seen = 0, mode = -1;
+    int havePrev = 0, changes = 0, wraps = 0, flips = 0, badBoundary = 0, badOut = 0;
+    int outAfter = -1;
+    u32 prevTick = 0, prevPhase = 0;
+    int prevOut = 0;
+
+    g_pitReadBack = 1;
+    for (spins = 0; spins < 64u && !seen; spins++)
+    {
+        if (!pit_read_snapshot(0, &s)) continue;
+        mode = pit_status_mode(s.status);
+        seen = 1;
+    }
+    if (!seen || mode < 0)
+    {
+        g_pitReadBack = 0;
+        g_pitMode = 0;
+        pit_clock_begin(&g_pitClock, 0, 0);
+        return;
+    }
+
+    pit_clock_begin(&watch, mode == 3, 1);
+    for (spins = 0; spins < 8000000u && changes < 4; spins++)
+    {
+        u32 phase;
+        int out;
+
+        if (!pit_read_snapshot(0, &s)) continue;
+        out = (int)(((u32)s.status >> 7) & 1u);
+        phase = pit_phase(&watch, s.counter);
+        if (!havePrev)
+        {
+            havePrev = 1;
+            prevTick = s.tick;
+            prevPhase = phase;
+            prevOut = out;
+            continue;
+        }
+        if (out != prevOut) flips++;
+        if (phase < prevPhase) wraps++;
+        if (s.tick != prevTick)
+        {
+            changes++;
+            /* The tick must count a full period, i.e. the BIOS handler must run near the counter's
+             * reload - if it ran half a period later the two would not describe the same period at
+             * all. A few thousand clocks of handler latency is normal; a quarter period is not. */
+            if (changes > 1 && phase > PIT_HALF / 4u) badBoundary++;
+            if (changes > 1 && outAfter >= 0 && out != outAfter) badOut++;
+            outAfter = out;
+            prevTick = s.tick;
+        }
+        prevPhase = phase;
+        prevOut = out;
+    }
+    (void)prevOut;
+
+    if (mode == 3 && changes >= 4 && badOut == 0 && badBoundary == 0 && outAfter >= 0 &&
+        wraps >= 2 * (changes - 2) && flips + 2 >= wraps && wraps + 2 >= flips)
+    {
+        g_pitMode = 3;
+        pit_clock_begin(&g_pitClock, 1, outAfter);
+    }
+    else if (mode == 2 && changes >= 2)
+    {
+        g_pitMode = 2;
+        pit_clock_begin(&g_pitClock, 0, 0);
+    }
+    else
+    {
+        g_pitMode = 0;
+        pit_clock_begin(&g_pitClock, 0, 0);
+    }
+}
+
+/* Counts of channel 0 since plat_init(), monotonic and past the counter's 16 bits. The arithmetic
+ * and what it refuses are in pitclock.h; here the clock is just the port's snapshot reader. */
+static u32 pit_clock_read(void)
+{
+    return pit_clock_sample(&g_pitClock, pit_read_snapshot, 0);
 }
 
 /* Counts per real second, and the amplification the emulator introduces in between.
@@ -97,69 +232,117 @@ static u32 pit_counter(void)
  * second, so the game and its music run at double tempo while the Sound Blaster, the one device on
  * real time, is overrun (that overrun is the crackle). The CMOS clock cannot be stretched, so it is
  * the reference: one second of it is measured once at startup and both the frame wait and the
- * mixer's millisecond clock follow real time from then on - which is what they do on hardware. */
-static u32 g_ticksPerSec = PIT_HZ;
-static u32 g_pitCounts;                 /* raw counts, i.e. emulated time */
+ * mixer's millisecond clock follow real time from then on - which is what they do on hardware.
+ *
+ * The count is in input clocks, the unit pitclock.h produces regardless of the timer mode, so
+ * g_pitCounts / 1193 really is milliseconds of emulated machine time. */
+static u32 g_ticksPerSec = PIT_INPUT_HZ;
+static u32 g_pitCounts;                 /* input clocks, i.e. emulated time */
 
-/* Counts since the previous call (the counter counts down and wraps at 65536). */
+/* Counts since the previous call. On the monotonic clock, so a gap longer than one 16-bit wrap is
+ * still counted whole: between two vblanks a frame does more than 55 ms of this machine's time, and
+ * the modulo difference this replaced threw those wraps away. */
 static void pit_update(void)
 {
-    u32 now = pit_counter();
-    u32 d = (g_lastPit - now) & 0xFFFFu;
-    u32 ms;
+    u32 now = pit_clock_read();
+    u32 d = now - g_lastPit;
 
     g_lastPit = now;
     g_pitAcc += d;
     g_pitCounts += d;
-    /* Whole milliseconds, with the remainder carried. */
-    ms = g_msFrac + d * 1000u;
-    g_ms += ms / g_ticksPerSec;
-    g_msFrac = ms % g_ticksPerSec;
+    /* Whole milliseconds, with the remainder carried. In chunks, because a load can be seconds long
+     * and d * 1000 would leave 32 bits. */
+    while (d != 0)
+    {
+        u32 chunk = d > 1000000u ? 1000000u : d;
+        u32 ms;
+        d -= chunk;
+        ms = g_msFrac + chunk * 1000u;
+        g_ms += ms / g_ticksPerSec;
+        g_msFrac = ms % g_ticksPerSec;
+    }
+}
+
+/* The CMOS clock's time of day, in seconds. Hours are included (the old minute*60+second wrapped
+ * once an hour) and the read is repeated if the seconds register moved under it, so a minute
+ * boundary inside the read does not pair one minute with the next one's seconds. */
+static u32 rtc_field(u32 reg)
+{
+    outp(0x70, (unsigned)reg);
+    return (u32)inp(0x71) & 0xFFu;
+}
+
+static u32 rtc_units(u32 v, u32 b)
+{
+    if ((b & 0x04u) != 0)                  /* register B bit 2: binary units, not BCD */
+        return v;
+    return ((v >> 4) & 0xFu) * 10u + (v & 0xFu);
 }
 
 static u32 rtc_secs(void)
 {
-    u8 s, m, b;
+    u32 s = 0, m = 0, h = 0, b = 0, s2, tries, tod;
 
-    outp(0x70, 0x00); s = (u8)inp(0x71);
-    outp(0x70, 0x02); m = (u8)inp(0x71);
-    outp(0x70, 0x0B); b = (u8)inp(0x71);
-    if ((b & 0x04u) != 0)                  /* register B bit 2: binary units, not BCD */
-        return (u32)m * 60u + (u32)s;
-    return (u32)((m >> 4) & 0xFu) * 600u + (u32)(m & 0xFu) * 60u +
-           (u32)((s >> 4) & 0xFu) * 10u + (u32)(s & 0xFu);
+    for (tries = 0; tries < 8u; tries++)
+    {
+        s = rtc_field(0x00);
+        m = rtc_field(0x02);
+        h = rtc_field(0x04);
+        b = rtc_field(0x0B);
+        s2 = rtc_field(0x00);
+        if (s == s2) break;
+    }
+    tod = rtc_units(h, b) * 3600u + rtc_units(m, b) * 60u + rtc_units(s, b);
+    return tod < 86400u ? tod : 0;          /* a broken RTC reads as units out of range */
 }
 
 static u32 g_rtc0;
 
+/* One second of the CMOS clock against the 8254: how many counts its clock runs per real second.
+ * Both ends are pit_clock_read() readings, so the count is in input clocks whatever the timer mode. */
 static void clock_calibrate(void)
 {
-    u32 t0, prev, now, total = 0;
+    u32 t0, prev, now;
 
     t0 = rtc_secs();
     while (rtc_secs() == t0) { }           /* align to the RTC's own second boundary */
     t0 = rtc_secs();
-    prev = pit_counter();
+    prev = pit_clock_read();
     for (;;)
     {
-        now = pit_counter();
-        total += (prev - now) & 0xFFFFu;
-        prev = now;
+        now = pit_clock_read();
         if (rtc_secs() != t0) break;
     }
-    if (total > 100000u) g_ticksPerSec = total;   /* anything less is a broken RTC: keep the nominal */
+    if ((u32)(now - prev) > 100000u)       /* anything less is a broken RTC: keep the nominal */
+        g_ticksPerSec = now - prev;
 }
 
 u32 plat_rtc_elapsed_ms(void)
 {
-    return (rtc_secs() - g_rtc0) * 1000u;
+    u32 now = rtc_secs();
+
+    return ((now + 86400u - g_rtc0) % 86400u) * 1000u;   /* the wall clock can pass midnight */
 }
 
-/* Machine time as the 8254 counted it: 1,193,182 counts per emulated second, whatever the host
- * does. Multiply by the DOSBox cycle setting to get the host instructions a run consumed. */
+/* Machine time as the 8254 counted it: 1,193,182 input clocks per emulated second, whatever the
+ * host does. Multiply by the DOSBox cycle setting to get the host instructions a run consumed. */
 u32 plat_emulated_ms(void)
 {
     return g_pitCounts / 1193u;
+}
+
+/* What the clock established about the timer, for the --perf header: the mode the counter runs in
+ * (2, 3, or 0 when the read-back command is not available and the linear reading is all there is),
+ * and how many samples had to be retried or were lost. A lost sample costs nothing - the next good
+ * one measures the whole interval - but a non-zero count says the readings were not all clean. */
+void plat_clock_report(plat_clock_info *info)
+{
+    info->mode = (u32)g_pitMode;
+    info->readBack = (u32)g_pitReadBack;
+    info->samples = g_pitClock.samples;
+    info->snapFails = g_pitClock.snapFails;
+    info->rejects = g_pitClock.rejects;
+    info->pending = g_pitClock.pending;
 }
 
 /* --- keyboard ------------------------------------------------------------------------------ */
@@ -318,11 +501,13 @@ u32 plat_init(const char *title)
      * fills in all 256 entries - otherwise every entry that asks for black is skipped and the
      * picture keeps the BIOS colour (the logo's background box stayed grey). */
     memset(g_dac, 0xFF, sizeof g_dac);
-    g_lastPit = pit_counter();
     g_pitAcc = 0;
     g_ms = 0;
     g_msFrac = 0;
+    clock_setup();                          /* which mode channel 0 runs in, and its halves */
     clock_calibrate();
+    /* The clocks start after the calibration second, and pit_clock_read() takes its first sample. */
+    g_lastPit = pit_clock_read();
     g_rtc0 = rtc_secs();
     mouse_init();
     return 1;
@@ -1386,17 +1571,20 @@ u32 plat_ticks_ms(void)
     return g_ms;
 }
 
-/* Monotonic 32-bit count on the same 8254 counter, for the front end's --perf breakdown. */
-static u32 g_perfLast;
-static u32 g_perfTotal;
-
+/* The same monotonic clock pit_update() accumulates from, handed to the front end's --perf
+ * breakdown; a call here keeps the clock current for the accumulators too. A sample never moves the
+ * clock backwards: a reading that would is retried and then dropped, and the next one measures the
+ * whole interval (pitclock.h). */
 u32 plat_pit_now(void)
 {
-    u32 now = pit_counter();
+    return pit_clock_read();
+}
 
-    g_perfTotal += (g_perfLast - now) & 0xFFFFu;
-    g_perfLast = now;
-    return g_perfTotal;
+/* Input clocks per real second (the CMOS-clock calibration), the factor that turns a --perf segment
+ * into the milliseconds plat_ticks_ms reports. */
+u32 plat_pit_per_second(void)
+{
+    return g_ticksPerSec;
 }
 
 /* --- files ---------------------------------------------------------------------------------
