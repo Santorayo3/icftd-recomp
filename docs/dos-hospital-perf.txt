@@ -1,0 +1,267 @@
+================================================================================
+ It Came from the Desert - MS-DOS build
+ Performance report: the hospital escape scene at 100,000 cycles
+================================================================================
+
+ Measured 2026-11-17 on this machine, working tree at ff6feaf ("Caching"),
+ ICFTD.EXE built 12:23 (all sources older than the binary).
+ Every figure below is a measurement; the per-routine split in section 5 is
+ derived from a trace and says so.
+
+--------------------------------------------------------------------------------
+ 1. Setup
+--------------------------------------------------------------------------------
+
+Build      bin\dos\ICFTD.EXE (DOS/32A, Open Watcom, -4s -ox), the same runtime
+           and translated image as the Windows build, DOS platform layer.
+Machine    DOSBox, memsize=16, core=dynamic, cycles=100000, sbtype=sb16,
+           mixer rate 44100, output=surface.
+           DOSBox's `cycles` is "instruction-equivalents per emulated
+           millisecond", so 100,000 = a 100 MHz-class 486 (DX4-100).
+Game data  the release's own extracted tree (DISK1..3 + DSHELL.IMG),
+           ICFTD.INI with [AUDIO] sound=1, music=1 (the volume DOS runs are made
+           at), i.e. the shipping configuration.
+Scene      "Escape Hospital" (FUN_0001819a), entered the way
+           tools\camera-check.ps1 enters it:
+
+               ICFTD.EXE --disks Y:\disks --call 0x1C19A:100
+                        --input Y:\out\HOSPWALK.TXT
+                        --perf --perfafter 500 --frames 700
+
+           the scripted walk: fire at frame 420, hold right / down / left / up,
+           stand still from frame 1700. The measurement window opens at frame
+           500 (the scene has loaded and is walking) and covers the complete
+           frames 500..699 - 199 frames.
+Clock      two independent clocks: the emulated 8254 (`--perf` divides its
+           counts by a calibrated counts-per-second) and the emulated CMOS RTC.
+
+--------------------------------------------------------------------------------
+ 2. Headline
+--------------------------------------------------------------------------------
+
+     100.0 ms/frame      = 10.0 frames/s
+     the same frames     100.5 ms/frame by the CMOS clock   (agrees within 0.5%)
+
+     141,875 68000 cycles per frame = one PAL frame = 20.0 ms on the Amiga
+     we need 100 ms for it  ->  5x slower than the machine the game was written
+     for, i.e. 10 picture updates/s instead of 50/s.
+
+ The emulated machine, not the host PC, is the limiter: at a fixed clock the
+ wall time per frame equals the modelled machine's time (verified by
+ tools\perf-dos.ps1 differencing two frame counts, and by the two clocks above
+ agreeing). The whole 700-frame run took 63.1 s of wall clock.
+
+--------------------------------------------------------------------------------
+ 3. The frame budget
+--------------------------------------------------------------------------------
+
+The machine charges every translated instruction through the 68000 bus/slot
+model, and one frame is exactly 141,875 charged cycles (312.5 PAL lines of 454
+cycles). The trace below confirms the guest consumes the whole budget every
+frame: every frame in the window charges 141,418..141,874 cycles (mean
+141,812), the shortfall being the one instruction that straddles the boundary.
+
+What that budget is spent on, by the guest's own accounting:
+
+    frame-sync poll loop (0x18222)      17,152 cycles   12.1 %
+    everything else                    124,723 cycles   87.9 %
+
+The poll absorbs whatever is left after the real work, so it is a residual, not
+an independent cost - but the DOS build pays for emulating it (see 5. below).
+
+--------------------------------------------------------------------------------
+ 4. Where the frame goes - measured blocks
+--------------------------------------------------------------------------------
+
+Nesting, as `--perf` reports it (the two halves add up to the frame; the
+"exclusive" blocks are inside one of them and must not be added to each other):
+
+    frame                                        100.0 ms   100 %
+    |
+    +-- vblank (the port seam, before the run)     8.2 ms     8 %
+    |     conversion (planar -> chunky)            4.9 ms    (0.21 rasters/frame)
+    |     vblank interrupt server (interpreter)    2.3 ms
+    |     screen copy to the mode 13h buffer       0.4 ms    (1.01 copies/frame)
+    |     seam remainder                           ~0.6 ms
+    |
+    +-- machine run                               91.8 ms    92 %
+          blitter pixel work                      16.8 ms    (1,478 rows/frame)
+          CIA interrupt server (music driver)      3.1 ms    (0.93 runs/frame)
+          guest instruction execution + the
+          runtime's per-instruction bookkeeping   ~69.1 ms    (8,877 translated
+                                                               instructions/frame)
+          Paula mixer + Sound Blaster ring         ~2.8 ms    (no-audio A/B)
+          ----------------------------------------------------------------
+          sum                                     91.8 ms
+
+The audio figure is the only one not printed by `--perf`: the same run with
+`--noaudio` reads 97.2 ms/frame (CMOS 95.5) against 100.0 (CMOS 100.5), and a
+machine run of 89.0 ms against 91.8, i.e. the mixer and the card path cost
+2.8 ms/frame (up to 5 ms by the CMOS clock). The instruction counts are
+identical with and without audio (7,748,472), so the music driver's own work is
+charged to the CIA server either way.
+
+Instructions: 9,578/frame in the window, 8,863 of them translated code (the
+trace) and ~715 on the interpreter (701 in the two interrupt servers).
+
+--------------------------------------------------------------------------------
+ 5. Where the CPU work goes - per routine
+--------------------------------------------------------------------------------
+
+Method. `ICFTD.EXE ... --tracewin 5800000,7748472` writes one line per
+instruction ("t <insns> <budget> <pc>"); the budget delta is the cost the
+instruction was charged, and the pc maps onto the translated functions in
+src\recomp\fn_table.c. The trace covers frames ~495..699 (1,805,451
+instructions, 205 frames) and its instruction total is identical to the
+--perf run (7,748,472 instructions at 700 frames), so tracing did not perturb
+the emulated program.
+
+Two quantities per routine:
+
+  cycles/frame  what the machine charged it (deterministic, the guest's own
+                cost model; 141,875 = 100% of the frame)
+  insns/frame   how much translated code the emulator had to execute for it
+
+The absolute split uses instructions, because at a fixed DOSBox clock the wall
+time follows the guest x86 instruction count, and every translated instruction
+pays the same fixed runtime overhead (rc_step: the frame budget, the slot walk,
+the time slice). The rate is calibrated on the measured remainder:
+69.1 ms / 8,877 instructions = 7.8 us per instruction. Cross-check: the 701
+interrupt-server instructions/frame come out at 5.45 ms against the 5.4 ms
+`--perf` measures for them (within 1.3%), so the model reproduces a block it
+does not know about.
+
+ routine                      what it is                        insns/fr  cycl/fr   ms/fr
+ ---------------------------------------------------------------------------------------
+ fn_0001819a  0x18222 poll    scene pass: sets the flag at      1,612    20,170    12.6*
+                             0x28CE0 (0x1821C) and polls it
+                             until an asynchronous server
+                             clears it; one pass every 4 frames
+ fn_0001a1bc  object pass     walks the scene's object tables,    1,292    18,722    10.1
+                             tests each object's box against the
+                             player, then two sprite/bitmap vector
+                             calls
+ fn_0001aa04  pixel probe     "is pixel (x,y) solid?": reads 5   1,244    17,056     9.7
+                             planes, builds a 5-bit value, tests
+                             it against the caller's mask
+                             (~36 instructions/call, ~35 calls/frame)
+ fn_00011512  world renderer  programs the blitter per 16x10     1,170    38,224     9.1
+                             tile: BLTCON/BLTDPT/BLTSIZE per tile,
+                             walks the map's column tables
+ fn_00019006  scene pass      per-pass world update: object/     1,090    12,877     8.5
+                             tile coordinates / 0x30, / 0x28
+ fn_00019e9c  actor draw      copies the 12 actor entries, sorts   945    13,642     7.4
+                             them by y, draws them
+ fn_0001a6fa  collision      8 pixel probes (fn_0001aa04) per     664     9,281     5.2
+              probe          call
+ fn_0001a7be  collision      4 pixel probes per call              271     3,778     2.1
+              probe
+ fn_000189aa  scene update   actor movement; ends by writing      160     2,209     1.2
+                             the scroll request 0x297F2
+ fn_00011208  picture blit   copies a picture window into a bitmap 131     2,182     1.0
+                             with the blitter (BLTAMOD = -1, i.e.
+                             one word fetched past the row)
+ fn_0001a47c  helper                                              86     1,250     0.7
+ fn_0001a03e  helper                                              80     1,036     0.6
+ everything else (fn_0001887c, fn_00018832, fn_0001075a,         122     1,387     0.9
+ fn_0001ec16, the library shims, ...)
+ ---------------------------------------------------------------------------------------
+ translated code                                            8,863   141,812    69.1
+
+ * upper bound: the poll is three instructions per iteration (tst.w / beq / bra)
+   on a RAM flag. It pays the same per-instruction overhead as any other code
+   but almost no bus charging and no operand work, so its true cost is below
+   the average. Its charged cycles (17,152/frame, 535 iterations) are exact.
+
+Grouped by what the scene is doing during the pass:
+
+    waiting for the pass flag (0x18222)                        12.6 ms   18 %
+    collision: pixel probes and the movement probes around
+      them (1aa04, 1a6fa, 1a7be, 1a47c)                        17.6 ms   25 %
+    object pass against the player (1a1bc)                     10.1 ms   15 %
+    world/tile renderer (11512)                                 9.1 ms   13 %
+    scene world update (19006)                                  8.5 ms   12 %
+    actor draw and sort (19e9c)                                 7.4 ms   11 %
+    scroll update + picture blit (189aa, 11208)                 2.2 ms    3 %
+    everything else                                             1.7 ms    2 %
+
+A pass runs every 4 frames - the per-frame instruction count follows a
+four-frame pattern (≈4.4k / 8.1k / 10.6k / 9.9k) - i.e. the world is updated at
+~12.5 Hz while the display scrolls every vblank in hardware: the engine's own
+design.
+
+--------------------------------------------------------------------------------
+ 6. Reading the numbers
+--------------------------------------------------------------------------------
+
+* The emulator's overhead, not the game's arithmetic, is the biggest single
+  item. 8,877 translated instructions take 69.1 ms - 7.8 us each, of which the
+  instruction itself is a fraction: each one runs rc_step (frame budget check,
+  stop/break checks, the 68000 slot walk that charges its bus words, the Paula
+  and CIA time slice, the pc/insn update) before and after the operation. The
+  earlier measurements in docs\next-session.md put that bookkeeping at 12-14 %
+  of a frame for the bus charge alone and another ~10 % for rc_step's checks,
+  which is why the walker work (no divisions per clock) was worth 1.4x.
+
+* The blitter is the largest piece of real device work: 16.8 ms/frame over
+  1,478 rows - 11.4 us per row of emulated DMA. It is started by the tile
+  renderer (fn_00011512), which is why that routine's 38,224 charged cycles are
+  the highest in the scene even though it only executes 1,170 instructions:
+  the CPU is being charged for the DMA it waits on.
+
+* The conversion only appears at 4.9 ms/frame because of the identity cache:
+  0.21 full conversions/frame, ~23 ms each when one does happen, against
+  20.4 ms/frame measured for every present before it (docs\next-session.md,
+  "A scrolling picture is mostly the same picture"). The 0.7 ms/frame of
+  per-present diffing is inside those 4.9 ms.
+
+* The frame-sync poll is the price of the original's timing: inside one
+  emulated frame the guest does its work and then waits for the flag at
+  0x28CE0, which no code in the loop clears - the release is asynchronous (the
+  same flag has six setters and several clearers across the engine). On an
+  Amiga that wait is free; here it is translated code DOSBox has to execute.
+  It is 12.1 % of the frame budget on average and up to ~58 % of a single
+  frame while the scene waits.
+
+* Audio is cheap on this target: 2.8 ms/frame for Paula mixed at 22,050 Hz
+  (half the Windows build's rate, chosen because the mixer is emulated) plus
+  the Sound Blaster ring. The music driver itself runs on the CIA server and
+  costs 3.1 ms.
+
+* What is left on the table: the frame is 5x the Amiga's, and the split says
+  where the 5x is - ~22 ms of device work (blitter, conversion, copy), ~69 ms
+  of executing (mostly plain) 68000 code through the translated layer, ~8 ms
+  of interrupt servers and audio, ~0.6 ms of the present seam. Anything that
+  shortens the translated code or the per-instruction bookkeeping is worth its
+  share of 69 ms; anything that removes real device work is worth its share of
+  the 22 ms.
+
+--------------------------------------------------------------------------------
+ 7. Reproducing
+--------------------------------------------------------------------------------
+
+  powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1
+  powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1
+
+  # frame cost and split (window 500..699)
+  powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 -Cycles 100000 `
+    -Autoexec 'ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --perf --perfafter 500 --frames 700 > ICFTD.LOG'
+
+  # the same, without audio, for the mixer's share
+  #   add --noaudio to the line above   -> 97.2 / 95.5 ms per frame
+
+  # per-routine cycles (one line per instruction; ~44 MB for the whole window)
+  powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 -Cycles 100000 `
+    -LogName TRACE.LOG -Autoexec 'ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --frames 700 --tracewin 5800000,7748472 > TRACE.LOG'
+
+  # and the absolute figure on the wall clock, independent of --perf:
+  powershell -ExecutionPolicy Bypass -File tools\perf-dos.ps1 -Clocks 100000
+
+ Readouts used above (verbatim, --perf window 500..699, 199 frames):
+
+  perf: 100.0 ms/frame = 10.00 frame/s; the same 199 frame(s) took 100.5 ms/frame by the CMOS clock
+  perf:   vblank 8.2 ms (8%), of it idle waiting for the slot 0.0; machine run 91.8 ms (92%)
+  perf:   exclusive: conversion 4.9 ms over 0.21 raster(s)/frame, blitter 16.8 ms over 1478 row(s)/frame, screen copy 0.4 ms over 1.01 copy(ies)/frame
+  perf:   interrupt servers (inclusive, on the interpreter): vblank 2.3 ms, CIA 3.1 ms in 0.93 run(s)/frame
+  perf:   presentation calls 1.01/frame, 9578 instruction(s)/frame, 701 of them in the interrupt handlers
+================================================================================
