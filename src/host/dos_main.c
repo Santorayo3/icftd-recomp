@@ -42,6 +42,9 @@
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
  *   --timefreeze <f>[,<f>...]  press left Ctrl+T at each of those frames (the clock freeze's seam)
+ *   --srcdiff           per presented frame: how many of the window's source bytes changed, how
+ *                        many the scroll exposed and how many are unchanged (the scroll cache's
+ *                        measurement; see docs\next-session.md)
  *   --trace             dispatch/ring diagnostics
  */
 #include <stdio.h>
@@ -1403,6 +1406,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
         /* --refbus: the reference bus walker (slots.h). Same machine state, slower. */
         if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
+        if (strcmp(argv[i], "--srcdiff") == 0) { rt_gfx_srcdiff(1); continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
         if (strcmp(argv[i], "--perfafter") == 0 && i + 1 < argc)
         {

@@ -116,6 +116,8 @@ void rt_gfx_mrg_cop(rt_machine *m, u32 view);
 u32  rt_gfx_screen_bitmap(rt_machine *m);
 /* Notes that rows [first..last] of the shown bitmap were written, in 8-row bands. */
 void rt_gfx_screen_touched(rt_machine *m, int first, int last);
+/* --srcdiff: measure how much of a scrolled picture's source changes per presented frame. */
+void rt_gfx_srcdiff(int on);
 
 /* --- on-screen display --------------------------------------------------------------------- */
 /* The port's own overlay, drawn into the chunky framebuffer after the game's frame has been

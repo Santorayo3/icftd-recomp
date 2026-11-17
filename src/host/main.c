@@ -15,7 +15,7 @@
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
- *                [--mouse <file>] [--hoverlog]
+ *                [--mouse <file>] [--hoverlog] [--srcdiff]
  *                [--cameralog] [--savelog]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
@@ -1720,6 +1720,7 @@ int main(int argc, char **argv)
             if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') progressFrom = (u32)strtoul(argv[++i], 0, 0);
             continue;
         }
+        if (strcmp(argv[i], "--srcdiff") == 0) { rt_gfx_srcdiff(1); continue; }
         if (strcmp(argv[i], "--blitlog") == 0)
         {
             blitLog = 1;

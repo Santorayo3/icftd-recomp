@@ -3641,3 +3641,101 @@ long name), so the walk script is a copy of the one `tools\camera-check.ps1` wri
 the host audio ring differently and the DOS music driver's work follows the ring; the *timing*
 figures are stable to 0.1 ms within a build, and the plain runs (with audio) and the no-audio runs
 agree on 7,748,472 instructions and on the RAM at frame 699.
+
+
+## A scrolling picture is mostly the same picture (2026-11-17)
+
+The hospital's row renderer converted its 288x180 five-plane window on *every* present - 20.4 ms
+of a 115.4 ms frame at a fixed 100,000 cycles - while its source was almost always the one it had
+converted a frame earlier. Measured first, then fixed: the picture is skipped when the bytes and
+the geometry are unchanged, 1.15x the frame and byte-identical output.
+
+**The measurement, before any change.** `--srcdiff` (both front ends) compares, for every presented
+frame, the bytes the row loop reads at *bitmap* coordinates with the same buffer's previous
+presentation: `changed` is content rewritten in place, `new` is a range the scroll exposed, both
+would have to be converted by a cache. The window is 5 planes x 180 rows x ~38 bytes = 34,200
+source bytes of the 320x200 (bpr 42, 216 rows) bitmap; the list is `segSimple 0` with four segments
+(`hstart 16 hstop 304`, `vstart 44 vstop 224`), so the general per-row renderer is what runs.
+Hospital walk (`--call 0x1C19A:100`, the camera check's script, host build, frames 500..1700):
+
+| scene | presents | not one source byte changed | changed + new per present |
+|---|---|---|---|
+| original camera (the DOS benchmark) | 1201 | 982 (82 %) | 38 bytes (0.11 %) |
+| port camera (`--mouse`, a played game) | 1201 | 742 (62 %) | 506 bytes (1.5 %) |
+| original camera, the benchmark window 500..699 | 200 | 169 (85 %) | 21 bytes |
+
+The DOS build at a fixed 100,000 cycles reads the same figures (`--srcdiff` under DOSBox, the walk
+above): 200 presents in 500..699, 169 of them identical, 20.6 changed+new bytes per present - the
+count is a property of the engine, not of the host it runs on.
+
+The same frames in which the fine scroll moves (BPLCON1 d1/d2 stepping 10, 7, 4, 1, 14, ...) are
+exactly the ones that also redraw - a coarse scroll step rewrites about 8,853 bytes (26 % of the
+window) every fifth frame - so "unchanged" always means *unchanged bytes and unchanged delays*.
+Two facts make this the measurement to trust: the writes are not blitter writes (the hospital's
+tiles and walk sprite come from translated CPU code - `--progress` reports `0 writes into the
+shown bitmap` for this scene, which a dirty tracker would have read as "nothing changes"), and the
+comparison is byte-exact at bitmap coordinates, so a scroll does not look like a change.
+
+**The change.** `conv_same()` has skipped a whole-frame conversion since the fast-conversion work,
+but the general row renderer never called it: it rebuilt every row on every present even when the
+copper list, the plane bytes and the delays were the same as the frame before. It now remembers
+what it converted (`row_src`, the same exact test: geometry, plane pointers, delays and a memcmp
+per plane) and skips the rows when nothing differs. The skip is only armed while `row_uniform()`
+holds - every visible row reading one plane set with `stride == bpr`, one BPLCON0 plane count and
+one pair of delays, no dual playfield - because only then is the remembered contiguous run the
+bytes the rows actually read. A per-line palette is excluded by the caller (`palMulti`), and the
+cache is invalidated wherever the framebuffer is drawn outside the conversion (the OSD, the
+pointer, the overlay, a plot into the pseudo bitmap) or on `rt_gfx_reset`. Palette changes need no
+invalidation: the conversion stores palette *indices*.
+
+**Validated, output first.** A/B builds (the pre-change binary kept, same inputs, one BMP per
+presented frame through `--dump`, byte-for-byte file compare):
+
+| scene | frames | what it covers | differing frames |
+|---|---|---|---|
+| hospital, port camera armed | 512 from 500 | scroll steps, fine scroll 0..15, actor redraws | 0 |
+| hospital, original camera | 512 from 500 | the DOS benchmark's scene | 0 |
+| flight (`out\flight-live.txt`, 60 M) | 237 | playfield + HUD, the same row loop | 0 |
+| chicken race (`--titlekey 5`, `out\chicken-rec.txt`, 30 M) | 249 | per-line palettes + dual playfield (the fallback) | 0 |
+
+The runs also agree on where they stopped and on the instruction counts (hospital 20 M: frame 1963,
+`0x1C228`; flight 60 M: frame 9283, `0x1498E`; chicken 30 M: frame 2896, `0x20FAE`), and the DOS
+run below on 700 frames / 706 rasters / 7,748,472 instructions. `tools\gate.ps1 -Only present`,
+`-Only camera`, `-Only title` and `-Only settings` pass.
+
+**DOS, fixed 100,000 cycles**, hospital walk (`--call 0x1C19A:100`, the camera check's walk script,
+`--perf --perfafter 500 --frames 700`, window 500..699), with `[AUDIO] sound=1, music=1` in
+`bin\dos\game\ICFTD.INI` (the volume the DOS runs are made at, so they are not loud):
+
+| | before | after | |
+|---|---|---|---|
+| conversion | 20.4 ms/frame, 1.01 rasters/frame | 4.9 ms, 0.21 | the skip, plus 0.7 ms of diffing per frame |
+| vblank | 23.6 ms | 8.2 ms | the conversion lives in it |
+| machine run | 91.8 ms | 91.8 ms | untouched |
+| **frame** | **115.4 ms (8.66 fps)** | **100.0 ms (10.00 fps)** | **1.15x** |
+
+Same 700 frames, same 9,578 instructions/frame, so the ratio is the presenter's and nothing else
+moved. Two runs read 100.0 ms both times.
+
+**Why not a converted-content cache on top.** The measurement says the underlying content *is*
+reused, and the identity test is the cache's fully-hit case: after it, 4.9 ms/frame remains, of
+which ~4.2 ms is the 0.21 conversions/frame and ~0.7 ms is the diffs. A cache of converted pixels
+in bitmap coordinates would cut those conversions to the ~135 bytes that actually change per
+presented frame, but mode 13h still needs the 288x180 window copied out of it on every present that
+is not a full hit, and the measured copy rate (screen copy 0.4 ms per 288x180 copy) puts that at
+~0.5 ms plus the shifted-copy path. It would save about 4 ms of a 100 ms frame - 4 % - for a second
+conversion path, ~180 KB and a cache-validity surface that includes the per-row delays. The
+bookkeeping would be a fifth of what it saves, so it is recorded here rather than built; a scene
+whose presents change *most* of the time would change the arithmetic, and the port camera (38 % of
+presents changing) is the worst case measured so far.
+
+**Measuring this again.** `--srcdiff` is the instrument (off by default, like `--progress`):
+
+    bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 20000000 --call 0x1C19A:100 --input out\camera-check\walk.txt --data export --srcdiff
+    bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 20000000 --call 0x1C19A:100 --input out\camera-check\walk.txt --mouse out\camera-check\arm.txt --data export --srcdiff
+
+(the second is the port's camera; add `--cameralog` for the seam's own words). The DOS build measures
+the same way at a fixed clock - `ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input
+Y:\out\HOSPWALK.TXT --srcdiff --frames 700` through `tools\dos-run.ps1 -Cycles 100000` - but a
+`--call` + `--mouse` run there stops at the intro (frame 73), so the port's camera is measured on
+the host build; the played game installs the same seam itself.

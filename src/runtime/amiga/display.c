@@ -92,6 +92,28 @@ static void conv_saved(rt_machine *m, u32 bm, int w, int h, int bpr, int np, con
     g_srcValid = 1;
 }
 
+/* --- one conversion per unchanged picture, for the per-row renderer too ---------------------
+ * conv_same() skips a whole-frame conversion when the planes and the delays are unchanged, but the
+ * general row renderer (a copper list with several segments: the hospital, the flight) converts
+ * every row on every present - and most presents of a scrolling picture are the *same* picture:
+ * measured with --srcdiff over the hospital walk, 85 % of the presents in the DOS benchmark window
+ * change not one source byte (169 of 200), and none of those changes the delays either. This
+ * remembers what that renderer converted and skips the rows when the source and the geometry are
+ * identical. It is the same exact test as conv_same - whoever wrote the bytes - and it is only
+ * armed while the row parameters are uniform down the window, so the remembered run really is the
+ * bytes the rows read. */
+typedef struct
+{
+    int valid;
+    u32 bm;
+    int w, h, bpr, np, npUse, x0, x1, srcBase, xOrigin, d1, d2;
+    u32 planes[8];
+    u8 *src;
+} row_src;
+static row_src s_row;
+
+static void row_src_invalidate(void) { s_row.valid = 0; }
+
 /* Bit 3 of a nibble is its leftmost pixel, matching the 0x80 mask the bitplane format uses. */
 static void nib_tables(void)
 {
@@ -197,6 +219,8 @@ void rt_gfx_reset(rt_machine *m)
     gfx->bgPen = 0;
     gfx->areaCount = 0;
     gfx->frames = 0;
+    g_srcValid = 0;
+    row_src_invalidate();
 }
 
 void rt_gfx_init_bitmap(rt_machine *m, u32 bm, int depth, int width, int height)
@@ -324,6 +348,7 @@ static void plot(rt_machine *m, u32 bm, int x, int y, u8 pen)
         /* Drawn straight into the chunky buffer: the plane comparison can no longer tell whether
          * the buffer is current, so a later present must rebuild it. */
         g_srcValid = 0;
+        row_src_invalidate();
         if (gfx->fb != 0 && x >= 0 && y >= 0 && x < gfx->fbW && y < gfx->fbH)
             gfx->fb[(u32)y * (u32)EMU_FB_MAX_W + (u32)x] = pen;
         return;
@@ -1259,6 +1284,243 @@ typedef struct
     u8  slot[32];               /* framebuffer index for each pen (per-line palettes) */
 } rt_region;
 
+/* --- source change rate while a picture scrolls (--srcdiff) --------------------------------
+ * A converted-content cache only pays if most of the bytes the presenter reads are still the ones
+ * it read last time. This measures that directly: for every row of the presented window it takes
+ * the plane addresses in force, and compares the window's bytes at *bitmap* coordinates with what
+ * this same bitmap held when it was last presented. `changed` is content rewritten in place, `new`
+ * is a range the scroll has just exposed (either one has to be converted by a cache; `unchanged`
+ * would not). Diffing RAM is the only honest way here: the hospital's tiles and walk sprite are
+ * written by translated CPU code, so a blitter-side tracker sees nothing (--progress reports
+ * "0 writes into the shown bitmap" for this scene). */
+#define SRCDIFF_SLOTS 2
+typedef struct
+{
+    int valid, bpr, rows, np;
+    u32 anchor[8];                      /* first-row address the plane buffer is keyed on */
+    u8 *img[8];                         /* the buffer as it was last presented ... */
+    u8 *seen[8];                        /* ... and which of its bytes have been presented */
+} srcdiff_slot;
+static srcdiff_slot s_sd[SRCDIFF_SLOTS];
+static int s_sdOn, s_sdNext;
+
+void rt_gfx_srcdiff(int on) { s_sdOn = on; }
+
+static void srcdiff_slot_free(srcdiff_slot *s)
+{
+    int p;
+
+    for (p = 0; p < 8; p++)
+    {
+        if (s->img[p] != 0) { plat_free(s->img[p]); s->img[p] = 0; }
+        if (s->seen[p] != 0) { plat_free(s->seen[p]); s->seen[p] = 0; }
+    }
+    s->valid = 0;
+}
+
+static void srcdiff_scan(rt_machine *m, u32 bm, int bpr, int np, int h, int srcBase,
+                         int x0, int x1, const rt_region *regions, int regionCount)
+{
+    srcdiff_slot *s = 0;
+    u32 total = 0, changed = 0, fresh = 0, start[8], span;
+    int i, p, y, r, rp, bx0, bx1, rowLo = -1, rowHi = -1;
+
+    if (!s_sdOn || bpr <= 0 || np <= 0 || h <= 0 || regionCount <= 0) return;
+    if (np > 8) np = 8;
+    span = (u32)(bpr * h);
+    /* The plane set in force at row 0, latched exactly as the renderer latches it. */
+    r = 0;
+    while (r + 1 < regionCount && regions[r + 1].row <= 0) r++;
+    rp = r;
+    while (rp > 0 && regions[rp].n == 0) rp--;
+    for (p = 0; p < np; p++)
+    {
+        u32 plane = regions[rp].n == 0 ? bm_plane(m, bm, p) : regions[rp].planes[p];
+        int st = ((p & 1) != 0 && regions[rp].stride2 > 0)
+                     ? regions[rp].stride2
+                     : (regions[rp].stride > 0 ? regions[rp].stride : bpr);
+        start[p] = plane != 0 ? plane + (u32)(0 - regions[rp].row) * (u32)st : 0;
+        if (start[p] == 0) return;
+    }
+    /* The same buffer as last time: its window start is within one window's worth of the anchor.
+     * The two engine buffers are further apart than that, so each keeps its own slot. */
+    for (i = 0; i < SRCDIFF_SLOTS; i++)
+    {
+        srcdiff_slot *c = &s_sd[i];
+        s32 d;
+        if (!c->valid || c->bpr != bpr || c->rows != h || c->np != np) continue;
+        d = (s32)(start[0] - c->anchor[0]);
+        if (d > -(s32)span && d < (s32)span) { s = c; break; }
+    }
+    if (s == 0)
+    {
+        s = &s_sd[s_sdNext];
+        s_sdNext = (s_sdNext + 1) % SRCDIFF_SLOTS;
+        srcdiff_slot_free(s);
+        s->valid = 1;
+        s->bpr = bpr;
+        s->rows = h;
+        s->np = np;
+        for (p = 0; p < np; p++)
+        {
+            s->anchor[p] = start[p];
+            s->img[p] = (u8 *)plat_alloc(span * 2u);
+            s->seen[p] = (u8 *)plat_alloc(span * 2u);
+            if (s->img[p] == 0 || s->seen[p] == 0) { srcdiff_slot_free(s); return; }
+            memset(s->img[p], 0, (size_t)span * 2u);
+            memset(s->seen[p], 0, (size_t)span * 2u);
+        }
+    }
+    /* The window's source bytes: a column's source bit is column + srcBase, moved back by the
+     * playfield delay (up to 15 px), so the byte range is one either side of the aligned middle. */
+    bx0 = (x0 + srcBase - 15) >> 3;
+    bx1 = (x1 - 1 + srcBase) >> 3;
+    if (bx0 < 0) bx0 = 0;
+    if (bx1 >= bpr) bx1 = bpr - 1;
+    if (bx1 < bx0) return;
+    for (y = 0; y < h; y++)
+    {
+        int stride, ry;
+
+        r = 0;
+        while (r + 1 < regionCount && regions[r + 1].row <= y) r++;
+        rp = r;
+        while (rp > 0 && regions[rp].n == 0) rp--;
+        stride = regions[rp].stride > 0 ? regions[rp].stride : bpr;
+        ry = y - regions[rp].row;
+        if (regions[rp].n == 0) ry = y;
+        for (p = 0; p < np; p++)
+        {
+            u32 plane = regions[rp].n == 0 ? bm_plane(m, bm, p) : regions[rp].planes[p];
+            int st = ((p & 1) != 0 && regions[rp].stride2 > 0)
+                         ? regions[rp].stride2
+                         : (regions[rp].stride > 0 ? regions[rp].stride : bpr);
+            u32 base, x;
+
+            if (plane == 0) continue;
+            base = plane + (u32)ry * (u32)st;
+            for (x = (u32)bx0; x <= (u32)bx1; x++)
+            {
+                u32 a = base + x;
+                s32 idx = (s32)(a - s->anchor[p]) + (s32)span;
+                u8 cur = rt_read8(&m->mem, a);
+
+                total++;
+                if (idx < 0 || idx >= (s32)(span * 2u))
+                {
+                    fresh++;
+                    rowLo = y;
+                    rowHi = y;
+                    continue;
+                }
+                if (s->seen[p][idx] == 0) { fresh++; rowLo = y; rowHi = y; }
+                else if (s->img[p][idx] != cur) { changed++; rowLo = y; rowHi = y; }
+                s->img[p][idx] = cur;
+                s->seen[p][idx] = 1;
+            }
+        }
+    }
+    printf("srcdiff: f%lu bm %06lX bytes %lu changed %lu new %lu unchanged %lu d %d/%d rows %d..%d\n",
+           (unsigned long)m->frame, (unsigned long)bm, (unsigned long)total,
+           (unsigned long)changed, (unsigned long)fresh,
+           (unsigned long)(total - changed - fresh),
+           regions[regionCount > 1 ? 1 : 0].d1, regions[regionCount > 1 ? 1 : 0].d2,
+           rowLo, rowHi);
+}
+
+/* --- the row renderer's "same picture" test -------------------------------------------------
+ * 1 when every visible row reads one plane set with stride == bpr and one pair of delays, i.e. the
+ * contiguous bpr*h run at the row-0 pointers is exactly the bytes the rows read. Fills the row-0
+ * parameters. A row whose segment names no plane pointer, a dual-playfield row or a per-line
+ * palette (checked by the caller) is never uniform. */
+static int row_uniform(int bpr, int h, int np, const rt_region *regions, int regionCount,
+                       int *d1, int *d2, u32 *pl, int *npUse)
+{
+    int y, p, r, rp, f1 = -1, f2 = -1, fu = -1;
+    u32 fp[8];
+
+    if (h <= 0 || np <= 0) return 0;
+    for (p = 0; p < 8; p++) fp[p] = 0;
+    for (y = 0; y < h; y++)
+    {
+        int s1, s2, u;
+
+        r = 0;
+        while (r + 1 < regionCount && regions[r + 1].row <= y) r++;
+        rp = r;
+        while (rp > 0 && regions[rp].n == 0) rp--;
+        if (regions[rp].n == 0 || regions[r].dblpf) return 0;
+        s1 = regions[rp].stride > 0 ? regions[rp].stride : bpr;
+        s2 = regions[rp].stride2 > 0 ? regions[rp].stride2 : s1;
+        if (s1 != bpr || s2 != bpr) return 0;
+        u = np;
+        if (regions[r].bp != EMU_BP_UNKNOWN && regions[r].bp < u) u = regions[r].bp;
+        if (y == 0) { f1 = regions[rp].d1; f2 = regions[rp].d2; fu = u; }
+        else if (regions[rp].d1 != f1 || regions[rp].d2 != f2 || u != fu) return 0;
+        for (p = 0; p < np; p++)
+        {
+            if (regions[rp].planes[p] == 0) return 0;
+            if (y == 0) fp[p] = regions[rp].planes[p];
+            else if (regions[rp].planes[p] != fp[p]) return 0;
+        }
+    }
+    *d1 = f1;
+    *d2 = f2;
+    *npUse = fu;
+    for (p = 0; p < np; p++) pl[p] = fp[p];
+    return 1;
+}
+
+/* 1 when gfx->fb still holds what these rows would convert to. */
+static int row_same(rt_machine *m, u32 bm, int w, int h, int bpr, int np, int npUse,
+                    const u32 *pl, int d1, int d2, int x0, int x1, int srcBase, int xOrigin)
+{
+    int p, len = bpr * h;
+
+    if (!s_row.valid || s_row.bm != bm || s_row.w != w || s_row.h != h || s_row.bpr != bpr ||
+        s_row.np != np || s_row.npUse != npUse || s_row.d1 != d1 || s_row.d2 != d2 ||
+        s_row.x0 != x0 || s_row.x1 != x1 || s_row.srcBase != srcBase ||
+        s_row.xOrigin != xOrigin)
+        return 0;
+    for (p = 0; p < np; p++)
+        if (s_row.planes[p] != pl[p] ||
+            memcmp(s_row.src + (u32)p * (u32)len, m->mem.base + pl[p], (size_t)len) != 0)
+            return 0;
+    return 1;
+}
+
+/* Remembers the bytes that were just converted. A run that does not fit (a plane whose rows are
+ * not in RAM) is not remembered, so the next present converts again. */
+static void row_saved(rt_machine *m, u32 bm, int w, int h, int bpr, int np, int npUse,
+                      const u32 *pl, int d1, int d2, int x0, int x1, int srcBase, int xOrigin)
+{
+    int p, len = bpr * h;
+
+    s_row.valid = 0;
+    if (np <= 0 || np > 8 || len <= 0 || len * np > CONV_SRC_MAX) return;
+    if (s_row.src == 0) s_row.src = (u8 *)plat_alloc(CONV_SRC_MAX);
+    if (s_row.src == 0) return;
+    for (p = 0; p < np; p++)
+    {
+        if (pl[p] == 0 || pl[p] + (u32)len > m->mem.size) return;
+        memcpy(s_row.src + (u32)p * (u32)len, m->mem.base + pl[p], (size_t)len);
+    }
+    s_row.bm = bm;
+    s_row.w = w;
+    s_row.h = h;
+    s_row.bpr = bpr;
+    s_row.np = np;
+    s_row.npUse = npUse;
+    s_row.x0 = x0;
+    s_row.x1 = x1;
+    s_row.srcBase = srcBase;
+    s_row.xOrigin = xOrigin;
+    s_row.d1 = d1;
+    s_row.d2 = d2;
+    for (p = 0; p < np; p++) s_row.planes[p] = pl[p];
+    s_row.valid = 1;
+}
+
 /* The colour registers keep their value from frame to frame, exactly like the hardware: a list that
  * writes a colour half way down the screen leaves the rows above it in the colour the previous
  * frame ended with. */
@@ -1809,97 +2071,125 @@ void rt_gfx_present(rt_machine *m, u32 view)
              * DDF fetch (srcBase) and by the playfield delay; the window clips what is visible,
              * it does not otherwise move the picture. */
             int x0 = regHStart, x1 = regHStop;
-            for (y0 = 0; y0 < h; y0++)
-            {
-                int r = 0, rp = 0;
-                u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
-                int dd1, dd2;
-                int ry, stride1, stride2, npUse, dbl, front2;
-                const u8 *slot = 0;
-                u8 bc = 0;                      /* the border: pen 0, i.e. COLOR00 */
+            int rd1 = 0, rd2 = 0, rnpUse = np, rUniform = 0, rSame = 0;
+            u32 rplanes[8];
 
-                if (y0 >= visH)
-                {
-                    bc = (palMulti && regionCount > 0) ? regions[regionCount - 1].slot[0] : 0;
-                    for (x = 0; x < w; x++) row[x] = bc;
-                    for (; x < (int)EMU_FB_MAX_W; x++) row[x] = 0;
-                    continue;
-                }
-                while (r + 1 < regionCount && regions[r + 1].row <= y0) r++;
-                if (palMulti) bc = regions[r].slot[0];
-                /* The plane pointers are latched: a segment that only changes colours keeps the
-                 * set in force, and its rows continue from the row that set was loaded at. */
-                rp = r;
-                while (rp > 0 && regions[rp].n == 0) rp--;
-                dd1 = regions[rp].d1;
-                dd2 = regions[rp].d2;
-                stride1 = regions[rp].stride > 0 ? regions[rp].stride : bpr;
-                stride2 = regions[rp].stride2 > 0 ? regions[rp].stride2 : stride1;
-                ry = y0 - regions[rp].row;      /* the row of the plane set, not the segment's */
-                if (regions[rp].n == 0)
-                {
-                    for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
-                    stride1 = stride2 = bpr;
-                    ry = y0;
-                }
-                else
-                {
-                    for (p = 0; p < np; p++) planes[p] = regions[rp].planes[p];
-                }
-                /* BPLCON0 of the segment in force: how many planes the shifter takes (zero turns
-                 * the playfield off, which is how the list blanks the rows below the cockpit) and
-                 * whether the two playfields are interleaved instead of one deep picture. */
-                npUse = np;
-                if (regions[r].bp != EMU_BP_UNKNOWN && regions[r].bp < npUse) npUse = regions[r].bp;
-                dbl = regions[r].dblpf;
-                front2 = regions[r].pf2pri;
-                if (palMulti) slot = regions[r].slot;
-                for (x = 0; x < x0; x++) row[x] = bc;
-                /* The window's aligned middle goes through the nibble tables exactly as
-                 * conv_picture() does, with each plane's byte rotated by its own playfield delay.
-                 * A dual-playfield picture, a per-line palette or an unreadable row keeps the
-                 * scalar rule below (which is also the head/tail of an unaligned window inside
-                 * conv_row_fast()). That rule stays written out here rather than called per pixel:
-                 * the chicken race's per-line palette and dual-playfield strip take this branch on
-                 * every pixel of every row, and a call there cost 6 % of its frame. */
-                if (dbl || slot != 0 ||
-                    !conv_row_fast(m, row, planes, npUse, stride1, stride2, ry, srcBase,
-                                   dd1, dd2, x0, x1))
-                {
-                    for (x = x0; x < x1; x++)
-                    {
-                        int idx = 0, pf1 = 0, pf2 = 0;
-                        int sx = x + srcBase;
-                        for (p = 0; p < npUse; p++)
-                        {
-                            int s = sx - (((p & 1) != 0) ? dd2 : dd1);
-                            u32 byte = plane_row_byte(m, planes[p],
-                                                      ((p & 1) != 0) ? stride2 : stride1,
-                                                      ry, s >> 3);
-                            if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
-                            if (dbl)   /* the DBLPF/PF2PRI rule of conv_scalar_pixel() */
-                            {
-                                if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
-                                else pf2 |= 1 << (p >> 1);
-                            }
-                            else idx |= 1 << p;
-                        }
-                        if (dbl)
-                            idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
-                                         : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
-                        row[x] = slot != 0 ? slot[idx] : (u8)idx;
-                    }
-                }
-                for (x = x1; x < w; x++) row[x] = bc;
-            }
-            for (y0 = h; y0 < EMU_FB_MAX_H; y0++)
+            for (p = 0; p < 8; p++) rplanes[p] = 0;
+            /* A list with several segments takes the row loop below on every present, and most
+             * presents of a scrolling picture are the same picture as the one before (85 % of
+             * the hospital walk's, measured with --srcdiff): the buffer still holds its conversion.
+             * See row_src above. */
+            if (!palMulti)
+                rUniform = row_uniform(bpr, visH, np, regions, regionCount, &rd1, &rd2,
+                                       rplanes, &rnpUse);
+            if (rUniform)
+                rSame = row_same(m, bm, w, visH, bpr, np, rnpUse, rplanes, rd1, rd2, x0, x1,
+                                 srcBase, xOrigin);
+            srcdiff_scan(m, bm, bpr, np, visH, srcBase, x0, x1, regions, regionCount);
+            if (!rSame)
             {
-                u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
-                for (x = 0; x < w; x++) row[x] = 0;
+                for (y0 = 0; y0 < h; y0++)
+                {
+                    int r = 0, rp = 0;
+                    u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
+                    int dd1, dd2;
+                    int ry, stride1, stride2, npUse, dbl, front2;
+                    const u8 *slot = 0;
+                    u8 bc = 0;                      /* the border: pen 0, i.e. COLOR00 */
+
+                    if (y0 >= visH)
+                    {
+                        bc = (palMulti && regionCount > 0) ? regions[regionCount - 1].slot[0] : 0;
+                        for (x = 0; x < w; x++) row[x] = bc;
+                        for (; x < (int)EMU_FB_MAX_W; x++) row[x] = 0;
+                        continue;
+                    }
+                    while (r + 1 < regionCount && regions[r + 1].row <= y0) r++;
+                    if (palMulti) bc = regions[r].slot[0];
+                    /* The plane pointers are latched: a segment that only changes colours keeps the
+                     * set in force, and its rows continue from the row that set was loaded at. */
+                    rp = r;
+                    while (rp > 0 && regions[rp].n == 0) rp--;
+                    dd1 = regions[rp].d1;
+                    dd2 = regions[rp].d2;
+                    stride1 = regions[rp].stride > 0 ? regions[rp].stride : bpr;
+                    stride2 = regions[rp].stride2 > 0 ? regions[rp].stride2 : stride1;
+                    ry = y0 - regions[rp].row;      /* the row of the plane set, not the segment's */
+                    if (regions[rp].n == 0)
+                    {
+                        for (p = 0; p < np; p++) planes[p] = bm_plane(m, bm, p);
+                        stride1 = stride2 = bpr;
+                        ry = y0;
+                    }
+                    else
+                    {
+                        for (p = 0; p < np; p++) planes[p] = regions[rp].planes[p];
+                    }
+                    /* BPLCON0 of the segment in force: how many planes the shifter takes (zero turns
+                     * the playfield off, which is how the list blanks the rows below the cockpit) and
+                     * whether the two playfields are interleaved instead of one deep picture. */
+                    npUse = np;
+                    if (regions[r].bp != EMU_BP_UNKNOWN && regions[r].bp < npUse) npUse = regions[r].bp;
+                    dbl = regions[r].dblpf;
+                    front2 = regions[r].pf2pri;
+                    if (palMulti) slot = regions[r].slot;
+                    for (x = 0; x < x0; x++) row[x] = bc;
+                    /* The window's aligned middle goes through the nibble tables exactly as
+                     * conv_picture() does, with each plane's byte rotated by its own playfield delay.
+                     * A dual-playfield picture, a per-line palette or an unreadable row keeps the
+                     * scalar rule below (which is also the head/tail of an unaligned window inside
+                     * conv_row_fast()). That rule stays written out here rather than called per pixel:
+                     * the chicken race's per-line palette and dual-playfield strip take this branch on
+                     * every pixel of every row, and a call there cost 6 % of its frame. */
+                    if (dbl || slot != 0 ||
+                        !conv_row_fast(m, row, planes, npUse, stride1, stride2, ry, srcBase,
+                                       dd1, dd2, x0, x1))
+                    {
+                        for (x = x0; x < x1; x++)
+                        {
+                            int idx = 0, pf1 = 0, pf2 = 0;
+                            int sx = x + srcBase;
+                            for (p = 0; p < npUse; p++)
+                            {
+                                int s = sx - (((p & 1) != 0) ? dd2 : dd1);
+                                u32 byte = plane_row_byte(m, planes[p],
+                                                          ((p & 1) != 0) ? stride2 : stride1,
+                                                          ry, s >> 3);
+                                if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
+                                if (dbl)   /* the DBLPF/PF2PRI rule of conv_scalar_pixel() */
+                                {
+                                    if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
+                                    else pf2 |= 1 << (p >> 1);
+                                }
+                                else idx |= 1 << p;
+                            }
+                            if (dbl)
+                                idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
+                                             : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
+                            row[x] = slot != 0 ? slot[idx] : (u8)idx;
+                        }
+                    }
+                    for (x = x1; x < w; x++) row[x] = bc;
+                }
+                for (y0 = h; y0 < EMU_FB_MAX_H; y0++)
+                {
+                    u8 *row = gfx->fb + (u32)y0 * (u32)EMU_FB_MAX_W;
+                    for (x = 0; x < w; x++) row[x] = 0;
+                }
+                conv_saved(m, bm, w, h, bpr, np, planes, -1, -1);
+
+                if (rUniform)
+                    row_saved(m, bm, w, visH, bpr, np, rnpUse, rplanes, rd1, rd2, x0, x1,
+                              srcBase, xOrigin);
+                else
+                    row_src_invalidate();
+                didRows = 1;
+                converted = 1;
             }
-            conv_saved(m, bm, w, h, bpr, np, planes, -1, -1);
-            didRows = 1;
-            converted = 1;
+            else
+            {
+                didRows = 1;            /* the buffer already holds this picture */
+            }
         }
         /* The planes the beam reads come from the copper list, not from the ViewPort: the list is
          * what the copper executes, and it is where the engine scrolls. `MrgCop` fills its list
@@ -2252,6 +2542,7 @@ void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y)
     /* Drawing into the chunky buffer makes the plane comparison meaningless; a later present
      * must rebuild it. */
     g_srcValid = 0;
+    row_src_invalidate();
     for (row = 0; row < PTR_H; row++)
         for (col = 0; col < PTR_W; col++)
         {
@@ -2272,6 +2563,7 @@ u8 *rt_overlay_begin(void)
 {
     if (gfx == 0 || gfx->fb == 0) return 0;
     g_srcValid = 0;             /* the surface's pixels are not in the planes */
+    row_src_invalidate();
     return gfx->fb;
 }
 
@@ -2320,11 +2612,12 @@ static void osd_draw(rt_machine *m)
     {
         /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
          * to rebuild the picture to clear those pixels. */
-        if (wasUp) { g_srcValid = 0; wasUp = 0; }
+        if (wasUp) { g_srcValid = 0; row_src_invalidate(); wasUp = 0; }
         return;
     }
     wasUp = 1;
     g_srcValid = 0;                     /* the overlay's pixels are not in the planes */
+    row_src_invalidate();
     osd_colour(OSD_PEN_TEXT, 0, 255, 0);
     for (i = 0; i < OSD_ICON_COLOURS; i++)
         osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],
