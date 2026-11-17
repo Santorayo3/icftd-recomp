@@ -45,6 +45,7 @@ void rt_cop_vblank(rt_machine *m)
     c->delay = 1;
     c->moves = 0;
     c->waits = 0;
+    c->wakeAt = 0;
     c->installed = (list != 0 && (list + 4u) <= m->mem.size);
 }
 
@@ -57,22 +58,32 @@ static void beam_of(rt_machine *m, long pos, int *vpos, int *hpos)
     *hpos = (int)((pos % EMU_LINE_CYCLES) >> 1);
 }
 
-int rt_cop_take_clock(rt_machine *m, long pos)
+/* Where in the frame the beam has to be before a WAIT at (vcmp,hcmp) lets the copper go on: the
+ * position of that (line, clock) as one 68000-cycle offset. A hcmp beyond the line's own clocks
+ * can never be reached inside that line, so the WAIT releases at the first clock of the next one -
+ * which is what the (vpos,hpos) comparison of the reference path says too. */
+static long wait_position(u16 vcmp, u16 hcmp)
+{
+    if (hcmp > EMU_LINE_COLOR_CLOCKS - 1)
+        return (long)(vcmp + 1) * EMU_LINE_CYCLES;
+    return (long)vcmp * EMU_LINE_CYCLES + (long)hcmp * 2L;
+}
+
+/* One slot offered to the copper. `reached` is the answer to "has the beam got to the WAIT
+ * position"; it is only looked at while a WAIT holds the copper. */
+static int copper_slot(rt_machine *m, int reached)
 {
     rt_copper *c = &m->copper;
     u16 op, data;
-    int vpos, hpos;
 
-    if (!c->installed || c->done) return 0;
     if (c->delay-- > 0) return 0;            /* not the copper's clock this time */
     c->delay = 1;                            /* one clock off, then one on: odd cycles only */
 
     if (c->waiting)
     {
-        beam_of(m, pos, &vpos, &hpos);
         /* WAIT until the beam has reached (vcmp,hcmp). A position already behind the beam is
          * passed immediately, which is what makes a list with no WAITs run straight through. */
-        if (vpos < (int)c->vcmp || (vpos == (int)c->vcmp && hpos < (int)c->hcmp)) return 0;
+        if (!reached) return 0;
         c->waiting = 0;
         c->waits++;
         return 1;
@@ -97,8 +108,29 @@ int rt_cop_take_clock(rt_machine *m, long pos)
     if (op == 0xFFFFu && data == 0xFFFEu) { c->done = 1; return 1; }
     c->vcmp = (u16)((op & 0xFF00u) >> 8);
     c->hcmp = (u16)(op & 0x00FEu);
+    c->wakeAt = wait_position(c->vcmp, c->hcmp);
     c->waiting = 1;
     return 1;
+}
+
+int rt_cop_take_clock(rt_machine *m, long at)
+{
+    rt_copper *c = &m->copper;
+
+    if (!c->installed || c->done) return 0;
+    return copper_slot(m, !c->waiting || at >= c->wakeAt);
+}
+
+int rt_cop_take_clock_ref(rt_machine *m, long pos)
+{
+    rt_copper *c = &m->copper;
+    int vpos, hpos;
+
+    if (!c->installed || c->done) return 0;
+    beam_of(m, pos, &vpos, &hpos);
+    return copper_slot(m, !c->waiting ||
+                          !(vpos < (int)c->vcmp ||
+                            (vpos == (int)c->vcmp && hpos < (int)c->hcmp)));
 }
 
 void rt_cop_report(rt_machine *m)

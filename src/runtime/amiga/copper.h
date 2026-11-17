@@ -22,6 +22,7 @@ typedef struct rt_copper
     int waiting;            /* a WAIT is holding the copper at a beam position  */
     int done;               /* the program ended (its terminating WAIT)         */
     u16 vcmp, hcmp;         /* ... at this position                             */
+    long wakeAt;            /* the frame position (68000 cycles) of (vcmp,hcmp) */
     int installed;          /* there is a program to run                        */
     int moves;              /* instructions executed                            */
     int waits;              /* WAITs passed                                     */
@@ -35,8 +36,14 @@ void rt_cop_vblank(struct rt_machine *m);
 
 /* One colour clock has passed with no DMA source owning it: the copper takes a slot every second
  * clock (UAE generate_copper: odd cycles only) and fetches one instruction word. Returns 1 if it
- * used the clock - the CPU then waits, exactly as it does against any other bus master. */
-int  rt_cop_take_clock(struct rt_machine *m, long pos);
+ * used the clock - the CPU then waits, exactly as it does against any other bus master.
+ *
+ * `at` is the position in the frame in 68000 cycles, already reduced to [0, EMU_CYCLES_PER_FRAME):
+ * the bus walkers keep it that way as they step, so the WAIT comparison is one compare against the
+ * position the list waits for (rt_copper::wakeAt) instead of a division per clock.
+ * rt_cop_take_clock_ref() is the same rule from an absolute position, for the --refbus path. */
+int  rt_cop_take_clock(struct rt_machine *m, long at);
+int  rt_cop_take_clock_ref(struct rt_machine *m, long pos);
 
 /* --slots report line. */
 void rt_cop_report(struct rt_machine *m);

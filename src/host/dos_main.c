@@ -27,6 +27,8 @@
  *                        the menus. Every counter starts at that boundary, and the window ends at
  *                        the last complete frame - one unit covers everything the report says
  *   --ticklog           oracle_tick's `tick N in|out` lines, to compare pacing with the host
+ *   --refbus            charge the bus the first, division-per-clock way: the reference walker,
+ *                        which any scheduler change must reproduce byte for byte (slots.h)
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>[:<arg>[:<retpc>]]]  enter one engine routine once (e.g. 0x1442A = save)
@@ -344,10 +346,10 @@ void host_regs_sync(rt_machine *m)
  * g_hoverOwn state the Windows seams use and drives the pointer once per frame.
  *
  * Coordinates: the title menu draws straight into the 320x200 VGA framebuffer, so it takes the raw
- * position. The game seams work in the runtime picture, which dos_present fits into the mode
- * (x * w / 320, y * h / 200 for a larger picture, top-left for a smaller one), so the platform's
- * position is mapped the other way here; the overlay is then sampled into VGA with the arrow's tip
- * under the physical pointer.
+ * position. The game seams work in the runtime picture, which dos_present crops into the mode (the
+ * middle 320x200 for a larger picture, top-left for a smaller one), so the platform's position is
+ * mapped the other way here; the overlay is then presented with the arrow's tip under the physical
+ * pointer.
  *
  * The seams and their attachment points are the Windows front end's (src\host\main.c):
  *
@@ -496,8 +498,10 @@ static void ptr_set(int x, int y)
     if (h <= 0) h = SCREEN_H;
     if (x < 0) x = 0; else if (x >= SCREEN_W) x = SCREEN_W - 1;
     if (y < 0) y = 0; else if (y >= SCREEN_H) y = SCREEN_H - 1;
-    if (w > SCREEN_W) x = x * w / SCREEN_W;
-    if (h > SCREEN_H) y = y * h / SCREEN_H;
+    /* The inverse of dos_present's crop: mode 13h pixel (0,0) is the picture's top left corner of
+     * the part on screen, (w-320)/2 in and h-200 down. */
+    if (w > SCREEN_W) x += (w - SCREEN_W) / 2;
+    if (h > SCREEN_H) y += h - SCREEN_H;
     if (x >= w) x = w - 1;
     if (y >= h) y = h - 1;
     g_ptrX = (s16)x;
@@ -1283,7 +1287,7 @@ static void dos_present(rt_machine *m)
     const u8 *pal = rt_gfx_palette();
     u8 *dst;
     int w = rt_gfx_width(), h = rt_gfx_height();
-    int x, y;
+    int y;
     u32 stride, t0 = g_perfOpen ? plat_pit_now() : 0;
 
     if (fb == 0 || pal == 0) return;
@@ -1309,32 +1313,31 @@ static void dos_present(rt_machine *m)
         (void)m;
         return;
     }
-    /* VGA mode 13h is exactly 320x200, while the screen is the size of the window the copper list
-     * programs: the chicken race's list asks for 368x216, because it uses the overscan its text
-     * page lays the narration out across. The mode cannot hold that, so the picture is fitted into
-     * it. (On Win32 the mode follows the picture instead - the narration's letters stay whole
-     * there.) */
-    for (y = 0; y < SCREEN_H; y++)
+    /* VGA mode 13h is exactly 320x200, while the picture is the size of the window the copper list
+     * programs: the chicken race's list asks for 368x216, because its narration page lays the text
+     * out across the overscan. The mode cannot hold that, and sampling it down to 320x200 dropped
+     * one column in eight, which left the narration's letters ragged. The middle 320x200 of the
+     * picture goes to the screen one pixel for one instead: the page's text box spans the whole 368
+     * (text 0x1E..0x151, centred on it), and its lines and the race's cockpit are anchored to the
+     * picture's bottom row, so the crop is centred across and taken off the top. (On Win32 the
+     * mode follows the picture instead.) */
     {
-        int sy = (h > SCREEN_H) ? (y * h) / SCREEN_H : y;
-        const u8 *row;
-        u8 *out = dst + (u32)y * SCREEN_W;
-        if (sy >= h || y >= h)
+        int cropX = w > SCREEN_W ? (w - SCREEN_W) / 2 : 0;
+        int cropY = h > SCREEN_H ? h - SCREEN_H : 0;
+        int cw = w < SCREEN_W ? w : SCREEN_W;
+        for (y = 0; y < SCREEN_H; y++)
         {
-            memset(out, 0, SCREEN_W);
-            continue;
-        }
-        row = fb + (u32)sy * EMU_FB_MAX_W;
-        if (w > SCREEN_W)
-        {
-            for (x = 0; x < SCREEN_W; x++)
-                out[x] = row[(u32)(x * w) / SCREEN_W];
-        }
-        else
-        {
-            /* Anything smaller sits in the top left corner, as before. */
-            memcpy(out, row, (size_t)w);
-            memset(out + w, 0, (size_t)(SCREEN_W - w));
+            int sy = y + cropY;
+            const u8 *row;
+            u8 *out = dst + (u32)y * SCREEN_W;
+            if (sy >= h)
+            {
+                memset(out, 0, SCREEN_W);
+                continue;
+            }
+            row = fb + (u32)sy * EMU_FB_MAX_W + cropX;
+            memcpy(out, row, (size_t)cw);
+            if (cw < SCREEN_W) memset(out + cw, 0, (size_t)(SCREEN_W - cw));
         }
     }
     plat_present();
@@ -1398,6 +1401,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--crashlog") == 0) { g_crashLog = 1; continue; }
         if (strcmp(argv[i], "--noaudio") == 0) { g_noAudio = 1; continue; }
         if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
+        /* --refbus: the reference bus walker (slots.h). Same machine state, slower. */
+        if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
         if (strcmp(argv[i], "--perfafter") == 0 && i + 1 < argc)
         {

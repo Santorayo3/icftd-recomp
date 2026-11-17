@@ -651,6 +651,14 @@ The other scenes' lists have windows inside their ViewPorts (MrgCop 320, flight/
 coverage numbers as before (intro 0.957, map 1.000, flight 0.804, hospital 0.810, fight 0.973,
 under 0.326) and the chicken now also pins its 368-column width, the assertion the old build fails.
 
+**Later, DOS (2026-11-17).** Handing the picture over at its own size is the Windows half: mode 13h
+cannot hold 368x216, and `dos_present` sampled it into 320x200 on both axes, so every eighth column
+of the narration was dropped and the letters came out ragged. It now copies the middle 320x200 of the
+picture one pixel for one - centred across, because the text is centred in the box (0x1E..0x151 of
+0..0x16F), and taken off the top, because the page's lines (`FUN_00005012`: they end at row
+`DHeight-1`) and the race's cockpit (rows 176..215) are anchored to the picture's bottom row. `ptr_set`
+maps the mode-13h position the other way, so the pointer still lands on what it points at.
+
 ## Infrastructure: incremental builds, and one page for port features (2026-11-14)
 
 Two changes, no product behaviour touched, both aimed at making the next feature session cheaper.
@@ -3520,3 +3528,116 @@ fallback branch) stays at 272.7 -> 273.3 ms conversion and 429.8 -> 430.2 ms/fra
 fallback did not regress either. `tools\gate.ps1 -Only present` and `-Only camera` pass; the core
 fixture steps cannot run in this clone because the gitignored `ref\fixtures` tree is absent, and
 their failures are the missing files, not this change.
+
+
+## The bus walker stops dividing (2026-11-17)
+
+A translated instruction is charged by walking its bus words through the slot map, and the walker
+derived line and clock from the frame position with a division and a modulo per colour clock
+(rt_slot_taken: three, and the copper's WAIT comparison two more). At PAL timing that is 70,938
+colour clocks per frame - 3.55 M per intended second - all of them walked one at a time. The DOS
+build spent **162.2 ms/frame** on the hospital walk at a fixed 100,000 cycles, 138.9 ms of it in
+the machine's run; it is now **115.6 ms/frame with a 92.0 ms run**, 1.40x and 1.51x, and the
+machine state is byte-identical.
+
+**Where the time was, measured.** Two temporary switches on the DOS build said what to attack,
+both by charging the budget a defined way and reading `--perf` (hospital walk, `--perfafter 500
+--frames 700`):
+
+| run | frame | machine run | instructions/frame |
+|---|---|---|---|
+| the build as it was | 162.2 ms | 138.9 ms | 9578 |
+| the whole bus charge replaced by the nominal cost | 106.0 ms | 84.6 ms | 10440 |
+| that and step_budget's checks dropped (budget + vblank only) | 94.3 ms | 72.8 ms | 10005 |
+
+So the walkers were 12-14 % of the frame and rc_step's own checks another ~10 %, and the rest was
+the translated bodies and the blitter's 22 ms data path, which no scheduler change can touch. The
+divisions were the largest single item in the walk: 40-60 32-bit divides per instruction is more
+emulated cycles than the instruction it charged for.
+
+**The change.** Three pieces, in the order they were measured:
+
+1. `rt_slots_update()` flattens the two per-line maps into one array, one byte per colour clock
+   from the top of the frame (`g_frameMap`, 70,938 bytes). A clock's owner is then a byte load at
+   `pos / 2`; the line, the clock in the line and the map variant are gone from the hot path.
+   `rt_slot_taken()` keeps its two divisions only for the one caller that can hand it a position
+   outside the frame (`rt_blit_wait`).
+2. The copper's WAIT no longer compares `(vpos,hpos)`. `wait_position()` turns the WAIT's
+   `(vcmp,hcmp)` into the frame position it waits for (`rt_copper::wakeAt`), computed once when the
+   WAIT is applied, and the test is one compare. The two rules are the same function: at
+   `vpos == vcmp`, `hpos >= hcmp` iff `pos >= vcmp*454 + 2*hcmp`, and a `hcmp` past the line's own
+   clocks (228..254) releases at the first clock of the next line, which is what the old test said.
+3. `rt_bus_charge` keeps its position frame-relative: the internal phase and the word phase advance
+   it by 2 and subtract one frame at the top, so nothing in the loop normalises. The two
+   `walk_slots` calls became one loop (the boundary between them carried no state), and the copper's
+   "held at a WAIT the beam has not reached" case - which only steps its one-on-one-off
+   alternation - is collected in a register and applied to `delay` once, with the state re-read
+   after each real copper call and each vblank.
+
+**The reference path.** `--refbus` (both front ends) keeps the first implementation -
+division per clock, `(vpos,hpos)` WAIT comparison, two `walk_slots` calls - and `rt_bus_charge`
+and `rt_bus_idle` branch to it. That is the differential half of the change: the two must agree
+instruction for instruction.
+
+**Validated, machine state first.** The differential found three real bugs on the way (a bus-word
+jump that ignored an odd cycle parity, a skip that could cross a WAIT, and a blitter batch that
+must not run while the copper can still take a clock); the per-instruction self-check that found
+them compared the charge and the copper state against the reference for every instruction, and was
+removed afterwards.
+
+| check | what it compares | result |
+|---|---|---|
+| `--ticklog`, 1450 frames, host | instructions *and* budget at every vblank, before vs after | identical |
+| `--state` + full `--ram`, frames 700/900/1100, 12 M instructions | registers, custom registers, RAM hash, whole RAM | identical to `--refbus` |
+| DOS, hospital walk, audio on, `--dump 699` | the 2 MB RAM image at the end of the run | identical to `--refbus`, both 7,748,472 instructions |
+| `tools\gate.ps1 -Only camera` / `-Only present` | the hospital camera and the raster | PASS / PASS |
+
+The core fixture steps cannot run in this clone (the gitignored `ref\fixtures` tree is absent).
+
+**DOS, fixed 100,000 cycles**, hospital walk (`--call 0x1C19A:100`, the camera check's walk
+script, `--perf --perfafter 500 --frames 700`, window 500..699):
+
+| | before | after | |
+|---|---|---|---|
+| conversion | 20.4 ms/frame | 20.4 ms | untouched |
+| blitter (data path) | 16.8 ms | 16.7 ms | untouched |
+| vblank | 23.4 ms | 23.7 ms | the conversion lives in it |
+| machine run | 138.9 ms | 92.0 ms | **1.51x** |
+| **frame** | **162.2 ms (6.16 fps)** | **115.6 ms (8.65 fps)** | **1.40x** |
+
+Same frames, same rasters (700 / 706), same 9578 instructions per frame in the window, so the
+ratio is the walker's and nothing else moved. On the host the same 12 M instructions take 1.22 s
+through `--refbus` and 0.80 s through the fast walker.
+
+**Tried and rejected, by measurement.** Option B/C were implemented in full - per-line free-clock
+tables, a jump from a bus word straight to the next clock nobody owns, whole-run skips with the
+copper's alternation advanced by the run's free-clock count, and the blitter given a run's clocks
+in one go (its progress is a count, not a position) - and were exact (byte-identical states) but
+**slower where it counts**: 121.0-122.5 ms/frame in DOSBox against 115.5 for the flat loop, because
+the per-line bookkeeping is more emulated instructions than the clocks it saves on a machine whose
+playfield is an alternating DMA/free pattern anyway. They cost 0.80 s against 0.84-0.89 s on the
+host, so the idea is recorded here rather than kept. What survived from that work is the frame-
+relative position (no modulo per clock) and the hoisted copper state.
+
+**The hospital's flag wait loop (option D) was checked first, as the task asked**, and is not a
+hotspot. `L_18222`..`L_18228` is entered only while `DAT_2a170` (`A4+0x71A`) is below 8 - the
+scene's first eight update passes, the counter the load loop increments - and the flag at
+`0x28CE0` has six setters (`0x00C120`, `0x010968`, `0x0170E2`, `0x01821C`, `0x01BB14`, `0x01CFA0`)
+and seven clearers (`0x010C0E`, `0x011CC8`, `0x011E8C`, `0x017F28`, `0x01B960`, `0x01BA52`,
+`0x01BDAE`), none of them inside the loop, so its release is asynchronous. A 64-byte-bucket pc
+histogram of a 725-frame hospital run (8 M instructions) has no bucket in `0x18200..0x1823F`
+anywhere near the top 24 - the leaders are the tile-blit loop at `0x1EB00` (27 % of all
+instructions) and the level unpacker at `0x24140` (20 %) - so fast-forwarding the spin would change
+diagnostic instruction counts and save nothing measurable. Nothing about it was changed.
+
+**Measuring this scene again.** `--input` needs an 8.3 name under DOSBox (it does not resolve a
+long name), so the walk script is a copy of the one `tools\camera-check.ps1` writes, at
+`out\HOSPWALK.TXT`:
+
+    ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --perf --perfafter 500 --frames 700
+
+(the same scene as that check, entered through FUN_0001819a at frame 100). A
+`--perf` run is 0.1 % slower in guest instructions than a plain one, because the sampled run paces
+the host audio ring differently and the DOS music driver's work follows the ring; the *timing*
+figures are stable to 0.1 ms within a build, and the plain runs (with audio) and the no-audio runs
+agree on 7,748,472 instructions and on the RAM at frame 699.

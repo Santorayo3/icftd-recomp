@@ -152,6 +152,9 @@ static int count_bits(u16 v)
     return n;
 }
 
+/* The whole frame's slot map, one byte per colour clock (the walker section below builds it). */
+static void build_frame_map(rt_slots *s);
+
 /* Applies one copper-list DMACON write (bit 15 set = set the bits, clear = clear them). */
 static u16 dmacon_apply(u16 cur, u16 v)
 {
@@ -254,6 +257,7 @@ void rt_slots_update(rt_machine *m)
     s->words = words;
 
     build_maps(s, 1);
+    build_frame_map(s);
 
     s->groupFree = 0;
     for (i = 0; i < s->fetchStart; i++)
@@ -288,40 +292,101 @@ void rt_slots_update(rt_machine *m)
  * *faster* - the MovE script finished by frame 700 instead of 1640 - so this engine's cost is not
  * a starved CPU but blit work, and the rule stays out until the blit side is right. */
 
-static long walk_slots(rt_machine *m, long pos, int clocks)
+/* The frame's slot map as one array, one byte per colour clock from the top of the frame, built by
+ * rt_slots_update() from the two per-line maps. The walkers keep their position in the frame in
+ * 68000 cycles, reduced to [0, EMU_CYCLES_PER_FRAME) as they step, so a slot is a byte load at
+ * pos/2 - the per-clock division and modulo the first version did (line, then clock in line) was
+ * the largest single cost of an emulated instruction. */
+#define EMU_FRAME_SLOTS  ((EMU_CYCLES_PER_FRAME + 1) / 2)   /* 70,938 colour clocks */
+
+static u8 g_frameMap[EMU_FRAME_SLOTS];
+static int g_busReference;                               /* --refbus */
+
+void rt_bus_set_reference(int on)
+{
+    g_busReference = on;
+}
+
+static void build_frame_map(rt_slots *s)
+{
+    int line, idx = 0;
+
+    for (line = 0; line < EMU_FRAME_LINES && idx < EMU_FRAME_SLOTS; line++)
+    {
+        const u8 *row = (line >= s->vstart && line < s->vstop) ? s->map : s->mapBlank;
+        int n = EMU_LINE_COLOR_CLOCKS;
+
+        if (n > EMU_FRAME_SLOTS - idx) n = EMU_FRAME_SLOTS - idx;
+        memcpy(&g_frameMap[idx], row, (size_t)n);
+        idx += n;
+    }
+}
+
+/* 1 when the colour clock at `pos` (68000 cycles into the frame) belongs to DMA. */
+int rt_slot_taken(rt_machine *m, long pos)
+{
+    if (!m->slots.valid) return 0;
+    if (pos < 0 || pos >= (long)EMU_CYCLES_PER_FRAME)
+    {
+        pos %= (long)EMU_CYCLES_PER_FRAME;
+        if (pos < 0) pos += (long)EMU_CYCLES_PER_FRAME;
+    }
+    return g_frameMap[(u32)pos >> 1] != RT_SLOT_CPU;
+}
+
+/* --- the reference walkers -----------------------------------------------------------------
+ * The first implementation, kept behind --refbus so a run can be diffed against it: it derives
+ * line and clock from the position with a division per clock and hands the copper an absolute
+ * position. Nothing else uses it; it is the differential half of the fast path below. */
+static int slot_taken_ref(rt_machine *m, long pos)
+{
+    rt_slots *s = &m->slots;
+    long line, cck;
+    const u8 *map;
+
+    if (!s->valid) return 0;
+    pos %= (long)EMU_CYCLES_PER_FRAME;
+    if (pos < 0) pos += EMU_CYCLES_PER_FRAME;
+    line = pos / EMU_LINE_CYCLES;
+    cck = (pos % EMU_LINE_CYCLES) >> 1;
+    if (line >= EMU_FRAME_LINES) line = EMU_FRAME_LINES - 1;
+    map = (line >= s->vstart && line < s->vstop) ? s->map : s->mapBlank;
+    return map[cck] != RT_SLOT_CPU;
+}
+
+static long walk_slots_ref(rt_machine *m, long pos, int clocks)
 {
     int i = 0;
 
     while (i < clocks)
     {
-        int taken = rt_slot_taken(m, pos);
-        if (!taken && rt_cop_take_clock(m, pos))      { pos += 2; continue; }  /* the copper */
-        if (!taken && rt_blit_take_clock(m))          { pos += 2; continue; }  /* the blitter */
+        int taken = slot_taken_ref(m, pos);
+        if (!taken && rt_cop_take_clock_ref(m, pos)) { pos += 2; continue; }  /* the copper */
+        if (!taken && rt_blit_take_clock(m))         { pos += 2; continue; }  /* the blitter */
         pos += 2;
         if (!taken) i++;
     }
     return pos;
 }
 
-/* Time passing without the CPU using the bus (an instruction's internal cycles, or an idle
- * frame): the clock still moves and the copper and the blitter still take the clocks nobody else
- * owns. At the top of the frame the copper restarts at its list. */
-static long frame_cursor(const rt_machine *m);
-
-static long beam_pass(rt_machine *m, long pos, int clocks)
+static long beam_pass_ref(rt_machine *m, long pos, int clocks)
 {
     while (clocks-- > 0)
     {
         long at = pos % (long)EMU_CYCLES_PER_FRAME;
         if (at == 0) rt_cop_vblank(m);
-        if (!rt_slot_taken(m, pos))
+        if (!slot_taken_ref(m, pos))
         {
-            if (!rt_cop_take_clock(m, pos)) rt_blit_take_clock(m);
+            if (!rt_cop_take_clock_ref(m, pos)) rt_blit_take_clock(m);
         }
         pos += 2;
     }
     return pos;
 }
+
+/* --- the fast walkers --------------------------------------------------------------------- */
+
+static long frame_cursor(const rt_machine *m);
 
 /* Waits for a running blit the way the hardware makes the CPU wait: the clock keeps passing, the
  * blitter takes the clocks nobody else owns, and the caller's budget is charged for the time that
@@ -337,6 +402,104 @@ long rt_blit_wait(rt_machine *m)
         m->cyclesToTick -= 2;
     }
     return start - m->cyclesToTick;
+}
+
+/* One colour clock passes with the CPU not using the bus (an instruction's internal cycles, or an
+ * idle frame): the copper and the blitter still take the clocks nobody else owns, and at the top
+ * of the frame the copper restarts at its list. `at` is the frame position, in [0, one frame).
+ *
+ * The copper's state is read into locals: while it is held at a WAIT the beam has not reached, a
+ * clock nobody owns only steps its one-on-one-off alternation - which is all rt_cop_take_clock
+ * would do, with a call - so that step is collected and applied to the delay once at the end. */
+static void bus_internal(rt_machine *m, long *atp, int clocks)
+{
+    rt_copper *cp = &m->copper;
+    long at = *atp;
+    int live = cp->installed && !cp->done;
+    int waiting = cp->waiting;
+    long wake = cp->wakeAt;
+    int toggle = 0;
+
+    while (clocks-- > 0)
+    {
+        if (at == 0)
+        {
+            rt_cop_vblank(m);
+            toggle = 0;
+            live = cp->installed && !cp->done;
+            waiting = cp->waiting;
+            wake = cp->wakeAt;
+        }
+        if (g_frameMap[(u32)at >> 1] == RT_SLOT_CPU)
+        {
+            int took = 0;
+
+            if (live)
+            {
+                if (waiting && at < wake) toggle ^= 1;
+                else
+                {
+                    if (toggle) { cp->delay ^= 1; toggle = 0; }
+                    took = rt_cop_take_clock(m, at);
+                    live = cp->installed && !cp->done;
+                    waiting = cp->waiting;
+                    wake = cp->wakeAt;
+                }
+            }
+            if (!took && m->blit.run) rt_blit_take_clock(m);
+        }
+        at += 2;
+        if (at >= (long)EMU_CYCLES_PER_FRAME) at -= (long)EMU_CYCLES_PER_FRAME;
+    }
+    if (toggle) cp->delay ^= 1;
+    *atp = at;
+}
+
+/* The CPU's own bus words, one colour clock each: the clock the word lands on is the first one no
+ * DMA source owns, every owned clock in front of it is a wait state. Returns the time it took. */
+static long bus_words(rt_machine *m, long *atp, int words)
+{
+    rt_copper *cp = &m->copper;
+    long at = *atp, spent = 0;
+    int i = 0;
+
+    while (i < words)
+    {
+        if (g_frameMap[(u32)at >> 1] == RT_SLOT_CPU)
+        {
+            int took = 0;
+
+            if (cp->installed && !cp->done)
+            {
+                if (cp->waiting && at < cp->wakeAt) cp->delay ^= 1;
+                else took = rt_cop_take_clock(m, at);
+            }
+            if (!took && m->blit.run) took = rt_blit_take_clock(m);
+            if (!took) i++;
+        }
+        at += 2;
+        if (at >= (long)EMU_CYCLES_PER_FRAME) at -= (long)EMU_CYCLES_PER_FRAME;
+        spent += 2;
+    }
+    *atp = at;
+    return spent;
+}
+
+/* Time passing without the CPU using the bus (an instruction's internal cycles, or an idle
+ * frame). Returns the 68000 cycles the clock advanced, which is `cycles` rounded down to a clock.
+ */
+long rt_bus_idle(struct rt_machine *m, long cycles)
+{
+    long clocks = cycles / 2L;
+
+    if (clocks > 0)
+    {
+        long at = frame_cursor(m);
+
+        if (g_busReference) beam_pass_ref(m, at, (int)clocks);
+        else                    bus_internal(m, &at, (int)clocks);
+    }
+    return cycles;
 }
 
 /* A CPU memory access at the moment it happens: one colour clock of chip bus per word, plus one
@@ -356,7 +519,7 @@ static long bus_access_cost(rt_machine *m, int words)
     if (!m->slots.valid) return 2L * (long)words;
     if (m->slots.dirty) rt_slots_update(m);
     start = frame_cursor(m);
-    pos = walk_slots(m, start, words);
+    pos = walk_slots_ref(m, start, words);
     return pos - start;
 }
 
@@ -365,71 +528,70 @@ static long frame_cursor(const rt_machine *m)
 {
     long pos = (long)EMU_CYCLES_PER_FRAME - m->cyclesToTick;
 
-    pos %= (long)EMU_CYCLES_PER_FRAME;
-    if (pos < 0) pos += (long)EMU_CYCLES_PER_FRAME;
+    /* The budget is spent inside one frame, so this is a comparison in the common case; only a
+     * request that forced the counter to 0 or past the frame needs the modulo. */
+    if (pos < 0 || pos >= (long)EMU_CYCLES_PER_FRAME)
+    {
+        pos %= (long)EMU_CYCLES_PER_FRAME;
+        if (pos < 0) pos += (long)EMU_CYCLES_PER_FRAME;
+    }
     return pos;
 }
 
-int rt_slot_taken(rt_machine *m, long pos)
+/* MOVEM's word count is its register list, not the opcode: 0x48xx stores registers to memory and
+ * 0x4Cxx loads them, both with the mask in the extension word. Charging the measured average there
+ * would be wrong by up to 24 words. */
+static int bus_accesses(rt_machine *m, long cost, u16 opcode, u32 pc)
 {
-    rt_slots *s = &m->slots;
-    long line, cck;
-    const u8 *map;
+    int accesses = (int)rt_bus_cycles[opcode];
 
-    if (!s->valid) return 0;
-    pos %= (long)EMU_CYCLES_PER_FRAME;
-    if (pos < 0) pos += EMU_CYCLES_PER_FRAME;
-    line = pos / EMU_LINE_CYCLES;
-    cck = (pos % EMU_LINE_CYCLES) >> 1;
-    if (line >= EMU_FRAME_LINES) line = EMU_FRAME_LINES - 1;
-    map = (line >= s->vstart && line < s->vstop) ? s->map : s->mapBlank;
-    return map[cck] != RT_SLOT_CPU;
-}
-
-long rt_bus_idle(struct rt_machine *m, long cycles)
-{
-    long clocks = cycles / 2L;
-
-    if (clocks > 0) beam_pass(m, frame_cursor(m), (int)clocks);
-    return cycles;
-}
-
-long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
-{
-    rt_slots *s = &m->slots;
-    long start, pos;
-    int accesses;
-
-    if (!s->valid) return cost;
-    if (s->dirty) rt_slots_update(m);
-
-    accesses = (int)rt_bus_cycles[opcode];
-    /* MOVEM's word count is its register list, not the opcode: 0x48xx stores registers to memory
-     * and 0x4Cxx loads them, both with the mask in the extension word. Charging the measured
-     * average there would be wrong by up to 24 words. */
     if ((opcode & 0xFB80u) == 0x4880u)
         accesses += count_bits(rt_read16(&m->mem, pc + 2u));
     if (accesses < 0) accesses = 0;
     /* Clamp: a memory cycle is 4 clock cycles, so an instruction cannot have more bus words than
      * half its cycle count. */
     if ((long)accesses * 2L > cost) accesses = (int)(cost / 2L);
+    return accesses;
+}
 
-    start = frame_cursor(m);
-    /* Two parts, in the order the 68000 spends them: the instruction's internal cycles (which pass
-     * through the clock at full rate, letting a running blit take the slots it wants), then its
-     * memory words at one colour clock each. The words are split with rt_inst_len - the exact
-     * number of words the instruction occupies - so the fetch part can never exceed the total and a
-     * bad table entry cannot silently charge a fetch twice. UAE charges accesses one clock each
-     * (mem_access_delay_* -> wait_cpu_cycle_read); the other two clocks of the memory cycle are the
-     * 68000's address phase and are inside `cost`. */
+long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
+{
+    rt_slots *s = &m->slots;
+    long at, start, spent;
+    int accesses;
+
+    if (!s->valid) return cost;
+    if (s->dirty) rt_slots_update(m);
+
+    accesses = bus_accesses(m, cost, opcode, pc);
+    at = start = frame_cursor(m);
+
+    if (g_busReference)
     {
         int fetch = (int)rt_inst_len[opcode];
+        long pos;
+
         if (fetch > accesses) fetch = accesses;
-        pos = beam_pass(m, start, (int)((cost - 2L * (long)accesses) / 2L));
-        pos = walk_slots(m, pos, fetch);
-        pos = walk_slots(m, pos, accesses - fetch);
+        pos = beam_pass_ref(m, start, (int)((cost - 2L * (long)accesses) / 2L));
+        pos = walk_slots_ref(m, pos, fetch);
+        pos = walk_slots_ref(m, pos, accesses - fetch);
+        return pos - start;
     }
-    return pos - start;
+
+    /* Two parts, in the order the 68000 spends them: the instruction's internal cycles (which pass
+     * through the clock at full rate, letting a running blit take the slots it wants), then its
+     * memory words at one colour clock each, split with rt_inst_len so the fetch part can never
+     * exceed the total. UAE charges accesses one clock each (mem_access_delay_* ->
+     * wait_cpu_cycle_read); the other two clocks of the memory cycle are the 68000's address phase
+     * and are inside `cost`. */
+    {
+        int clocks = (int)((cost - 2L * (long)accesses) / 2L);
+
+        bus_internal(m, &at, clocks);
+        spent = 2L * (long)clocks;
+    }
+    spent += bus_words(m, &at, accesses);
+    return spent;
 }
 
 /* --- the --slots report -------------------------------------------------------------------- */

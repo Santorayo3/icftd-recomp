@@ -73,6 +73,11 @@ void rt_slots_reset(struct rt_machine *m);
 /* 1 when the colour clock at `pos` (68000 cycles into the frame) belongs to DMA. */
 int  rt_slot_taken(struct rt_machine *m, long pos);
 
+/* --refbus: charge the bus with the first, division-per-clock walker instead of the fast one. The
+ * two must agree instruction for instruction, which is what makes a scheduler change checkable:
+ * run the same script twice, once with --refbus, and diff the --state / --ram dumps. */
+void rt_bus_set_reference(int on);
+
 /* The time an instruction really takes: `cost` from the 68000 cycle table, split into internal
  * cycles (full speed) and `rt_bus_cycles[opcode]` bus words walked through the slot map. `pc` is
  * the instruction's own address - MOVEM's word count comes from the mask in its extension word.

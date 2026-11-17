@@ -1627,7 +1627,12 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--slots") == 0) { slotsDump = 1; continue; }
         if (strcmp(argv[i], "--slots-check") == 0) { slotsCheck = 1; continue; }
         if (strcmp(argv[i], "--slotsat") == 0 && i + 1 < argc) { slotsAt = (u32)strtoul(argv[++i], 0, 0); continue; }
-        if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTablePath = argv[++i]; continue; }        if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
+        if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTablePath = argv[++i]; continue; }
+        /* --refbus: charge the bus the first, division-per-clock way. The two walkers must agree
+         * instruction for instruction, so the same script run with and without this must end on
+         * the same --state / --ram bytes (slots.h). */
+        if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
+        if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
