@@ -121,8 +121,13 @@ the parts that fit.
    functions with the original names, not a diff against generated code. `recomp-check --collide`
    (gate step 4) is what keeps a patch honest: it runs the patch and the translation of the same
    68000 routine from identical machine state and compares D0, the CCR, A7, every byte written and
-   the cycles charged. `src\recomp\patches\collide.c` is the first one - the collision probes. See
-   `docs\next-session.md`, "Native collision probes".
+   the cycles charged. `src\recomp\patches\collide.c` is the first one - the collision probes;
+   `src\recomp\patches\wait.c` the second, which is reached differently: the emitter recognises the
+   engine's flag-wait loops (`tst` / `bcc` / `bra` on a word an interrupt server clears) and emits
+   one `rc_wait` call at the loop's test, the three instructions still behind it as the reference
+   path. `recomp-check --wait` compares a whole wait through that seam against its translation, and
+   `--refwait` makes a game run take the translated path for a `--state` diff.
+   See `docs\next-session.md`, "Native collision probes" and "The hospital's frame handshake".
 2. **Hook seam.** The runtime exposes named events (`scene_enter`, `frame_end`, `text_shown`,
    `sprite_draw`, ...) that a mod can attach to with one call, so most tweaks need no patching.
 3. **Data seam.** Art, palettes and MovE scripts stay in `assets\game.pak`, which is our own

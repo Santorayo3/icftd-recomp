@@ -404,6 +404,30 @@ void rt_cia_service(rt_machine *m)
     m->audio.inHandler--;
 }
 
+long rt_time_next_service(rt_machine *m)
+{
+    long best = -1;
+    int i, k;
+
+    if (m->ciaPending) return 0;                        /* one is due at the next boundary */
+    for (i = 0; i < 2; i++)
+    {
+        rt_cia *c = &m->cia[i];
+        long cyc;
+        int served = 0;
+
+        if ((c->cra & 0x01u) == 0) continue;            /* stopped */
+        if ((c->icrMask & 0x01u) == 0) continue;        /* timer A masked, or no handler wanted */
+        for (k = 0; k < m->icrCount; k++)
+            if (m->icr[k].cia == (u32)i && m->icr[k].bit == 0) { served = 1; break; }
+        if (!served) continue;
+        /* cia_tick counts the timer down on every E tick and underflows on the one after `count`. */
+        cyc = (long)(CPU_PER_E - m->eAcc) + (long)c->count * (long)CPU_PER_E;
+        if (best < 0 || cyc < best) best = cyc;
+    }
+    return best;
+}
+
 void rt_time_idle(rt_machine *m)
 {
     if (m->cyclesToTick > 0)

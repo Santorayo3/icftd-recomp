@@ -31,6 +31,9 @@
  *   --ticklog           oracle_tick's `tick N in|out` lines, to compare pacing with the host
  *   --refbus            charge the bus the first, division-per-clock way: the reference walker,
  *                        which any scheduler change must reproduce byte for byte (slots.h)
+ *   --refwait           run the translated flag waits instead of the native loop in
+ *                        src\recomp\patches\wait.c - the reference half of that seam, which the
+ *                        native wait must reproduce byte for byte (--dump/--state diff)
  *   --genericblit       run every blit through the general row engine: the reference half of the
  *                        per-blit specialization, which the planned engines must reproduce
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
@@ -1385,6 +1388,9 @@ int main(int argc, char **argv)
     long runInsns = 0;
     rt_perf perfRt;
     plat_clock_info perfClockOut;
+    /* The game is the screen: the quiet console is the first thing set, so no diagnostic can be
+     * written into mode 13h (a redirected stdout keeps its log - see platform.h). */
+    plat_quiet_console();
     plat_set_program(argc > 0 ? argv[0] : 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     memset(&c, 0, sizeof c);
@@ -1414,6 +1420,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
         /* --refbus: the reference bus walker (slots.h). Same machine state, slower. */
         if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
+        /* --refwait: the translated flag waits run instead of the native loop (same three
+         * instructions, same charges). Both must produce the same --dump / --state bytes. */
+        if (strcmp(argv[i], "--refwait") == 0) { rc_waitTranslated = 1; continue; }
         if (strcmp(argv[i], "--genericblit") == 0) { g_genericBlit = 1; continue; }
         if (strcmp(argv[i], "--srcdiff") == 0) { rt_gfx_srcdiff(1); continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }

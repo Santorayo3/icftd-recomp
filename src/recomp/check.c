@@ -8,12 +8,18 @@
  *
  *   recomp-check <fixture.fx> [--dump <out.txt>] [--image <dshell.img>]
  *   recomp-check --collide [<cases>]
+ *   recomp-check --wait [<cases>]
  *
  * --collide is the same comparison for the hand-written patches in src\recomp\patches: the native
  * routine and the generated translation of the very same 68000 routine are run from identical
  * machine state, and must agree on D0, the CCR, A7, every byte of RAM they write and the cycles
  * they charge to the frame budget. The fixtures cannot cover those (there is no 68000 code left to
  * interpret them against), so the generated body - which the fixtures *do* cover - is the reference.
+ *
+ * --wait does the same for the flag waits (src\recomp\patches\wait.c): the hospital's polling loop
+ * is run once through rc_wait and once as its translation, from one machine state, and the whole
+ * machine has to agree afterwards - including where the vblank landed, the debt it left in the
+ * frame budget and whether a CIA handler was asked for at the same instruction.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -347,6 +353,256 @@ static int collide_check(long cases, const char *imagePath)
     return failed != 0;
 }
 
+/* --- --wait: the native flag wait against the translated polling loop ------------------------
+ * The hospital's frame handshake (0x18222..0x18228) is the loop `src\recomp\patches\wait.c`
+ * stands in for: `tst.w (A4-0xD76)` / `beq` / `bra` on the word the vertical blank's server
+ * clears. Both implementations are run from identical machine state and the whole machine is
+ * compared afterwards: the register file, SR, PC, the word itself, every byte of RAM, the cycle
+ * budget (including the debt a vblank inside the wait leaves), the frame counter, the instruction
+ * count and the number of CIA handlers the run asked for. The translated body is the reference -
+ * it is what runs whenever rc_wait declines.
+ *
+ * What varies per case is everything the outcome depends on: where in the frame the wait starts
+ * (which instruction the vblank lands in), the display the slot map is built from, the copper's
+ * state when the run begins (held at a WAIT, past its list, or absent), the CIA timer's countdown
+ * (a handler can fall inside a run, and then it has to be asked for at the same instruction), and
+ * whether the word is already clear when the loop is entered.
+ */
+
+#define WAIT_TEST    0x00018222u
+#define WAIT_BCC     0x00018226u
+#define WAIT_BRA     0x00018228u
+#define WAIT_EXIT    0x0001822Au
+#define WAIT_RESUME  0x00011BF0u       /* where the jsr after the wait transfers */
+#define WAIT_FLAG    0x00028CE0u
+#define WAIT_A4      0x00029A56u
+#define WAIT_RAM     0x0100000u
+
+typedef struct wait_result
+{
+    cpu_t      cpu;
+    long       budget;                 /* cyclesToTick after the run */
+    u32        frame;
+    long       insns;
+    int        irqs;                   /* CIA handlers the run asked for */
+    int        copperWaiting, copperDone, copperDelay, copperMoves;
+    u32        copperPc;
+    int        ramDiff;                /* byte + 1 where the two RAM images differ, 0 = same */
+} wait_result;
+
+static int wait_irqRuns;
+
+static void wait_frame_hook(cpu_t *c, rt_machine *m)
+{
+    (void)c;
+    m->frame++;
+    m->cyclesToTick += EMU_CYCLES_PER_FRAME;
+    rt_write16(&m->mem, WAIT_FLAG, 0);    /* the vertical blank's server clears the word */
+}
+
+static void wait_irq(rt_machine *m, u32 code)
+{
+    (void)m; (void)code;
+    wait_irqRuns++;
+}
+
+/* One run of the loop from `state`: `native` asks rc_wait first (as the emitted loop does) and
+ * otherwise starts at the loop's head with the translation. Both leave the machine where the
+ * function's own jsr after the wait hands control back. */
+static void wait_run(int native, cpu_t *start, wait_result *r, u8 *ramOut)
+{
+    cpu_t c = *start;
+    int guard = 4000000;
+
+    wait_irqRuns = 0;
+    rc_depth = 1;
+    rc_stopOnReturn = 0;
+    rc_waitTranslated = native ? 0 : 1;
+
+    c.pc = WAIT_TEST;
+    if (native &&
+        rc_wait(&c, &g_m, WAIT_TEST, 12, WAIT_BCC, 10, 7, WAIT_BRA, 10,
+                WAIT_A4 - 0xD76u, RC_W))
+        c.pc = WAIT_EXIT;
+
+    while (c.pc != WAIT_RESUME && guard-- > 0)
+    {
+        rc_fn fn = rc_lookup(c.pc);
+
+        if (fn == 0)
+        {
+            const rc_entry *owner = rc_containing(c.pc);
+            if (owner != 0) fn = owner->fn;
+        }
+        if (fn == 0) { printf("recomp-check: no code at %06lX\n", (unsigned long)c.pc); exit(1); }
+        fn(&c, &g_m);
+    }
+    if (guard <= 0) { printf("recomp-check: the wait did not end\n"); exit(1); }
+
+    r->cpu = c;
+    r->budget = g_m.cyclesToTick;
+    r->frame = g_m.frame;
+    r->insns = g_m.insns;
+    r->irqs = wait_irqRuns;
+    r->copperWaiting = g_m.copper.waiting;
+    r->copperDone = g_m.copper.done;
+    r->copperDelay = g_m.copper.delay;
+    r->copperMoves = g_m.copper.moves;
+    r->copperPc = g_m.copper.pc;
+    memcpy(ramOut, g_m.mem.base, WAIT_RAM);
+}
+
+static int wait_check(long cases, const char *imagePath)
+{
+    long n, failed = 0, shown = 0, regFail = 0, memFail = 0, cycFail = 0;
+    long stateFail = 0, irqFail = 0, insnFail = 0;
+    cpu_t base;
+    u8 *img, *pristine, *ramA, *ramB;
+    u32 imgLen, i;
+    FILE *f;
+
+    memset(&g_m, 0, sizeof g_m);
+    if (!rt_mem_init(&g_m.mem, WAIT_RAM)) { printf("recomp-check: out of memory\n"); return 1; }
+    rt_current = &g_m;
+    rc_frame_hook = wait_frame_hook;
+    g_m.on_cia = wait_irq;
+
+    f = fopen(imagePath, "rb");
+    if (f == 0) { printf("recomp-check: cannot read the image %s\n", imagePath); return 1; }
+    fseek(f, 0, SEEK_END); imgLen = (u32)ftell(f); fseek(f, 0, SEEK_SET);
+    img = (u8 *)malloc(imgLen);
+    if (img == 0 || fread(img, 1, imgLen, f) != imgLen) { fclose(f); return 1; }
+    fclose(f);
+
+    pristine = (u8 *)calloc(WAIT_RAM, 1);
+    ramA     = (u8 *)malloc(WAIT_RAM);
+    ramB     = (u8 *)malloc(WAIT_RAM);
+    if (!pristine || !ramA || !ramB) { printf("recomp-check: out of memory\n"); return 1; }
+
+    for (n = 0; n < cases; n++)
+    {
+        /* Where in the frame the loop is entered: everything from the top of the frame to the last
+         * few hundred cycles, so the vblank lands in each of the three instructions. */
+        u32 budget = (u32)((n * 7919u) % (u32)EMU_CYCLES_PER_FRAME) + 400u;
+        wait_result a, b;
+        rt_machine save;
+        int bad = 0;
+
+        memcpy(g_m.mem.base, pristine, WAIT_RAM);
+        rt_mem_load(&g_m.mem, 0, img, imgLen);
+
+        /* The hospital's display, so the slot map is the one the wait really walks. */
+        g_m.custom[0x100 >> 1] = ((n & 7) == 3) ? 0x1000u : 0x5000u;   /* BPLCON0: planes, lores */
+        g_m.custom[0x092 >> 1] = 0x0038u;         /* DDFSTRT */
+        g_m.custom[0x094 >> 1] = 0x00C8u;         /* DDFSTOP */
+        g_m.custom[0x08E >> 1] = 0x2C81u;         /* DIWSTRT */
+        g_m.custom[0x090 >> 1] = 0xF4C1u;         /* DIWSTOP */
+        g_m.slots.dirty = 1;
+        rt_slots_update(&g_m);
+
+        /* The copper: held at a WAIT mostly well ahead of the loop (so a run can be proven), close
+         * to it, already behind it, past its list, or absent. */
+        memset(&g_m.copper, 0, sizeof g_m.copper);
+        g_m.copper.installed = 1;
+        g_m.copper.list = 0x0002CC00u;
+        g_m.copper.pc = 0x0002CC00u;
+        g_m.copper.waiting = 1;
+        g_m.copper.delay = (int)(n & 1);
+        {
+            long pos = (long)EMU_CYCLES_PER_FRAME - (long)budget;
+            long ahead = 2000 + (long)((n * 3571u) % 120000u);
+
+            g_m.copper.wakeAt = pos + ahead;
+            if ((n % 5) == 1) g_m.copper.wakeAt = pos + (long)((n * 977u) % 3000u);
+            if ((n % 7) == 2) g_m.copper.wakeAt = (n & 2) ? pos : pos - 100;
+        }
+        if ((n % 11) == 5) { g_m.copper.done = 1; g_m.copper.waiting = 0; }
+        if ((n % 13) == 7) { g_m.copper.installed = 0; g_m.copper.waiting = 0; }
+
+        /* A running CIA timer with a server attached: a handler can fall inside the wait, and its
+         * latch decides how long a run may be before the next one is due. */
+        memset(&g_m.cia, 0, sizeof g_m.cia);
+        memset(g_m.icr, 0, sizeof g_m.icr);
+        g_m.cia[0].cra = 1u;
+        g_m.cia[0].latch = (u16)(0x200u + (n * 37u) % 0x3000u);
+        g_m.cia[0].count = (u16)((n * 977u) % 0x3000u);
+        g_m.cia[0].icrMask = 1u;
+        g_m.icrCount = 1;
+        g_m.icr[0].cia = 0;
+        g_m.icr[0].bit = 0;
+        g_m.icr[0].code = 0x00010000u;
+        g_m.ciaPending = 0;
+        g_m.eAcc = (u32)(n % 10u);
+        g_m.frame = 700;
+        g_m.insns = 0;
+        g_m.cyclesToTick = (long)budget;
+        g_m.stop = 0;
+
+        rt_write16(&g_m.mem, WAIT_FLAG, ((n % 9) == 4) ? 0u : 1u);
+
+        memset(&base, 0, sizeof base);
+        base.a[4] = WAIT_A4;
+        base.a[7] = 0x00080000u;
+        base.sr = 0x2700u;
+        for (i = 0; i < 8; i++) base.d[i] = 0x11110000u + i;
+        for (i = 0; i < 8; i++) if (i != 4 && i != 7) base.a[i] = 0x22220000u + i * 0x100u;
+
+        save = g_m;
+        wait_run(0, &base, &a, ramA);
+
+        /* the whole machine back to the case's starting point, RAM included */
+        g_m = save;
+        memcpy(g_m.mem.base, pristine, WAIT_RAM);
+        rt_mem_load(&g_m.mem, 0, img, imgLen);
+        rt_write16(&g_m.mem, WAIT_FLAG, ((n % 9) == 4) ? 0u : 1u);
+        wait_run(1, &base, &b, ramB);
+
+        a.ramDiff = 0;
+        for (i = 0; i < WAIT_RAM; i++)
+            if (ramA[i] != ramB[i]) { a.ramDiff = (int)(i + 1u); break; }
+
+        if (a.cpu.pc != b.cpu.pc || (a.cpu.sr & 0x1FFFu) != (b.cpu.sr & 0x1FFFu) ||
+            a.cpu.a[7] != b.cpu.a[7] || a.cpu.d[0] != b.cpu.d[0])
+            { regFail++; bad = 1; }
+        if (a.budget != b.budget || a.frame != b.frame) { cycFail++; bad = 1; }
+        if (a.insns != b.insns) { insnFail++; bad = 1; }
+        if (a.irqs != b.irqs) { irqFail++; bad = 1; }
+        if (a.copperWaiting != b.copperWaiting || a.copperDone != b.copperDone ||
+            a.copperDelay != b.copperDelay || a.copperMoves != b.copperMoves ||
+            a.copperPc != b.copperPc)
+            { stateFail++; bad = 1; }
+        if (a.ramDiff) { memFail++; bad = 1; }
+
+        if (bad)
+        {
+            failed++;
+            if (shown < 8)
+            {
+                shown++;
+                printf("FAIL wait case %ld budget %lu: pc %06lx/%06lx d0 %08lx/%08lx sr %04lx/%04lx "
+                       "budget %ld/%ld frame %lu/%lu insns %ld/%ld irq %d/%d copper %d%d%d/%d%d%d%s\n",
+                       n, (unsigned long)budget,
+                       (unsigned long)a.cpu.pc, (unsigned long)b.cpu.pc,
+                       (unsigned long)a.cpu.d[0], (unsigned long)b.cpu.d[0],
+                       (unsigned long)a.cpu.sr, (unsigned long)b.cpu.sr,
+                       a.budget, b.budget,
+                       (unsigned long)a.frame, (unsigned long)b.frame,
+                       a.insns, b.insns, a.irqs, b.irqs,
+                       a.copperWaiting, a.copperDone, a.copperDelay,
+                       b.copperWaiting, b.copperDone, b.copperDelay,
+                       a.ramDiff ? " memory differs" : "");
+            }
+        }
+    }
+
+    printf("recomp: flag wait: %ld case(s), registers %ld, budget/frame %ld, instruction count %ld, "
+           "CIA handlers %ld, copper %ld, RAM %ld differ%s\n",
+           cases, regFail, cycFail, insnFail, irqFail, stateFail, memFail,
+           failed ? "" : " - all agree");
+    free(pristine); free(ramA); free(ramB); free(img);
+    return failed != 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *path = 0, *dumpPath = 0, *imagePath = CHECK_IMAGE;
@@ -368,12 +624,19 @@ int main(int argc, char **argv)
             if (k + 1 < argc && argv[k + 1][0] >= '0' && argv[k + 1][0] <= '9') cases = strtol(argv[++k], 0, 0);
             return collide_check(cases, imagePath);
         }
+        if (strcmp(argv[k], "--wait") == 0)
+        {
+            long cases = 2000;
+            if (k + 1 < argc && argv[k + 1][0] >= '0' && argv[k + 1][0] <= '9') cases = strtol(argv[++k], 0, 0);
+            return wait_check(cases, imagePath);
+        }
         if (path == 0) { path = argv[k]; continue; }
     }
     if (path == 0)
     {
         printf("usage: recomp-check <fixture.fx> [--dump <out.txt>] [--image <dshell.img>]\n"
-               "       recomp-check --collide [<cases>] [--image <dshell.img>]\n");
+               "       recomp-check --collide [<cases>] [--image <dshell.img>]\n"
+               "       recomp-check --wait [<cases>] [--image <dshell.img>]\n");
         return 1;
     }
     f = fopen(path, "rb");

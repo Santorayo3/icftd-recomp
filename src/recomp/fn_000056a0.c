@@ -93,6 +93,13 @@ L_56A4:
 
 L_56A6:
     /* 000056a6   4  tst.w (ffffce2e,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x000056a6u), 12,
+                RC_ADDR(0x000056aau), 10, 7,
+                RC_ADDR(0x000056acu), 10,
+                (c->a[4] - 0x31d2u), RC_W))
+        goto L_56AE;
     c->pc = RC_ADDR(0x000056a6u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31d2u));
@@ -348,6 +355,13 @@ L_571C:
 
 L_571E:
     /* 0000571e   4  tst.w (ffffce2e,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x0000571eu), 12,
+                RC_ADDR(0x00005722u), 10, 6,
+                RC_ADDR(0x00005724u), 10,
+                (c->a[4] - 0x31d2u), RC_W))
+        goto L_5726;
     c->pc = RC_ADDR(0x0000571eu);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31d2u));
@@ -368,6 +382,13 @@ L_5724:
 
 L_5726:
     /* 00005726   4  tst.w (ffffce2e,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x00005726u), 12,
+                RC_ADDR(0x0000572au), 10, 7,
+                RC_ADDR(0x0000572cu), 10,
+                (c->a[4] - 0x31d2u), RC_W))
+        goto L_572E;
     c->pc = RC_ADDR(0x00005726u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31d2u));

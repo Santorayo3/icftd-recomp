@@ -465,6 +465,8 @@ public sealed class Emitter
         c.Line("    return;");
         c.Sb.Append("    }\n\n");
 
+        Dictionary<uint, Wait> waits = FindWaits(f);
+
         foreach (Insn insn in f.Insns)
         {
             if (c.Why != null) break;
@@ -472,6 +474,7 @@ public sealed class Emitter
             c.Sb.Append("    /* ").Append(insn.Addr.ToString("x8", CultureInfo.InvariantCulture)).Append("  ")
              .Append(insn.Len.ToString(CultureInfo.InvariantCulture).PadLeft(2)).Append("  ")
              .Append(Describe(insn)).Append(" */\n");
+            if (waits.TryGetValue(insn.Addr, out Wait? w)) EmitWait(c, w);
             EmitInsn(c, insn);
             c.Blank();
         }
@@ -496,6 +499,60 @@ public sealed class Emitter
         /* Every instruction is a label now (a computed transfer can enter anywhere), so a branch
          * whose target is an instruction of this function is an internal goto. */
         foreach (Insn i in f.Insns) c.Labels.Add(i.Addr);
+    }
+
+    /* ---- flag waits ---------------------------------------------------------------------------
+     * `tst <ea>` / `b<cc> <exit>` / `bra` back to the test is the engine's frame handshake: it
+     * raises a word an interrupt server owns and spins until that server clears it (the hospital's
+     * 0x18222, the flight's 0x10968, ...). On an A500 the wait costs nothing; executed as
+     * translated instructions it is the largest single item of a frame (docs\dos-hospital-perf.txt,
+     * section 5). The three instructions stay emitted - they are the loop, and the differential
+     * switch runs them - but an iteration is offered to rc_wait first (src\recomp\patches\wait.c),
+     * which charges the very same three instructions and lets the frame hook, the CIA and the
+     * device clocks run between them. */
+    sealed class Wait
+    {
+        public Insn Test = null!, Bcc = null!, Bra = null!;
+    }
+
+    /// <summary>The test's effective address must have no side effect (it is re-read every
+    /// iteration by the native loop): (An), d16(An), d8(An,Xn) and the absolute forms.</summary>
+    static bool WaitEa(Ea ea)
+    {
+        return ea.Mode == 2 || ea.Mode == 5 || ea.Mode == 6 || ea.Mode == 7;
+    }
+
+    static Dictionary<uint, Wait> FindWaits(Function f)
+    {
+        var map = new Dictionary<uint, Wait>();
+
+        for (int k = 0; k + 2 < f.Insns.Count; k++)
+        {
+            Insn t = f.Insns[k], b = f.Insns[k + 1], r = f.Insns[k + 2];
+
+            if (t.Kind != Opk.Tst || t.Dst == null || !WaitEa(t.Dst)) continue;
+            if (b.Kind != Opk.Bcc || r.Kind != Opk.Bra) continue;
+            if (r.Target != t.Addr) continue;                          /* the loop back to the test */
+            if (b.Target != r.Addr + (uint)r.Len) continue;            /* ... and the exit after it */
+            map[t.Addr] = new Wait { Test = t, Bcc = b, Bra = r };
+        }
+        return map;
+    }
+
+    void EmitWait(Ctx c, Wait w)
+    {
+        string addr = Address(w.Test.Dst!, w.Test.Size, c);
+        string exit = c.Labels.Contains(w.Bcc.Target)
+            ? $"goto {Label(w.Bcc.Target)};"
+            : $"{{ c->pc = {ImmA(w.Bcc.Target)}; return; }}";
+
+        c.Line("/* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;");
+        c.Line(" * 0 means the three instructions below run instead (the reference path). */");
+        c.Line($"if (rc_wait(c, m, {ImmA(w.Test.Addr)}, {CycleTable.Of(w.Test.Op)},");
+        c.Line($"            {ImmA(w.Bcc.Addr)}, {CycleTable.Of(w.Bcc.Op)}, {w.Bcc.Cond},");
+        c.Line($"            {ImmA(w.Bra.Addr)}, {CycleTable.Of(w.Bra.Op)},");
+        c.Line($"            {addr}, {Sz(w.Test.Size)}))");
+        c.Line($"    {exit}");
     }
 
     void EmitInsn(Ctx c, Insn i)

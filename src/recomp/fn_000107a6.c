@@ -1298,6 +1298,13 @@ L_10976:
 
 L_1097A:
     /* 0001097a   4  tst.w (fffff28a,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x0001097au), 12,
+                RC_ADDR(0x0001097eu), 10, 7,
+                RC_ADDR(0x00010980u), 10,
+                (c->a[4] - 0xd76u), RC_W))
+        goto L_10982;
     c->pc = RC_ADDR(0x0001097au);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0xd76u));
@@ -1326,6 +1333,13 @@ L_10982:
 
 L_10988:
     /* 00010988   4  tst.w (af4,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x00010988u), 12,
+                RC_ADDR(0x0001098cu), 10, 7,
+                RC_ADDR(0x0001098eu), 10,
+                (c->a[4] + 0xaf4u), RC_W))
+        goto L_10990;
     c->pc = RC_ADDR(0x00010988u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] + 0xaf4u));

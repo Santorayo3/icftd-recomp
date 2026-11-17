@@ -1633,6 +1633,10 @@ int main(int argc, char **argv)
          * instruction for instruction, so the same script run with and without this must end on
          * the same --state / --ram bytes (slots.h). */
         if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
+        /* --refwait: run the translated flag waits instead of rc_wait's native loop (the same
+         * three instructions, charged the same way). Both must leave the same --state / --ram
+         * bytes at every frame boundary - the reference half of the wait seam. */
+        if (strcmp(argv[i], "--refwait") == 0) { rc_waitTranslated = 1; continue; }
         if (strcmp(argv[i], "--audioregs") == 0) { audioRegs = 1; continue; }
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }

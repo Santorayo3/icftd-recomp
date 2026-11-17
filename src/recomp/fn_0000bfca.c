@@ -557,6 +557,13 @@ L_C0A2:
 
 L_C0A6:
     /* 0000c0a6   4  tst.w (fffff28a,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x0000c0a6u), 12,
+                RC_ADDR(0x0000c0aau), 10, 7,
+                RC_ADDR(0x0000c0acu), 10,
+                (c->a[4] - 0xd76u), RC_W))
+        goto L_C0AE;
     c->pc = RC_ADDR(0x0000c0a6u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0xd76u));

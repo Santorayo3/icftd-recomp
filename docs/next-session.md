@@ -17,6 +17,25 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## The DOS game writes no text to the console (2026-11-17)
+
+Asked for: the DOS build printed debug and error lines while it ran - the start banner and memory
+line, `icftd: mouse driver present`, the audio/DSP lines, every unguarded runtime line (`emu:`,
+`dos.`, `assets:`, `config:`) and the run summary - and they drew into the mode 13h picture and left
+it glitched. A console write in mode 13h is INT 10h teletype: it lays the BIOS' 8x8 glyphs into
+video memory and scrolls it, so any diagnostic line is screen damage.
+
+`plat_quiet_console()` (`src\runtime\plat\dos\plat_dos.c`, declared in `src\runtime\platform.h`) is
+the first call in `dos_main.c`'s `main`, before anything is written. It asks DOS (INT 21h AH=44h,
+IOCTL get device information) what handle 1 is: bit 7 of DX set means a character device, i.e. the
+console, and stdout is then bound to `NUL`. A redirected stdout is a file, not a character device,
+so the log stays: `ICFTD.EXE ... > ICFTD.LOG`, which `tools\dos-run.ps1` and
+`tools\dos-extract-check.ps1` use, keeps every line it had. The OSD (`rt_osd_text`, the title, the
+loading line, the save/freeze notices) is picture data and is untouched. Measured in DOSBox: after
+a non-redirected 100-frame run the text screen holds only the harness' own `READY`/`pause` lines -
+the summary and start banner are gone - while the same run with `> T1.LOG` writes the same 3.5 KB
+log as before.
+
 ## The DOS release extracts itself on first start (2026-11-16)
 
 Task 4 of [`dos-parity.md`](dos-parity.md) is in. `src\runtime\assets.c` gained a layout parameter
@@ -3806,6 +3825,10 @@ start, and that run reads 97.3 ms (the same warm-up `tools\perf-dos.ps1` skips):
 | **frame** | **100.0 ms (10.00 fps)** | **92.0 ms (10.87 fps)** | **1.09x** |
 | instructions/frame | 9,578 | 7,232 | -2,346: what the three routines cost |
 
+These were taken before the blitter's per-blit specialization (next section), which lowered the
+frame the two columns sit on; "What is left in a native collision call" below re-measures the same
+pair afterwards (94.3 -> 84.4 ms, 1.12x).
+
 **Measuring this again.** The patch check is one command (`tools\gate.ps1 -Only native`). The frame
 numbers come from the same DOS run the perf report uses:
 
@@ -3820,6 +3843,75 @@ and the whole-run state comparison against a previous build is the host front en
 
 `fn_0001a59a`, `fn_0001a880` and `fn_0001a942` also call the probe (one probe per call); they keep
 their translation and get the native probe through the dispatcher.
+
+### What is left in a native collision call (measured, 2026-11-17)
+
+The question this round was how much emulation machinery still sits around the native collision
+arithmetic, and whether another round of batching would pay. It does not: 86-92 % of a call is the
+bus model walking emulated cycles the original charges too, and the only batching still open (one
+charge for a whole group) can touch 2 % of a charge, i.e. ~3 % of a call, while moving CIA services
+and blitter rows relative to the probe reads. Recorded here rather than built.
+
+**No per-instruction replay on the fast path.** `collide_probe` charges once per probe - a probe's
+36 to 115 original instruction boundaries collapse into one `rc_step_words` - and one more each for
+the group's prologue, its tail, every hit's accumulate block and every clamp store: at most 22
+charges for the eight-probe group (10 when nothing hits). The path is accounted for rather than
+averaged: the bounds checks charge their own totals (90, 116, 148 and 174 cycles for the four ways
+out of the screen), a full probe 1,278 plus 12 per set plane bit, and the group's tail and clamp
+stores what they cost. `rt_time_slice` (Paula + CIA device time) runs once per charge, not once per
+instruction. Only the frame-boundary fallback replays the generated body, and that is deliberate -
+it *is* the instruction-level stepping.
+
+**Charges per call in the scene.** DOS, `cycles=100000`, `[AUDIO] sound=1, music=1` (volume 1),
+hospital walk (`--call 0x1C19A:100`, the camera check's script, `--perf --perfafter 500 --frames
+700`), counters sampled in place over the whole run: 2,706 native calls over 697 frames (3.88 a
+frame), 9,356 probes (13.4 a frame), 12,516 charges = **4.63 per call**, 1,477,548 bus words = 546
+per call, and 479 calls (17.7 %) taking the fallback. The translation executes ~2,180 charge calls a
+frame for the same three routines (`docs\dos-hospital-perf.txt`: 1,244 for 1aa04, 664 for 1a6fa, 271
+for 1a7be) against 18 here - **99 % of the per-instruction stepping is gone**.
+
+**Where a call's host time goes.** Identical machine state, the hospital's five-plane slot map
+(BPLCON0 $5000, DDF $38..$D0, DIW $2C81..$F4C1 through `rt_slots_update`), one call per repetition:
+native, the same call translated, and a variant that performs every read and accumulation but
+skips the clock charges.
+
+| routine | native | ... arithmetic | ... clock charges | translated | native is |
+|---|---|---|---|---|---|
+| fn_0001aa04, 1 probe  |  866 ns |  72 ns (8 %)  | 794 ns (92 %)   | 4,524 ns  | 5.2x |
+| fn_0001a7be, 4 probes | 1,369 ns | 192 ns (14 %) | 1,177 ns (86 %) | 5,699 ns  | 4.2x |
+| fn_0001a6fa, 8 probes | 2,426 ns | 230 ns (9 %)  | 2,196 ns (90 %) | 11,932 ns | 4.9x |
+
+Charge calls in the same three runs: 115 -> 1, 140 -> 6, 268 -> 10.
+
+**One charge on its own.** 17.7 ns fixed (the budget, trace and stop checks, the device slice, the
+pc and instruction stores) plus 1.24 ns per walked bus-map step - a probe's 1,278 cycles and 270
+bus words is 810 ns, of which 2 % is the fixed part. Collapsing a group's ~5 charges into one would
+therefore save ~4 x 17.7 ns, about 3 % of a call, and only where it is *provable* that no vblank, no
+CIA service, no running blitter and no live copper falls inside the group's time: those move the
+probe reads relative to the device time they pay for, which is exactly what the per-probe charge
+exists to keep honest. Left alone.
+
+**What it buys at the shipping settings.** Same scene, window and volume, patches on and off (the
+off switch was a temporary env var that sent `rc_native_lookup` to the generated table; removed
+again - there is no flag in the tree):
+
+| | translation | native patches |
+|---|---|---|
+| frame | 94.3 ms (10.60 fps) | 84.4 ms (11.85 fps) |
+| machine run | 86.2 ms | 76.4 ms |
+| instructions/frame | 9,578 | 7,232 |
+
+1.12x, and the 84.4 ms / 7,232-instruction reading reproduces twice on a rebuilt tree (the earlier
+table's 84.0 ms is the same scene with 1,460 blitter rows a frame instead of 1,478).
+
+**How it was measured, and what was re-checked.** The instruments were temporary - the counters
+above, a `QueryPerformanceCounter` pair around one charge in eight (samples dropped when a frame
+boundary or a CIA service fell inside them), and a bench mode in `recomp-check` that runs one call
+per repetition from a fixed state. None of them are in the tree. The permanent check is still
+`recomp-check --collide`, re-run at 24,000 cases after the revert: D0, the CCR, A7, every RAM byte
+outside the caller's scratch and the charged cycles agree in every one, hits and misses, the
+margins, both masks and every fifth case forced onto the fallback; `tools\gate.ps1 -Only native`
+passes.
 
 ## The blitter's pixel loop, specialized per blit (2026-11-17)
 
@@ -3904,3 +3996,152 @@ for every blit - the differential half. Default against `--genericblit`, same in
 
 `--blitstats` prints the class table after the perf lines (top 16 by pixel-loop time).
 `--genericblit` is the reference path: the same run with it must end on the same `--dump` RAM.
+
+
+## The hospital's frame handshake, run natively (2026-11-17, after the collision and blitter work)
+
+Reported as the next performance item: the escape's loop at `0x18222` polls a word until an
+interrupt server clears it, and every iteration of that poll is three translated instructions
+(`tst.w` / `beq` / `bra`) with the runtime's per-instruction bookkeeping. Making the pass faster
+does not help, because the wait is the *residual* of the frame: whatever the pass no longer spends,
+the poll spends instead.
+
+**What the original does.** `FUN_0001819a` raises `DAT_00028ce0` at `0x1821c` and spins until it
+reads zero:
+
+    1821c  move.w #1,(A4-0xD76)     ; the request
+    18222  tst.w  (A4-0xD76)        ; the answer comes from an interrupt server
+    18226  beq    1822a             ; the wait is over
+    18228  bra    18222
+
+The address convention: the operand is `(d16,A4)` with A4 = `0x29A56` in the base-0 image, so the
+word is at `0x28CE0` (the DOS log's servers are `+0x4000` of that). Six writers raise it
+(`0x00C120`, `0x010968`, `0x0170E2`, `0x01821C` = this loop, `0x01BB14`, `0x01CFA0`) and seven
+clear it (`0x010C0E`, `0x011CC8`, `0x011E8C`, `0x017F28`, `0x01B960`, `0x01BA52`, `0x01BDAE`);
+which one matters is decided by the scene. For Escape Hospital it is the vertical blank's copper
+server: `fn_00018108` installs `Is_Code = fn_000180f0`, which calls `fn_00017cec`, which patches the
+list and clears the word (`0x17F28`) - unconditionally, so the wait ends at the first vblank after
+the request. `rt_add_server` prints it as `emu: interrupt server 01C0F0` in the DOS log.
+
+**The divergence.** The original's wait costs *machine* time - 17,152 of the frame's 141,875
+cycles, 12.1 %, all of it the poll's own bus fetches and the device time they carry - and that is
+the frame's own budget, not something to remove. What our build added on top was *host* work per
+iteration: three `rc_step` calls, three bus walks and a flag read, 1,612 translated instructions a
+frame, 12.6 ms of the old 100 ms frame in DOSBox. The frame budget must still be spent in the same
+instructions; only the way we spend it may change.
+
+**The change.** The emitter recognises the shape (`tst <ea>` / `b<cc> <after the bra>` / `bra` back
+to the test) and emits, at the test, one call into `src\recomp\patches\wait.c`
+(`Emitter.EmitWait`). The three instructions stay emitted right behind it and are the reference
+path. `rc_wait` then does two things:
+
+* it charges each iteration one `rc_step` at a time - the instruction's cycles, its bus words
+  through the slot walker, its pc - so the budget runs out inside the same instruction, the vblank
+  lands in the same charge, the CIA slice, the copper and the blitter take the same clocks and the
+  word is read after the charge it was read after. This part is exact by construction, and it is
+  all that sixteen other loops in the program need (the flight's `0x1097A`/`0x10988`, the
+  underground's `0x571E`, the nest's `0xC0A6`, ...);
+* `wait_bulk` charges *runs* of iterations in one step. It is allowed to only in a state that makes
+  the run a plain sequence of clocks: the copper held at a WAIT whose wake is beyond the run (it
+  then takes no clock at all and merely flips its one-on-one-off alternation) or past the end of
+  its list, the blitter idle, and no CIA handler due inside it. The run is walked in the bus
+  walker's own terms - internal clocks, then one colour clock per bus word, each word taking the
+  first clock nobody owns - and applied as one charge: the budget in one subtraction, the copper's
+  alternation by the parity of the free clocks (`rt_slots_free_clocks`), the device slice in one
+  `rt_time_run` (the same E-clock ticks and audio samples the per-charge calls make, since no
+  handler can be due), the instruction count by three per iteration and the pc of the last
+  instruction. It always leaves one iteration inside the frame, because the translated step above
+  crosses the boundary, and that crossing is what places the vblank and the frame's debt.
+
+Runtime seams were added for exactly this: `rt_frame_pos`, `rt_slots_map`, `rt_slots_free_clocks`
+and `rt_bus_words_at` in `slots.c` (all in the walker's own units, none of them a model of their
+own) and `rt_time_next_service` in `audio.c`, which is `cia_tick`'s rule read backwards - a running
+timer with its ICR bit enabled and a server attached underflows `count` ticks from the next one.
+
+**The one bug the differential found.** The first version could skip the test that observes the
+cleared word: a vblank inside an iteration's own charge (the test, the exit branch or the loop
+branch) runs the server that clears it, and the loop may only go on to a *real* test after that.
+Without the check the native wait ran a whole frame past the release, and every later frame moved.
+`rc_wait` now compares the frame at the top of an iteration with the frame after its charges and
+declines the bulk step when they differ.
+
+**Validated, machine state first.** Same inputs, `--refwait` (the translated loop) against the
+default. On the host, the hospital walk `--call 0x1C19A:100 --input out\camera-check\walk.txt`,
+26 M instructions to frame 3,173:
+
+| run | compared | result |
+|---|---|---|
+| host, 26 M insns | full `--state` every 25 frames (127 records), `--ram 900` (2 MB) | identical, same stop pc and frame |
+| host, 6 M insns | full `--state` every frame (539 records) | identical |
+| `recomp-check --wait 4000` (new gate step) | registers, SR, PC, RAM, budget, frame, instruction count, CIA handlers asked for, copper beam state | all agree, 3.5 M bulk iterations exercised |
+| DOS, hospital walk, 100,000 cycles, sound=1 music=1 | 700 frames | identical 7,144,087 instructions, identical rasters, identical perf splits |
+| `tools\gate.ps1 -Only camera` | the played and the measurement run | PASS |
+| `tools\gate.ps1 -Only wait` / `-Only native` | the two patch checks | PASS |
+
+**What it buys at the shipping settings.** DOS, `cycles=100000`, `[AUDIO] sound=1, music=1`, the
+hospital walk (`--call 0x1C19A:100`, the camera check's script, `--perf --perfafter 500 --frames
+700`), same binary, same warm data folder, one run each:
+
+| | `--refwait` (translation) | native wait |
+|---|---|---|
+| frame | 84.5 ms (11.84 fps) | **78.5 ms (12.75 fps)** |
+| machine run | 76.5 ms | 70.5 ms |
+| instructions/frame | 7,232 | 7,232 |
+| blitter rows/frame | 1,460 | 1,460 |
+
+1.08x, 6.0 ms of the frame, and it is all in the machine run - the vblank, the conversion, the
+blitter and the servers are untouched. A repeat reads 78.4/78.8 (the 78.8 with a RAM dump) against
+84.5/84.9. The pre-change binary reads 84.3/84.5 on the same folder, so the two halves of the
+measurement agree.
+
+The poll's *cycles* are unchanged, as they must be: 17,152 of 141,875 per frame. What changed is
+what we pay to emulate them. On the host, 246,825 of the wait's ~300,000 iterations take the bulk
+step (2.7 runs per wait, ~710 iterations each - the CIA timer and the copper's four wakes a frame
+bound the runs), and the remaining replay is the wake stretches, where the copper is executing its
+MOVEs and takes clocks.
+
+**Task 1's interaction, measured.** The native collision patches removed 2,346 translated
+instructions a frame (9,578 -> 7,232) and 1.12x of the frame; the poll's share grew by the same
+amount, because it is the frame's residual. With the wait run natively the poll no longer converts
+that saving back into translated iterations: the two together read 94.3 ms (translation, before
+both) -> 84.4 (collisions) -> 78.5 (this), and the 6.0 ms here is the poll's *host* cost, not a
+shift of work from the pass into the loop.
+
+**What is left.** The floor is the device time the wait genuinely carries - the E-clock ticks and
+the audio samples - plus the replay of the copper's wake stretches. Removing more would mean
+skipping device time or moving the CIA service off its instruction boundary, and neither is on the
+table.
+
+**Measuring this again.** The differential switch and the check:
+
+    bin\win32\recomp-check.exe --wait 4000          (tools\gate.ps1 -Only wait)
+    bin\win32\icftd-recomp.exe export\code\dshell4k\dshell.img 26000000 --call 0x1C19A:100 ^
+        --input out\camera-check\walk.txt --state out\wait-ab\native --every 25 --ram 900 --data export
+    ...the same with --refwait, then compare the two --state files and the RAM blobs.
+
+`--refwait` (both front ends) runs the translated polling loop instead of `rc_wait`; the two must
+end on the same bytes. For the DOS numbers, `tools\dos-run.ps1` now writes the game's `[AUDIO]`
+volume itself (`-Audio 1`, the level these runs are made at) and sets DOSBox's own master volume
+(`-MixerVolume 8`) so a measurement is quiet on the speakers without touching the emulated mixer:
+
+    powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 -Cycles 100000 -Audio 1 -MixerVolume 8 ^
+        -Autoexec "ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --perf --perfafter 500 --frames 700 > ICFTD.LOG"
+
+Two measurement traps, both hit while making the table above: the *first* run of a freshly packed
+`bin\dos\game` extracts the disks and starts the scene a frame later, which shifts the 4-frame pass
+cycle inside the measurement window (7,167,962 instead of 7,144,087 instructions, 1,646 instead of
+1,460 blitter rows, 83.6 instead of 78.5 ms). Discard the run after `tools\dos-pack.ps1` and
+measure the next one. And the game writes `sound=10, music=10` when it has no `ICFTD.INI` (a fresh
+package has none), which is not the level these figures are made at - `-Audio 1` writes the file
+before the run starts.
+
+One unrelated failure was seen while checking the port surfaces, and it is neither caused by this
+change nor new: `tools\cheat-check.ps1` reports "Escape Hospital: the cheat never ended the scene".
+The scene's update (`FUN_00019e9c`) runs once per four-frame pass and the cheat request is held for
+three frames, so the request at frame 600 is missed; the pre-change tree behaves identically (the
+same stop at `0x1C222` after 8 M instructions, framing 818, the same 804 rasters).
+
+And a third: the DOS command tail is 126 bytes, so a longer autoexec line is silently truncated -
+`--refwait` plus `--dump` plus a full path already overruns it, and the run then writes a RAM dump
+to a cut-off name in the drive's root instead of the file asked for. Keep one optional argument per
+run, or put the input script and the dump on the C: drive (8.3 names) to leave room.

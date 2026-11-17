@@ -297,7 +297,6 @@ void rt_slots_update(rt_machine *m)
  * 68000 cycles, reduced to [0, EMU_CYCLES_PER_FRAME) as they step, so a slot is a byte load at
  * pos/2 - the per-clock division and modulo the first version did (line, then clock in line) was
  * the largest single cost of an emulated instruction. */
-#define EMU_FRAME_SLOTS  ((EMU_CYCLES_PER_FRAME + 1) / 2)   /* 70,938 colour clocks */
 
 static u8 g_frameMap[EMU_FRAME_SLOTS];
 static int g_busReference;                               /* --refbus */
@@ -538,6 +537,53 @@ static long frame_cursor(const rt_machine *m)
     return pos;
 }
 
+long rt_frame_pos(const rt_machine *m)
+{
+    return frame_cursor(m);
+}
+
+const u8 *rt_slots_map(const rt_machine *m)
+{
+    (void)m;
+    return g_frameMap;
+}
+
+/* The clocks in [start, start+cycles) nobody owns. A whole line's count is a property of its class
+ * - rt_slots_update counts the DMA clocks of each of the two maps - so only the two partial lines
+ * at the ends are looked at. */
+long rt_slots_free_clocks(rt_machine *m, long start, long cycles)
+{
+    rt_slots *s = &m->slots;
+    long c0, c1, at, free = 0;
+
+    if (cycles <= 0) return 0;
+    if (!s->valid) return cycles / 2;
+    c0 = start / 2;
+    c1 = c0 + cycles / 2;
+    for (at = c0; at < c1; )
+    {
+        long line = at / EMU_LINE_COLOR_CLOCKS;
+        long lineStart = line * EMU_LINE_COLOR_CLOCKS;
+        long lineEnd = lineStart + EMU_LINE_COLOR_CLOCKS;
+        int display = line >= s->vstart && line < s->vstop;
+        const u8 *map = display ? s->map : s->mapBlank;
+
+        if (at == lineStart && lineEnd <= c1)
+        {
+            free += EMU_LINE_COLOR_CLOCKS - (display ? (long)s->dmaDisplay : (long)s->dmaBlank);
+            at = lineEnd;
+        }
+        else
+        {
+            long stop = lineEnd < c1 ? lineEnd : c1;
+
+            for (; at < stop; at++)
+                if (map[at - lineStart] == RT_SLOT_CPU) free++;
+        }
+    }
+    return free;
+}
+
 /* MOVEM's word count is its register list, not the opcode: 0x48xx stores registers to memory and
  * 0x4Cxx loads them, both with the mask in the extension word. Charging the measured average there
  * would be wrong by up to 24 words. */
@@ -607,6 +653,11 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc)
 long rt_bus_charge_words(struct rt_machine *m, long cost, int words)
 {
     return charge(m, cost, words, -1);
+}
+
+int rt_bus_words_at(rt_machine *m, u32 pc, long cost)
+{
+    return bus_accesses(m, cost, rt_read16(&m->mem, pc), pc);
 }
 
 /* --- the --slots report -------------------------------------------------------------------- */

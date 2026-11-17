@@ -13,6 +13,14 @@
  specialized per blit") reads 8.6 ms/frame over the same 1,460 rows and the frame 84.4 ms
  at the same 100,000 cycles. The rest of this report stands as measured at ff6feaf.
 
+ Update 2026-11-17, later: the frame-sync poll this report charges 12.6 ms for now runs
+ natively (docs\next-session.md, "The hospital's frame handshake, run natively"). Its
+ *cycles* are unchanged - 17,152 of the frame's 141,875, as section 3 says - but the host
+ cost of emulating them is not: on the same build, same folder and same window the frame
+ reads 78.5 ms with the native wait against 84.5 with the translated loop (`--refwait`),
+ with 7,232 instructions/frame in both. Section 5's per-routine split stands as measured;
+ the 12.6 ms line there is what `--refwait` still costs.
+
 --------------------------------------------------------------------------------
  1. Setup
 --------------------------------------------------------------------------------

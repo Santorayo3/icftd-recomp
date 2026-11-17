@@ -111,6 +111,12 @@ u32 rt_cia_able(struct rt_machine *m, u32 flags);
  * because the handler is game code. */
 void rt_time_run(struct rt_machine *m, long cycles);
 void rt_cia_service(struct rt_machine *m);
+/* Cycles of 68000 time until the next CIA timer tick that would ask for a handler - the next point
+ * at which rt_cia_service can run - and -1 when no timer can raise one. It is the same rule
+ * cia_tick applies (a running timer with its ICR bit enabled and a server attached underflows
+ * after `count` quiet ticks, on the next one), so a caller that advances the clock in one go can
+ * stop before the boundary instead of running the handler in the wrong place. */
+long rt_time_next_service(struct rt_machine *m);
 /* A WaitTOF/WaitBOVP: the rest of the frame is idle CPU time, but the devices keep running. */
 void rt_time_idle(struct rt_machine *m);
 

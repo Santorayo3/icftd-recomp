@@ -202,6 +202,13 @@ void plat_set_title(const char *text);
  * there is a window to draw in. */
 void plat_message(const char *title, const char *text);
 
+/* Binds the console to the null device when the console is the display the game draws on, so the
+ * front end's and the runtime's diagnostics do not draw into the picture (DOS: in mode 13h a
+ * console write is INT 10h teletype, which writes the BIOS glyphs into video memory and scrolls
+ * it). stdout redirected to a file is not the console and keeps its log. Call once, before the
+ * first write. DOS only; a no-op elsewhere. */
+void plat_quiet_console(void);
+
 /* --- diagnostics ---------------------------------------------------------- */
 /* Rewrites <exe dir>\recomp-crash.txt with `text` (fixed size, NUL padded, flushed). Cheap
  * enough to call every frame, and it survives the process dying: after a crash the file holds

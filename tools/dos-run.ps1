@@ -7,6 +7,15 @@
 # else, e.g. the extracted tree of a development run ("--data Y:\export").
 #
 #   powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 [-Autoexec "..."] [-Mount <dir>]
+#
+# -Audio is the game's own volume ([AUDIO] sound/music, 0..10) in the mounted folder's ICFTD.INI;
+# the measurement runs use 1, which is what docs\dos-hospital-perf.txt is taken at. The file is
+# created when the mount has none, because a fresh package (tools\dos-pack.ps1) has no ICFTD.INI and
+# the game then writes its own default of 10.
+#
+# -MixerVolume is DOSBox's own master volume in percent, set from the autoexec before the program
+# starts. It scales the host output only - the emulated Paula mixer, the Sound Blaster ring and the
+# game's own gain run exactly as before - so a measurement can be quiet without changing a figure.
 param(
     [string]$DosBox = 'H:\Spiele\DosBox\DOSBox.exe',
     [string]$Mount = '',
@@ -17,7 +26,9 @@ param(
     [string]$Cycles = 'max',
     [string]$Core = 'dynamic',
     [string]$SbType = 'sb16',
-    [int]$Hdma = 5
+    [int]$Hdma = 5,
+    [int]$Audio = 1,
+    [int]$MixerVolume = 10
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -29,6 +40,30 @@ $conf = Join-Path $root 'out\dosbox.conf'
 
 $log = Join-Path $Mount $LogName
 if (Test-Path $log) { Remove-Item $log -Force -ErrorAction SilentlyContinue }
+
+# The game's own volume, so a measurement is at the level it says it is. A fresh package has no
+# ICFTD.INI (tools\dos-pack.ps1 stages an empty release) and the game would write sound=10/music=10.
+$ini = Join-Path $Mount 'ICFTD.INI'
+$want = @(
+    '; ICFTD runtime settings (written by tools\dos-run.ps1 for this run).',
+    '',
+    '[AUDIO]',
+    '; Volume 0..10, 0 = off, 10 = full.',
+    "sound=$Audio",
+    "music=$Audio"
+)
+if (Test-Path $ini) {
+    $text = Get-Content $ini -Raw
+    if ($text -match '(?m)^\s*sound\s*=.*$') { $text = $text -replace '(?m)^\s*sound\s*=.*$', "sound=$Audio" }
+    else { $text += "`r`n[AUDIO]`r`nsound=$Audio`r`n" }
+    if ($text -match '(?m)^\s*music\s*=.*$') { $text = $text -replace '(?m)^\s*music\s*=.*$', "music=$Audio" }
+    else { $text += "music=$Audio`r`n" }
+    Set-Content -Path $ini -Value $text -Encoding ascii -NoNewline
+}
+else {
+    Set-Content -Path $ini -Value $want -Encoding ascii
+}
+Write-Host ("audio: [AUDIO] sound=$Audio music=$Audio; DOSBox mixer ${MixerVolume}%")
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $conf) | Out-Null
 $lines = @(
@@ -52,6 +87,9 @@ $lines = @(
     'rate=44100',
     'blocksize=1024',
     '[autoexec]',
+    # Host output only: the emulated mixer, the card and the game's gain are untouched, so the run
+    # stays measurement-identical while the speakers stay quiet.
+    "MIXER MASTER ${MixerVolume}:${MixerVolume} /NOSHOW",
     "mount c `"$Mount`"",
     "mount y `"$root`"",
     'c:',

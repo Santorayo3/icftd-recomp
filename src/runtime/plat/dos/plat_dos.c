@@ -1834,7 +1834,30 @@ u32 plat_dir_files(const char *dir, plat_dir_visit visit, void *ctx)
     return n;
 }
 
-/* No message box in a DOS program: the console, which is where a started program writes. */
+/* A started DOS program writes to the console, and the console is the game's own screen: in mode
+ * 13h a write is INT 10h teletype, which lays the BIOS' 8x8 glyphs into the picture and scrolls
+ * the video memory when the cursor leaves the last row. Every diagnostic line the front end, the
+ * platform or the runtime prints would therefore damage the screen - the release is a game, so the
+ * console is bound to the null device before anything is written.
+ *
+ * stdout redirected to a file is not the console and keeps its log: `ICFTD.EXE ... > ICFTD.LOG` is
+ * how tools\dos-run.ps1 and the DOS checks read the build, so only the console is silenced.
+ * INT 21h AH=44h AL=00h (IOCTL, get device information) answers with bit 7 of DX set for a
+ * character device and clear for a file. */
+void plat_quiet_console(void)
+{
+    union REGS r;
+
+    memset(&r, 0, sizeof r);
+    r.x.eax = 0x4400;
+    r.x.ebx = 1;                                /* stdout */
+    int386(0x21, &r, &r);
+    if ((r.x.edx & 0x0080u) == 0) return;       /* a file: the redirection is the caller's log */
+    (void)freopen("NUL", "wb", stdout);
+}
+
+/* No message box in a DOS program: the console, which is where a started program writes - and
+ * which plat_quiet_console has already bound to NUL for a played run. */
 void plat_message(const char *title, const char *text)
 {
     if (title != 0 && *title != 0) printf("\n%s\n", title);

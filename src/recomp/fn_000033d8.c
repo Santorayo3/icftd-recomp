@@ -73,6 +73,13 @@ L_33E4:
 
 L_33E8:
     /* 000033e8   4  tst.w (fffffecc,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x000033e8u), 12,
+                RC_ADDR(0x000033ecu), 10, 7,
+                RC_ADDR(0x000033eeu), 10,
+                (c->a[4] - 0x134u), RC_W))
+        goto L_33F0;
     c->pc = RC_ADDR(0x000033e8u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x134u));

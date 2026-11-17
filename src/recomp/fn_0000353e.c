@@ -156,6 +156,13 @@ L_3570:
 
 L_3574:
     /* 00003574   4  tst.w (fffffecc,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x00003574u), 12,
+                RC_ADDR(0x00003578u), 10, 7,
+                RC_ADDR(0x0000357au), 10,
+                (c->a[4] - 0x134u), RC_W))
+        goto L_357C;
     c->pc = RC_ADDR(0x00003574u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x134u));

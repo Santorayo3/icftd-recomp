@@ -44,6 +44,13 @@ L_330E:
 
 L_3312:
     /* 00003312   4  tst.w (ffffce40,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x00003312u), 12,
+                RC_ADDR(0x00003316u), 10, 6,
+                RC_ADDR(0x00003318u), 10,
+                (c->a[4] - 0x31c0u), RC_W))
+        goto L_331A;
     c->pc = RC_ADDR(0x00003312u);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31c0u));
@@ -94,6 +101,13 @@ L_332A:
 
 L_332C:
     /* 0000332c   4  tst.w (ffffce40,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x0000332cu), 12,
+                RC_ADDR(0x00003330u), 10, 7,
+                RC_ADDR(0x00003332u), 10,
+                (c->a[4] - 0x31c0u), RC_W))
+        goto L_3334;
     c->pc = RC_ADDR(0x0000332cu);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31c0u));

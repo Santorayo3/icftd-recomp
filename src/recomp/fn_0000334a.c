@@ -32,6 +32,13 @@ L_334A:
 
 L_334E:
     /* 0000334e   4  tst.w (ffffce40,A4) */
+    /* a flag wait: rc_wait runs it natively and returns 1 when its exit branch is taken;
+     * 0 means the three instructions below run instead (the reference path). */
+    if (rc_wait(c, m, RC_ADDR(0x0000334eu), 12,
+                RC_ADDR(0x00003352u), 10, 7,
+                RC_ADDR(0x00003354u), 10,
+                (c->a[4] - 0x31c0u), RC_W))
+        goto L_3356;
     c->pc = RC_ADDR(0x0000334eu);
     rc_step(c, m, 12);
     t0 = rc_rd16(c, m, (c->a[4] - 0x31c0u));

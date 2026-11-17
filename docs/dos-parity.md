@@ -595,6 +595,13 @@ A sensible split over sessions:
 * **The DOS shell's exit code is only visible through `if errorlevel`.** `tools\dos-run.ps1` takes
   one autoexec line, so a check that needs the code writes its own DOSBox config with several lines
   (`tools\dos-extract-check.ps1`); a batch file run as the last autoexec line leaves DOSBox hanging.
+* **A console write is a screen write.** In mode 13h INT 10h teletype draws the BIOS glyphs into
+  video memory and scrolls it, so every `printf` (the front end's, the platform's or the runtime's)
+  damages the picture. `plat_quiet_console()` runs first in `dos_main.c` and binds the console to
+  `NUL`; the OSD (`rt_osd_text`) is picture data and is unaffected. A redirected stdout is not a
+  character device - INT 21h AH=44h reports bit 7 of DX - so `> ICFTD.LOG` keeps every diagnostic
+  line the checks read. Do not "restore" the start banner or the run summary: a played DOS run
+  prints nothing.
 * **Do not gate a fix behind a flag.** The seams must be installed in a normal played launch; the
   existing played-run condition in `dos_main.c` is the model. A measurement run must not install
   `rc_entryHook`.

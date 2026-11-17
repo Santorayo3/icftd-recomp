@@ -207,6 +207,22 @@ void rc_step(cpu_t *c, rt_machine *m, u32 cycles);
  * back the time the AGNUS contention took, i.e. it would run the scene faster than the A500 -
  * that is why this exists instead of a plain rc_step with the summed cost. */
 void rc_step_words(cpu_t *c, rt_machine *m, u32 cycles, int words);
+/* A translated flag wait: `tst <ea>` / `b<cc> <exit>` / `bra` back to the test, spun on a word an
+ * interrupt server clears. The emitter offers every such loop to this before its own three
+ * instructions run (see Emitter.EmitWait). It charges those same three instructions, one rc_step
+ * each - same cycles, same bus words, same pc - so the frame budget, the vblank, the CIA slice,
+ * the blitter and the copper advance exactly as they do under the translation, and it stops where
+ * the original stops: at the first test that reads the cleared word, after that test's charge and
+ * the exit branch's. `cc` is the branch's condition (rc_cond's numbering), `addr`/`size` the tested
+ * operand. Returns 1 when it ran the wait to its exit branch - the caller jumps to the loop's exit -
+ * and 0 when the translated loop must run instead: the differential switch is on (rc_waitTranslated),
+ * there is no frame hook to release the flag, or a frame passed with the flag still set (a machine
+ * whose server is not what this loop waits for). Nothing here writes the flag. */
+int rc_wait(cpu_t *c, rt_machine *m, u32 testPc, u32 testCycles,
+            u32 bccPc, u32 bccCycles, int cc, u32 braPc, u32 braCycles, u32 addr, int size);
+/* --refwait: run the translated polling loops instead, so a `--state`/`--ram` diff can check that
+ * the native wait and the translation of the same loop agree (they must, byte for byte). */
+extern int rc_waitTranslated;
 /* Bisection seam: stop the run once m->insns reaches this count (0 = never). The stop is exact
  * per instruction, also in the middle of a translated function: rc_step leaves the stream with
  * c->pc on the instruction that has not run, which is where the interpreter stops too. */

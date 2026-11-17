@@ -24,6 +24,7 @@
 #define EMU_LINE_COLOR_CLOCKS 227     /* PAL lores: 227 colour clocks (64 us)       */
 #define EMU_LINE_CYCLES       454     /* ... which are 454 68000 clock cycles        */
 #define EMU_FRAME_LINES       313     /* 312.5 lines rounded up; the half line is 0  */
+#define EMU_FRAME_SLOTS       ((EMU_CYCLES_PER_FRAME + 1) / 2)   /* colour clocks per frame */
 
 /* Who owns a colour clock. CPU is 0 so an empty map is "all owned by the CPU". */
 enum {
@@ -91,6 +92,23 @@ long rt_bus_charge(struct rt_machine *m, long cost, u16 opcode, u32 pc);
 long rt_bus_charge_words(struct rt_machine *m, long cost, int words);
 
 long rt_blit_wait(struct rt_machine *m);
+
+/* Where in the frame the machine is, in 68000 cycles, always in [0, EMU_CYCLES_PER_FRAME). */
+long rt_frame_pos(const struct rt_machine *m);
+
+/* The frame's slot map, one byte per colour clock from the top of the frame, RT_SLOT_CPU (0) where
+ * nobody but the CPU owns the clock. Built by rt_slots_update(); a caller that uses it across a
+ * long stretch must have run at least one charge since anything changed the display registers. */
+const u8 *rt_slots_map(const struct rt_machine *m);
+
+/* Colour clocks in [start, start+cycles) that no DMA source owns - the clocks the copper's
+ * one-on-one-off alternation walks through while it is held at a WAIT. `start` is a frame position
+ * in 68000 cycles and the range must stay inside the frame. */
+long rt_slots_free_clocks(struct rt_machine *m, long start, long cycles);
+
+/* The bus words the instruction at `pc` transfers, counted exactly as rt_bus_charge counts them
+ * (rt_bus_cycles for the opcode, MOVEM from its mask, clamped to half the cycle count). */
+int rt_bus_words_at(struct rt_machine *m, u32 pc, long cost);
 
 /* Nobody is using the bus for `cycles` 68000 cycles (an idle frame, a dos.Delay): the clock keeps
  * passing and the blitter keeps taking the clocks nobody else owns, so a blit started before the
