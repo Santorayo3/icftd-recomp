@@ -3435,3 +3435,88 @@ row (the half bit is not needed for a segment shorter than 27 ms), which halves 
 limits: a chip without read-back keeps the linear reading (reported as mode 0), a BIOS tick that
 stops being counted falls back to one period per observed half boundary, and the machine's run is
 still one interval - nothing inside `rc_call` is attributed.
+
+
+## The scroll converter runs through the nibble tables too (2026-11-17)
+
+The hospital's picture is the presenter's largest cost: a 288x180 five-plane window spent 191.6 ms
+of a 333.8 ms frame on the planar -> chunky pass at a fixed 100,000 cycles - more than half the
+frame. It now costs 20.3 ms and the frame 163.4 ms, with the machine state unchanged.
+
+**The path was measured, not assumed.** `--progress` says the hospital takes the *general segment
+renderer*, not `conv_picture_scrolled()`: its list's visible region carries `BPLCON0 5200`
+(`bp 5`) while the region below it carries `BPLCON0 0200` (`bp 0`), so `segSimple` is 0 and
+`!segSimple` selects the per-row segment loop. That loop evaluated 259,200 plane bits per frame
+(180 rows x 288 columns x 5 planes), one `plane_row_byte()` and one bit test at a time. The
+flight's playfield and HUD take the same loop (`segSimple 0`), so both minigames were paying it;
+the intro and the static screens were already on `conv_picture()`'s group loop and did not move.
+
+**The change.** For a group of eight output pixels beginning at x = 8g, plane p's first source bit
+is `s = 8g + srcBase - delay[p]`. Its byte and bit are
+
+    q = floor(s / 8) = g + floor((srcBase - delay[p]) / 8)
+    r = s - 8q, 0..7
+
+so q advances by one per group and r is constant down the row. The eight bits are byte[q]'s bits
+r..7 followed by byte[q+1]'s bits 0..r-1, which the alignment
+
+    (byte[q] << r) | (byte[q+1] >> (8 - r))
+
+rotates into the exact form `conv_picture()`'s nibble tables expect. Five aligned bytes per group
+therefore cost five byte loads, five shifts and the same six table reads and two dword stores the
+non-scrolled loop already uses - instead of forty `plane_row_byte()` calls and bit tests. `r` is
+computed per plane, so unequal PF1H/PF2H delays need no extra work; `r == 0` never reads the next
+byte. `srcBase` (a DDFSTRT offset) and negative source positions are part of q.
+
+The row converter is used in `conv_picture_scrolled()` and in the general segment renderer, for
+its aligned middle. It falls back to the scalar rule per row when the picture needs it: more than
+five planes, a dual-playfield segment, a per-line palette (`slot != 0`) or any group byte outside
+the RAM block. The unaligned head and tail of a clipped window (at most seven pixels at each end)
+also run scalar, so the group stores never touch a border column. `conv_scalar_pixel()` holds that
+rule for those edges and for `conv_picture_scrolled()`'s rare fallback. The general renderer's
+per-line-palette/dual-playfield fallback keeps its own inline copy instead: the chicken race takes
+that branch on every pixel of every row, and calling the helper there cost **6.5 %** of its frame
+(conversion 272.7 -> 300.6 ms at 100,000 cycles); with the inline copy restored it reads 273.3 ms,
+inside run-to-run noise of the baseline. `--progress` now prints each segment's `d1/d2`, because
+that is the input the converter works from.
+
+**Output is byte-identical.** A/B builds (the pre-change binary kept, same inputs, BMP per
+presented frame through `--dump`) compared:
+
+| scene | frames | what it covers | differing pixels |
+|---|---|---|---|
+| hospital, port camera armed | 750 | fine scroll 0..15, right/down/left/up/rest, row lead-in and vertical steps | 0 |
+| flight (`out\flight-live.txt`) | 200 | fine scroll 0..15, playfield + HUD regions | 0 |
+| chicken race (`--titlekey 5`, `out\chicken-rec.txt`) | 350 | `palMulti 1`, dual-playfield horizon strip, per-line palettes | 0 |
+| intro | 163 | static, non-delayed group loop | 0 |
+
+The palettes (`--progress` pal32 lines) and the segment tables (ignoring the added `d` field) were
+compared line by line and were identical too, as were the `--state` records and full `--ram` dumps
+over an 8,000,000-instruction hospital run (`stref.state` / `stref.300.ram` / `500` / `700`: byte
+identical). Machine state is untouched: 700 DOS frames stayed 706 rasters and 7,776,775
+instructions.
+
+The alignment rule also has a randomized differential test - 20,000 rows with random plane counts,
+unequal d1/d2, unaligned windows, negative source positions and plane bases that make a group read
+outside RAM, plus 300 whole `conv_picture_scrolled()` pictures: 0 mismatches, 12,422 fast rows and
+7,578 fallbacks. It was a temporary harness (it needs `nib_tables()` ready and a synthetic
+`rt_machine`), not shipped; the A/B captures above are the shipped-code check.
+
+**DOS, fixed 100,000 cycles**, hospital walk with the camera seam, `--perf --perfafter 500
+--frames 700`, window 500..699:
+
+| | before | after | |
+|---|---|---|---|
+| conversion | 191.6 ms/frame | 20.3 ms/frame | **9.4x** |
+| vblank | 193.8 ms | 23.3 ms | the conversion ran inside it |
+| machine run | 140.0 ms | 140.0 ms | unchanged |
+| **frame** | **333.8 ms (3.00 fps)** | **163.4 ms (6.12 fps)** | **2.04x** |
+
+At 66,000 cycles the same runs read 290.4 -> 30.8 ms conversion and 500.1 -> 241.9 ms/frame
+(9.4x and 2.07x), so the ratio is the code's, not the clock's. The intro at 100,000 cycles is
+103.0 ms/frame in both builds - its delay is 0 and it was already on the group loop, which is the
+expected "nothing else moved" result. The chicken race (per-line palettes + dual playfield, the
+fallback branch) stays at 272.7 -> 273.3 ms conversion and 429.8 -> 430.2 ms/frame, so the
+fallback did not regress either. `tools\gate.ps1 -Only present` and `-Only camera` pass; the core
+fixture steps cannot run in this clone because the gitignored `ref\fixtures` tree is absent, and
+their failures are the missing files, not this change.

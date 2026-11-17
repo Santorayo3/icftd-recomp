@@ -960,6 +960,148 @@ static u32 plane_row_byte(rt_machine *m, u32 plane, int bpr, int y, int byteIdx)
     return rt_read8(&m->mem, (u32)addr);
 }
 
+/* --- one row through the nibble tables, with BPLCON1's delays applied ----------------------
+ * Pixel x of a line shows bit `x + srcBase - delay` of its playfield's plane data. For a group
+ * of eight output pixels starting at x = 8g that source bit sits at
+ *
+ *     s = 8g + srcBase - delay
+ *     q = floor(s / 8) = g + floor((srcBase - delay) / 8)
+ *     r = s - 8q, 0..7
+ *
+ * so q advances by one per group and r is constant for the whole row. The eight bits are
+ * byte[q]'s bits r..7 followed by byte[q+1]'s bits 0..r-1; rotating the two into one byte gives
+ * exactly the aligned form conv_picture()'s group loop expects. The rotation is done once per
+ * plane per group instead of a bit test per plane per pixel, and unequal playfield delays cost
+ * nothing extra because each plane carries its own r. */
+typedef struct
+{
+    const u8 *p;                /* first byte of the group range (an absolute RAM address) */
+    int first;                  /* group index p stands for */
+    int shift;                  /* r, 0..7 */
+} conv_row_plane;
+
+/* Floor division by eight, for a source position that may be negative (a delay reaching in front
+ * of the row). Kept apart from `>>` so the rule holds on any compiler. */
+static int row_div8(int v) { return v >= 0 ? (v >> 3) : -((7 - v) >> 3); }
+
+static u32 conv_aligned_byte(const conv_row_plane *cp, int g)
+{
+    const u8 *s = cp->p + (g - cp->first);
+    u32 b = s[0];
+
+    if (cp->shift != 0) b = (b << cp->shift) | (s[1] >> (8 - cp->shift));
+    return b & 0xFFu;
+}
+
+static void conv_row_groups(const conv_row_plane cr[5], int gFirst, int gLast, u8 *row)
+{
+    int g;
+
+    for (g = gFirst; g <= gLast; g++)
+    {
+        u32 b0 = conv_aligned_byte(&cr[0], g);
+        u32 b1 = conv_aligned_byte(&cr[1], g);
+        u32 b2 = conv_aligned_byte(&cr[2], g);
+        u32 b3 = conv_aligned_byte(&cr[3], g);
+        u32 b4 = conv_aligned_byte(&cr[4], g);
+        u32 lo = g_nib01[(b0 & 0xF0u) | (b1 >> 4)] |
+                 g_nib23[(b2 & 0xF0u) | (b3 >> 4)] |
+                 g_nib4[b4 >> 4];
+        u32 hi = g_nib01[((b0 & 0x0Fu) << 4) | (b1 & 0x0Fu)] |
+                 g_nib23[((b2 & 0x0Fu) << 4) | (b3 & 0x0Fu)] |
+                 g_nib4[b4 & 0x0Fu];
+        u32 *out = (u32 *)(void *)(row + (g << 3));
+
+        out[0] = lo;
+        out[1] = hi;
+    }
+}
+
+/* The scalar rule for one pixel, the reference the fast row falls back to: a clipped head/tail,
+ * more than five planes, a dual-playfield picture, a per-line palette or a byte outside RAM. */
+static int conv_scalar_pixel(rt_machine *m, const u32 *planes, int stride1, int stride2, int ry,
+                             int np, int dbl, int front2, int srcBase, int d1, int d2, int x)
+{
+    int p, idx = 0, pf1 = 0, pf2 = 0;
+    int sx = x + srcBase;
+
+    for (p = 0; p < np; p++)
+    {
+        int s = sx - (((p & 1) != 0) ? d2 : d1);
+        u32 byte = plane_row_byte(m, planes[p], ((p & 1) != 0) ? stride2 : stride1, ry, s >> 3);
+
+        if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
+        if (dbl)
+        {
+            /* DBLPF: the odd-numbered planes carry playfield 2 and the even ones playfield 1;
+             * playfield 2 takes colours 8..15 (8+0 is the transparent one, so its first pen is
+             * COLOR09). Which of the two is in front is BPLCON2's PF2PRI, and a pixel where the
+             * front playfield is transparent shows the one behind it. */
+            if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
+            else pf2 |= 1 << (p >> 1);
+        }
+        else idx |= 1 << p;
+    }
+    if (dbl)
+        idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
+                     : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
+    return idx;
+}
+
+/* Converts [x0, x1) of one row through the group loop. Returns 0 without touching the row when
+ * the picture needs the scalar rule; the caller then runs conv_scalar_pixel over the span. A
+ * clipped head or tail is always scalar, so a window that is not a multiple of eight costs at
+ * most seven pixels at each end. A row whose groups would read outside the RAM block also takes
+ * the scalar rule, which answers 0 per byte exactly where the original accessor does. */
+static int conv_row_fast(rt_machine *m, u8 *row, const u32 *planes, int np, int stride1,
+                         int stride2, int ry, int srcBase, int d1, int d2, int x0, int x1)
+{
+    conv_row_plane cr[5];
+    int p, x, gFirst, gLast;
+
+    if (np > 5 || x1 <= x0) return 0;
+    gFirst = (x0 + 7) >> 3;
+    gLast = (x1 >> 3) - 1;
+    if (gLast < gFirst) return 0;
+    for (p = 0; p < np; p++)
+    {
+        int off, q, r;
+        long rowAddr, lo, hi;
+
+        if (planes[p] == 0)
+        {
+            cr[p].p = g_zeroRow;
+            cr[p].first = gFirst;
+            cr[p].shift = 0;
+            continue;
+        }
+        off = srcBase - (((p & 1) != 0) ? d2 : d1);
+        q = row_div8(off);
+        r = off - 8 * q;
+        rowAddr = (long)planes[p] + (long)ry * (long)(((p & 1) != 0) ? stride2 : stride1);
+        lo = rowAddr + (long)q + (long)gFirst;
+        hi = rowAddr + (long)q + (long)gLast + (r != 0 ? 1 : 0);
+        if (lo < 0 || hi >= (long)m->mem.size) return 0;
+        cr[p].p = m->mem.base + lo;
+        cr[p].first = gFirst;
+        cr[p].shift = r;
+    }
+    for (; p < 5; p++)
+    {
+        cr[p].p = g_zeroRow;
+        cr[p].first = gFirst;
+        cr[p].shift = 0;
+    }
+    for (x = x0; x < (gFirst << 3) && x < x1; x++)
+        row[x] = (u8)conv_scalar_pixel(m, planes, stride1, stride2, ry, np, 0, 0,
+                                       srcBase, d1, d2, x);
+    conv_row_groups(cr, gFirst, gLast, row);
+    for (x = (gLast + 1) << 3; x < x1; x++)
+        row[x] = (u8)conv_scalar_pixel(m, planes, stride1, stride2, ry, np, 0, 0,
+                                       srcBase, d1, d2, x);
+    return 1;
+}
+
 /* The screen with BPLCON1's playfield delays applied. The hardware puts fetched data into the
  * shifter `PF1H`/`PF2H` colour clocks late (winuae drawing.cpp, bplcon1_shift), so pixel x of a
  * line shows bit x-d of its playfield's plane data: the picture sits d pixels to the right of
@@ -974,22 +1116,15 @@ static u32 plane_row_byte(rt_machine *m, u32 plane, int bpr, int y, int byteIdx)
 static void conv_picture_scrolled(rt_machine *m, int w, int h, int bpr, int np, const u32 *planes,
                                   int d1, int d2)
 {
-    int x, y, p;
+    int x, y;
 
     for (y = 0; y < h; y++)
     {
         u8 *row = gfx->fb + (u32)y * (u32)EMU_FB_MAX_W;
-        for (x = 0; x < w; x++)
-        {
-            int idx = 0;
-            for (p = 0; p < np; p++)
-            {
-                int s = x - (((p & 1) != 0) ? d2 : d1);
-                u32 byte = plane_row_byte(m, planes[p], bpr, y, s >> 3);
-                if (((byte >> (7 - (s & 7))) & 1u) != 0) idx |= 1 << p;
-            }
-            row[x] = (u8)idx;
-        }
+
+        if (!conv_row_fast(m, row, planes, np, bpr, bpr, y, 0, d1, d2, 0, w))
+            for (x = 0; x < w; x++)
+                row[x] = (u8)conv_scalar_pixel(m, planes, bpr, bpr, y, np, 0, 0, 0, d1, d2, x);
     }
 }
 
@@ -1638,8 +1773,9 @@ void rt_gfx_present(rt_machine *m, u32 view)
                xOrigin, srcBase,
                ddfE > ddfS ? (int)(((u32)(ddfE - ddfS) / 8u) + 1u) * 2 : bpr, mod, mod2);
         for (i = 0; i < regionCount; i++)
-            printf(" [%d r%d n%d s%d/%d %s%s b%02X p%06lX c%03X]", i, regions[i].row, regions[i].n,
-                   regions[i].stride, regions[i].stride2,
+            printf(" [%d r%d n%d s%d/%d d%d/%d %s%s b%02X p%06lX c%03X]", i, regions[i].row,
+                   regions[i].n, regions[i].stride, regions[i].stride2,
+                   regions[i].d1, regions[i].d2,
                    regions[i].dblpf ? "dual" : "flat",
                    regions[i].dblpf ? (regions[i].pf2pri ? ",pf2" : ",pf1") : "",
                    (unsigned)regions[i].bp,
@@ -1719,34 +1855,42 @@ void rt_gfx_present(rt_machine *m, u32 view)
                 front2 = regions[r].pf2pri;
                 if (palMulti) slot = regions[r].slot;
                 for (x = 0; x < x0; x++) row[x] = bc;
-                for (; x < x1; x++)
+                /* The window's aligned middle goes through the nibble tables exactly as
+                 * conv_picture() does, with each plane's byte rotated by its own playfield delay.
+                 * A dual-playfield picture, a per-line palette or an unreadable row keeps the
+                 * scalar rule below (which is also the head/tail of an unaligned window inside
+                 * conv_row_fast()). That rule stays written out here rather than called per pixel:
+                 * the chicken race's per-line palette and dual-playfield strip take this branch on
+                 * every pixel of every row, and a call there cost 6 % of its frame. */
+                if (dbl || slot != 0 ||
+                    !conv_row_fast(m, row, planes, npUse, stride1, stride2, ry, srcBase,
+                                   dd1, dd2, x0, x1))
                 {
-                    int idx = 0, pf1 = 0, pf2 = 0;
-                    int sx = x + srcBase;
-                    for (p = 0; p < npUse; p++)
+                    for (x = x0; x < x1; x++)
                     {
-                        int s = sx - (((p & 1) != 0) ? dd2 : dd1);
-                        u32 byte = plane_row_byte(m, planes[p],
-                                                  ((p & 1) != 0) ? stride2 : stride1, ry, s >> 3);
-                        if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
-                        if (dbl)
+                        int idx = 0, pf1 = 0, pf2 = 0;
+                        int sx = x + srcBase;
+                        for (p = 0; p < npUse; p++)
                         {
-                            /* DBLPF: the odd-numbered planes carry playfield 2 and the even ones
-                             * playfield 1; playfield 2 takes colours 8..15 (8+0 is the
-                             * transparent one, so its first pen is COLOR09). Which of the two is
-                             * in front is BPLCON2's PF2PRI, and a pixel where the front playfield
-                             * is transparent shows the one behind it. */
-                            if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
-                            else pf2 |= 1 << (p >> 1);
+                            int s = sx - (((p & 1) != 0) ? dd2 : dd1);
+                            u32 byte = plane_row_byte(m, planes[p],
+                                                      ((p & 1) != 0) ? stride2 : stride1,
+                                                      ry, s >> 3);
+                            if (((byte >> (7 - (s & 7))) & 1u) == 0) continue;
+                            if (dbl)   /* the DBLPF/PF2PRI rule of conv_scalar_pixel() */
+                            {
+                                if ((p & 1) == 0) pf1 |= 1 << (p >> 1);
+                                else pf2 |= 1 << (p >> 1);
+                            }
+                            else idx |= 1 << p;
                         }
-                        else idx |= 1 << p;
+                        if (dbl)
+                            idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
+                                         : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
+                        row[x] = slot != 0 ? slot[idx] : (u8)idx;
                     }
-                    if (dbl)
-                        idx = front2 ? (pf2 != 0 ? 8 + pf2 : pf1)
-                                     : (pf1 != 0 ? pf1 : (pf2 != 0 ? 8 + pf2 : 0));
-                    row[x] = slot != 0 ? slot[idx] : (u8)idx;
                 }
-                for (; x < w; x++) row[x] = bc;
+                for (x = x1; x < w; x++) row[x] = bc;
             }
             for (y0 = h; y0 < EMU_FB_MAX_H; y0++)
             {
