@@ -129,6 +129,196 @@ static int row_advance(const rt_machine *m, s32 mod, int words, int descending)
     return (int)(step & ~(s32)1);
 }
 
+/* --- --blitstats: which classes of blit the pixel loop actually runs ----------------------- */
+#define RT_BLIT_STAT_MAX 384
+static rt_blit_stat s_bst[RT_BLIT_STAT_MAX];
+static int s_bstN;
+static int s_bstOn;
+
+void rt_blit_stats(int on) { s_bstOn = on; }
+void rt_blit_stats_reset(rt_machine *m)
+{
+    s_bstN = 0;
+    m->blit.stat = 0;                    /* a blit in flight must not count into the old table */
+}
+int rt_blit_stats_count(void) { return s_bstN; }
+const rt_blit_stat *rt_blit_stats_at(int i)
+{
+    return i >= 0 && i < s_bstN ? &s_bst[i] : 0;
+}
+
+/* The bytes a channel touches over the whole blit: the first row's words plus the span of the row
+ * starts (a negative displacement walks upwards, so rows - 1 steps back). Comparing D's span with
+ * a source's is deliberately conservative - it also counts the gap the modulo leaves - because
+ * that is the test a shortcut which stops looking at addresses per word has to pass. */
+static void chan_span(u32 pt, int words, int stride, int rows, s32 *lo, s32 *hi)
+{
+    s32 a = (s32)pt;
+    s32 b = (s32)pt + (s32)(rows - 1) * (s32)stride;
+    if (a > b) { s32 t = a; a = b; b = t; }
+    *lo = a;
+    *hi = b + 2 * words - 1;
+}
+
+/* Which source spans D's span meets. Conservative (a span includes the gaps the modulo leaves),
+ * which is what any shortcut that stops checking addresses per word must respect. */
+static u8 blit_overlap(const rt_machine *m, const rt_blitter *b, int words, int rows, int desc)
+{
+    u8 overlap = 0;
+    s32 dlo, dhi;
+
+    if ((b->con0 & 0x0100u) == 0) return 0;         /* D not written: nothing to meet */
+    chan_span(b->dpt, words, row_advance(m, b->dmod, words, desc), rows, &dlo, &dhi);
+    if ((b->con0 & 0x0800u) != 0)
+    {
+        s32 lo, hi;
+        chan_span(b->apt, words, row_advance(m, b->amod, words, desc), rows, &lo, &hi);
+        if (lo <= dhi && dlo <= hi) overlap |= 1;
+    }
+    if ((b->con0 & 0x0400u) != 0)
+    {
+        s32 lo, hi;
+        chan_span(b->bpt, words, row_advance(m, b->bmod, words, desc), rows, &lo, &hi);
+        if (lo <= dhi && dlo <= hi) overlap |= 2;
+    }
+    if ((b->con0 & 0x0200u) != 0)
+    {
+        s32 lo, hi;
+        chan_span(b->cpt, words, row_advance(m, b->cmod, words, desc), rows, &lo, &hi);
+        if (lo <= dhi && dlo <= hi) overlap |= 4;
+    }
+    return overlap;
+}
+
+/* Classify a blit by the dimensions the task asks about - minterm, both shifts, the four channel
+ * enables, fill, direction, geometry - and by whether D's span meets a source channel's. The
+ * overlap bit only says a memcpy-style shortcut would be unsafe; the per-word order is unchanged
+ * either way. */
+static rt_blit_stat *blit_stat_of(const rt_machine *m, const rt_blitter *b, int words,
+                                  int rows, int desc)
+{
+    u8 minterm = (u8)(b->con0 & 0xFFu);
+    u8 ash = (u8)((b->con0 >> 12) & 0xFu);
+    u8 bsh = (u8)((b->con1 >> 12) & 0xFu);
+    u8 chan = (u8)((b->con0 >> 8) & 0xFu);
+    int fill = (b->con1 & 0x0018u) != 0 && (b->con0 & 0x0E00u) == 0;
+    u8 flags = (u8)((desc ? 2 : 0) | (fill ? 1 : 0));
+    u8 overlap;
+    int i;
+    rt_blit_stat *s;
+
+    if (words < 1) words = 1;
+    if (rows < 1) rows = 1;
+    overlap = blit_overlap(m, b, words, rows, desc);
+
+    for (i = 0; i < s_bstN; i++)
+    {
+        s = &s_bst[i];
+        if (s->w == (u16)words && s->h == (u16)rows && s->minterm == minterm &&
+            s->ash == ash && s->bsh == bsh && s->chan == chan && s->flags == flags &&
+            s->overlap == overlap)
+            return s;
+    }
+    if (s_bstN >= RT_BLIT_STAT_MAX) return 0;
+    s = &s_bst[s_bstN++];
+    memset(s, 0, sizeof *s);
+    s->w = (u16)words;
+    s->h = (u16)rows;
+    s->minterm = minterm;
+    s->ash = ash;
+    s->bsh = bsh;
+    s->chan = chan;
+    s->flags = flags;
+    s->overlap = overlap;
+    return s;
+}
+
+/* The row engines a blit can be planned onto. The measurement (--blitstats, the hospital walk)
+ * says one class is ~97 % of the pixel-loop time: BLTCON0 = 0x09F0 (D = A), no shifts, no B or C,
+ * ascending, 3 words x 40 rows, no masks, no overlap. The engine for it is chosen once per blit,
+ * so the row function does not re-derive shifts, enables, strides and masks for every row. */
+#define BLIT_ROW_GENERIC 0
+#define BLIT_ROW_COPY    1                /* D = A, plain copy, addresses still range-checked */
+#define BLIT_ROW_COPY_RAM 2               /* ... the whole blit's A and D ranges are in RAM */
+
+/* The copy path, with the invariants already hoisted. The word order is the general path's:
+ * ascending, one word at a time, both bytes of the source read before either destination byte is
+ * written - so a blit whose D overlaps A behaves exactly as before. Rows are still written one at
+ * a time by rt_blit_take_clock, which is what keeps the visible writes where the hardware puts
+ * them. */
+static void blit_row_copy(rt_machine *m)
+{
+    rt_blitter *b = &m->blit;
+    int words = b->runWords;
+    int i;
+
+    if (b->kind == BLIT_ROW_COPY_RAM)
+    {
+        const u8 *ap = m->mem.base + b->rowA;
+        u8 *dp = m->mem.base + b->rowD;
+        if (b->unroll == 3)
+        {
+            /* 3 words = 6 bytes, the hospital tile (--blitstats is what says so). D = A with no
+             * mask is an identity byte copy, so the words are never decoded: one longword and one
+             * word do the row. Only planned when D's span does not meet A's, so reading the row
+             * before writing it is not observable. */
+            u32 lo = *(const u32 *)ap;
+            u16 hi = *(const u16 *)(ap + 4);
+            *(u32 *)dp = lo;
+            *(u16 *)(dp + 4) = hi;
+        }
+        else if (b->noMask)
+        {
+            for (i = 0; i < words; i++)
+            {
+                u16 w = (u16)(((u32)ap[0] << 8) | (u32)ap[1]);
+                dp[0] = (u8)(w >> 8);
+                dp[1] = (u8)w;
+                ap += 2;
+                dp += 2;
+            }
+        }
+        else
+        {
+            for (i = 0; i < words; i++)
+            {
+                u16 w = (u16)(((u32)ap[0] << 8) | (u32)ap[1]);
+                if (i == 0) w &= b->afwm;
+                if (i == words - 1) w &= b->alwm;
+                dp[0] = (u8)(w >> 8);
+                dp[1] = (u8)w;
+                ap += 2;
+                dp += 2;
+            }
+        }
+    }
+    else
+    {
+        u32 a = b->rowA, d = b->rowD;
+        for (i = 0; i < words; i++)
+        {
+            u16 w = rd16(m, a);
+            if (i == 0) w &= b->afwm;
+            if (i == words - 1) w &= b->alwm;
+            wr16(m, d, w);
+            a += 2;
+            d += 2;
+        }
+    }
+    b->rowA = (u32)((s32)b->rowA + b->sA);
+    b->rowD = (u32)((s32)b->rowD + b->sD);
+}
+
+/* Is everything a channel touches of this blit inside the RAM block, as rd16/wr16's fast path
+ * tests it? Asked once per blit, so the row loop need not check every word. */
+static int span_in_ram(const rt_machine *m, u32 pt, int words, int stride, int rows)
+{
+    s32 lo, hi;
+
+    chan_span(pt, words, stride, rows, &lo, &hi);
+    return lo >= 0 && hi >= 0 && (u32)hi < 0x1000000u && (u32)hi + 1u < m->mem.size;
+}
+
 static void blit_row(rt_machine *m, int row, int words, int descending, u16 *holdA, u16 *holdB)
 {
     rt_blitter *b = &m->blit;
@@ -338,6 +528,40 @@ static int rt_blit_begin(rt_machine *m)
         if (m->dffLog) printf("     blit: line mode ignored (con1 %04lX)\n", (unsigned long)b->con1);
         return 0;
     }
+    /* ... and the row engine, once. A blit is "D = A" with no A shift and neither B nor C when
+     * BLTCON0's high byte is USEA|USED with ASH = 0 and the minterm is 0xF0; the engine's tiles
+     * (FUN_00011512 writes 0x09F0/0 with AMOD = 102, DMOD = 36, i.e. `bpr - 2*words`, so the rows
+     * are exactly one bitmap line apart) are exactly that. */
+    if (!m->blitGeneric && (b->con0 & 0xFF00u) == 0x0900u &&
+        (b->con0 & 0x00FFu) == 0x00F0u && (b->con1 & 0x000Au) == 0)
+    {
+        b->sA = row_advance(m, b->amod, words, 0);
+        b->sD = row_advance(m, b->dmod, words, 0);
+        b->rowA = b->apt;
+        b->rowD = b->dpt;
+        b->noMask = b->afwm == 0xFFFFu && b->alwm == 0xFFFFu;
+        b->kind = span_in_ram(m, b->apt, words, b->sA, rows) &&
+                  span_in_ram(m, b->dpt, words, b->sD, rows)
+                      ? BLIT_ROW_COPY_RAM
+                      : BLIT_ROW_COPY;
+        /* The measured tile row (3 words, no mask, no overlap) as one longword and one word. */
+        b->unroll = (b->kind == BLIT_ROW_COPY_RAM && b->noMask && words == 3 &&
+                     blit_overlap(m, b, words, rows, 0) == 0)
+                        ? 3
+                        : 0;
+    }
+    /* --blitstats: classify the blit once, here, and charge every timed row to its class. Only
+     * inside the --perf window, so the table describes the same frames the report does. */
+    if (m->perfOn && s_bstOn)
+    {
+        b->stat = blit_stat_of(m, b, words, rows, (b->con1 & 0x0002) != 0);
+        if (b->stat)
+        {
+            b->stat->blits++;
+            b->stat->rows += (u32)rows;
+            b->stat->words += (u32)words * (u32)rows;
+        }
+    }
     /* --spritelog: the engine's sprite blit (FUN_00011208, runtime 0x15208..0x153A0) is the one the
      * flight's objects use. Record its geometry, the words it reads and the words it leaves, so the
      * data can be checked against UAE's algorithm offline - no screenshot needed. */
@@ -444,6 +668,9 @@ void rt_blit_start(rt_machine *m)
         if (c > 0) rt_time_run(m, c);
     }
 
+    b->stat = 0;                                /* --blitstats: set again by rt_blit_begin */
+    b->kind = BLIT_ROW_GENERIC;                 /* planned in rt_blit_begin */
+    b->unroll = 0;
     b->runWords = (b->size & 0x3Fu) == 0 ? 64 : (b->size & 0x3F);
     b->runRows = (b->size >> 6) & 0x3FF;
     b->runDesc = (b->con1 & 0x0002) != 0;
@@ -472,10 +699,13 @@ int rt_blit_take_clock(rt_machine *m)
          * work is inside the two samples. */
         u32 pt0 = m->perfOn ? plat_pit_now() : 0;
 
-        blit_row(m, b->row, b->runWords, b->runDesc ? 1 : 0, &b->holdA, &b->holdB);
+        if (b->kind != BLIT_ROW_GENERIC) blit_row_copy(m);
+        else blit_row(m, b->row, b->runWords, b->runDesc ? 1 : 0, &b->holdA, &b->holdB);
         if (m->perfOn)
         {
-            m->perf.blit += plat_pit_now() - pt0;
+            u32 dt = plat_pit_now() - pt0;
+            m->perf.blit += dt;
+            if (b->stat) b->stat->ticks += dt;
             m->perf.blitRows++;
         }
         b->row++;

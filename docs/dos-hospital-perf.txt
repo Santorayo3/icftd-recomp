@@ -8,6 +8,11 @@
  Every figure below is a measurement; the per-routine split in section 5 is
  derived from a trace and says so.
 
+ Update 2026-11-17: the blitter figure below was mostly the general row engine's per-row
+ work. The per-blit specialization (docs\next-session.md, "The blitter's pixel loop,
+ specialized per blit") reads 8.6 ms/frame over the same 1,460 rows and the frame 84.4 ms
+ at the same 100,000 cycles. The rest of this report stands as measured at ff6feaf.
+
 --------------------------------------------------------------------------------
  1. Setup
 --------------------------------------------------------------------------------

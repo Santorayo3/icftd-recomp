@@ -15,7 +15,7 @@
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
- *                [--mouse <file>] [--hoverlog] [--srcdiff]
+ *                [--mouse <file>] [--hoverlog] [--srcdiff] [--genericblit]
  *                [--cameralog] [--savelog]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
@@ -1603,6 +1603,7 @@ int main(int argc, char **argv)
     const char *audioDump = 0;
     int audioRegs = 0;
     int blitBytePtr = 0;
+    int blitGeneric = 0;
     int slot = 1;
     int slotGiven = 0;
     int slotsDump = 0;
@@ -1729,6 +1730,9 @@ int main(int argc, char **argv)
         }
         if (strcmp(argv[i], "--byteptr") == 0) { blitBytePtr = 1; continue; }
         if (strcmp(argv[i], "--noblitfix") == 0) { blitBytePtr = 1; continue; }   /* old name */
+        /* --genericblit: the general row engine for every blit, the reference the planned copy
+         * engines must reproduce (blitter.c, --blitstats in dos_main.c). */
+        if (strcmp(argv[i], "--genericblit") == 0) { blitGeneric = 1; continue; }
         if (strcmp(argv[i], "--spritelog") == 0 && i + 1 < argc)
         {
             spriteLogPath = argv[++i];
@@ -1828,6 +1832,7 @@ int main(int argc, char **argv)
     m.blitLog = blitLog;
     m.blitLogFrame = blitLogFrame;
     m.blitBytePtr = blitBytePtr;
+    m.blitGeneric = blitGeneric;
     if (spriteLogPath != 0)
     {
         FILE *f = fopen(spriteLogPath, "w");
@@ -2058,6 +2063,7 @@ int main(int argc, char **argv)
             m.blitLog = blitLog;
             m.blitLogFrame = blitLogFrame;
             m.blitBytePtr = blitBytePtr;
+            m.blitGeneric = blitGeneric;
             m.dosLog = dosLog;
             m.textLog = textLog;
             m.busTable = busTablePath != 0;

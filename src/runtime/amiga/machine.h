@@ -100,6 +100,22 @@ typedef struct rt_lock
 } rt_lock;
 
 /* --- the chipset blitter (blit.c) --------------------------------------------------------- */
+/* --blitstats: one row per distinct blit class (geometry + channels + overlap), so the pixel
+ * work can be attributed to the combinations that actually run. Filled only while --perf's
+ * window is open and --blitstats was asked for; see blitter.c. */
+typedef struct rt_blit_stat
+{
+    u32 blits;                            /* blits of this class in the window */
+    u32 rows;                             /* ... and their rows, words and pixel-loop time */
+    u32 words;
+    u32 ticks;                            /* plat_pit_now() counts spent in blit_row */
+    u16 w, h;                             /* words per row, rows per blit */
+    u8  minterm, ash, bsh;
+    u8  chan;                             /* USEA/B/C/D bits of BLTCON0, shifted down */
+    u8  flags;                            /* 1 = fill, 2 = descending */
+    u8  overlap;                          /* bit 0/1/2: D's span meets A's/B's/C's */
+} rt_blit_stat;
+
 /* The engine's compositor writes these registers directly rather than calling BltBitMap. */
 typedef struct rt_blitter
 {
@@ -120,6 +136,15 @@ typedef struct rt_blitter
     int  row;
     long rowLeft;
     u16  holdA, holdB;
+    rt_blit_stat *stat;                   /* --blitstats: the class this blit is counted in */
+    /* The row engine is chosen once, at BLTSIZE: the invariants (shifts, enables, row
+     * displacements, masks, RAM ranges) belong to the blit, not to the row. Only the classes
+     * measured as hot are planned; every other blit keeps the general per-row path. */
+    int  kind;                            /* blitter.c BLIT_ROW_* */
+    int  sA, sD;                          /* hoisted row displacements of the copy path */
+    u32  rowA, rowD;                      /* the current row's source/destination */
+    int  noMask;                          /* AFWM and ALWM are all ones: masking is a no-op */
+    int  unroll;                          /* 3 = the measured tile row, copied as raw bytes */
 } rt_blitter;
 
 /* --perf: what the emulated work of a frame costs, in plat_pit_now() counts. Only the parts the
@@ -221,6 +246,8 @@ typedef struct rt_machine
     int     spriteLogN;
     u32     spriteLogFrom;                /* ... from this emulated frame on */
     int     blitBytePtr;                  /* --byteptr: byte pointers instead of word pointers */
+    int     blitGeneric;                  /* --genericblit: general row engine, the reference
+                                           * half of the per-blit specialization (blitter.c) */
     int     blitLogs;
     u32     blits;                        /* blits started, for --progress */
     u32     blitDrops;                    /* blit writes the range check refused */

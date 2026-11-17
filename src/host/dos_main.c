@@ -26,9 +26,13 @@
  *                        (the hospital room, say) is measured without the startup, the loads and
  *                        the menus. Every counter starts at that boundary, and the window ends at
  *                        the last complete frame - one unit covers everything the report says
+ *   --blitstats         with --perf: split the blitter's pixel-loop time by class of blit (minterm,
+ *                        shifts, channels, words x rows, direction, overlap), largest first
  *   --ticklog           oracle_tick's `tick N in|out` lines, to compare pacing with the host
  *   --refbus            charge the bus the first, division-per-clock way: the reference walker,
  *                        which any scheduler change must reproduce byte for byte (slots.h)
+ *   --genericblit       run every blit through the general row engine: the reference half of the
+ *                        per-blit specialization, which the planned engines must reproduce
  *   --tracewin a,b      `t <insns> <budget> <pc>` per instruction in a window (both front ends)
  *   --dump <frame> <f>  the whole RAM image at that vblank, to diff against the Windows build
  *   --call <pc>[:<frame>[:<arg>[:<retpc>]]]  enter one engine routine once (e.g. 0x1442A = save)
@@ -54,6 +58,7 @@
 #include "audio.h"
 #include "assets.h"
 #include "config.h"
+#include "blitter.h"
 #include "display.h"
 #include "machine.h"
 #include "platform.h"
@@ -100,6 +105,8 @@ static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
  * figures cover exactly those frames. Reporting does not read a clock at all: it uses what the
  * window captured, before shutdown. */
 static int    g_perf;                   /* --perf requested                               */
+static int    g_blitStats;              /* --blitstats: split the pixel loop by blit class */
+static int    g_genericBlit;            /* --genericblit: the specialization's reference path */
 static u32    g_perfFrom;               /* --perfafter: open the window at this frame     */
 static int    g_perfOpen;               /* the window is open                             */
 static u32    g_perfFirstFrame;         /* the emulated frame it opened at, for the header */
@@ -196,6 +203,7 @@ static void perf_open(rt_machine *m, u32 now)
 {
     m->perfOn = 1;
     memset(&m->perf, 0, sizeof m->perf);
+    rt_blit_stats_reset(m);
     g_perfFrames = g_perfVblank = g_perfMachine = 0;
     g_perfPresent = g_perfPresented = g_perfWait = 0;
     g_perfFrameIn = g_perfFrameOut = now;
@@ -1406,8 +1414,16 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--sbtest") == 0) { g_sbTest = 1; continue; }
         /* --refbus: the reference bus walker (slots.h). Same machine state, slower. */
         if (strcmp(argv[i], "--refbus") == 0) { rt_bus_set_reference(1); continue; }
+        if (strcmp(argv[i], "--genericblit") == 0) { g_genericBlit = 1; continue; }
         if (strcmp(argv[i], "--srcdiff") == 0) { rt_gfx_srcdiff(1); continue; }
         if (strcmp(argv[i], "--perf") == 0) { g_perf = 1; continue; }
+        if (strcmp(argv[i], "--blitstats") == 0)
+        {
+            g_blitStats = 1;
+            g_perf = 1;
+            rt_blit_stats(1);
+            continue;
+        }
         if (strcmp(argv[i], "--perfafter") == 0 && i + 1 < argc)
         {
             g_perf = 1;
@@ -1542,6 +1558,7 @@ int main(int argc, char **argv)
     /* perfOn is the window's, not the run's: perf_open() turns it on at the boundary the window
      * starts at, so nothing before it pays for instrumentation or lands in its counters. */
     m.tickLog = tickLog;
+    m.blitGeneric = g_genericBlit;
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
@@ -1707,6 +1724,7 @@ int main(int argc, char **argv)
             m.saveSlot = keepSlot;
             g_frameLimit = frameLimit;
             m.tickLog = tickLog;
+            m.blitGeneric = g_genericBlit;
             m.traceFrom = traceFrom;
             m.traceTo = traceTo;
             rt_audio_set_gain(&m, soundGain, musicGain);
@@ -1880,6 +1898,61 @@ int main(int argc, char **argv)
                "interrupt handlers\n",
                (double)perfRt.presents / n, insns / n,
                (double)(perfRt.vblankInsns + perfRt.ciaInsns) / n);
+        /* --blitstats: the pixel loop split the way a specialization would have to split it. The
+         * classes are the ones the task asks about - minterm, both shifts, the channel enables,
+         * fill, direction, geometry - and the last column says whether D's span meets a source's,
+         * i.e. whether the class is one a contiguous copy could replace without changing what the
+         * CPU sees. Ticks are the same counts as the blitter line above, summed per class. */
+        if (g_blitStats && rt_blit_stats_count() > 0)
+        {
+            int total = rt_blit_stats_count(), k, j, si, shown[16];
+            u32 sumBlits = 0, sumRows = 0, sumWords = 0, sumTicks = 0;
+            for (si = 0; si < total; si++)
+            {
+                const rt_blit_stat *s = rt_blit_stats_at(si);
+                sumBlits += s->blits;
+                sumRows += s->rows;
+                sumWords += s->words;
+                sumTicks += s->ticks;
+            }
+            printf("perf:   blit classes: %d distinct, %lu blit(s), %lu row(s), %lu word(s); "
+                   "pixel loop %.1f ms/frame\n",
+                   total, (unsigned long)sumBlits, (unsigned long)sumRows,
+                   (unsigned long)sumWords, (double)sumTicks * toMs / n);
+            printf("perf:     minterm ash bsh  ch  fill desc  words x rows  blits  rows/fr"
+                   "   ms/fr  us/row  D meets\n");
+            for (k = 0; k < 16 && k < total; k++)
+            {
+                int best = -1;
+                for (si = 0; si < total; si++)
+                {
+                    int used = 0;
+                    for (j = 0; j < k; j++) if (shown[j] == si) { used = 1; break; }
+                    if (!used && (best < 0 || rt_blit_stats_at(si)->ticks > rt_blit_stats_at(best)->ticks))
+                        best = si;
+                }
+                shown[k] = best;
+                {
+                    const rt_blit_stat *s = rt_blit_stats_at(best);
+                    char ch[5], ov[5];
+                    int c, nOv = 0;
+                    for (c = 0; c < 4; c++) ch[c] = (s->chan & (8 >> c)) ? (char)('A' + c) : '-';
+                    ch[4] = 0;
+                    for (c = 0; c < 4; c++)
+                        if ((s->overlap & (1 << c)) != 0) ov[nOv++] = (char)('A' + c);
+                    ov[nOv] = 0;
+                    printf("perf:     %06lX %3d %3d  %s  %d %d  %3d x %4d  %6lu  %6.1f  %6.1f %7.2f"
+                           "  %s\n",
+                           (unsigned long)s->minterm, (int)s->ash, (int)s->bsh, ch,
+                           (s->flags & 1) != 0, (s->flags & 2) != 0,
+                           (int)s->w, (int)s->h, (unsigned long)s->blits,
+                           (double)s->rows / n, (double)s->ticks * toMs / n,
+                           (double)s->ticks * toMs * 1000.0 / (double)s->rows,
+                           nOv != 0 ? ov : "none");
+                }
+            }
+            if (total > 16) printf("perf:     ... %d more class(es)\n", total - 16);
+        }
     }
     if (m.mem.bad != 0)
         printf("icftd: %lu access(es) outside the RAM block\n", (unsigned long)m.mem.bad);

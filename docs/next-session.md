@@ -3820,3 +3820,87 @@ and the whole-run state comparison against a previous build is the host front en
 
 `fn_0001a59a`, `fn_0001a880` and `fn_0001a942` also call the probe (one probe per call); they keep
 their translation and get the native probe through the dispatcher.
+
+## The blitter's pixel loop, specialized per blit (2026-11-17)
+
+The largest measured graphics item left in the hospital walk was the blitter's data path: 16.5 ms
+of a 92.2 ms frame at 100,000 cycles. What it was doing was unknown beyond "1,460 rows a frame", and
+`blit_row` re-derived everything it could have known at BLTSIZE - minterm, both shifts, the four
+enables, four row displacements (a multiply per channel per row) and the mask tests - for *every
+row*, then dispatched the minterm through a switch for *every word*.
+
+**The measurement.** `--blitstats` (DOS front end, with `--perf`) classifies each blit once and
+charges every timed row to its class: minterm, ASH/BSH, the channel enables, fill, direction,
+words x rows and whether D's span meets a source's. Hospital walk (`--call 0x1C19A:100`, the camera
+check's script, `--perf --blitstats --perfafter 500 --frames 700`, window 500..699,
+`bin\dos\game\ICFTD.INI` at `[AUDIO] sound=1, music=1`), 23 distinct classes:
+
+| class | blits/frame | rows/frame | ms/frame | us/row |
+|---|---|---|---|---|
+| 0xF0 D=A, ASH=BSH=0, A+D, 3 words x 40 rows, no mask, no overlap | 35 | 1,415 | 16.0 | 11.33 |
+| everything else (all 0xCA D=A?B:C, ABCD, ASH=BSH=2..15, 2-3 x 11-20, D meets C) | 4 | 45 | 0.5 | 11.3 |
+
+So 97 % of the pixel-loop time is one shape: the tile renderer's blits (`FUN_00011512` writes
+BLTCON0 = 0x09F0, BLTCON1 = 0, AFWM = ALWM = 0xFFFF, AMOD = 102 and DMOD = 36, i.e. `bpr - 2*words`
+on both sides, so a row is six contiguous bytes and the stride is the bitmap's line), 3 words x 40
+rows. The masked
+copies the task expected are present but cost 0.5 ms/frame together, so they keep the general path.
+
+**The change.** `rt_blit_begin` chooses the row engine once per blit, the way the hardware decides
+its geometry at BLTSIZE:
+
+* `D = A` with no A shift and neither B nor C (`BLTCON0` high byte 0x09, minterm 0xF0) is a copy:
+  the row displacements, the mask test and the RAM check are hoisted. The A and D spans are
+  measured once against the memory block, so the row loop has no per-word range check.
+* The measured tile row (3 words, no mask, D's span not meeting A's) is an identity byte copy - one
+  longword and one word per row, the words never decoded.
+* Everything else keeps `blit_row`, unchanged.
+
+Rows are still written one at a time when their slots elapse (`rt_blit_take_clock`), and the
+per-word order is the original's: both bytes of the source word are read before either destination
+byte is written. That is why an overlapping blit is safe on the copy path, and why the 6-byte row
+is only unrolled when the spans do not meet. No `memcpy`: it would be wrong for an overlapping
+blit, and computing the whole blit at BLTSIZE would move writes the CPU can observe.
+
+The divergence, in one sentence: the hardware applies `D = A`, no shift, no mask as a byte copy and
+fixes its geometry when BLTSIZE is written; we re-derived the geometry per row and decoded every
+word. Output is unchanged - the work is not.
+
+**Measured, 100,000 cycles**, hospital walk, window 500..699, two runs each:
+
+| | before | after |
+|---|---|---|
+| machine run | 84.2 ms/frame | 76.4 / 76.5 |
+| blitter pixel loop | 16.5 ms over 1,460 rows | 8.6 ms over 1,460 rows |
+| ... the 0xF0 3x40 class | 16.0 ms, 11.33 us/row | 8.0 / 8.1 ms, 5.68 / 5.69 us/row |
+| **frame** | **92.2 ms (10.85 fps)** | **84.4 / 84.5 ms (11.82 / 11.83 fps)** |
+| instructions/frame | 7,232 | 7,232 |
+
+**What the remaining 8.6 ms is.** With the copy body removed (measurement-only build) the same
+class still read 5.67 us/row: the per-row `--perf` pair of 8254 samples - 2,920 latchings a frame -
+dominates what is left in the timed region. The pixel loop itself is now a handful of instructions
+per row, so the frame and machine-run lines are the honest measure, not the blitter line. A run
+without `--perf` reads 52.9 s for the 700 frames where `--genericblit` reads 55.2 s (75.6 against
+78.8 ms/frame over the whole run, the first 500 frames included).
+
+**Validated, machine state first.** `--genericblit` (both front ends) forces the general row engine
+for every blit - the differential half. Default against `--genericblit`, same inputs:
+
+| scene | run | compared | result |
+|---|---|---|---|
+| hospital (`--call 0x1C19A:100`, `out\HOSPWALK.TXT`) | 8 M insns, 820 frames | full `--state`, `--ram 699` | equal |
+| flight (`out\flight-live.txt`) | 30 M, 4,623 frames | full `--state`, `--ram 3000` | equal |
+| chicken race (`--titlekey 5`, `out\chicken-rec.txt`) | 20 M, 1,902 frames | full `--state`, `--ram 1500` | equal |
+| DOS, hospital walk, 100,000 cycles, audio on | 700 frames | the 2 MB RAM at frame 699 | identical, both 7,144,087 insns |
+
+`tools\gate.ps1 -Only present` and `-Only camera` pass.
+
+**Measuring this again.** Build and pack, then set the volume the DOS runs are made at:
+
+    powershell -ExecutionPolicy Bypass -File tools\build-dos.ps1
+    powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1
+    rem  [AUDIO] sound=1, music=1 in bin\dos\game\ICFTD.INI, after a warm-up run
+    powershell -ExecutionPolicy Bypass -File tools\dos-run.ps1 -Cycles 100000 -Autoexec "ICFTD.EXE --disks Y:\disks --call 0x1C19A:100 --input Y:\out\HOSPWALK.TXT --perf --blitstats --perfafter 500 --frames 700 > ICFTD.LOG"
+
+`--blitstats` prints the class table after the perf lines (top 16 by pixel-loop time).
+`--genericblit` is the reference path: the same run with it must end on the same `--dump` RAM.

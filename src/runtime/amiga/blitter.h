@@ -19,4 +19,13 @@ int  rt_blit_take_clock(rt_machine *m);
  * blitter register lands in rt_machine::custom[]. */
 void rt_custom_write16(rt_machine *m, u16 reg, u16 v);
 
+/* --blitstats: attribute the blitter's pixel-loop time to the classes of blit that run (minterm,
+ * shifts, enabled channels, geometry, direction, source/destination overlap). Collects only while
+ * the --perf window is open; reset() is called when that window opens, and the front end reads the
+ * table back at shutdown to print it. */
+void rt_blit_stats(int on);
+void rt_blit_stats_reset(rt_machine *m);
+int  rt_blit_stats_count(void);
+const rt_blit_stat *rt_blit_stats_at(int i);
+
 #endif /* EMU_BLIT_H */
