@@ -36,6 +36,30 @@
  * (rt_machine::saveBytes, filled from rc_active->saveBytes). */
 #define EMU_SAVE_BYTES (0x78u + 0x3024u)
 
+/* Which build wrote the save in a slot. The slots belong to the port, not to a build: both games
+ * save into saves\slot<N>, each under the name its own code uses ("ICFTD" 12 444 bytes,
+ * "ICFTD2" 13 014), so one directory can hold either file or both (docs\antheads.md, Phase 7).
+ * Which builds a machine recognises is not hard-coded here: the front end registers the program it
+ * booted and the other game when that one is playable (rt_save_register) - the same gate as the
+ * title's fifth button - because the name and the size belong to the program's own descriptor
+ * (rc_active->saveName / saveBytes). */
+enum
+{
+    RT_SAVE_EMPTY    = 0,             /* no recognised save in the slot */
+    RT_SAVE_ORIGINAL = 1,             /* the 1989 game's file is there, complete */
+    RT_SAVE_ANTHEADS = 2,             /* the add-on's */
+    RT_SAVE_BOTH     = 3              /* both games saved here */
+};
+
+#define EMU_MAX_SAVES 2
+
+typedef struct rt_save_spec
+{
+    int         kind;                 /* RT_SAVE_ORIGINAL / RT_SAVE_ANTHEADS */
+    const char *name;                 /* the file the engine writes, e.g. "ICFTD2" */
+    u32         bytes;                /* its size when the save is complete */
+} rt_save_spec;
+
 /* The chunky framebuffer the graphics.library shim presents into (emu\gfx.c). The planar model
  * the game draws into lives in emulated memory; this is only the present-time image. */
 #define EMU_FB_MAX_W 640
@@ -222,9 +246,13 @@ typedef struct rt_machine
     int     saveSlot;                     /* saves\slot<N> - the player picks it with F1..F5 */
     const char *saveDir;                  /* "saves" relative to the executable */
     /* The file the engine being run writes into the slot, and its size when complete: "ICFTD" and
-     * 12 444 bytes for the 1989 build, "ICFTD2" and 13 014 for the add-on (rt_save_slot_empty). */
+     * 12 444 bytes for the 1989 build, "ICFTD2" and 13 014 for the add-on (rt_save_slot_state). */
     const char *saveName;
     u32     saveBytes;
+    /* The save files this machine recognises, one per build that can be played here
+     * (rt_save_register). rt_init registers the 1989 game's own. */
+    rt_save_spec saveFiles[EMU_MAX_SAVES];
+    int     saveFileCount;
     /* The narration panel's staged colours (FUN_000007F4): the engine copies five words from
      * `panelCols` into its live palette and raises `panelFlag` while the panel is open. The display
      * reads them because the intro fade would otherwise have blanked the panel (see the note in
@@ -355,7 +383,16 @@ void rt_text_log(rt_machine *m, u32 rp, u32 text, u32 count, u32 plotted);
 void rt_request_vblank(rt_machine *m);
 /* dos.Delay(n): the calling task is asleep for n of the 50 Hz ticks, i.e. n frame boundaries. */
 void rt_delay_ticks(rt_machine *m, u32 ticks);
-/* 1 when the save slot's DSAVE: directory holds no file yet (the overlay shows "(Empty)"). */
+/* Registers one build's save file: the front end calls it for the program it booted and, when the
+ * other game is playable from the same data folder, for that one too - a slot that holds both saves
+ * has to say so. Re-registering a kind replaces it; `name` has to outlive the machine (the program
+ * descriptors' own literals). */
+void rt_save_register(rt_machine *m, int kind, const char *name, u32 bytes);
+/* Which build's save this slot holds: RT_SAVE_EMPTY, RT_SAVE_ORIGINAL, RT_SAVE_ANTHEADS or
+ * RT_SAVE_BOTH. A file shorter than the save of the build that wrote it is the engine's own
+ * one-byte placeholder, not a save. */
+int  rt_save_slot_state(const rt_machine *m, int slot);
+/* 1 when the slot holds no save of any recognised build (the overlay shows "(Empty)"). */
 int  rt_save_slot_empty(const rt_machine *m, int slot);
 /* Frame boundary: shows the loaded view, so drawing done since the last flip becomes visible. */
 void rt_frame_present(rt_machine *m);

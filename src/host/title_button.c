@@ -13,9 +13,11 @@
  * button under the pointer and the press edge, and title.c starts a new game, opens the settings,
  * loads the selected save slot or ends the run.
  *
- * The load game view replaces the buttons with ten "Slot N" lines and a Back button at the bottom.
- * A slot with no save file is grey; a slot with one is white, turns #00FF00 under the pointer and
- * is what a click loads.
+ * The load game view replaces the buttons with one row per save file and a Back button at the
+ * bottom. A slot with no save file is grey; a row with one is white, turns #00FF00 under the
+ * pointer and is what a click loads. The slots are shared by the two games the menu offers, so a
+ * save the add-on wrote reads "Slot N (A)" and a slot both games saved in has two rows - one per
+ * file, each loading its own game (docs\antheads.md, Phase 7).
  *
  * The settings view replaces them too: one row per option - its label in the game's font, the
  * control under it - and Back where Quit Game was. The controls are assets\minus_*.png,
@@ -235,45 +237,101 @@ void title_menu_draw(rt_machine *m, const title_menu *menu, u8 *dst, u32 stride,
 
 void title_slots_init(title_slots *slots)
 {
-    memset(slots, 0, sizeof *slots);
+    memset(slots, 0, sizeof *slots);          /* every state is RT_SAVE_EMPTY until it is loaded */
     slots->hover = -1;
-    memset(slots->empty, 1, sizeof slots->empty);
 }
 
+/* One row per save file, in slot order - and inside a slot the 1989 game's file before the
+ * add-on's, which is the only order the labels need. */
 void title_slots_load(title_slots *slots, rt_machine *m)
 {
     int i;
 
+    slots->entries = 0;
     for (i = 0; i < TITLE_SLOT_COUNT; i++)
-        slots->empty[i] = (u8)(rt_save_slot_empty(m, i + 1) ? 1 : 0);
+    {
+        int state = rt_save_slot_state(m, i + 1);
+
+        slots->state[i] = (u8)state;
+        if (state & RT_SAVE_ORIGINAL)
+        {
+            slots->entry[slots->entries].slot = (u8)(i + 1);
+            slots->entry[slots->entries].kind = RT_SAVE_ORIGINAL;
+            slots->entries++;
+        }
+        if (state & RT_SAVE_ANTHEADS)
+        {
+            slots->entry[slots->entries].slot = (u8)(i + 1);
+            slots->entry[slots->entries].kind = RT_SAVE_ANTHEADS;
+            slots->entries++;
+        }
+    }
+    slots->page = 0;
     slots->hover = -1;
+    slots->more_hover = 0;
     slots->back_hover = 0;
+}
+
+int title_slots_paging(const title_slots *slots)
+{
+    return slots->entries > TITLE_SLOT_ROWS;
+}
+
+/* Rows the current page shows: every file while they all fit, otherwise one fewer than the rows,
+ * because the last one is "More". */
+static int title_slots_per_page(const title_slots *slots)
+{
+    return title_slots_paging(slots) ? TITLE_SLOT_ROWS - 1 : TITLE_SLOT_ROWS;
+}
+
+const title_slot_entry *title_slots_at(const title_slots *slots, int row)
+{
+    int idx = slots->page * title_slots_per_page(slots) + row;
+
+    if (row < 0 || idx < 0 || idx >= slots->entries) return 0;
+    return &slots->entry[idx];
+}
+
+void title_slots_next_page(title_slots *slots)
+{
+    int perPage = title_slots_per_page(slots);
+    int pages = (slots->entries + perPage - 1) / perPage;
+
+    if (pages < 1) return;
+    slots->page = (slots->page + 1) % pages;
+    slots->hover = -1;
 }
 
 int title_slots_pointer(title_slots *slots, int present, int x, int y)
 {
     int i;
+    int rows = title_slots_paging(slots) ? TITLE_SLOT_ROWS - 1 : TITLE_SLOT_ROWS;
 
     slots->pointer_on = present ? 1 : 0;
     slots->pointer_x = (s16)x;
     slots->pointer_y = (s16)y;
     slots->hover = -1;
+    slots->more_hover = 0;
     slots->back_hover = 0;
     if (!present) return -1;
-    for (i = 0; i < TITLE_SLOT_COUNT; i++)
-    {
-        int top = TITLE_SLOT_Y + i * TITLE_SLOT_STEP;
-
-        if (x >= TITLE_BUTTON_X && x < TITLE_BUTTON_X + TITLE_BUTTON_W &&
-            y >= top && y < top + TITLE_SLOT_STEP)
-        {
-            if (!slots->empty[i]) slots->hover = i;
-            return slots->hover;
-        }
-    }
     if (x >= TITLE_BUTTON_X && x < TITLE_BUTTON_X + TITLE_BUTTON_W &&
         y >= TITLE_BACK_Y && y < TITLE_BACK_Y + TITLE_BUTTON_H)
         slots->back_hover = 1;
+    if (title_slots_paging(slots) && x >= TITLE_BUTTON_X && x < TITLE_BUTTON_X + TITLE_BUTTON_W &&
+        y >= TITLE_SLOT_Y + rows * TITLE_SLOT_STEP &&
+        y < TITLE_SLOT_Y + (rows + 1) * TITLE_SLOT_STEP)
+        slots->more_hover = 1;
+    if (x < TITLE_BUTTON_X || x >= TITLE_BUTTON_X + TITLE_BUTTON_W) return -1;
+    for (i = 0; i < rows; i++)
+    {
+        int top = TITLE_SLOT_Y + i * TITLE_SLOT_STEP;
+
+        if (y >= top && y < top + TITLE_SLOT_STEP)
+        {
+            if (title_slots_at(slots, i) != 0) slots->hover = i;
+            return slots->hover;
+        }
+    }
     return -1;
 }
 
@@ -438,26 +496,55 @@ void title_settings_draw(rt_machine *m, const title_settings *settings, u8 *dst,
         rt_pointer_draw(dst, stride, w, h, settings->pointer_x, settings->pointer_y);
 }
 
+static void title_slots_line(rt_machine *m, u8 *dst, u32 stride, int w, int h, int top,
+                             const char *text, u8 pen)
+{
+    s32 tw = rt_font_text_width(m, text);
+
+    rt_font_text_draw(m, dst, stride, w, h, TITLE_BUTTON_X + ((int)TITLE_BUTTON_W - tw) / 2, top,
+                      text, pen);
+}
+
 void title_slots_draw(rt_machine *m, const title_slots *slots, u8 *dst, u32 stride, int w, int h)
 {
-    int i;
+    int i, slot, used = 0;
+    int rows = title_slots_per_page(slots);
 
     if (dst == 0) return;
-    for (i = 0; i < TITLE_SLOT_COUNT; i++)
+    for (i = 0; i < rows; i++)
     {
+        const title_slot_entry *e = title_slots_at(slots, i);
         char label[16];
-        u8 pen;
-        s32 tw;
-        int top = TITLE_SLOT_Y + i * TITLE_SLOT_STEP;
 
-        sprintf(label, "Slot %d", i + 1);
-        if (slots->empty[i]) pen = TITLE_BUTTON_PEN_SLOT_EMPTY;
-        else if (i == slots->hover) pen = TITLE_BUTTON_PEN_SLOT_HOVER;
-        else pen = TITLE_BUTTON_PEN_TEXT;
-        tw = rt_font_text_width(m, label);
-        rt_font_text_draw(m, dst, stride, w, h,
-                          TITLE_BUTTON_X + ((int)TITLE_BUTTON_W - tw) / 2, top,
-                          label, pen);
+        if (e == 0) break;
+        /* "(A)" is the add-on's mark, and it is the row's promise: this row loads Antheads. The
+         * 1989 game's file in the same slot has its own row above it. */
+        sprintf(label, "Slot %d%s", (int)e->slot,
+                e->kind == RT_SAVE_ANTHEADS ? " (A)" : "");
+        title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + i * TITLE_SLOT_STEP, label,
+                         i == slots->hover ? TITLE_BUTTON_PEN_SLOT_HOVER : TITLE_BUTTON_PEN_TEXT);
+        used++;
+    }
+    if (title_slots_paging(slots))
+    {
+        /* More files than rows: the last row pages through the rest, so no save is out of reach. */
+        title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + rows * TITLE_SLOT_STEP, "More",
+                         slots->more_hover ? TITLE_BUTTON_PEN_SLOT_HOVER : TITLE_BUTTON_PEN_TEXT);
+    }
+    else
+    {
+        /* The slots nothing was saved in still get their grey row, while there is room for them:
+         * they are where a save would be written, and the list has always shown them. */
+        for (slot = 1; slot <= TITLE_SLOT_COUNT && used < rows; slot++)
+        {
+            char label[16];
+
+            if (slots->state[slot - 1] != RT_SAVE_EMPTY) continue;
+            sprintf(label, "Slot %d", slot);
+            title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + used * TITLE_SLOT_STEP, label,
+                             TITLE_BUTTON_PEN_SLOT_EMPTY);
+            used++;
+        }
     }
     title_button_draw_at(m, dst, stride, w, h, TITLE_BUTTON_X, TITLE_BACK_Y, "Back",
                          slots->back_hover);

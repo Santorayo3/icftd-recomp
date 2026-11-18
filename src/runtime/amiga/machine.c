@@ -60,28 +60,59 @@ static void rt_save_ensure(rt_machine *m, char *out, int max)
     plat_mkdir(out);
 }
 
-/* Whether a slot holds a save. The directory being empty is the common case, but the engine's own
- * "no save yet" path writes a one-byte placeholder into the slot before it opens the file for
- * reading (FUN_0000067c), so a file shorter than the save of the engine being run is a placeholder,
- * not a save. */
-int rt_save_slot_empty(const rt_machine *m, int slot)
+/* One build whose save this machine recognises. The name and the size are the program's own
+ * (rc_active->saveName/saveBytes), so nothing here names a file: the front end says which builds
+ * can be played from its data folder and in which order their saves are looked for. */
+void rt_save_register(rt_machine *m, int kind, const char *name, u32 bytes)
+{
+    int i;
+
+    if (name == 0 || name[0] == 0 || bytes == 0) return;
+    for (i = 0; i < m->saveFileCount; i++)
+        if (m->saveFiles[i].kind == kind) break;
+    if (i == m->saveFileCount)
+    {
+        if (m->saveFileCount >= EMU_MAX_SAVES) return;
+        m->saveFileCount++;
+    }
+    m->saveFiles[i].kind = kind;
+    m->saveFiles[i].name = name;
+    m->saveFiles[i].bytes = bytes;
+}
+
+/* Which builds wrote a save into this slot. The directory being empty is the common case, but the
+ * engine's own "no save yet" path writes a one-byte placeholder into the slot before it opens the
+ * file for reading (FUN_0000067c), so a file shorter than the save of the build that wrote it is a
+ * placeholder, not a save. */
+int rt_save_slot_state(const rt_machine *m, int slot)
 {
     const char *dir = m->saveDir != 0 ? m->saveDir : "saves";
-    const char *file = m->saveName != 0 ? m->saveName : "ICFTD";
-    u32 want = m->saveBytes != 0 ? m->saveBytes : EMU_SAVE_BYTES;
     char path[288];
-    plat_file *f;
-    u32 size;
+    int state = RT_SAVE_EMPTY;
+    int i;
 
-    if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 32 >= (int)sizeof(path)) return 1;
-    sprintf(path, "%s\\%s\\slot%d", plat_exe_dir(), dir, slot);
-    if (plat_dir_empty(path)) return 1;
-    sprintf(path, "%s\\%s\\slot%d\\%s", plat_exe_dir(), dir, slot, file);
-    f = plat_open(path);
-    if (f == 0) return 1;
-    size = plat_size(f);
-    plat_close(f);
-    return size < want ? 1 : 0;
+    for (i = 0; i < m->saveFileCount; i++)
+    {
+        const rt_save_spec *s = &m->saveFiles[i];
+        plat_file *f;
+        u32 size;
+
+        if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + (int)strlen(s->name) + 16 >=
+            (int)sizeof(path))
+            continue;
+        sprintf(path, "%s\\%s\\slot%d\\%s", plat_exe_dir(), dir, slot, s->name);
+        f = plat_open(path);
+        if (f == 0) continue;
+        size = plat_size(f);
+        plat_close(f);
+        if (size >= s->bytes) state |= s->kind;
+    }
+    return state;
+}
+
+int rt_save_slot_empty(const rt_machine *m, int slot)
+{
+    return rt_save_slot_state(m, slot) == RT_SAVE_EMPTY;
 }
 
 /* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3
@@ -1684,11 +1715,12 @@ int rt_init(rt_machine *m)
     m->joy1 = 0x0000u;
     /* Save slots: the player cycles them with F1..F5, so there is nothing to configure. The file
      * name and size belong to the engine build; the front end overwrites them with its program's
-     * when it boots. */
+     * when it boots, and registers the other game's as well when that one can be played here. */
     m->saveSlot = 1;
     m->saveDir = "saves";
     m->saveName = "ICFTD";
     m->saveBytes = EMU_SAVE_BYTES;
+    rt_save_register(m, RT_SAVE_ORIGINAL, m->saveName, m->saveBytes);
     /* The 1989 game's files are in disk1..3; a front end booting the add-on overwrites this with
      * "ant" for the tree beside it (docs\antheads.md §4.2). */
     m->tree = "disk";

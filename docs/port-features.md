@@ -498,10 +498,10 @@ when the screen it waited for is up. A DOS measurement run (no `--mouse`) logs n
 
 ## The title's Load Game slot list
 
-The title menu's Load Game does not load the active slot: it replaces the buttons with ten
-"Slot N" lines and a Back button, so the slot is picked with the pointer. It is drawn by
-`title_slots_draw` (`src\host\title_button.c`) in the buttons' column (x 230, ten 8 px rows from
-y 80, Back at y 164 on the shipped button art); the label font is the game's own, and the view is
+The title menu's Load Game does not load the active slot: it replaces the buttons with one row per
+save file ("Slot N", or "Slot N (A)" for a save the add-on wrote) and a Back button, so the file is
+picked with the pointer. It is drawn by `title_slots_draw` (`src\host\title_button.c`) in the
+buttons' column (x 230, ten 8 px rows from y 80, Back at y 164 on the shipped button art); the label font is the game's own, and the view is
 plain host framebuffer work, so it writes no machine state. An empty slot is pen 250
 `(128,128,128)`, an occupied one pen 255 white, and the pointer over an occupied one pen 251
 `#00FF00`; the menu's button pens moved to 252..255. Empty slots are inert in both hover and click.
@@ -516,6 +516,40 @@ into the 4:3 picture): Load Game logs `title: load game: 10 save slot(s)`, the c
 holds 9 760 px of grey and 3 927 px of white with the pointer off the slots, and 1 151 px of
 `(0,255,0)` with the pointer on Slot 3. `--titlekey 11` still loads the active slot directly, so the
 scripted title check is unaffected.
+
+### The slots are shared with Antheads: one row per file, "(A)", and no cross-loading
+
+The slots belong to the port, not to a build, so the two games save into the same `saves\slot<N>` —
+the 1989 game under `ICFTD` (12 444 bytes, `FUN_0001042a`'s two ranges) and the add-on under
+`ICFTD2` (13 014 bytes, `FUN_00011C98`'s: 0xC2 at 0x23ED0 and 0x3214 at 0x29094). Three things
+follow, and all three are in `tools\title-check.ps1`:
+
+* **The marker, one row per file.** A row whose slot holds the add-on's file reads `Slot N (A)`.
+  The list draws one row per save *file* — in slot order, the 1989 game's before the add-on's — so a
+  slot both games saved in shows two rows, `Slot N` and `Slot N (A)`, and each row loads the file it
+  names in the build that wrote it. A row never asks a question its label has already answered.
+  Ten rows fit between the first button and Back; with more files than that the last row reads
+  `More` and pages, so nothing is hidden. The labels come from the runtime's per-slot state
+  (`rt_save_slot_state`: EMPTY, ORIGINAL, ANTHEADS, BOTH), which knows one row per build the front
+  end can boot — the program it booted, plus the other game when it is playable from the same data
+  folder (the fifth button's own gate). The state, not the drawing, is what the view logs when it
+  opens: `title: slots: saved in 1 2 3 4 5 6 8; (A) on 1 2 4`, and `title: slots: page 2` on a turn.
+* **The file that loads is the file that was clicked.** A row holding the add-on's file boots the
+  add-on (`g_switchTo` + `g_loadOnBoot`, the third boot latch beside Escape's and the fifth
+  button's) and the fresh machine runs the add-on's own intro setup, skips the intro scene and
+  answers its YES/NO load screen with "yes" (`host_title_load_on_boot`); a 1989 row loads in the
+  1989 program without a restart. The build's own load routine opens its own file name, so a run
+  that opened the other game's file would fail the check: measured with `--doslog`, slot 9's "(A)"
+  row → `restarting as Antheads` → `open "ICFTD2" … (13014 bytes)`, slot 8's plain row → no restart
+  → `open "ICFTD" … (12444 bytes)`, and slot 10's two rows → whichever was clicked, from the
+  add-on's own menu as well. `--titlekey 11` takes the slot's own build, so either half can be
+  measured headless.
+
+The runtime's side of it is `rt_save_register`/`rt_save_slot_state` in `src\runtime\amiga\machine.c`;
+`tools\dos-save-test.ps1` writes both files through the same dos.library LVOs the engines use and
+checks the four states and that a one-byte placeholder is still empty, and
+`tools\save-ui-check.ps1` checks the picker's own view (a 13 014-byte `ICFTD2` is a saved slot,
+13 013 bytes is not).
 
 ## The title's settings menu
 
@@ -669,8 +703,9 @@ Where it attaches:
   answers 0 until that front end boots the add-on too. No add-on, no button, and the menu is the
   one it has always been.
 * **Shared save slots.** The slots belong to the port, not to a build: both games save into
-  `saves\slotN\` (`ICFTD` and `ICFTD2`), which is what Phase 7's `(A)` marker is for and why a slot
-  will boot the program that owns its file.
+  `saves\slotN\` (`ICFTD` and `ICFTD2`), so the Load Game list marks a save the add-on wrote
+  `(A)` and a slot's click boots the program that owns its file (see "The slots are shared with
+  Antheads" below).
 
 Measured with `tools\title-check.ps1` (gate step 6). Log: the two layouts rectangle by rectangle,
 `5 button(s); New Game 230,84 ...; Play Antheads 230,103 ...; Quit Game 230,164` with the add-on, the

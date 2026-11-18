@@ -66,12 +66,31 @@ typedef struct title_menu
     s16 pointer_x, pointer_y;           /* its position, the arrow's tip */
 } title_menu;
 
-/* The load game view: ten save-slot lines in place of the buttons, and the Back button under
- * them. `empty` is filled from the save directories when the view opens. */
+/* The load game view: one row per save *file* in place of the buttons, and the Back button under
+ * them. `state` is filled from the save directories when the view opens and says which builds saved
+ * in each slot - the two games share the slots (docs\antheads.md, Phase 7) - and `entry` is the
+ * list that is drawn: one row per file, in slot order, so a slot both games saved in shows
+ * "Slot N" and "Slot N (A)" and each row loads its own program. A row never asks a question about
+ * what it already says.
+ *
+ * Ten rows fit between the first button and Back. When the slots hold more files than that, the
+ * last row becomes "More" and the list pages - nothing is hidden, and no row changes meaning. */
+#define TITLE_SLOT_ROWS 10
+
+typedef struct title_slot_entry
+{
+    u8 slot;                            /* 1..TITLE_SLOT_COUNT: the directory the file is in */
+    u8 kind;                            /* RT_SAVE_ORIGINAL or RT_SAVE_ANTHEADS: which file */
+} title_slot_entry;
+
 typedef struct title_slots
 {
-    u8  empty[TITLE_SLOT_COUNT];        /* 1 = nothing was ever saved in that slot */
-    int hover;                          /* the slot under the pointer, -1 for none */
+    u8  state[TITLE_SLOT_COUNT];        /* RT_SAVE_*: which builds saved in that slot */
+    title_slot_entry entry[TITLE_SLOT_COUNT * 2];
+    int entries;                        /* save files the ten slots hold */
+    int page;                           /* the page of rows shown (only when entries > TITLE_SLOT_ROWS) */
+    int hover;                          /* the row under the pointer, -1 for none */
+    int more_hover;                     /* the pointer is over the "More" row */
     int back_hover;                     /* the pointer is over the Back button */
     int pointer_on;                     /* the platform reported a pointer this frame */
     s16 pointer_x, pointer_y;           /* its position, the arrow's tip */
@@ -126,15 +145,28 @@ int title_menu_pointer(title_menu *menu, int present, int x, int y);
 void title_menu_draw(rt_machine *m, const title_menu *menu, u8 *dst, u32 stride, int w, int h);
 
 /* The load game view. `title_slots_init` clears it; `title_slots_load` reads the ten save
- * directories, so a slot with no file is drawn grey and cannot be hovered. */
+ * directories into `state` and builds the row list (`entry`, `entries`): one row per save file, in
+ * slot order, the 1989 game's before the add-on's. A slot no file came back from is drawn grey and
+ * cannot be hovered.
+ */
 void title_slots_init(title_slots *slots);
 void title_slots_load(title_slots *slots, rt_machine *m);
 
-/* Notes the pointer and returns the non-empty slot under it, or -1. `back_hover` is set when the
- * pointer is over the Back button. Empty slots never report a hover. */
+/* Notes the pointer and returns the row under it, or -1; the row's entry is title_slots_at(). An
+ * empty row never reports a hover. `more_hover` and `back_hover` name the other two rows. */
 int title_slots_pointer(title_slots *slots, int present, int x, int y);
 
-/* Draws the ten "Slot N" lines, the Back button and the pointer arrow. */
+/* The entry a row of the current page shows, or 0 for a row past the end (an empty slot's grey row,
+ * or the "More" row). */
+const title_slot_entry *title_slots_at(const title_slots *slots, int row);
+
+/* 1 when the list has more files than rows, so the last row is "More"; title_slots_next_page moves
+ * to the page after it (wrapping). */
+int title_slots_paging(const title_slots *slots);
+void title_slots_next_page(title_slots *slots);
+
+/* Draws the rows - "Slot N" or "Slot N (A)", grey for a slot nothing was saved in - the "More" row
+ * when there is one, the Back button and the pointer arrow. */
 void title_slots_draw(rt_machine *m, const title_slots *slots, u8 *dst, u32 stride, int w, int h);
 
 /* The settings view. `title_settings_init` fills it from icftd.ini - the settings the front end

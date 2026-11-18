@@ -1,9 +1,10 @@
-# Builds and runs out\dos-save-test.c: the save path (DSAVE: -> saves\slot<N>\ICFTD) exercised
-# through rt_os_call, the same seam the engine's own save routine goes through.
+# Builds and runs tools\dos-save-test.c: the save path (DSAVE: -> saves\slot<N>\ICFTD and
+# \ICFTD2) exercised through rt_os_call, the same seam the engine's own save routines go through.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\dos-save-test.ps1
 #
-# The test writes into <exe dir>\saves\slot3, i.e. bin\win32\saves\slot3.
+# The test writes into <exe dir>\saves\slot3, slot4 and slot5, i.e. bin\win32\saves\slot3..5. Those
+# three are emptied for the run and put back afterwards, so a developer's own saves survive.
 param(
     [string]$WatcomHome = $(if ($env:WATCOM) { $env:WATCOM } else { "H:\Meine Programme\Open Watcom" })
 )
@@ -22,12 +23,18 @@ if (Test-Path $obj) { Remove-Item $obj -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $obj | Out-Null
 
 $sources = @(
-    '..\..\out\dos-save-test.c',
+    '..\..\tools\dos-save-test.c',
     '..\..\src\runtime\amiga\memory.c',
     '..\..\src\runtime\amiga\machine.c',
     '..\..\src\runtime\amiga\blitter.c',
     '..\..\src\runtime\amiga\display.c',
+    '..\..\src\runtime\amiga\slots.c',
+    '..\..\src\runtime\amiga\copper.c',
+    '..\..\src\runtime\amiga\audio.c',
+    '..\..\src\runtime\amiga\bus_cycles.c',
+    '..\..\src\runtime\amiga\inst_len.c',
     '..\..\src\runtime\config.c',
+    '..\..\src\runtime\plat\win32\border.c',
     '..\..\src\runtime\plat\win32\plat_win32.c'
 )
 # Watcom splits unquoted arguments on spaces and the repository path has them, so everything is
@@ -46,8 +53,31 @@ finally { Pop-Location }
 if ($code -ne 0) { throw "build failed ($code)" }
 
 $log = Join-Path $root 'out\dos-save-test.log'
-& $exe 2>&1 | Out-File -FilePath $log -Encoding utf8
-$code = $LASTEXITCODE
+
+# The three slots the test owns. A save a developer left there would make "nothing saved yet" false,
+# so they are emptied first and copied back afterwards.
+$saves = Join-Path (Split-Path -Parent $exe) 'saves'
+$keep  = Join-Path $root 'out\dos-save-backup'
+if (Test-Path $keep) { Remove-Item $keep -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $keep | Out-Null
+foreach ($n in 3, 4, 5) {
+    $dir = Join-Path $saves ("slot{0}" -f $n)
+    if (Test-Path $dir) {
+        Copy-Item $dir (Join-Path $keep ("slot{0}" -f $n)) -Recurse -Force
+        Remove-Item $dir -Recurse -Force
+    }
+}
+try {
+    & $exe 2>&1 | Out-File -FilePath $log -Encoding utf8
+    $code = $LASTEXITCODE
+} finally {
+    foreach ($n in 3, 4, 5) {
+        $dir = Join-Path $saves ("slot{0}" -f $n)
+        if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+        $back = Join-Path $keep ("slot{0}" -f $n)
+        if (Test-Path $back) { Copy-Item $back $dir -Recurse -Force }
+    }
+}
 Get-Content $log | Where-Object { $_ -match '^(ok|FAIL|PASS)' } | ForEach-Object { $_ }
 Write-Host "dos-save-test: exit $code"
 exit $code

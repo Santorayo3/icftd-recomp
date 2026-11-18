@@ -1776,6 +1776,10 @@ int main(int argc, char **argv)
             lastTraced = prevTraced = 0xFFFFFFFFu;
             host_title_key(-1);
             host_title_arm(1);
+            /* A save the other game wrote is loaded in that game (title.c): this front end boots
+             * one program, so nothing here can ask for the switch yet - the latch is taken so a
+             * pending load is not silently dropped (docs\antheads.md, Phase 8 boots the add-on). */
+            if (host_title_restart_load()) host_title_load_on_boot();
             continue;
         }
     }

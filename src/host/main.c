@@ -1331,6 +1331,28 @@ int host_title_addon(rt_machine *m)
     return rt_assets_addon_ready(m != 0 ? m->dataDir : 0, RT_ASSETS_WINDOWS) ? 1 : 0;
 }
 
+/* The save files this machine recognises. The slots are shared by the two games, so a save the
+ * other one wrote must be visible - and bootable - from this one: the running program's own file
+ * always, the other game's when it can be played from this data folder (the same gate the menu's
+ * fifth button asks, so a slot can never offer a game this front end could not boot). The name and
+ * size are the descriptors' own (docs\antheads.md, Phase 7). */
+static void host_saves(rt_machine *m)
+{
+    const int ant = g_program == HOST_PROGRAM_ANT;
+    const int otherPlayable = ant || host_title_addon(m);
+
+    rt_save_register(m, ant ? RT_SAVE_ANTHEADS : RT_SAVE_ORIGINAL,
+                     rc_active->saveName, rc_active->saveBytes);
+    if (otherPlayable)
+    {
+        const rc_program *other = host_program(ant ? HOST_PROGRAM_ORIGINAL : HOST_PROGRAM_ANT);
+
+        if (other != 0)
+            rt_save_register(m, ant ? RT_SAVE_ORIGINAL : RT_SAVE_ANTHEADS,
+                             other->saveName, other->saveBytes);
+    }
+}
+
 /* The title menu runs its own loop, so the frame hooks above do not run while it is up: a --mouse
  * script reaches its buttons through this (see title.h). A windowed game has no script - and a
  * player's own pointer arrives through plat_pump - so the pitch is the platform's. */
@@ -1920,6 +1942,7 @@ int main(int argc, char **argv)
     /* The program's files come from its own extracted tree: `disk1..3` for the 1989 game,
      * `ant1..3` for the add-on (src\runtime\assets.c extracts both). */
     m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+    host_saves(&m);
     /* The narration panel's engine variables belong to the build being run too: the display would
      * otherwise read the add-on's code bytes as colours (docs\antheads.md §6). */
     m.panelFlag = RC_ADDR(PANEL_FLAG);
@@ -2159,6 +2182,7 @@ int main(int argc, char **argv)
             int hadAudio = m.audio.device;
             int bootAs = host_title_restart_program();
             int bootPlay = host_title_restart_play();
+            int bootLoad = host_title_restart_load();
 
             if (bootAs >= 0 && bootAs != g_program)
             {
@@ -2191,6 +2215,7 @@ int main(int argc, char **argv)
             m.saveName = rc_active->saveName;
             m.saveBytes = rc_active->saveBytes;
             m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+            host_saves(&m);
             m.panelFlag = RC_ADDR(PANEL_FLAG);
             m.panelCols = RC_ADDR(PANEL_COLS);
             m.progress = progress;
@@ -2268,6 +2293,7 @@ int main(int argc, char **argv)
              * ends on the menu itself (99 is not a scene). */
             host_title_arm(1);
             if (bootPlay) host_title_new_game();
+            else if (bootLoad) host_title_load_on_boot();
             else host_title_key(g_window ? -1 : 99);
         }
     }

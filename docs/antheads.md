@@ -436,18 +436,76 @@ four `lea (d16,A4)` pairs at 0x11D36/0x11D3E and 0x11D66/0x11D6E:
 `0x23ED0..0x23F92` (0xC2) and `0x29094..0x2C2A8` (0x3214) — **13 014 bytes**;
 the original writes `ICFTD`, 12 444 bytes. No metadata is needed to tell them apart.
 
-- [ ] **7.1** `rt_save_slot_empty()` becomes `rt_save_slot_state(slot)` →
+- [x] **7.1** `rt_save_slot_empty()` becomes `rt_save_slot_state(slot)` →
   `{ EMPTY, ORIGINAL(ICFTD), ANTHEADS(ICFTD2), BOTH }` (`machine.c`; the file names come from
-  `rc_active->saveName`, the byte count from `rc_active->saveBytes`).
-- [ ] **7.2** The title's Load Game renders `Slot N (A)` for an Antheads save. Decision D2 for
-  **BOTH** (recommended: two lines, `Slot N` and `Slot N (A)`, each loading its own program).
-- [ ] **7.3** A click on a slot boots the program that owns the file: `g_program = 0/1`,
-  `m.saveSlot = n`, then the title's existing "answer the load prompt" path runs in *that*
-  program (`TITLE_LOAD_ANSWER` twin 0x11B54 for the addon).
-- [ ] **7.4** `tools\save-ui-check.ps1` and `tools\dos-save-test.ps1` gain the `ICFTD2` case
-  (13 014 bytes, ranges identical to RAM at 0x23ED0 / 0x29094).
-- [ ] **7.5 Done when:** a save made in Antheads shows `(A)`, loads back into Antheads, and a 1989
-  save in the same slot still loads into the 1989 program; the two never cross-load.
+  `rc_active->saveName`, the byte count from `rc_active->saveBytes`). — done, with one addition the
+  bullet needed but did not name: the runtime cannot know the *other* game's file from
+  `rc_active` alone, so `rt_save_register(m, kind, name, bytes)` takes one row per build and the
+  front end fills it: the program it booted always, the other game when it is playable from the
+  same data folder (`rt_assets_addon_ready`, the fifth button's own gate — so a slot can never
+  offer a game this front end could not boot). Name and size are still the program descriptors'
+  (`rc_engine`/`ant_engine`: "ICFTD" 0x309C, "ICFTD2" 0x32D6), never a second copy in the runtime.
+  `rt_init` registers the 1989 game's own, so the DOS front end and `tools\dos-save-test.ps1` keep
+  working untouched. `rt_save_slot_empty` is now `state == RT_SAVE_EMPTY`, and a file shorter than
+  its build's save is still the engine's one-byte placeholder.
+- [x] **7.2** The title's Load Game renders `Slot N (A)` for an Antheads save. Decision D2 for
+  **BOTH** (recommended: two lines, `Slot N` and `Slot N (A)`, each loading its own program). — done,
+  and D2 is settled **as written**: the list draws **one row per save file**, in slot order, the
+  1989 game's before the add-on's, so a slot both games saved in shows `Slot N` and `Slot N (A)`
+  next to each other and each row loads its own program. A row never asks about something its label
+  already says — the first draft's "which game?" view was wrong for exactly that reason. Ten rows
+  fit between the first button and Back; when the slots hold more files than that the last row reads
+  `More` and pages (nothing is hidden, and no row changes meaning). Slots nothing was saved in keep
+  their grey row while there is space. The view logs the files it is drawn from:
+  `title: slots: saved in 1 2 3 4 5 6 8; (A) on 1 2 4`, plus `title: slots: page 2` on a page turn.
+- [x] **7.3** A click on a slot boots the program that owns the file: `g_program = 0/1`,
+  `m.saveSlot = n`, then the title's existing "answer the load prompt" path runs in *that* program
+  (`TITLE_LOAD_ANSWER` twin 0x11B54 for the addon). — done as a third boot latch beside Escape's
+  and the fifth button's: `g_loadOnBoot` → `host_title_restart_load()`, and the front end calls
+  `host_title_load_on_boot()` instead of `host_title_new_game()` on the fresh machine (the intro
+  scene is skipped, the engine's own YES/NO load screen is answered "yes", and the slot number is
+  the one the restart already keeps). Measured both ways with `--doslog` from `export\` (slots 8/9
+  hold one file each, slot 10 both):
+  * slot 8 (1989 only): `title: save slot 8 selected`, no restart, the 1989 program opens
+    `saves\slot8\ICFTD` (12 444) and never `ICFTD2`;
+  * slot 9 (add-on only): `title: slot 9 is the add-on's save - booting it to load`,
+    `recomp: restarting as Antheads`, `title: skipping the intro`, `title: loading the selected save
+    slot`, then `emu: open "ICFTD2" -> …\slot9\ICFTD2 (13014 bytes)` from the add-on's own load
+    routine — and no `ICFTD` at all;
+  * slot 10 (both): `title: save slot 10 holds both games' saves`, then
+    `selected: Antheads` → the add-on's `ICFTD2`, or `selected: the 1989 game` → `ICFTD` with no
+    restart;
+  * from the add-on's own menu a 1989 save boots the 1989 program the same way.
+  `--titlekey 11` (a script, no pointer) takes the slot's own build the same way, so a headless run
+  can measure either half.
+- [x] **7.4** `tools\save-ui-check.ps1` and `tools\dos-save-test.ps1` gain the `ICFTD2` case
+  (13 014 bytes, ranges identical to RAM at 0x23ED0 / 0x29094). — `dos-save-test` writes **both**
+  files through the dos.library LVOs (Open/Write 0x78+0x3024 / Close, then Open/Write 0xC2+0x3214 /
+  Close), compares each file with the RAM it came from, and checks what the slots then read:
+  EMPTY → ORIGINAL → ANTHEADS → BOTH, and the one-byte placeholder still EMPTY. That needed two
+  repairs to the harness itself: it lived in `out\` (scratch) and is now `tools\dos-save-test.c`
+  beside `tools\pit-clock-check.c`, and its source list had lost `slots.c`/`copper.c`/`audio.c`/
+  `bus_cycles.c`/`inst_len.c`/`border.c` since the runtime was split, so it no longer linked at
+  all. `save-ui-check` gains the picker's view of the add-on's file — a slot holding a 13 014-byte
+  `ICFTD2` is a saved slot (not "(Empty)"), a 13 013-byte placeholder is not — which runs without
+  the map recording. The five slot cases above live in `tools\title-check.ps1` (gate step 6), which
+  needs no recording.
+- [x] **7.5 Done when:** a save made in Antheads shows `(A)`, loads back into Antheads, and a 1989
+  save in the same slot still loads into the 1989 program; the two never cross-load. — measured as
+  7.3's four runs plus the list's own line, and asserted by `tools\title-check.ps1`: the marker,
+  the both-games view, and every load through the program that owns the file (the opened file's
+  name and size are the claim, so a run that opened the other game's file would fail).
+
+**Left open from this phase** (measured, not a defect of this change): the port's SAVE GAME picker
+was not driven end to end *inside the add-on's map*, so an add-on save made from the map is written
+by the engine but the picker path there is unverified. In a played add-on run the map's own script
+seam (`MAP_SCRIPT_PC`, the twin of `FUN_00003B1E`) is entered while the map is drawn (frame 1803)
+and then only in short bursts (next at 2322), so the port's pointer never coincides with one and
+`s_markHover` cannot go up in time (a click has 8 frames, `SAVE_CLICK_FRAMES`). The 1989 map, where
+the same picker works, runs that script continuously — so this is the add-on map's own behaviour and
+belongs with the map-cursor work, not with the save files: `rt_save_slot_state` is per-slot and
+program-independent, and the add-on's map already reaches `SAVE_DRAW_PC`/`SAVE_ASSET` (the mark is
+pinned at 259,170 in it too).
 
 ### Phase 8 — MS-DOS
 
@@ -682,7 +740,7 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 | # | question | recommendation |
 |---|---|---|
 | D1 | What does the fifth button say while the addon is running? | the port's menu is one menu, always drawn on the 1989 program, and Escape from either game returns to it, so nothing has to flip. A game already running the add-on simply gets the four buttons (its New Game plays it), and there is no "way back" label at all. **Settled 2026-11-18** (the first draft's `Play Original Game` was 90 px in a 73 px button, and it only existed because the menu was drawn per build) |
-| D2 | A slot directory holding **both** `ICFTD` and `ICFTD2` (the player saved from both halves in one slot) | show **two lines**: `Slot N` and `Slot N (A)`; each loads its own program. The slots are shared by the two games, which is what makes this the only honest way to show a slot both wrote |
+| D2 | A slot directory holding **both** `ICFTD` and `ICFTD2` (the player saved from both halves in one slot) | show **two lines**: `Slot N` and `Slot N (A)`; each loads its own program. The slots are shared by the two games, which is what makes this the only honest way to show a slot both wrote. **Settled 2026-11-18 as written**: the Load Game list draws one row per *save file* (slot order, the 1989 game's before the add-on's), so both files of a slot are two rows and each loads its own game. A row never asks a question its label has already answered; when the slots hold more files than the ten rows, the last row reads `More` and pages, so no save is out of reach |
 | D3 | Where the addon's generated code lives | commit it under `src\recomp\ant\` (the model is generated too; generating at build time would need the model in the repo) |
 | D4 | The title's digit keys in Antheads | keep 1,2,4,5,6,7 and the three endings (all mapped here); **disable 3** (fire game removed) and say so in `--titlekey`'s help |
 | D5 | Save compatibility with a real Amiga | none needed: both saves are raw address-based dumps at base 0x4000; a WinUAE save still drops in |

@@ -262,11 +262,11 @@ docs/                  architecture, plan, program model
 | `tools\fieldmap.ps1`, `structs.ps1`, `asmrange.ps1`, `banktable.ps1` | query the model / disassembly |
 | `tools\analyse-os-calls.ps1`, `decompile-quality.ps1`, `global-heat.ps1` | model reporting |
 | `tools\gamepack.ps1` | pack assets for the shipped runtime (the data seam) |
-| `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD`) against `rt_os_call` |
+| `tools\dos-save-test.ps1` | build + run the save path (`DSAVE:` → `saves\slot<N>\ICFTD` and the add-on's `ICFTD2`) against `rt_os_call`, and the slot state the two files make |
 | `tools\mkosdicon.ps1` | PNG → `src\runtime\amiga\osd_icon.h`, the table the on-screen display draws |
 | `tools\mktitleart.ps1` | PNG → `src\host\title_art.h`, the picture the title screen draws while the map's score plays |
 | `tools\mksettingsart.ps1` | PNG → `src\host\settings_art.h`, the minus and plus buttons and the fullscreen toggle the title's settings view draws |
-| `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title) |
+| `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title), the two menu layouts, and the shared save slots: one row per save file, "(A)" for the add-on's, no cross-loading, and paging when there are more files than rows |
 | `tools\settings-check.ps1` | the title's settings menu: the Settings button opens it, the fullscreen toggle and the two volumes change the machine and are written back to icftd.ini, Back restores the menu, and Alt+Enter (posted to the live window) switches the window from the view and leaves the toggle showing the state it took |
 | `tools\quit-check.ps1` | Quit Game's farewell: the click replaces the menu with the two requested lines on black, centred, held for ten seconds (500 frames), then the application closes; a measurement run is untouched |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
@@ -281,7 +281,7 @@ docs/                  architecture, plan, program model
 | `tools\mkcrosshair.ps1` | PNG → `src\runtime\amiga\crosshair_art.h`, the aiming aid the fight draws |
 | `tools\mkborder.ps1` | PNG → `src\runtime\plat\win32\border_art.h`, the art the Windows fullscreen paints behind the 4:3 picture |
 | `tools\mkportraitbox.ps1` | PNG → `src\host\portrait_box_art.h`, the box the map's save-slot picker draws |
-| `tools\save-ui-check.ps1` | the map's save-slot picker: a click opens it, the map stays put, Back resumes, and a slot writes the engine's 12 444-byte save |
+| `tools\save-ui-check.ps1` | the map's save-slot picker: a click opens it, the map stays put, Back resumes, and a slot writes the engine's 12 444-byte save; a slot holding the add-on's 13 014-byte `ICFTD2` is a saved slot, a one-byte placeholder is not |
 | `tools\border-check.ps1` | the fullscreen border: the art table is the PNG byte for byte, `border_paint` is point sampling, and the bars are curtain rather than black |
 | `tools\art-check.ps1` | the shipping invariant: every picture compiled into the executable is what its tracked `assets\*.png` generates, so no game-derived art ships in the binary |
 

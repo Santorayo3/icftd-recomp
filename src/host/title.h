@@ -50,12 +50,26 @@ int host_title_restart_program(void);
  * request. */
 int host_title_restart_play(void);
 
+/* Read by the front end after host_title_restart_program(), like host_title_restart_play(): 1 when
+ * that boot is a *load* of the slot in m->saveSlot into the build that wrote it - a click on the
+ * other game's save in the Load Game list (docs\antheads.md, Phase 7). The front end then calls
+ * host_title_load_on_boot() instead of host_title_new_game(). Clears the request. */
+int host_title_restart_load(void);
+
 /* The menu's "Play Antheads", taken by the front end after it booted the add-on: the new machine
  * must go straight into the add-on's own intro, so the title does not hold it at an intro setup and
  * draws no menu - it only answers the engine's YES/NO load screen (the one the boot loop runs after
  * the intro) with "no", which is the decision the menu button already made. Called after
  * host_title_arm(1), which is what makes Escape work in the resulting game. */
 void host_title_new_game(void);
+
+/* The menu's "Load Game" for a save the other game wrote, taken by the front end after it booted
+ * that game (host_title_restart_load): the fresh machine runs its own intro setup, the title skips
+ * the intro scene and then answers the engine's YES/NO load screen with "yes", so that build's own
+ * load routine reads its own file back (DSAVE:ICFTD2 in the add-on). The slot is the machine's
+ * m->saveSlot, which the front end keeps across the restart. Nothing of the menu is drawn. Called
+ * after host_title_arm(1). */
+void host_title_load_on_boot(void);
 
 /* The front end's cpu_t mirror is scattered into the core when a CIA handler runs, so a register
  * write made here (an injected call's frame, or the pop that balances it) has to reach that mirror

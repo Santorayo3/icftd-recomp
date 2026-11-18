@@ -26,9 +26,10 @@
       5. presentation          (tools\present-check.ps1 - the raster side, which the translation
                                 gate cannot see)
       6. title menu            (tools\title-check.ps1 - the port's own digit keys start the
-                                minigames from the title, and the fifth button switches to the
-                                add-on "Antheads" when its disks are there; skipped without that
-                                binary)
+                                minigames from the title, the fifth button switches to the
+                                add-on "Antheads" when its disks are there, and the shared save
+                                slots mark a save the add-on wrote "(A)" and load it in the build
+                                that wrote it; skipped without that binary)
       7. title settings        (tools\settings-check.ps1 - the Settings button opens the view, its
                                 toggle and two volumes change the machine and are written back to
                                 icftd.ini, and Back restores the menu)
@@ -59,7 +60,8 @@
      16. art tables            (tools\art-check.ps1 - every picture the executable draws is what its
                                 tracked PNG generates, and no game-derived art is compiled in)
      17. map save picker       (tools\save-ui-check.ps1 - a click opens the slot list, the map
-                                stays put, Back resumes, and a slot writes the engine's own save)
+                                stays put, Back resumes, a slot writes the engine's own save, and
+                                a slot holding the add-on's ICFTD2 is a saved slot)
      18. WASD keys             (tools\keys-check.ps1 - A/S/D/W are the same input the arrow
                                 cluster produces, and a direction outlives a release of either key)
      19. title quit notice     (tools\quit-check.ps1 - a click on Quit Game shows the two requested

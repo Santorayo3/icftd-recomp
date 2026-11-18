@@ -26,7 +26,6 @@ Set-Location $root
 
 $mapInput = 'ref\inputs\map-pointer.txt'
 if (-not (Test-Path $Exe)) { Write-Output "save-ui: SKIP (no $Exe - build with tools\build-host.ps1)"; exit 0 }
-if (-not (Test-Path $mapInput)) { Write-Output "save-ui: SKIP (no $mapInput)"; exit 0 }
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Get-ChildItem $Work -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -34,6 +33,58 @@ Get-ChildItem $Work -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -
 $fail = 0
 function Fail([string]$text) { Write-Output "save-ui: FAIL - $text"; $script:fail++ }
 function Ok([string]$text) { Write-Output "save-ui: $text" }
+
+# --- the add-on's save is a slot the picker knows: ICFTD2, 13 014 bytes ------------------------
+# The picker decides "empty" from the runtime's slot state, which knows both games' files - the one
+# the running program writes ("ICFTD", 12 444 bytes) and the one the other game writes ("ICFTD2",
+# 13 014) - because the slots are shared (docs\antheads.md, Phase 7). So a slot holding only the
+# add-on's file is a slot the player can save into, and the overlay names it instead of "(Empty)".
+# A file shorter than its build's save is the engine's own one-byte placeholder, not a save.
+#
+# The add-on's two ranges - 0xC2 at 0x23ED0 and 0x3214 at 0x29094, FUN_00011C98's four `lea`
+# operands - are the file's own geometry, written by the add-on's save routine:
+# tools\dos-save-test.ps1 exercises that through the dos.library seam. Slot 10 is borrowed and
+# restored, like the map cases below borrow it.
+$slotDir = Join-Path (Split-Path -Parent (Resolve-Path $Exe)) 'saves\slot10'
+$backup = Join-Path $Work 'slot10-backup'
+if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
+if (Test-Path $slotDir) { Copy-Item $slotDir $backup -Recurse -Force }
+if (Test-Path $slotDir) { Remove-Item $slotDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $slotDir | Out-Null
+
+function SlotLine([string]$data)
+{
+    $out = (& $Exe 400000 --data $data --slot 10 2>&1 | Out-String)
+    Set-Content -Path "$Work\slot10.log" -Value $out
+    $m = [regex]::Match($out, 'recomp: Save Slot - 10( \(Empty\))?')
+    if (-not $m.Success) { return '' }
+    return $m.Value
+}
+
+try {
+    $line = SlotLine 'export'
+    if ($line -ne 'recomp: Save Slot - 10 (Empty)') {
+        Fail ("an empty slot 10 reads ""{0}"" instead of ""Save Slot - 10 (Empty)""" -f $line)
+    } else { Ok 'an empty slot reads "(Empty)"' }
+
+    [System.IO.File]::WriteAllBytes((Join-Path $slotDir 'ICFTD2'), (New-Object byte[] 13014))
+    $line = SlotLine 'export'
+    if ($line -ne 'recomp: Save Slot - 10') {
+        Fail ("a slot holding the add-on's 13 014-byte save reads ""{0}"", not a saved slot" -f $line)
+    } else { Ok "a slot holding the add-on's ICFTD2 is a saved slot for the picker" }
+
+    [System.IO.File]::WriteAllBytes((Join-Path $slotDir 'ICFTD2'), (New-Object byte[] 13013))
+    $line = SlotLine 'export'
+    if ($line -ne 'recomp: Save Slot - 10 (Empty)') {
+        Fail ("a 13 013-byte ICFTD2 (the engine's placeholder) reads ""{0}""" -f $line)
+    } else { Ok 'a short ICFTD2 is a placeholder, not a save' }
+} finally {
+    if (Test-Path $slotDir) { Remove-Item $slotDir -Recurse -Force }
+    if (Test-Path $backup) { Copy-Item $backup $slotDir -Recurse -Force }
+}
+
+if ($fail -ne 0) { Write-Output ("save-ui: {0} check(s) failed" -f $fail); exit 1 }
+if (-not (Test-Path $mapInput)) { Write-Output "save-ui: the map cases SKIP (no $mapInput)"; exit 0 }
 
 # The map words the picker must leave alone while it is up (image loaded at 0x4000).
 function MapState([string]$ram)

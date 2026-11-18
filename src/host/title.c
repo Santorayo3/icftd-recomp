@@ -285,8 +285,10 @@ static int g_playMode;                   /* this session is a played game: Esc r
 static int g_restart;                    /* Esc or the fifth button asked the front end for a boot */
 static int g_switchTo = -1;              /* ... and which program that boot is to run (-1: the same) */
 static int g_playOnBoot;                 /* ... and whether it goes straight into that game */
+static int g_loadOnBoot;                 /* ... and whether it loads the slot it was picked for */
 static int g_wantLoad;                   /* the menu chose Load Game: the load screen answers yes */
 static int g_fromMenu;                   /* the pick was the player's, not --titlekey's */
+static int g_loadTarget;                 /* which build wrote the save being loaded (RT_SAVE_*) */
 
 void host_title_arm(int on)
 {
@@ -298,8 +300,10 @@ void host_title_arm(int on)
     g_playMode = on;                     /* Esc restarts a played game, never a measurement */
     g_switchTo = -1;                     /* a boot has not been asked to switch build */
     g_playOnBoot = 0;
+    g_loadOnBoot = 0;
     g_wantLoad = 0;
     g_fromMenu = 0;
+    g_loadTarget = 0;
     g_scriptMenu = 0;
     /* The intro's setup is reached inside a translated function (the mode dispatcher runs it as a
      * block), so there is no call boundary to catch: ask the dispatch to hand the program back
@@ -320,6 +324,20 @@ void host_title_new_game(void)
     g_state = TITLE_PROMPT;
     g_wantLoad = 0;
     rc_breakPc = RC_ADDR(TITLE_LOAD_PROMPT);
+}
+
+/* A program booted for a save it wrote itself (the menu's Load Game, see host_title_restart_load):
+ * the fresh machine runs its own intro setup, the title skips the intro scene - a loaded game has
+ * nothing to show before the save - and then answers the engine's YES/NO load screen with "yes",
+ * so the build's own load routine reads its own file back (DSAVE:ICFTD2 in the add-on). Nothing of
+ * the menu is drawn and no score of the port's is loaded. The slot is m->saveSlot, which the front
+ * end keeps across the restart. */
+void host_title_load_on_boot(void)
+{
+    g_state = TITLE_SKIP_INTRO;
+    g_wantLoad = 1;
+    g_fromMenu = 0;
+    rc_breakPc = RC_ADDR(TITLE_INTRO_RUN);
 }
 
 void host_title_key(int n)
@@ -371,6 +389,13 @@ int host_title_restart_play(void)
 {
     int p = g_playOnBoot;
     g_playOnBoot = 0;
+    return p;
+}
+
+int host_title_restart_load(void)
+{
+    int p = g_loadOnBoot;
+    g_loadOnBoot = 0;
     return p;
 }
 
@@ -672,8 +697,10 @@ static int title_play(rt_machine *m)
         }
         else if (showSlots)
         {
-            /* Load Game's view: an empty slot is inert, a slot with a save loads itself, and Back
-             * puts the buttons back. Fire and the scene keys belong to the main menu only. */
+            /* Load Game's view: one row per save file, and Back puts the buttons back. A row loads
+             * the file it names - "Slot N (A)" is the add-on's, and boots that game - so no row
+             * asks a question it has already answered (docs\antheads.md, Phase 7). When the slots
+             * hold more files than rows, the last row pages through them. */
             if (in.mouse_left_pressed)
             {
                 if (slots.back_hover)
@@ -683,13 +710,26 @@ static int title_play(rt_machine *m)
                     printf("title: back to the main menu (frame %lu)\n",
                            (unsigned long)m->frame);
                 }
+                else if (slots.more_hover)
+                {
+                    title_slots_next_page(&slots);
+                    printf("title: slots: page %d (frame %lu)\n", slots.page + 1,
+                           (unsigned long)m->frame);
+                }
                 else if (slots.hover >= 0)
                 {
-                    m->saveSlot = slots.hover + 1;
-                    pick = TITLE_PICK_LOAD;
-                    g_fromMenu = 1;
-                    printf("title: save slot %d selected (frame %lu)\n", m->saveSlot,
-                           (unsigned long)m->frame);
+                    const title_slot_entry *e = title_slots_at(&slots, slots.hover);
+
+                    if (e != 0)
+                    {
+                        m->saveSlot = e->slot;
+                        g_loadTarget = e->kind;
+                        pick = TITLE_PICK_LOAD;
+                        g_fromMenu = 1;
+                        printf("title: save slot %d selected%s (frame %lu)\n", m->saveSlot,
+                               e->kind == RT_SAVE_ANTHEADS ? ": Antheads" : "",
+                               (unsigned long)m->frame);
+                    }
                 }
             }
         }
@@ -703,11 +743,32 @@ static int title_play(rt_machine *m)
                 else if (b->action == TITLE_ACTION_LOAD_GAME)
                 {
                     /* The slot list replaces the buttons; nothing is loaded until a slot is
-                     * clicked, and an empty one cannot be clicked at all. */
+                     * clicked, and an empty one cannot be clicked at all. The two lines say what
+                     * the list is drawn from - which slots have a save, and which of them the
+                     * add-on wrote ("Slot N (A)") - so a check reads the list, not a picture. */
+                    int i, used = 0, ant = 0;
+
                     title_slots_load(&slots, m);
                     showSlots = 1;
                     printf("title: load game: %d save slot(s) (frame %lu)\n", TITLE_SLOT_COUNT,
                            (unsigned long)m->frame);
+                    printf("title: slots:");
+                    for (i = 0; i < TITLE_SLOT_COUNT; i++)
+                    {
+                        if (slots.state[i] == RT_SAVE_EMPTY) continue;
+                        if (!used) { printf(" saved in"); used = 1; }
+                        printf(" %d", i + 1);
+                    }
+                    if (!used) printf(" none saved");
+                    printf("; (A) on");
+                    for (i = 0; i < TITLE_SLOT_COUNT; i++)
+                    {
+                        if ((slots.state[i] & RT_SAVE_ANTHEADS) == 0) continue;
+                        printf(" %d", i + 1);
+                        ant = 1;
+                    }
+                    if (!ant) printf(" none");
+                    printf(" (frame %lu)\n", (unsigned long)m->frame);
                 }
                 else if (b->action == TITLE_ACTION_SETTINGS)
                 {
@@ -763,9 +824,19 @@ static int title_play(rt_machine *m)
                 {
                     /* The Load Game / New Game buttons, for a scripted run: the menu path (the
                      * load screen is answered by the title), not the original's. The scripted
-                     * Load Game takes the active slot directly - a script has no pointer. */
+                     * Load Game takes the active slot directly - a script has no pointer - and
+                     * the build that wrote the save there is the one that loads it: this run's
+                     * own unless the slot holds only the other game's file. */
                     pick = k == TITLE_KEY_LOAD ? TITLE_PICK_LOAD : TITLE_PICK_INTRO;
                     g_fromMenu = 1;
+                    if (k == TITLE_KEY_LOAD)
+                    {
+                        int state = rt_save_slot_state(m, m->saveSlot);
+                        int mine = seam_is_addon() ? RT_SAVE_ANTHEADS : RT_SAVE_ORIGINAL;
+                        int other = mine == RT_SAVE_ANTHEADS ? RT_SAVE_ORIGINAL : RT_SAVE_ANTHEADS;
+
+                        g_loadTarget = (state & mine) || !(state & other) ? mine : other;
+                    }
                 }
                 else if (k == TITLE_KEY_SETTINGS)
                 {
@@ -997,6 +1068,35 @@ int host_title_check(rt_machine *m, u32 pc)
         }
         if (pick == TITLE_PICK_INTRO || pick == TITLE_PICK_LOAD)
         {
+            /* Which build that pick plays. New Game plays the build that is running; a loaded save
+             * plays the build that wrote it, so a slot's file can never be restored into the other
+             * game's image - the two saves never cross-load (docs\antheads.md, Phase 7). */
+            int mine = seam_is_addon() ? HOST_PROGRAM_ANT : HOST_PROGRAM_ORIGINAL;
+            int target = pick == TITLE_PICK_LOAD && g_loadTarget == RT_SAVE_ANTHEADS
+                             ? HOST_PROGRAM_ANT
+                             : pick == TITLE_PICK_LOAD && g_loadTarget == RT_SAVE_ORIGINAL
+                                   ? HOST_PROGRAM_ORIGINAL
+                                   : mine;
+
+            if (target != mine)
+            {
+                /* The save belongs to the other game: this machine cannot restore it, so the
+                 * front end boots that build and hands the fresh machine to
+                 * host_title_load_on_boot(), which loads the slot there. The stop is forced twice,
+                 * as host_title_escape does. */
+                g_switchTo = target;
+                g_loadOnBoot = 1;
+                g_playOnBoot = 0;
+                g_restart = 1;
+                printf("title: slot %d is %s - booting it to load (frame %lu)\n", m->saveSlot,
+                       g_loadTarget == RT_SAVE_ANTHEADS ? "the add-on's save" : "the 1989 game's save",
+                       (unsigned long)m->frame);
+                m->stop = 1;
+                rc_stopAt = (long)m->insns + 1;
+                g_state = TITLE_OFF;
+                rc_breakPc = 0;
+                return 1;
+            }
             /* A new game or a loaded one replaces the clock the freeze was holding: it starts
              * running from the date and time the game (or the save) has. */
             host_time_freeze_reset();

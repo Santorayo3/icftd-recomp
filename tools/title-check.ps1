@@ -30,6 +30,10 @@
 # finds both games on it. "Play Antheads" boots the add-on and plays its intro at once, which is why
 # that run shows exactly one menu line - the add-on has no menu of its own here.
 #
+# The Load Game list is checked here too, because the slots are shared by the two games: one row per
+# save file, a save the add-on wrote reading "Slot N (A)", and each row loading its own file in the
+# build that wrote it (docs\antheads.md, Phase 7).
+#
 #   powershell -ExecutionPolicy Bypass -File tools\title-check.ps1
 param(
     [string]$Exe = 'bin\win32\icftd-recomp.exe',
@@ -327,6 +331,167 @@ if ($noAddon -match 'is the add-on''s game, which this run does not offer' -and
 } else {
     Write-Output 'title: menu (no add-on) FAIL - --titlekey 15 waited for a button that is not there'
     $fail++
+}
+
+# --- the shared save slots: "(A)" for a save the add-on wrote, and no cross-loading --------------
+# The slots belong to the port, not to a build: both games save into saves\slot<N>, each under the
+# name its own code uses - "ICFTD", 12 444 bytes and "ICFTD2", 13 014 (docs\antheads.md, Phase 7).
+# The Load Game list draws one row per save *file*: "Slot N" for the 1989 game's, "Slot N (A)" for
+# the add-on's, and a slot both games saved in has both rows - each row loads the file it names, in
+# the build that wrote it. Nothing can cross-load: the 1989 program only ever opens ICFTD and the
+# add-on only ever opens ICFTD2. More files than rows page through the last row ("More").
+#
+# The whole saves directory is put aside for the run and restored afterwards, so the rows are the
+# three planted files and nothing else - and a developer's own saves survive.
+$savesDir  = Join-Path (Split-Path -Parent (Resolve-Path $Exe)) 'saves'
+$savedBack = Join-Path $LogDir 'saves-all'
+
+function Plant-Save([int]$slot, [string]$name, [int]$bytes)
+{
+    $dir = Join-Path $savesDir ("slot{0}" -f $slot)
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    # The engine's own load reads the whole file into its two ranges, so a file of the right size
+    # is what the port's slot state recognises: the content is the engine's business.
+    [System.IO.File]::WriteAllBytes((Join-Path $dir $name), (New-Object byte[] $bytes))
+}
+
+function Row-Y([int]$row) { return 80 + $row * 8 + 4 }   # the row's middle
+
+function Title-Run([string]$tag, [int]$insns, [string[]]$mouse, [string[]]$extra, [string]$data,
+                    [string]$image = '')
+{
+    $script = Join-Path $LogDir ("slots-{0}.txt" -f $tag)
+    $mouse | Set-Content -Encoding ascii $script
+    if ($image -eq '') { $image = $Image }
+    $argv = @($image, "$insns", '--data', $data, '--titlekey', '14', '--mouse', $script, '--doslog')
+    $argv += $extra
+    $text = (& $Exe @argv 2>&1 | Out-String)
+    Set-Content -Path (Join-Path $LogDir ("slots-{0}.log" -f $tag)) -Value $text
+    return $text
+}
+
+# The Load Game view's own line, parsed: the slots that hold a save and the ones the add-on wrote.
+function Slot-Lists([string]$log)
+{
+    $line = ($log -split "`r?`n" | Where-Object { $_ -match 'title: slots: ' } | Select-Object -First 1)
+    if ($line -eq $null) { return $null }
+    $m = [regex]::Match($line, 'title: slots: saved in(.*?); \(A\) on(.*?) \(frame')
+    if (-not $m.Success) { return $null }
+    $saved = @($m.Groups[1].Value.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+    $ant = @($m.Groups[2].Value.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+    return [pscustomobject]@{ saved = $saved; ant = $ant; line = $line.Trim() }
+}
+
+# Opens Load Game (the five-button menu's row, y 122..136) and clicks the row at $rowY.
+function Load-Slot([string]$tag, [int]$insns, [int]$rowY, [string[]]$extra = @(), [string]$image = '')
+{
+    return Title-Run $tag $insns @("40 266 129 1", "44 266 129 0",
+                                   "100 266 $rowY 1", "140 266 $rowY 0") $extra $DataDir $image
+}
+
+try {
+    if (Test-Path $savedBack) { Remove-Item $savedBack -Recurse -Force }
+    if (Test-Path $savesDir) {
+        Copy-Item $savesDir $savedBack -Recurse -Force
+        Remove-Item $savesDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $savesDir | Out-Null
+
+    Plant-Save 8 'ICFTD' 12444        # rows: 0 = Slot 8, 1 = Slot 9 (A),
+    Plant-Save 9 'ICFTD2' 13014       #       2 = Slot 10, 3 = Slot 10 (A)
+    Plant-Save 10 'ICFTD' 12444
+    Plant-Save 10 'ICFTD2' 13014
+
+    # Slot 8: the 1989 game's own save, loaded in the program that wrote it.
+    $out = Load-Slot 'orig' 3000000 (Row-Y 0)
+    $lists = Slot-Lists $out
+    if ($lists -eq $null -or ($lists.saved -join ' ') -ne '8 9 10' -or
+        ($lists.ant -join ' ') -ne '9 10') {
+        Write-Output ("title: slots (list)   FAIL - the list does not name the files the slots hold" +
+                      $(if ($lists) { ": " + $lists.line } else { '' }))
+        $fail++
+    } elseif ($out -notmatch 'title: save slot 8 selected' -or
+              $out -notmatch 'emu: open "ICFTD" -> .*slot8\\ICFTD \(12444 bytes\)' -or
+              $out -match 'restarting as' -or $out -match 'open "ICFTD2"') {
+        Write-Output 'title: slots (1989)   FAIL - the 1989 save did not load in the 1989 program'
+        $fail++
+    } else {
+        Write-Output 'title: a row "Slot N" loads the 1989 file in the 1989 program'
+    }
+
+    # Slot 9: the add-on's file only - the "(A)" row boots Antheads and its own load reads ICFTD2.
+    $out = Load-Slot 'ant' 2000000 (Row-Y 1)
+    if ($out -notmatch "title: slot 9 is the add-on's save - booting it to load" -or
+        $out -notmatch 'title: save slot 9 selected: Antheads' -or
+        $out -notmatch 'recomp: restarting as Antheads' -or
+        $out -notmatch 'open "ICFTD2" -> .*slot9\\ICFTD2 \(13014 bytes\)' -or
+        $out -match 'open "ICFTD"') {
+        Write-Output 'title: slots (add-on)  FAIL - the add-on''s save did not load in Antheads'
+        $fail++
+    } else {
+        Write-Output 'title: a row "Slot N (A)" boots Antheads and is read by its own load'
+    }
+
+    # Slot 10 holds both files, so it has both rows: the "(A)" row is the add-on's, and the plain
+    # row under the same name is the 1989 game's. Neither asks a question.
+    $out = Load-Slot 'both-ant' 2000000 (Row-Y 3)
+    if ($out -notmatch 'title: save slot 10 selected: Antheads' -or
+        $out -notmatch 'recomp: restarting as Antheads' -or
+        $out -notmatch 'open "ICFTD2" -> .*slot10\\ICFTD2 \(13014 bytes\)' -or
+        $out -match 'open "ICFTD"') {
+        Write-Output 'title: slots (both, A)  FAIL - the "(A)" row did not load the add-on''s file'
+        $fail++
+    } else {
+        Write-Output 'title: in a slot both games saved in, the "(A)" row loads Antheads'
+    }
+    $out = Load-Slot 'both-orig' 3000000 (Row-Y 2)
+    if ($out -notmatch 'title: save slot 10 selected' -or $out -match 'selected: Antheads' -or
+        $out -notmatch 'open "ICFTD" -> .*slot10\\ICFTD \(12444 bytes\)' -or
+        $out -match 'restarting as' -or $out -match 'open "ICFTD2"') {
+        Write-Output 'title: slots (both, 1989) FAIL - the plain row did not load the 1989 file'
+        $fail++
+    } else {
+        Write-Output 'title: the same slot''s plain row loads the 1989 file in the 1989 program'
+    }
+
+    # The other direction: the add-on's own menu offers the 1989 save, and its row boots the 1989
+    # program. Its Load Game row is the four-button menu's (y 106..120).
+    $antImage = Join-Path $DataDir 'ant\code\dshell4k\dshell.img'
+    if (Test-Path $antImage) {
+        $out = Title-Run 'ant-menu' 3000000 @("40 266 112 1", "44 266 112 0",
+                                              "100 266 $(Row-Y 0) 1", "140 266 $(Row-Y 0) 0") `
+                         @('--program', 'ant') $DataDir $antImage
+        if ($out -notmatch "title: slot 8 is the 1989 game's save - booting it to load" -or
+            $out -notmatch 'recomp: restarting as It Came from the Desert' -or
+            $out -notmatch 'open "ICFTD" -> .*slot8\\ICFTD \(12444 bytes\)' -or
+            $out -match 'open "ICFTD2"') {
+            Write-Output 'title: slots (add-on menu) FAIL - a 1989 save did not boot the 1989 program'
+            $fail++
+        } else {
+            Write-Output 'title: from the add-on''s own menu a 1989 save boots the 1989 game'
+        }
+    }
+
+    # More files than rows: every slot saved, plus one the add-on wrote - eleven files in ten rows,
+    # so the last row pages. The eleventh file (slot 9's, the only "(A)" one) is page 2's first row,
+    # which is how a crowded list still reaches every save.
+    Get-ChildItem $savesDir -Recurse -File | Remove-Item -Force
+    foreach ($n in 1..10) { Plant-Save $n 'ICFTD' 12444 }
+    Plant-Save 9 'ICFTD2' 13014
+    $out = Title-Run 'more' 2000000 @("40 266 129 1", "44 266 129 0",
+                                      "100 266 $(Row-Y 9) 1", "140 266 $(Row-Y 9) 0",
+                                      "200 266 $(Row-Y 0) 1", "240 266 $(Row-Y 0) 0") @() $DataDir
+    if ($out -notmatch 'title: slots: page 2' -or
+        $out -notmatch 'title: save slot 9 selected: Antheads' -or
+        $out -notmatch 'open "ICFTD2" -> .*slot9\\ICFTD2 \(13014 bytes\)') {
+        Write-Output 'title: slots (more)    FAIL - the eleventh file is not reachable through "More"'
+        $fail++
+    } else {
+        Write-Output 'title: more files than rows page through the last row, and every file is reachable'
+    }
+} finally {
+    if (Test-Path $savesDir) { Remove-Item $savesDir -Recurse -Force }
+    if (Test-Path $savedBack) { Copy-Item $savedBack $savesDir -Recurse -Force }
 }
 
 # --- the picture itself, where a desktop can give the game a window ----------------------------
