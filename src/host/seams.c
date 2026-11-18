@@ -194,10 +194,9 @@ static const seam_set g_ant =
 
 int seam_is_addon(void)
 {
-    /* The 1989 build is the only program whose descriptor every front end links (the MS-DOS build
-     * gains the add-on's in its own phase, docs\antheads.md), so the test is against it rather
-     * than against the add-on's table: a run of the original is not the add-on whatever else is
-     * linked, and any other program is. */
+    /* The 1989 build is the program both front ends boot by default, so the test is against it
+     * rather than against the add-on's table: a run of the original is not the add-on whatever else
+     * is linked, and any other program is. */
     return rc_active != 0 && rc_active != &rc_engine;
 }
 

@@ -565,6 +565,7 @@ A sensible split over sessions:
 | Extracted 8.3 tree (naming rules, the check's reference) | `tools\dos-pack.ps1 -Data <dir>` |
 | DOS run harness | `tools\dos-run.ps1` |
 | DOS first-start check (DOSBox) | `tools\dos-extract-check.ps1` |
+| DOS add-on check — both builds, menus, shared saves (DOSBox) | `tools\dos-ant-check.ps1` |
 | Build | `tools\build-dos.ps1` (object dir `bin\dos\obj`) |
 
 ## Known traps

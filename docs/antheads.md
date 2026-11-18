@@ -165,7 +165,8 @@ features; 8 pays DOS; 9 closes.
   `src\oracle\cpu.c` vs `src\recomp\cpu.c`: give the addon set its own object directory. — done for
   `build-host.ps1` (`ant` object group). The link of ~1 600 objects exceeds the 32 767-character
   Windows command line, so the host build now links through a wlink directive file (`link.lnk`);
-  `build-dos.ps1` is Phase 8.
+  `build-dos.ps1` is Phase 8 and does it with a wlib archive (`ant\icftd-ant.lib`), because wcl386
+  has no response file for its object list and always writes its own `.lnk` for the linker.
 - [x] **2.4** Done when: both front ends link and the executable's size grows by ~130 KB only. —
   the Win32 build links and runs. The size grows by ~2.5 MB, not 130 KB: 130 KB is the 68000 code
   the add-on adds, and translated C is ~20× that in x86 (`icftd-recomp.exe` 3.34 MB → 5.8 MB).
@@ -202,7 +203,10 @@ features; 8 pays DOS; 9 closes.
   `<data>\ant\code\dshell4k\dshell.img` (the layout Phase 4 produces), `src\host\programs.c`
   maps the id to `rc_engine`/`ant_engine`, and the boot reads entry/A4/save geometry from
   `rc_active`.
-- [ ] **3.4 Same in `src\host\dos_main.c`.** — Phase 8.
+- [x] **3.4 Same in `src\host\dos_main.c`.** — done in Phase 8: `--program ant|original`,
+  `ANTSHEL.IMG` + the `ant1..3` tree (the dev tree's `ant\code\dshell4k\dshell.img` too), and the
+  boot reads entry, A4 and save geometry from `rc_active` (it was the last place with `EMU_ENTRY`/
+  `EMU_A4` hard-coded).
 - [x] **3.5 Done when:** `icftd-recomp --program ant --data out\antscan\data --run` reaches the
   addon's intro, and a headless run reproduces the oracle's 1 074 rasters / 3 000 262 instructions
   (machine state, not a picture). — measured: 3 000 262 instructions, stop at `0x24BE6`, 1074
@@ -357,7 +361,8 @@ until the second program boots.
   — done, as two tables (`g_titleButtonLayout` / `g_titleButtonLayoutAddon`) and
   `title_menu_init(menu, addon, addonRunning)`. The gate is `host_title_addon()` - a front-end
   function, because "the add-on is there" is also "this front end can boot it": `main.c` answers
-  from `rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)`, `dos_main.c` answers 0 (Phase 8).
+  from `rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)`, `dos_main.c` the same question of its
+  own 8.3 tree (`RT_ASSETS_DOS`, Phase 8).
   A game already running the add-on gets the four buttons: its New Game plays it, so there is no
   second game to offer (`addonRunning`).
   Measured: from `export\` (both trees) the log's layout is
@@ -509,13 +514,55 @@ pinned at 259,170 in it too).
 
 ### Phase 8 — MS-DOS
 
-- [ ] **8.1** `tools\build-dos.ps1`: the addon object set; check the extender's memory budget with
+- [x] **8.1** `tools\build-dos.ps1`: the addon object set; check the extender's memory budget with
   two translated programs linked (source size, not runtime RAM — only one image is loaded at a time).
-- [ ] **8.2** `dos_main.c`: `g_program`, `ANT1..3` / `ANTSHEL.IMG`, the same seam table (that is the
-  point of Phase 5 — the DOS front end must not grow a second copy of the addresses).
-- [ ] **8.3** `tools\dos-extract-check.ps1` and `tools\dos-pack.ps1` cover both trees.
-- [ ] **8.4 Done when:** `play_dos.cmd` with both disk sets shows the five-button menu, and the
-  addon runs under DOSBox with the same machine state as the Win32 build.
+  — done: `programs.c`, `src\recomp\ant\ant_table.c` and the add-on's 801 `fn_*.c` are in the source
+  list, with their own `ant` object group (the file names collide with the 1989 set's). The link
+  needed one thing the plan did not name: **wcl386 has no response file for its input list** (it
+  silently ignores `@file` and links nothing, exit 0), so the add-on's 802 objects (its 801
+  functions and `ant_table.c`) are archived by `wlib` into `bin\dos\obj\ant\icftd-ant.lib` (one
+  `+object` per line in a wlib command file) and
+  the library is linked after the game's objects. Every member is pulled in: `ant_table.obj`
+  references all of its build's functions and `programs.c` references that table. Budget, measured:
+  the EXE grows from 3 325 314 to 5 828 634 bytes (the Win32 build is 5 828 096 — the same size
+  class) and the release still reports 583 KB of free conventional memory with the EXE loaded: the
+  extender puts the image in extended memory, so the second program costs code in the file, not
+  base memory, and only one image is in RAM at a time, as the plan said.
+- [x] **8.2** `dos_main.c`: `g_program`, `ANT1..3` / `ANTSHEL.IMG`, the same seam table (that is the
+  point of Phase 5 — the DOS front end must not grow a second copy of the addresses). — done: the
+  front end links the add-on's table, sets `rc_active` from `host_program(g_program)` and boots
+  `rc_active->entry/a4` (no `EMU_ENTRY`/`EMU_A4` left), fills `m.saveName/saveBytes/tree` and the
+  narration panel's two words from the seam table, and registers both programs' saves through the
+  same `rt_save_register` gate the Windows front end uses. The title's restart block reads
+  `host_title_restart_program/play/load` and follows them, so Escape, `Play Antheads` and a load of
+  the other game's slot all boot the right build. No address was copied: everything is `SEAM()`
+  through `src\host\seams.c`.
+- [x] **8.3** `tools\dos-extract-check.ps1` and `tools\dos-pack.ps1` cover both trees. — they
+  already did (Phase 4 wrote `ANT1..3`/`ANTSHEL.IMG` and the same check compares them byte for byte);
+  the gap was the *boot*: a release whose game tree was extracted earlier never looked at `disks\`
+  again, so the add-on's disks put next to the EXE after the fact would have been ignored. `dos_main`
+  now calls `rt_assets_ensure` on every start of a release layout (it returns at once when both
+  trees are there) and still leaves a development `--data` tree alone. Measured: a folder holding
+  only `DISK1..3` + `DSHELL.IMG` and the six floppy images in `DISKS\` logs
+  `assets: 82 file(s) from the add-on's 3 disk image(s)`, writes `ANTSHEL.IMG`, and the next menu
+  has five buttons.
+- [x] **8.4 Done when:** `play_dos.cmd` with both disk sets shows the five-button menu, and the
+  addon runs under DOSBox with the same machine state as the Win32 build. — `tools\dos-ant-check.ps1`
+  is the check (DOSBox, machine state only) and all of it is green:
+  * the add-on tree gives `title: menu: 5 button(s); New Game 230,84 73x14; Play Antheads 230,103
+    73x14; Load Game 230,122 73x14; Settings 230,141 73x14; Quit Game 230,164 73x14`; the same
+    folder without it gives the shipped four (85/106/127/164);
+  * `--program ant` boots `C:\ANTSHEL.IMG (base 16384, Antheads)` and takes `voice2`, `met`, `exp`,
+    `DES4:SCORES` and `Desert1:OPEN` from `C:\ant1\`, 0 libraries answered with 0;
+  * **the add-on's 2 MiB RAM image at frame 300 is byte-identical to the Win32 build's** at the same
+    frame (0 differing bytes of 2 097 152) — the machine state claim, not a picture;
+  * `--titlekey 15` (the fifth button's own path) logs `title: playing Antheads`,
+    `icftd: restarting as Antheads` and the add-on's intro, and `--program ant` without the add-on's
+    data says `the add-on's data is not in the data folder (ANT1..3, ANTSHEL.IMG)` and exits 1;
+  * the shared slots load each save in the build that wrote it: slot 1 holding a 13 014-byte
+    `ICFTD2` logs `title: slot 1 is the add-on's save - booting it to load`, restarts as Antheads
+    and opens `saves\slot1\ICFTD2`; slot 2 holding a 12 444-byte `ICFTD` loads into the 1989
+    program with no restart and opens `saves\slot2\ICFTD`.
 
 ### Phase 9 — documentation and release
 
@@ -754,6 +801,12 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
   read code bytes as colours and came out blue. They are the `PANEL_FLAG`/`PANEL_COLS` rows now,
   reaching the display through `rt_machine.panelFlag/panelCols`. Any other `rt_read*` of an engine
   address in the runtime needs the same row.
+* **`wcl386` has no response file for its object list.** `wcl386 @objs.lst` prints its banner and
+  exits 0 without linking (it *always* writes its own `@__wcl_00.lnk` for the linker, but that is
+  not something a build script can hand it). Two translated programs are ~1 600 objects and one
+  PowerShell/Win32 command line stops at 32 767 characters, so the add-on's set goes into a `wlib`
+  archive (`tools\build-dos.ps1`). A link that "succeeds" and leaves the EXE's size unchanged is
+  this trap, not an up-to-date build.
 * **`Emitter.VectorTableBase` is a `const`.** Without Phase 1 the translator *crashes*
   (`IndexOutOfRangeException`) instead of reporting; do not debug the addon with the old build.
 * **`title.c` mixes conventions** with every other seam file (runtime vs model addresses). Moving
@@ -852,4 +905,6 @@ src\assetExport\bin\Debug\net10.0\ICFTD.AmigaExport.exe recomp `
 * The same command without `--prefix`/`--vector-base` regenerates the 1989 translation
   (`src\recomp`); `git diff` must stay empty for it.
 * Rebuild with `tools\build-host.ps1` (the add-on set is its own object group; the link goes
-  through a wlink directive file because ~1 600 objects do not fit on one command line).
+  through a wlink directive file because ~1 600 objects do not fit on one command line) and
+  `tools\build-dos.ps1` (same object group; the object list does not fit either and wcl386 has no
+  response file, so the set is archived into `bin\dos\obj\ant\icftd-ant.lib` by `wlib` first).

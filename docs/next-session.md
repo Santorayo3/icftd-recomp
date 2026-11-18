@@ -17,6 +17,49 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## Antheads, phase 8: the add-on on MS-DOS (2026-11-18)
+
+Phase 8 of [`antheads.md`](antheads.md) is done: the DOS release is one EXE with both engine builds
+linked, and boots either of them. `tools\build-dos.ps1` compiles the add-on's set into its own `ant`
+object group and links it; `src\host\dos_main.c` picks the program (`--program ant`, or the title's
+fifth button), boots `rc_active->entry/a4`, and takes the save geometry, the file tree (`ANT1..3`)
+and the narration panel's two words from the same seam table the Windows build uses - no address is
+copied anywhere.
+
+**Two divergences, both found by building rather than by reading:**
+
+* **wcl386 has no response file.** Two translated programs are ~1 630 objects and one command line
+  stops at 32 767 characters. `wcl386 @objs.lst` prints its banner and exits 0 *without linking* -
+  the build reported success and left the EXE untouched (its size did not change, which was the
+  tell). wcl always writes its own `@__wcl_00.lnk` for the linker, but that is not something a
+  script can hand it. The fix is a `wlib` archive of the add-on's objects (`ant\icftd-ant.lib`),
+  built from a wlib command file with one `+object` per line; `ant_table.obj` references all of its
+  build's functions and `programs.c` references that table, so the linker pulls every member in.
+* **A release never looked at `disks\` again.** `dos_main` only called `rt_assets_ensure` when it
+  found no image to boot, so a player who had already played the game and later put the add-on's
+  three images in `disks\` would never get its tree. A release layout (the folder holding
+  `DSHELL.IMG`/`ANTSHEL.IMG`) is now kept current on every start - the call returns at once when
+  both trees are there - while a development `--data` tree is still booted as it is.
+
+**Measured** (`tools\dos-ant-check.ps1`, new, DOSBox, machine state only):
+
+* with the add-on's tree the title logs the five-button layout (`Play Antheads 230,103`); without
+  it, the shipped four (85/106/127/164) - the DOS menu gained no button of its own;
+* `--program ant` boots `ANTSHEL.IMG (base 16384, Antheads)` and reads `voice2`, `met`, `exp`,
+  `DES4:SCORES` and `Desert1:OPEN` from `ANT1`, 0 library calls answered with 0;
+* **the 2 MiB RAM image at frame 300 is byte-identical to `icftd-recomp.exe --program ant`'s** at
+  the same frame (0 differing bytes) - that is the "same machine state" the phase asks for;
+* the fifth button (`--titlekey 15`) logs `title: playing Antheads` / `restarting as Antheads` and
+  plays the add-on's intro; a slot holding `ICFTD2` boots the add-on and reads it back there, a
+  slot holding `ICFTD` loads into the 1989 program with no restart;
+* `--program ant` without the add-on's data says `the add-on's data is not in the data folder
+  (ANT1..3, ANTSHEL.IMG)` and exits 1.
+
+`tools\dos-extract-check.ps1` stays green unchanged, so the 1989 first start and its 300-frame RAM
+dump are what they were. The EXE is 5 828 634 bytes (was 3 325 314; the Windows build is
+5 828 096) and the release still reports 583 KB of free conventional memory - the extender keeps the
+image in extended memory and only one program is in RAM at a time.
+
 ## Antheads: the room text menus' hover in the add-on (2026-11-18)
 
 Found in play: on a room screen the port's arrow disappeared as soon as the room's text menu
@@ -46,10 +89,10 @@ the click and the game.
 **Two layouts, one gate.** `title_button.c` has a four- and a five-button table and
 `title_menu_init(menu, addon, addonRunning)` picks one: 85/106/127/164 (today's rows) or
 84/103/122/141/164 with `Play Antheads` in the gap and Quit Game keeping its place at the bottom of
-the panel. The gate is a front-end function, `host_title_addon(m)`: `main.c` answers from
-`rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)` (the add-on's own tree - its three folders and
-its image), `dos_main.c` answers 0 until that front end boots the add-on too (Phase 8), so the DOS
-menu stays the one it has. Nothing is behind an opt-in flag: a shipped launch with the add-on's
+the panel. The gate is a front-end function, `host_title_addon(m)`: each front end answers from its
+own data layout (`rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)` in `main.c`, `RT_ASSETS_DOS`
+in `dos_main.c`, since Phase 8), so a folder without the add-on's tree keeps the shipped menu.
+Nothing is behind an opt-in flag: a shipped launch with the add-on's
 disks shows five buttons. A game already running the add-on gets the four (its New Game plays it).
 
 **The menu is the port's, not a build's.** It is always drawn on the 1989 program's hold point, and
@@ -112,7 +155,7 @@ scattered over eight files but one table with a row per engine build. `src\host\
 `seam_set` (100 rows: 41 code points, 55 data words, the loading line's ranges and their count);
 `src\host\seams.c` holds the 1989 column and the add-on's, and `seam_active()` picks one by
 comparing `rc_active` with `rc_engine` (so it can never disagree with the program that is running,
-and the MS-DOS front end, which does not link the add-on's table yet, keeps working). The eight
+in either front end). The eight
 files' old names are macros onto the active row, so every call site kept its shape and its
 `RC_ADDR()`. Only two shapes had to change: `cheat.c`'s `switch` became an `if/else` chain (a `case`
 label must be constant), and the title's scene list now names a *row* (`title_entry`) instead of an

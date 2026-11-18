@@ -11,12 +11,16 @@
  * The image defaults to DSHELL.IMG in the data folder and the game data to the executable's own
  * directory, which is what the DOS release ships in: ICFTD.EXE, DSHELL.IMG, NAMES.TXT and
  * DISK1..DISK3. Save slots are directories the engine writes its ICFTD file into, exactly as on
- * Windows: SAVES\SLOT1..SLOT4 next to the executable.
+ * Windows: SAVES\SLOT1..SLOT4 next to the executable. A run of the 1990 add-on "Antheads" boots
+ * ANTSHEL.IMG with the add-on's own files from ANT1..ANT3 (--program ant, or the title's fifth
+ * button when the add-on's tree is there; docs\antheads.md).
  *
  * A first start on an empty release extracts the data itself: the player's own three floppy images
  * in `disks\` next to the executable are read and written as the 8.3 tree above (DISK1..3 with
  * MS-DOS names, NAMES.TXT recording long=short, DSHELL.IMG last). Without them the game says what is
- * missing and stops. --extract is the same step on its own.
+ * missing and stops. --extract is the same step on its own. The add-on's three images, when they
+ * are in `disks\` too, are extracted beside the game's (ANT1..3, ANTSHEL.IMG) on the same start -
+ * and on a later one when the player buys the add-on afterwards.
  *
  * Development flags (same machinery as src\host\main.c, used for the DOS port's own testing):
  *   --perf              where a frame's time goes, in milliseconds of the 8254 clock: the vblank
@@ -44,7 +48,9 @@
  *   --shot <bmp>        the composed picture (OSD, pointer, crosshair) as a 24-bit BMP
  *   --hoverlog          the text-menu lines recorded and what the pointer picks
  *   --titlekey <n>       take a title screen menu choice (0 the game, 1..7 the minigames, 8..10
- *                        the endings, 11/12 the menu's Load Game / New Game)
+ *                        the endings, 11/12 the menu's Load Game / New Game, 15 "Play Antheads")
+ *   --program ant       run the add-on "Antheads" instead of the 1989 game (a dev seam; a player
+ *                        reaches it through the title's fifth button)
  *   --extract            extract the game data from `disks\` into the data folder and exit
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
@@ -77,9 +83,15 @@
 #include "hospital_camera.h"
 #include "save_button.h"
 #include "save_ui.h"
+#include "programs.h"
 #include "seams.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
+#define DOS_IMAGE_ANT  "ANTSHEL.IMG"
+/* The two programs' images inside a development data folder (the tree tools\extract.ps1 writes):
+ * `code\dshell4k` is the 1989 game, `ant\code\dshell4k` the add-on (docs\antheads.md). */
+#define IMAGE_RELATIVE     "\\code\\dshell4k\\dshell.img"
+#define IMAGE_RELATIVE_ANT "\\ant\\code\\dshell4k\\dshell.img"
 #define MAX_SAVE_SLOTS 10
 
 /* Paula is mixed at this rate on DOS, half the Amiga build's 44.1 kHz (EMU_AUD_RATE): the mixer is
@@ -96,6 +108,29 @@ static int    g_sbTest;         /* --sbtest: diagnose the audio device and exit 
 u32    g_dumpFrame;
 static int    g_dumped;
 static u32    g_frameLimit;     /* --frames: stop at the end of this vblank */
+
+/* Which engine build this run executes: HOST_PROGRAM_ORIGINAL (the 1989 game) or
+ * HOST_PROGRAM_ANT (the 1990 add-on "Antheads"). --program picks at start, the title's fifth
+ * button switches a running game; both tables are linked (docs\antheads.md). */
+static int    g_program = HOST_PROGRAM_ORIGINAL;
+
+/* The image a run of g_program boots inside `dataDir`: the release's own file (DSHELL.IMG, or
+ * ANTSHEL.IMG for the add-on), or - for the tree tools\extract.ps1 writes - the build's image below
+ * `code\dshell4k`. Answers 0 when the data folder path does not fit `size`. */
+static int program_image(char *path, int size, const char *dataDir)
+{
+    char dev[200];
+    const char *name = g_program == HOST_PROGRAM_ANT ? DOS_IMAGE_ANT : DOS_IMAGE;
+    const char *rel  = g_program == HOST_PROGRAM_ANT ? IMAGE_RELATIVE_ANT : IMAGE_RELATIVE;
+
+    if ((int)strlen(dataDir) + (int)strlen(name) + 2 > size) return 0;
+    if ((int)strlen(dataDir) + (int)strlen(rel) + 1 > (int)sizeof dev) return 0;
+    sprintf(path, "%s\\%s", dataDir, name);
+    sprintf(dev, "%s%s", dataDir, rel);
+    if (plat_path_kind(path) != PLAT_PATH_FILE && plat_path_kind(dev) == PLAT_PATH_FILE)
+        strcpy(path, dev);
+    return 1;
+}
 
 /* --perf: where a frame's time goes, in plat_pit_now() counts (plat_pit_per_second() says how many
  * make a second). The emulated work the runtime owns - the conversion, the blitter's pixel loop and
@@ -563,13 +598,34 @@ static void pointer_input(const input_state *in, int stickHeld)
     }
 }
 
-/* The title's fifth button: 0 here, because this front end still boots only the 1989 game - it does
- * not link the add-on's table (docs\antheads.md, Phase 8). A data folder that holds the add-on's
- * tree therefore keeps today's four buttons, instead of one that could not switch anything. */
+/* The title's fifth button: the add-on is playable when its own tree - `ANT1..3\` and
+ * `ANTSHEL.IMG` - is in the data folder (src\runtime\assets.c extracts it when the player's disks
+ * carry it), and this front end links both tables, so it can always boot it (docs\antheads.md). */
 int host_title_addon(rt_machine *m)
 {
-    (void)m;
-    return 0;
+    return rt_assets_addon_ready(m != 0 ? m->dataDir : 0, RT_ASSETS_DOS) ? 1 : 0;
+}
+
+/* The save files this machine recognises. The slots are shared by the two games, so a save the
+ * other one wrote must be visible - and bootable - from this one: the running program's own file
+ * always, the other game's when it can be played from this data folder (the same gate the menu's
+ * fifth button asks, so a slot can never offer a game this front end could not boot). The name and
+ * size are the descriptors' own (docs\antheads.md, Phase 7). */
+static void host_saves(rt_machine *m)
+{
+    const int ant = g_program == HOST_PROGRAM_ANT;
+    const int otherPlayable = ant || host_title_addon(m);
+
+    rt_save_register(m, ant ? RT_SAVE_ANTHEADS : RT_SAVE_ORIGINAL,
+                     rc_active->saveName, rc_active->saveBytes);
+    if (otherPlayable)
+    {
+        const rc_program *other = host_program(ant ? HOST_PROGRAM_ORIGINAL : HOST_PROGRAM_ANT);
+
+        if (other != 0)
+            rt_save_register(m, ant ? RT_SAVE_ORIGINAL : RT_SAVE_ANTHEADS,
+                             other->saveName, other->saveBytes);
+    }
 }
 
 /* The title menu runs its own loop, so the frame hooks do not run while it is up: a --mouse
@@ -1398,6 +1454,17 @@ int main(int argc, char **argv)
             if (slot > MAX_SAVE_SLOTS) slot = MAX_SAVE_SLOTS;
             continue;
         }
+        if (strcmp(argv[i], "--program") == 0 && i + 1 < argc)
+        {
+            /* ant|antheads selects the add-on; original|0 is the 1989 game (the default). */
+            const char *p = argv[++i];
+            if (strcmp(p, "ant") == 0 || strcmp(p, "antheads") == 0 || strcmp(p, "1") == 0)
+                g_program = HOST_PROGRAM_ANT;
+            else if (strcmp(p, "original") == 0 || strcmp(p, "icftd") == 0 || strcmp(p, "0") == 0)
+                g_program = HOST_PROGRAM_ORIGINAL;
+            else { printf("icftd: --program wants ant or original, not %s\n", p); return 2; }
+            continue;
+        }
         if (strcmp(argv[i], "--trace") == 0) { g_trace = 1; continue; }
         if (strcmp(argv[i], "--crashlog") == 0) { g_crashLog = 1; continue; }
         if (strcmp(argv[i], "--noaudio") == 0) { g_noAudio = 1; continue; }
@@ -1491,7 +1558,11 @@ int main(int argc, char **argv)
      * in the layout this release ships (DISK1..3 under 8.3 names, NAMES.TXT, DSHELL.IMG last). The
      * extraction is skipped when there is already something to boot: `--image`, the release's own
      * DSHELL.IMG, or the tree tools\extract.ps1 writes, which is what a development run pointed at
-     * the Windows export with --data uses. */
+     * the Windows export with --data uses.
+     *
+     * A release layout is kept current on every start, so the add-on's tree appears when the player
+     * puts its three images in `disks\` after having played the game (docs\antheads.md §4.2): the
+     * extraction reads nothing when both trees are already there. */
     if (extractOnly)
     {
         char msg[600];
@@ -1504,19 +1575,26 @@ int main(int argc, char **argv)
     }
     if (image == 0)
     {
-        char devImage[200];
-        if ((int)strlen(dataDir) + (int)strlen(DOS_IMAGE) + 2 > (int)sizeof imagePath ||
-            (int)strlen(dataDir) + 27 > (int)sizeof devImage)
+        char release[200];
+        const char *name = g_program == HOST_PROGRAM_ANT ? DOS_IMAGE_ANT : DOS_IMAGE;
+
+        if ((int)strlen(dataDir) + (int)strlen(name) + 2 > (int)sizeof release)
         {
             printf("icftd: the data folder path is too long\n");
             return 2;
         }
-        sprintf(imagePath, "%s\\%s", dataDir, DOS_IMAGE);
-        sprintf(devImage, "%s\\code\\dshell4k\\dshell.img", dataDir);
-        if (plat_path_kind(imagePath) != PLAT_PATH_FILE &&
-            plat_path_kind(devImage) == PLAT_PATH_FILE)
-            strcpy(imagePath, devImage);
-        if (plat_path_kind(imagePath) != PLAT_PATH_FILE)
+        sprintf(release, "%s\\%s", dataDir, name);
+        if (!program_image(imagePath, (int)sizeof imagePath, dataDir))
+        {
+            printf("icftd: the data folder path is too long\n");
+            return 2;
+        }
+        /* A release layout is kept current on every start, so the add-on's tree appears when the
+         * player puts its three images in `disks\` after having played the game (docs\antheads.md
+         * §4.2); it reads nothing when both trees are already there. A development tree - one with
+         * `code\dshell4k` and no release image - is booted as it is. */
+        if (plat_path_kind(release) == PLAT_PATH_FILE ||
+            plat_path_kind(imagePath) != PLAT_PATH_FILE)
         {
             char msg[600];
             if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg,
@@ -1528,8 +1606,19 @@ int main(int argc, char **argv)
         }
         image = imagePath;
     }
+    if (plat_path_kind(image) != PLAT_PATH_FILE)
+    {
+        printf("icftd: cannot load %s\n", image);
+        if (g_program == HOST_PROGRAM_ANT)
+            printf("icftd: the add-on's data is not in the data folder (ANT1..3, ANTSHEL.IMG)\n");
+        return 1;
+    }
+    /* The table the dispatcher searches, and the entry, A4 and save geometry the engine boots and
+     * writes with, belong to the build being run; every other constant is the same for both (same
+     * load address). */
+    rc_active = host_program(g_program);
 
-    printf("It Came from the Desert - %s (base %ld)\n", image, (long)RC_BASE);
+    printf("It Came from the Desert - %s (base %ld, %s)\n", image, (long)RC_BASE, rc_active->name);
     /* Conventional memory left once the extender and this EXE are in place: the audio ring, the
      * only base-memory allocation the game makes itself, has to come out of what remains. */
     printf("icftd: %lu KB conventional memory, %lu KB free with the EXE loaded\n",
@@ -1546,6 +1635,16 @@ int main(int argc, char **argv)
         return 1;
     }
     m.dataDir = dataDir;
+    m.saveName = rc_active->saveName;
+    m.saveBytes = rc_active->saveBytes;
+    /* The program's files come from its own extracted tree: `DISK1..3` for the 1989 game,
+     * `ANT1..3` for the add-on (src\runtime\assets.c extracts both). */
+    m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+    host_saves(&m);
+    /* The narration panel's engine variables belong to the build being run too: the display would
+     * otherwise read the add-on's code bytes as colours (docs\antheads.md §6). */
+    m.panelFlag = RC_ADDR(PANEL_FLAG);
+    m.panelCols = RC_ADDR(PANEL_COLS);
     m.saveSlot = slot;
     g_frameLimit = frameLimit;
     /* perfOn is the window's, not the run's: perf_open() turns it on at the boundary the window
@@ -1606,7 +1705,7 @@ int main(int argc, char **argv)
         rc_entryHook = dos_entry;
 
     g_cpu = &c;
-    oracle_boot(EMU_ENTRY, EMU_A4);
+    oracle_boot(rc_active->entry, rc_active->a4);
     /* After oracle_boot, which installs the dev tool's own hook: a CIA timer expiry is game code
      * and must run with THIS front end's register file (scatter -> handler -> gather), or the
      * handler computes with stale registers. Same order as src\host\main.c. */
@@ -1694,14 +1793,28 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Escape in a played game: start the whole game again, so the title screen comes back with
-         * every piece of emulated state reset (see src\host\title.c). */
+        /* Escape in a played game (back to the menu) and the menu's "Play Antheads" (the add-on's
+         * game) or a load of a save the other build wrote: the machine starts again, so every piece
+         * of emulated state is the one a fresh boot makes (see src\host\title.c). */
         if (!host_title_restart_pending()) break;
 
         {
             int keepSlot = m.saveSlot;
             int soundGain = m.audio.soundGain, musicGain = m.audio.musicGain;
             int hadAudio = m.audio.device;
+            int bootAs = host_title_restart_program();
+            int bootPlay = host_title_restart_play();
+            int bootLoad = host_title_restart_load();
+
+            if (bootAs >= 0 && bootAs != g_program)
+            {
+                /* The other engine build, exactly as --program would have picked it at boot: its
+                 * table, entry, A4, save geometry, image and disk tree (docs\antheads.md). */
+                g_program = bootAs;
+                rc_active = host_program(g_program);
+                if (program_image(imagePath, (int)sizeof imagePath, dataDir)) image = imagePath;
+                printf("icftd: restarting as %s\n", rc_active->name);
+            }
 
             printf("icftd: restarting the game\n");
             rt_shutdown(&m);
@@ -1714,6 +1827,12 @@ int main(int argc, char **argv)
                 break;
             }
             m.dataDir = dataDir;
+            m.saveName = rc_active->saveName;
+            m.saveBytes = rc_active->saveBytes;
+            m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+            host_saves(&m);
+            m.panelFlag = RC_ADDR(PANEL_FLAG);
+            m.panelCols = RC_ADDR(PANEL_COLS);
             m.saveSlot = keepSlot;
             g_frameLimit = frameLimit;
             m.tickLog = tickLog;
@@ -1724,7 +1843,7 @@ int main(int argc, char **argv)
             if (!g_noAudio && hadAudio) rt_audio_open(&m, DOS_AUD_RATE);
             m.on_frame = dos_input;
             m.on_present = dos_present;
-            oracle_boot(EMU_ENTRY, EMU_A4);
+            oracle_boot(rc_active->entry, rc_active->a4);
             m.on_cia = dos_cia;
             rc_frame_hook = dos_frame;
             rc_stopOnUnknown = 1;
@@ -1774,12 +1893,13 @@ int main(int argc, char **argv)
             badReported = 0;
             traced = 0;
             lastTraced = prevTraced = 0xFFFFFFFFu;
+            /* A played game shows the title again. A boot the menu asked for starts that game at
+             * once ("Play Antheads" took its New Game before this), and a load of the other game's
+             * save is answered by that build's own load routine (title.c). */
             host_title_key(-1);
             host_title_arm(1);
-            /* A save the other game wrote is loaded in that game (title.c): this front end boots
-             * one program, so nothing here can ask for the switch yet - the latch is taken so a
-             * pending load is not silently dropped (docs\antheads.md, Phase 8 boots the add-on). */
-            if (host_title_restart_load()) host_title_load_on_boot();
+            if (bootPlay) host_title_new_game();
+            else if (bootLoad) host_title_load_on_boot();
             continue;
         }
     }

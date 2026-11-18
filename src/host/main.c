@@ -1325,7 +1325,7 @@ static void host_cheat_frame(rt_machine *m)
 /* The title's fifth button, and --titlekey 15: the add-on is playable when its own tree - `ant1..3\`
  * and `ant\code\dshell4k\dshell.img` - is in the data folder (src\runtime\assets.c extracts it when
  * the player's disks carry it), and this front end links both tables, so it can always boot it.
- * The MS-DOS front end answers 0 until it boots the add-on too (docs\antheads.md, Phase 8). */
+ * The MS-DOS front end asks the same question of its own layout (docs\antheads.md, Phase 8). */
 int host_title_addon(rt_machine *m)
 {
     return rt_assets_addon_ready(m != 0 ? m->dataDir : 0, RT_ASSETS_WINDOWS) ? 1 : 0;

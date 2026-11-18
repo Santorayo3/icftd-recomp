@@ -145,8 +145,8 @@ const seam_set *seam_active(void);
 
 /* 1 when the running program is the add-on. The same derivation seam_active() uses, for the port
  * code that has to know *which* build it is looking at - the title's fifth button names the build
- * it leads to. Both front ends link this file, so it is also the test that works in the MS-DOS
- * build, which does not link the add-on's table. */
+ * it leads to. Both front ends link this file and both link the two function tables, so the test
+ * is the same one in the MS-DOS build. */
 int seam_is_addon(void);
 
 /* The seven seam files' own names, resolved against the active program. RC_ADDR() is applied at

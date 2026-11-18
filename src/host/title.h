@@ -23,8 +23,8 @@ void host_title_key(int n);
  * this front end can boot it. It is what makes the menu's fifth button appear (title_button.c) and
  * what --titlekey 15 needs; a player without the add-on's disks gets today's four buttons. Defined
  * by each front end, because the data folder's layout and the bootable programs are its own: the
- * Windows one answers from rt_assets_addon_ready(), the MS-DOS one 0 until it boots the add-on too
- * (docs\antheads.md, Phase 8). */
+ * Windows one answers from rt_assets_addon_ready() for `export\`, the MS-DOS one for the 8.3 tree
+ * (`ANT1..3`, `ANTSHEL.IMG`) - both link the add-on's table (docs\antheads.md). */
 int host_title_addon(struct rt_machine *m);
 
 /* Esc in a played game. The front end's input layer calls this at a frame boundary; it asks the
