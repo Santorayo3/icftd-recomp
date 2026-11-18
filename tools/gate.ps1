@@ -37,6 +37,9 @@
       9. room pointer          (tools\pointer-check.ps1 - the pointer shown on a room screen, and
                                 a text menu line selected by hovering; skipped without its
                                 recorded session)
+     9b. room pointer (add-on) (tools\ant-pointer-check.ps1 - the same hover on Antheads' own room
+                                text menu, which the add-on reaches through a shared display stub;
+                                skipped without the add-on's extracted data)
      10. fight crosshair       (tools\crosshair-check.ps1 - the giant-ant fight's aiming aid marks
                                 the point the engine's shot test reads)
      11. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
@@ -161,6 +164,7 @@ $all = @(
     @{ Name = 'map pointer (cursor)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\mouse-check.ps1 } },
     @{ Name = 'map save picker (slots)';              Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\save-ui-check.ps1 } },
     @{ Name = 'room pointer (hover)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 } },
+    @{ Name = 'room pointer (add-on)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\ant-pointer-check.ps1 } },
     @{ Name = 'fight crosshair (aim)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 } },
     @{ Name = 'fullscreen border (bars)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 } },
     @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } },

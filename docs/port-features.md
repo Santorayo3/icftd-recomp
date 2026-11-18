@@ -158,8 +158,10 @@ Reaching it goes through `rc_entryHook` three times:
 Both text menus keep their selection in a **stack local**, not a global, and add the stick to it
 once per pass: `FUN_0000247a` (`link.w A5,-0x9a`) has the selection at `A5-6` and the entry loop
 counter at `A5-2`; `FUN_00002b7c` (`link.w A5,-0x0c`) has them at `A5-4` and `A5-8`. The flip's
-return address on the stack names which menu is running (`0x29D2` / `0x2C62`), so the pointer writes
-the right local in the right frame. That is what a Down press does, without the per-pass ramp.
+return address on the stack names which menu is running (`0x29D2` / `0x2C62`; the add-on's build
+reaches its flip through a shared display stub but still names its own call sites, `0x2D5A` /
+`0x2FFC`), so the pointer writes the right local in the right frame. That is what a Down press
+does, without the per-pass ramp.
 
 The highlighted pen cannot be used to find the selection: "Answer the Door" and the door/external
 entries blink pen 8 whether selected or not (the `=`/`@` branches of `FUN_0000247a`). Reading the

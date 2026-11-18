@@ -573,15 +573,20 @@ int oracle_step(rt_machine *m)
     m->ring[m->ringPos++ & (EMU_RING_SIZE - 1)] = pc;
 #endif
     m->insns++;
-    /* FUN_00009ae0 (the IFF chunk skipper) reads its loop flag out of the word at (A5-0xE) before
-     * anything writes it. On the Amiga that frame slot holds leftover stack data, which is
-     * non-zero in practice, so the skip loop always ran at least once; our RAM holds zeros there,
-     * so the skipper returned without skipping, FUN_00009984 parsed the 8SVX VHDR four bytes early
-     * and 3579545 was divided by a samplesPerSec of 0 (the flight's "ants" sample, divu at image
-     * 0x211FE). Seed the slot as the routine is entered - no emulated instruction, so the two
-     * front ends stay in lockstep; the translation does the same store in fn_00009ae0.c. From the
-     * second iteration on the loop's own value governs, including its early exit. */
-    if (pc == m->imageBase + 0x00009AE0u)
+    /* The IFF chunk skipper reads its loop flag out of the word at (A5-0xE) before anything writes
+     * it. On the Amiga that frame slot holds leftover stack data, which is non-zero in practice, so
+     * the skip loop always ran at least once; our RAM holds zeros there, so the skipper returned
+     * without skipping, the 8SVX VHDR was parsed four bytes early and 3579545 was divided by a
+     * samplesPerSec of 0 (the flight's "ants" sample, the add-on's "carcrash": divu in the divide
+     * helper at image 0x21218 / 0x232BA). Seed the slot as the routine is entered - no emulated
+     * instruction, so the two front ends stay in lockstep; the translation does the same store in
+     * step_budget (src\recomp\cpu.c). The routine is recognised by its prologue, not by its
+     * address: the 1989 build has it at 0x9AE0 and the add-on at 0xAEAC, and each address is other
+     * code in the other build (0xAEAC is inside 0xAE16's body there), so the word at the entry says
+     * which one is about to run. From the second iteration on the loop's own value governs,
+     * including its early exit. */
+    if ((pc == m->imageBase + 0x00009AE0u || pc == m->imageBase + 0x0000AEACu) &&
+        rt_read32(&m->mem, pc) == 0x4E55FFF2u)
         rt_write16(&m->mem, m68k_get_reg(0, M68K_REG_A7) - 0x12u, 0x0001u);
     if (pc == EMU_EXIT_PC)
     {

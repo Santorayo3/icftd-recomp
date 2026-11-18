@@ -17,6 +17,25 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## Antheads: the room text menus' hover in the add-on (2026-11-18)
+
+Found in play: on a room screen the port's arrow disappeared as soon as the room's text menu
+appeared, and no line of it could be selected. RULE 0 named it in one sentence: `MENU_ACTION_FLIP`
+held 0x1F410, the return address *inside the add-on's display wrapper* FUN_0001f34c, while the
+action list calls the flip itself at 0x2D56 and returns to **0x2D5A** (the twin of the original's
+0x29CE → 0x29D2). With the wrapper's address the intro counted as a text menu and the list did not:
+the list's passes do not redraw the location picture, so `g_roomFrame` went stale 30 frames in and
+the pointer stayed hidden for the list's whole life (measured: frames 1605..2600), and `menu_flip`
+never wrote the hovered entry.
+
+The row is corrected in `seams.c` (`antheads.md` §6 and §6.1 carry the measurement). Verified on a
+played add-on run (`--program ant --titlekey 0 --mouse ...`): the list's flip arrives as 0x2D5A on
+every pass, the pointer stays up, and hovering line 2 commits entry 1/action 2 - the words one Down
+press commits; with the old row the same run committed the default 0/0. The wrapper's false match
+also put the arrow on the intro, which is gone with it. `tools\ant-pointer-check.ps1` is the
+regression check (gate step 9b; it clicks the add-on's intro away and needs only the extracted
+add-on data, no recording).
+
 ## Antheads, phase 6: "Play Antheads" on the title menu (2026-11-18)
 
 Phase 6 of [`antheads.md`](antheads.md) is done, in the shape the session asked for: the title menu

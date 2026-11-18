@@ -48,14 +48,21 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost, int words)
 {
     tick();
     if (m->traceTo != 0) rt_trace(m, c->pc);
-    /* The IFF chunk skipper (0x9AE0) reads its loop flag from the word at (A5-0xE) *before* anything
-     * writes it. On the Amiga that frame slot holds leftover stack data, non-zero in practice, so the
-     * skip loop always ran at least once; our zeroed RAM made it return without skipping, FUN_00009984
-     * parsed the 8SVX VHDR four bytes early, and the flight's "ants" sample divided 3,579,545 by a
-     * samplesPerSec of 0 (divu, image 0x21218). Seed the slot as the routine is entered - the
-     * interpreter does the identical store in oracle_step (src\oracle\cpu.c), so the two front ends
-     * stay in lockstep. Lives here, not in fn_00009ae0.c, because that file is regenerated. */
-    if (c->pc == RC_ADDR(0x00009AE0u)) rc_wr16(c, m, c->a[7] - 0x12u, 1u);
+    /* The IFF chunk skipper reads its loop flag from the word at (A5-0xE) *before* anything
+     * writes it. On the Amiga that frame slot holds leftover stack data, non-zero in practice, so
+     * the skip loop always ran at least once; our zeroed RAM made it return without skipping, the
+     * 8SVX VHDR was parsed four bytes early, and 3,579,545 was divided by a samplesPerSec of 0
+     * (the flight's "ants" sample, divu in the divide helper: image 0x21218; the add-on's
+     * "carcrash" 0x232BA). Seed the slot as the routine is entered - the interpreter does the
+     * identical store in oracle_step (src\oracle\cpu.c), so the two front ends stay in lockstep.
+     * The routine is recognised by its prologue, not by its address: the 1989 build has it at
+     * 0x9AE0 and the add-on at 0xAEAC, and each address is other code in the other build (0xAEAC
+     * is inside 0xAE16's body there), so the word at the entry says which one is about to run.
+     * Lives here, not in fn_*.c, because those files are regenerated. From the second iteration on
+     * the loop's own value governs, including its early exit. */
+    if ((c->pc == RC_ADDR(0x00009AE0u) || c->pc == RC_ADDR(0x0000AEACu)) &&
+        rt_read32(&m->mem, c->pc) == 0x4E55FFF2u)
+        rc_wr16(c, m, c->a[7] - 0x12u, 1u);
     /* The emitted code has already named the instruction, so the ring means the same thing here
      * as in the interpreter (src\oracle\cpu.c, oracle_step). Compiled out of the release build. */
 #if EMU_TRACE_RING

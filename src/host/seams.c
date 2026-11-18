@@ -24,6 +24,13 @@
  * MAP_ORG_MINY 0x28a5c -> 0x2b2a4 (the map script and FUN_000035d2's twin read the same words at
  * the same instructions; the whole 0x28a36..0x28a62 block moves by +0x2848).
  *
+ * MENU_ACTION_FLIP is corrected: 0x29d2 -> 0x2d5a, not 0x1f410. The menu names itself by the return
+ * address of its own flip call, and the add-on's action list calls it at 0x2d56 (0x2d5a is where
+ * it returns), the twin of the original's 0x29ce -> 0x29d2. 0x1f410 is the return address one level
+ * deeper, inside the add-on's display wrapper FUN_0001f34c - a scene's own display loop calls that
+ * every pass. With 0x1f410 the intro counted as a text menu and the room's own menu did not: the
+ * arrow disappeared when the list appeared and no line could be hovered (measured, 2026-11-18).
+ *
  * The title's scene entries are seams too: the digits start a scene by calling the entry the room
  * dispatcher would have called, and the add-on's dispatcher calls its own. Fight 0xb46c -> 0xc974
  * (the same "Fight.tiny" + `0x40` into the music block + FUN_0000a74e as its update),
@@ -123,7 +130,7 @@ static const seam_set g_original =
 static const seam_set g_ant =
 {
     /* code */
-    0x000027D8u, 0x00002E96u, 0x0001F410u,
+    0x000027D8u, 0x00002E96u, 0x00002D5Au,
     0x00002F16u, 0x0000302Cu, 0x00002FFCu,
     0x0001F260u,
     0x00003F9Eu, 0x00011E8Au,

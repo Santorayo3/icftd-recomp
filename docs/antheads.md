@@ -338,7 +338,9 @@ library call the runtime does not shim) is worth a measurement before the title'
 — **explained in Phase 6** (§8, third trap): it is the add-on's own 8SVX chunk finder reading an
 uninitialised frame word, and the title's injected calls are what leave a zero there. The played
 path (Play Antheads → the add-on's own game → its hospital) takes no title injection, and the
-button's own start was moved off the hold point for the same reason.
+button's own start was moved off the hold point for the same reason. — **closed**: the runtime
+seeds that frame word for the add-on's finder as it already did for the 1989 one (§8), so the
+scene runs from the title too.
 
 **Do not start Phase 6 before 3.6 works**: a title button that switches program is meaningless
 until the second program boots.
@@ -495,7 +497,7 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 | symbol | original | Antheads | method |
 |---|---|---|---|
 | `MENU_ACTION_PC` | 0x247A | 0x27D8 | string |
-| `MENU_ACTION_FLIP` | 0x29D2 | 0x1F410 | return |
+| `MENU_ACTION_FLIP` | 0x29D2 | 0x2D5A | return (corrected: see §6.1) |
 | `MENU_ACTION_END` | 0x2B0E | 0x2E96 | start+size |
 | `MENU_LOOK_PC` | 0x2B7C | 0x2F16 | function-hash |
 | `MENU_LOOK_FLIP` | 0x2C62 | 0x2FFC | insn-index |
@@ -607,6 +609,18 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
   other caller (0x7018) is the panel path.
 * **`FLIGHT_UPDATE` 0x125AA → 0x13E16** — confirmed: all 295 original instructions appear in order
   inside it (the add-on adds 4), and it is called from the flight engine's twin (0x11FF8).
+* **`MENU_ACTION_FLIP` 0x29D2 → 0x2D5A** (not 0x1F410, the value this table first carried): it is
+  the return address of the flip call *inside the action list*, `jsr (-0x7df4,A4)` at 0x2D56, the
+  twin of the original's 0x29CE → 0x29D2. 0x1F410 is the return address one level down, inside the
+  add-on's display wrapper FUN_0001f34c (`jsr 0x0001f260` at 0x1F40C), which a scene's own display
+  loop - the intro's among them - calls every pass, so the old row made the port take those scenes
+  for a text menu. Measured in a
+  played add-on run (`--program ant --titlekey 0 --mouse ...`): the list's flip arrives as 0x2D5A
+  on every pass (0x2FFC from the "Look ..." list, unchanged), the arrow stays up for the whole
+  list, and hovering line 2 commits entry 1/action 2 - exactly what one Down press commits. Before
+  the correction the pointer was hidden from 1605 to 2600, the list's whole life (its passes do not
+  redraw the location picture, so the room seam had gone stale), and no line could be picked.
+  `tools\ant-pointer-check.ps1` is the regression check (gate step 9b).
 * **Not in §6, measured now:** `MAP_MAX_Y` 0x28A48 → 0x2B290 and `MAP_ORG_MINY` 0x28A5C → 0x2B2A4
   (the map script and FUN_000035D2's twin read/write them at the same instructions; the whole
   0x28A36..0x28A62 block moves by +0x2848).
@@ -689,6 +703,15 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
   `ldiv(0x369E99, 0)` traps at model 0x232BA. A natural boot has a non-zero word there. So "Play
   Antheads" **boots** the add-on and lets its intro run untouched; it does not park it at 0xAC3C
   and start it from the menu. (This is also the answer to the hospital's `divu` Phase 5 left open.)
+  The slot is seeded for the add-on's finder the way it already was for the 1989 one
+  (`0x9AE0`), so no path can leave a zero there any more: `src\recomp\cpu.c` and
+  `src\oracle\cpu.c` store 1 at `A7-0x12` when the entry word is the finder's `link a5,#-0xe`
+  prologue - which picks the right routine in either build, since each address is other code in the
+  other one. Measured before/after on the same command: `--program ant --titlekey 4` (Escape
+  Hospital) trapped at frame 30 (`divu` at 0x272BA, `D0=0x369E99`) and now loads `elbell`,
+  `screeeems`, `dthatstheguy` and `Desert3:HOSP` and runs on. A played game reaches the same
+  finder through the same loader (`--titlekey 5`'s `carcrash`), so its stack history no longer
+  decides whether the chicken race plays.
 
 ## 9. How the map in §6 was produced (so it can be regenerated)
 
