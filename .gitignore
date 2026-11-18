@@ -24,6 +24,8 @@
 !/assets/minus_normal.png
 !/assets/toggle_off.png
 !/assets/toggle_on.png
+# The Windows executable's icon (tools\mkappicon.ps1) - the port's own artwork, shipped in the binary.
+!/assets/app_icon.png
 /export/
 
 # WinUAE reference captures of the original game.

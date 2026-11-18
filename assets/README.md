@@ -35,6 +35,12 @@ so the game needs none of the original data to show its own screens.
 | `autosave.png` | `src\runtime\amiga\osd_icon.h` | `tools\mkosdicon.ps1` |
 | `crosshair.png` | `src\runtime\amiga\crosshair_art.h` | `tools\mkcrosshair.ps1` |
 | `border.png` | `src\runtime\plat\win32\border_art.h` | `tools\mkborder.ps1` |
+| `app_icon.png` | `bin\win32\res\icftd.ico` (build output, not committed) | `tools\mkappicon.ps1` |
+
+`app_icon.png` is the exception to the table's shape: it is not drawn by the game but is the
+executable's Windows icon, so it becomes a multi-size `.ico` in the build directory instead of a C
+header. `tools\build-host.ps1` regenerates it when the PNG is newer and links it in with
+`src\runtime\plat\win32\icftd.rc` (which also carries the version page).
 
 (`src\runtime\amiga\pointer_art.h` is the same kind of table but has no PNG: its arrow is ASCII art
 written into `tools\mkpointer.ps1`.)

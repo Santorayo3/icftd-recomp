@@ -98,11 +98,16 @@ that ran (`<entry> <calls>`, and `<pc> <instructions>` for code the core execute
 A release is **the executable plus three empty folders** — no game data is distributed:
 
 ```
-ICFTD.EXE       the translated game
-export\         empty: filled on the first start
-disks\          empty: the player's three original Amiga floppy images go here
-saves\          empty: the ten save slots
+It Came from the Desert.exe   the translated game
+export\                       empty: filled on the first start
+disks\                        empty: the player's three original Amiga floppy images go here
+saves\                        empty: the ten save slots
 ```
+
+The executable's icon and version page (`It Came from the Desert`, `Copyright © 2026 Tim Rachor`)
+are compiled into it from `src\runtime\plat\win32\icftd.rc`; the icon is the port's own
+`assets\app_icon.png`, resampled to a multi-size `.ico` by `tools\mkappicon.ps1`, and the game's
+window carries it too — the title bar and Alt+Tab show the game's picture, not a generic icon.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\win32-pack.ps1
@@ -110,13 +115,33 @@ powershell -ExecutionPolicy Bypass -File tools\win32-pack.ps1
 #   -> bin\win32\icftd-win32.zip
 ```
 
-Double-clicking `ICFTD.EXE` plays the game. On the first start `src\runtime\assets.c` extracts the
-files the engine asks for from the player's own disk images in `disks\` and writes them to
+Double-clicking `It Came from the Desert.exe` plays the game: the console window the executable is
+given is hidden, so only the game's own window is seen. Started from a terminal (or by one of the
+check scripts, which read its log through a redirected handle) the console is left alone — the log
+belongs to whoever started the run. A run that ends by itself leaves nothing beside the executable;
+a run that did not — a crash, a hang, a process killed from outside — leaves `game-log.txt` there
+with the last frame's machine state, and the unhandled exception appends its code and address.
+
+On the first start
+`src\runtime\assets.c` extracts the files the engine asks for from the player's own disk images in
+`disks\` and writes them to
 `export\` (`disk1..3` plus `code\dshell4k\dshell.img`, the game program flattened at 0x4000), then
 boots; later starts read `export\` and never look at `disks\` again. Without the three images it
 shows one line and stops:
 
 > Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart.
+
+**Which images it accepts.** Any raw image of the three floppies — `disks\` is read file by file, so
+the names and extensions there are the player's business; each file is tried as an AmigaDOS
+floppy. What has to match is the filesystem: a raw, uncompressed sector image of a double-density
+disk (`901 120` bytes, the `.adf` a dumper writes), formatted with the original **OFS** filesystem,
+carrying the volume labels `Desert1`, `Desert2` and `Desert3`. A second image with the same label is
+ignored (the first by file name is used). Copy-protection schemes do not matter, because the data is
+read through the filesystem rather than the floppy's tracks; compressed or flux-level containers
+(`.adz`, `.dms`, `.ipf`, `.scp`, `.hfe`) have to be converted to a plain `.adf` first, and
+FFS-formatted or high-density images are refused. A different *revision* of the game is not
+supported: the extractor only checks the structure, but the recompiled program is bound to this
+exact `dshell` at its load address, so another build would neither run nor say so cleanly.
 
 The extraction is the exporter's formats in C (`src\assetExport\Adf.cs`/`AmigaFs.cs`/`Hunk.cs`
 ported), and it lands on the same bytes `tools\extract.ps1` writes — that identity, not a
@@ -223,7 +248,8 @@ docs/                  architecture, plan, program model
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
 | `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
-| `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (ICFTD.EXE + empty `export\`, `disks\`, `saves\`) and zip it |
+| `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (`It Came from the Desert.exe` + empty `export\`, `disks\`, `saves\`) and zip it |
+| `tools\mkappicon.ps1` | the executable's icon: `assets\app_icon.png` → `bin\win32\res\icftd.ico` (build output, linked in by `tools\build-host.ps1`) |
 | `tools\build-dos.ps1` | build `bin\dos\ICFTD.EXE`: the game for MS-DOS (DOS/32A extender) |
 | `tools\dos-pack.ps1` | stage the DOS release in `bin\dos\game` (ICFTD.EXE, empty `DISKS\`/`SAVES\`, `ICFTD.CONF`); `-Data <dir>` stages the extracted 8.3 tree the first start writes (the check's reference) |
 | `tools\dos-run.ps1` | run the DOS build under DOSBox with a generated config |

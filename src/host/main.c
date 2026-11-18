@@ -1803,6 +1803,10 @@ int main(int argc, char **argv)
     /* No argument at all is a double-click on the release: play the game (the window decides when
      * to stop), never a measurement. Anything else is the developer's command line. */
     if (argc == 1) { g_window = 1; runForever = 1; }
+    /* A run that will show the game's window hides the console window it owns - the black window a
+     * double click gives it - before anything is written to it, so the player sees the game and
+     * nothing else (see plat_console_hide_own). A run started from a terminal keeps its console. */
+    if (g_window) plat_console_hide_own();
 
     /* The data folder, the folder the player's floppy images go in, and the image inside the data
      * folder; all three can be given, and otherwise come from the layout the executable sits in. */

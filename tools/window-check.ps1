@@ -36,6 +36,11 @@
 #      rectangle (all of it, no column or row dropped), so it is the same shape as the rest of the
 #      game and it does not grow over the border art either side. It used to be fitted by its own
 #      height, which made it 6% bigger than every other scene and put it on top of the curtains.
+#  10. The window closes from its own close box, clicked while it is not the one in use - Alt+Tab,
+#      then the X. Taking the pointer for the picture while the click activated the window pulled it
+#      out of the box before the press landed there, so the press became a click on the picture and
+#      the run kept playing. Only the pointer *over the picture* is the game's; over the frame it
+#      stays the desktop's.
 #
 # The captures are PrintWindow(PW_CLIENTONLY), i.e. the platform's own WM_PRINTCLIENT answer: what
 # the window is drawing into its client, not whatever the desktop composited on top of it. The
@@ -45,7 +50,9 @@
 #
 # Claims 6-8 drive the real pointer (SetCursorPos + mouse_event): the frame can only be measured by
 # dragging it, because SetWindowPos bypasses the system's sizing loop - which is exactly the code
-# that fought the fixed window's pointer clip and ran the window down to its minimum size.
+# that fought the fixed window's pointer clip and ran the window down to its minimum size. Claim 10
+# clicks the close box the same way, with the window not in use: only a real press can tell whether
+# the pointer was taken from the button.
 param(
     [string]$Exe = 'bin\win32\icftd-recomp.exe',
     [string]$DataDir = 'export',
@@ -104,6 +111,8 @@ public static class WindowCheck
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
     [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
+    [DllImport("user32.dll")]
     public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr h);
@@ -124,6 +133,8 @@ public static class WindowCheck
 
     const int GWL_STYLE = -16;
     const uint WM_CLOSE = 0x0010;
+    const uint WM_NCHITTEST = 0x0084;
+    const int HTCLOSE = 20;
     const uint SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010;
     const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
 
@@ -201,13 +212,24 @@ public static class WindowCheck
     }
 
     /* Pushes the pointer to the screen corner farthest from the window - as far outside it as the
-     * screen allows. A captured pointer stays in the picture; a free one goes. */
+     * screen allows - and does it the way a hand does: a burst of relative moves, not one jump. A
+     * captured pointer stays in the picture; a free one goes. The jump alone is not the measurement:
+     * ClipCursor holds a pointer it has clamped even a pixel past the clip's far edge, and only a
+     * pointer that keeps being pushed there brings that out. */
     public static void PushFar(IntPtr h)
     {
         int[] w = Window(h);
+        int[] c = ClientScreen(h);
         int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
-        SetCursorPos((w[0] + w[2]) / 2 < sw / 2 ? sw - 2 : 2,
-                     (w[1] + w[3]) / 2 < sh / 2 ? sh - 2 : 2);
+        int dx = (w[0] + w[2]) / 2 < sw / 2 ? 20 : -20;
+        int dy = (w[1] + w[3]) / 2 < sh / 2 ? 20 : -20;
+        SetCursorPos((c[0] + c[2]) / 2, (c[1] + c[3]) / 2);
+        System.Threading.Thread.Sleep(150);
+        for (int i = 0; i < 120; i++) {
+            mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, UIntPtr.Zero);
+            System.Threading.Thread.Sleep(6);
+        }
+        System.Threading.Thread.Sleep(200);
     }
 
     /* Puts the pointer at a client point (or anywhere on screen with a client-relative offset). */
@@ -251,6 +273,33 @@ public static class WindowCheck
 
     /* Hands the focus to the desktop, the Alt+Tab a player does to reach the window's frame. */
     public static void Unfocus() { SetForegroundWindow(GetDesktopWindow()); }
+
+    /* A point on the window's own close box: the first hit test of HTCLOSE (20) in the caption's
+     * rows. */
+    public static int[] CloseBox(IntPtr h)
+    {
+        RECT r;
+        if (!GetWindowRect(h, out r)) return null;
+        for (int y = r.Top + 1; y < r.Top + 40; y++)
+            for (int x = r.Right - 2; x > r.Right - 220; x--)
+                if ((long)SendMessage(h, WM_NCHITTEST, IntPtr.Zero,
+                                      (IntPtr)((y << 16) | (x & 0xFFFF))) == HTCLOSE)
+                    return new int[] { x, y };
+        return null;
+    }
+
+    /* A real click on that close box - the player's way out of a window he switched away from. */
+    public static bool ClickCloseBox(IntPtr h)
+    {
+        int[] cb = CloseBox(h);
+        if (cb == null) return false;
+        SetCursorPos(cb[0], cb[1]);
+        System.Threading.Thread.Sleep(250);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        System.Threading.Thread.Sleep(150);            /* a hand's, not a synthesised pair */
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+        return true;
+    }
 
     /* A click in the middle of the picture: it activates the window, and misses every menu button
      * (the four of them sit at x 230..302). */
@@ -467,17 +516,17 @@ try {
             # 6. The window captures the pointer while it has the focus: the system cursor is hidden
             #    and the pointer cannot be moved out of the picture. Losing the focus (Alt+Tab) gives
             #    it back - that is how the frame is reached, and the drag below uses exactly that
-            #    path. (ClipCursor clamps onto the clip's far edge, so the picture's own right and
-            #    bottom coordinates count as inside.)
+            #    path. (ClipCursor holds a pointer on the clip's far edge, and even a pixel past it,
+            #    so a pixel either side of the picture counts as inside: a pointer that is *held*
+            #    there is not a pointer that got out.)
             [WindowCheck]::ClickPicture($game.hwnd)
             Start-Sleep -Milliseconds 600
             $focused = [WindowCheck]::Cursor()
             $rect = [WindowCheck]::ClientScreen($game.hwnd)
             [WindowCheck]::PushFar($game.hwnd)
-            Start-Sleep -Milliseconds 300
             $lost = [WindowCheck]::Pos()
-            $held = ($lost[0] -ge $rect[0]) -and ($lost[0] -le $rect[2]) -and
-                    ($lost[1] -ge $rect[1]) -and ($lost[1] -le $rect[3])
+            $held = ($lost[0] -ge $rect[0] - 1) -and ($lost[0] -le $rect[2] + 1) -and
+                    ($lost[1] -ge $rect[1] - 1) -and ($lost[1] -le $rect[3] + 1)
             if ($focused -ne 'hidden') {
                 Fail ("the system cursor is '{0}' while the window has the focus, not 'hidden'" -f $focused)
             } elseif (-not $held) {
@@ -489,10 +538,9 @@ try {
             Start-Sleep -Milliseconds 700
             $free = [WindowCheck]::Cursor()
             [WindowCheck]::PushFar($game.hwnd)
-            Start-Sleep -Milliseconds 300
             $went = [WindowCheck]::Pos()
-            $outside = ($went[0] -lt $rect[0]) -or ($went[0] -gt $rect[2]) -or
-                       ($went[1] -lt $rect[1]) -or ($went[1] -gt $rect[3])
+            $outside = ($went[0] -lt $rect[0] - 1) -or ($went[0] -gt $rect[2] + 1) -or
+                       ($went[1] -lt $rect[1] - 1) -or ($went[1] -gt $rect[3] + 1)
             if ($free -ne 'visible') {
                 Fail ("the system cursor is '{0}' once the window has lost the focus, not 'visible'" -f $free)
             } elseif (-not $outside) {
@@ -530,10 +578,9 @@ try {
             $again = [WindowCheck]::Cursor()
             $rect2 = [WindowCheck]::ClientScreen($game.hwnd)
             [WindowCheck]::PushFar($game.hwnd)
-            Start-Sleep -Milliseconds 300
             $back = [WindowCheck]::Pos()
-            $againHeld = ($back[0] -ge $rect2[0]) -and ($back[0] -le $rect2[2]) -and
-                         ($back[1] -ge $rect2[1]) -and ($back[1] -le $rect2[3])
+            $againHeld = ($back[0] -ge $rect2[0] - 1) -and ($back[0] -le $rect2[2] + 1) -and
+                         ($back[1] -ge $rect2[1] - 1) -and ($back[1] -le $rect2[3] + 1)
             if ($again -ne 'hidden' -or -not $againHeld) {
                 Fail ("after the resize the pointer is '{0}' at {1},{2} with the window focused, not captured" -f
                       $again, $back[0], $back[1])
@@ -628,7 +675,20 @@ try {
                 Fail ("the next windowed start is {0}x{1}, not the 1280x400 the last one was left at" -f
                       $size[0], $size[1])
             } else { Ok 'the next windowed start comes back at the size the window was left at' }
-            if (-not (StopGame $game2)) { Fail 'the second windowed run did not close' }
+
+            # 10. The window closes from its own close box, clicked while it is not the one in use
+            #     (Alt+Tab, then the X). Taking the pointer for the picture as the click activated
+            #     the window pulled it out of the box before the press landed, so the press became a
+            #     click on the picture and the run simply kept playing.
+            [void][WindowCheck]::Unfocus()
+            Start-Sleep -Milliseconds 700
+            if (-not [WindowCheck]::ClickCloseBox($game2.hwnd)) {
+                Fail 'the window has no close box to click'
+                if (-not (StopGame $game2)) { Fail 'the second windowed run did not close' }
+            } elseif (-not $game2.proc.WaitForExit(20000)) {
+                Fail 'a click on the close box of the window that was not in use did not close the run'
+                try { $game2.proc.Kill() } catch { }
+            } else { Ok 'a click on the close box of the window that was not in use closes the run' }
 
             # 9. A scene whose screen is larger than the game's keeps the screen's pixel shape and
             #    stays inside the screen's rectangle. The chicken race is that scene (--titlekey 5

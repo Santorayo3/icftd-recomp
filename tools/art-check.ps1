@@ -92,6 +92,10 @@ foreach ($a in $art) {
 # A tracked PNG no tool reads is not an error - artwork can be staged before the code that shows it -
 # but it does not ship in the binary either, so say so rather than let it look accounted for.
 $used = @($art | ForEach-Object { $_.Pngs } | ForEach-Object { $_ })
+# The executable's Windows icon is a resource, not a C table: tools\mkappicon.ps1 makes a .ico in the
+# build directory and tools\build-host.ps1 regenerates it on every build, so there is no committed
+# artifact to compare - but it does ship, so it is not "unread" either.
+$used += 'assets\app_icon.png'
 if ($have) {
     foreach ($png in $tracked) {
         if ($used -notcontains $png) { Write-Output "art: note - $png is tracked but no tool reads it (it is not in the binary)" }

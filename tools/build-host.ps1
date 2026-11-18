@@ -24,6 +24,7 @@ $rc   = Join-Path $root 'src\recomp'
 $or   = Join-Path $root 'src\oracle'
 $hs   = Join-Path $root 'src\host'
 $mus  = Join-Path $root 'third_party\musashi'
+$plat = Join-Path $root 'src\runtime\plat\win32'
 $out  = Join-Path $root 'bin\win32\icftd-recomp.exe'
 
 if (-not (Test-Path (Join-Path $mus 'm68kops.c'))) {
@@ -37,6 +38,36 @@ $env:EDPATH = Join-Path $WatcomHome 'eddat'
 $env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt')) -join ';'
 $env:LIB = @((Join-Path $WatcomHome 'lib386'), (Join-Path $WatcomHome 'lib386\nt')) -join ';'
 $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')) -join ';'
+
+# The executable's own resources: the application icon (assets\app_icon.png resampled by
+# tools\mkappicon.ps1) and the version page, compiled by wrc into bin\win32\res\icftd.res and linked
+# in with the objects. Both are build output; the PNG is the tracked source. wrc writes its .res next
+# to the current directory and wants no spaces on the command line, so it runs in bin\win32\res and
+# the icon is found there.
+$resDir = Join-Path $root 'bin\win32\res'
+$ico    = Join-Path $resDir 'icftd.ico'
+$res    = Join-Path $resDir 'icftd.res'
+$rcFile = Join-Path $plat 'icftd.rc'
+$png    = Join-Path $root 'assets\app_icon.png'
+if (-not (Test-Path $png)) { throw "missing $png - the application icon, see tools\mkappicon.ps1" }
+New-Item -ItemType Directory -Force -Path $resDir | Out-Null
+if (-not (Test-Path $ico) -or (Get-Item $ico).LastWriteTimeUtc -lt (Get-Item $png).LastWriteTimeUtc) {
+    & (Join-Path $PSScriptRoot 'mkappicon.ps1') -Png $png -Out $ico | Out-Host
+}
+$resStale = -not (Test-Path $res) -or @(@($rcFile, $ico) |
+    Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $res).LastWriteTimeUtc }).Count -gt 0
+if ($resStale) {
+    # wrc writes <input>.res next to the .rc it was given, so the .rc is copied into the build
+    # directory first: the .res is build output and does not belong in the source tree next to it.
+    Copy-Item -LiteralPath $rcFile -Destination (Join-Path $resDir 'icftd.rc') -Force
+    $wrc = Join-Path $WatcomHome 'binnt64\wrc.exe'
+    Push-Location $resDir
+    try {
+        & $wrc -q -bt=nt -r -zku8 'icftd.rc' 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "resource compile failed ($LASTEXITCODE)" }
+    }
+    finally { Pop-Location }
+}
 
 $sources = @(
     (Join-Path $hs 'main.c'),
@@ -130,10 +161,12 @@ try {
     # build made before the object directory was kept between runs.
     $objs = @($plan.Objects | ForEach-Object { $_.Substring($objDir.Length + 1) } | Sort-Object)
     $relink = Test-BuildNeeded -Plan $plan -Output $out
+    # The resource is not an object, so a changed icon or version page relinks on its own.
+    if (-not $relink -and (Get-Item $res).LastWriteTimeUtc -gt (Get-Item $out).LastWriteTimeUtc) { $relink = $true }
     if ($relink) {
         Push-Location $objDir
         try {
-            & $wcl @link @objs 2>&1 | Out-Host
+            & $wcl @link @objs '..\res\icftd.res' 2>&1 | Out-Host
             $code = $LASTEXITCODE
         }
         finally { Pop-Location }

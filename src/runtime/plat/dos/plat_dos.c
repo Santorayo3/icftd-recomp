@@ -1870,6 +1870,12 @@ void plat_quiet_console(void)
     (void)freopen("NUL", "wb", stdout);
 }
 
+/* A DOS program's console is its one screen - there is no separate console window to hide, and the
+ * WINDOWS host never runs here; plat_quiet_console is the DOS answer to the same question. */
+void plat_console_hide_own(void)
+{
+}
+
 /* No message box in a DOS program: the console, which is where a started program writes - and
  * which plat_quiet_console has already bound to NUL for a played run. */
 void plat_message(const char *title, const char *text)

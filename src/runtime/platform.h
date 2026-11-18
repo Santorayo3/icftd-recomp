@@ -233,10 +233,19 @@ void plat_message(const char *title, const char *text);
  * first write. DOS only; a no-op elsewhere. */
 void plat_quiet_console(void);
 
+/* Hides the console window this process owns, when it owns one - the console a double-click gives a
+ * console executable - so a run that shows the game's window shows nothing else. A console the run
+ * was started from (a terminal, or a check script's redirected handles) is left alone: its log
+ * belongs to whoever started the run. Call once, before anything is written. Win32: the window is
+ * hidden rather than the console detached, so the log still exists; a no-op elsewhere. */
+void plat_console_hide_own(void);
+
 /* --- diagnostics ---------------------------------------------------------- */
-/* Rewrites <exe dir>\recomp-crash.txt with `text` (fixed size, NUL padded, flushed). Cheap
- * enough to call every frame, and it survives the process dying: after a crash the file holds
- * the machine state of the last frame that started. */
+/* Rewrites the run journal beside the executable with `text` (fixed size, NUL padded, flushed):
+ * game-log.txt on Win32, RCRASH.TXT on DOS. Cheap enough to call every frame, and it survives the
+ * process dying: after a crash the file holds the machine state of the last frame that started, and
+ * the unhandled exception appends its code and address. A Win32 run that ends by itself deletes the
+ * file again (plat_shutdown), so a journal still there belongs to a run that did not end by itself. */
 void plat_crash_state(const char *text);
 
 /* A free-running counter for measuring where a frame's time goes (the 8254 clock on DOS, 0

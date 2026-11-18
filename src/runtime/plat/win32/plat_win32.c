@@ -62,6 +62,7 @@ static __int64       g_nextFrame;        /* QPC tick of the next frame boundary 
 static __int64       g_frame_ticks;      /* QPC ticks per frame */
 
 static void present_dc(HDC dc);
+static void journal_discard(void);        /* plat_shutdown: this run ended by itself */
 
 static __int64 qpc_now(void)
 {
@@ -89,9 +90,10 @@ static void frame_ticks_recalc(void)
  * itself shrinking follows the shrink, and the window runs down to its minimum tracking size
  * (measured: 336 -> 176 px clipped, 336 -> 465 px unclipped). A size or move loop therefore
  * releases the pointer for as long as it runs, and it is confined again once it is over.
- * A frame click also *activates* the window before the loop starts, so the activation itself must
- * not confine the pointer either (see WM_SETFOCUS): that is the one case where hiding without
- * confining is right.
+ * A frame click also *activates* the window before the loop starts, so the pointer may not be
+ * taken by the activation either: the same holds for every click on the frame, the close box and
+ * the caption included (see WM_SETFOCUS and WM_NCLBUTTONDOWN, which decide it by what the pointer
+ * is over - the picture, the only place the game owns it).
  *
  * ShowCursor is a counter, not a flag, and other code in the process may have moved it: ask until
  * the answer is negative (hidden) and remember how many calls that took, which is exactly the
@@ -123,6 +125,20 @@ static void cursor_release(void)
     while (g_cursorHidden > 0) { ShowCursor(TRUE); g_cursorHidden--; }
 }
 
+/* Whether the pointer is over the picture, the client - the one place the game owns it. The clip
+ * holds a pointer it has pulled in *on* the client's far edge, which is where the frame's own
+ * border starts, so those two coordinates count as inside: a pointer the game's clip keeps there is
+ * still the picture's (a hit test at that spot would say HTBOTTOMRIGHT). */
+static int pointer_over_client(void)
+{
+    POINT p;
+    RECT r;
+
+    if (g_hwnd == 0 || !GetCursorPos(&p) || !ScreenToClient(g_hwnd, &p)) return 0;
+    if (!GetClientRect(g_hwnd, &r)) return 0;
+    return (int)p.x >= r.left && (int)p.x <= r.right && (int)p.y >= r.top && (int)p.y <= r.bottom;
+}
+
 /* The pointer's owner, decided by the focus: while the game is being played the pointer is the
  * game's (hidden and confined to the picture); a size or move loop, or the window not being the one
  * in use, makes it the desktop's again. */
@@ -134,6 +150,31 @@ static void cursor_update(void)
         cursor_clip(1);
     }
     else cursor_release();
+}
+
+/* The pointer over the picture is the game's, so a move or a press there takes it back if the
+ * frame (a press on the caption or the close box), a size or move loop, or another window had it a
+ * moment ago. Nothing is owed while it is the game's already - this runs on every mouse move. */
+static void cursor_retake(void)
+{
+    if (g_hasFocus && !g_inSizeMove && g_cursorHidden == 0) cursor_update();
+}
+
+/* Re-asserts the capture where it is the game's to take - over the picture, or wherever it already
+ * is the game's - and leaves the frame's own pointer alone otherwise: a gain of focus, a new client
+ * size and a new picture all land while the player may be working the frame, and pulling the
+ * pointer out of a button he is using is exactly what the close box must not do.
+ *
+ * A pointer the game's own clip holds is the game's, whatever the arithmetic says: ClipCursor lets
+ * it rest a pixel past the clip's far edge (measured: 909,661 held by a clip of ../908,662), so
+ * asking "is it inside the client?" of a pointer that is already captured can answer no - and
+ * acting on that answer lets the pointer go exactly when the player pushes it into a corner. */
+static void cursor_refresh(void)
+{
+    if (g_cursorHidden > 0 || (g_hasFocus && !g_inSizeMove && pointer_over_client()))
+        cursor_update();
+    else
+        cursor_release();
 }
 
 /* The arrow cluster and W/A/S/D are the same four directions, so one direction can be held by two
@@ -270,18 +311,17 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SIZE:
         if (h != g_hwnd) return 0;                   /* the window is still being created */
         remember_window_size();
-        cursor_update();                             /* the picture moved: re-confine, or release */
+        cursor_refresh();                            /* the picture moved: re-confine, or release */
         plat_present();                              /* the new client, composed and blitted */
         return 0;
-    /* The window owns the pointer while it has the focus, so no cursor shape is set - and the frame
-     * gets its resize cursor back the moment a size or move loop releases the pointer. The capture
-     * is re-asserted here as well, so nothing that cleared the clip behind our back keeps it. */
+    /* The pointer is the game's while the window has the focus and it is over the picture; the
+     * window's own frame takes it back on its press (WM_NCLBUTTONDOWN below) and the game takes it
+     * again the moment the pointer is back over the picture (WM_MOUSEMOVE, WM_LBUTTONDOWN) - the
+     * rule is an event, not a guess from the cursor message. All that is owed here is that no shape
+     * is set while the pointer is the game's: the game draws its own arrow where it needs one. */
     case WM_SETCURSOR:
         if ((HWND)wp != g_hwnd) break;
-        if (g_hasFocus && !g_inSizeMove) {
-            cursor_update();
-            return TRUE;
-        }
+        if (g_cursorHidden > 0) return TRUE;
         break;                                       /* DefWindowProc sets the shape */
     case WM_ENTERSIZEMOVE:
         /* The loop measures itself from the pointer: it may not be hidden or confined meanwhile. */
@@ -290,7 +330,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_EXITSIZEMOVE:
         g_inSizeMove = 0;
-        cursor_update();                             /* back to the game (or the desktop) */
+        cursor_refresh();                            /* a drag ends on the frame it dragged */
         return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -304,14 +344,13 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (h == g_hwnd) present_dc((HDC)wp);
         return 0;
     /* The window captures the pointer while it has the focus (hidden and confined to the picture),
-     * and gives it back the moment it is not the window being used. A click on the frame activates
-     * the window and starts a size loop right after it: confining the pointer here would pull it
-     * into the picture, and the loop would then measure its first size from the wrong place, so a
-     * click that is still held only hides it. */
+     * and gives it back the moment it is not the window being used. It takes it only over the
+     * picture: a click on the window's own frame - the close box, the caption, the border -
+     * activates the window with the pointer still over the frame, and confining it there pulled it
+     * into the picture before the press reached the frame's own button (WM_NCLBUTTONDOWN below). */
     case WM_SETFOCUS:
         g_hasFocus = 1;
-        if (GetKeyState(VK_LBUTTON) < 0) cursor_hide();
-        else cursor_update();
+        cursor_refresh();
         return 0;
     case WM_KILLFOCUS:
         g_hasFocus = 0;
@@ -322,12 +361,27 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         memset(g_keys, 0, sizeof g_keys);
         memset(g_dirHeld, 0, sizeof g_dirHeld);
         return 0;
+    /* A press on the window's own frame is the frame's: the close box, the caption, the borders.
+     * The pointer may not be confined to the picture while the system tracks that press, or it
+     * pulls the pointer out of the box before the press is seen there and the click becomes a click
+     * on the picture - the window would not close. The frame's own tracking (DefWindowProc) runs
+     * untouched, and the pointer is the game's again over the picture (WM_MOUSEMOVE). */
+    case WM_NCLBUTTONDOWN:
+    case WM_NCRBUTTONDOWN:
+    case WM_NCMBUTTONDOWN:
+        cursor_release();
+        break;
     case WM_MOUSEMOVE:
         g_mouse_x = (s16)LOWORD(lp);
         g_mouse_y = (s16)HIWORD(lp);
         g_mouse_motion++;
+        cursor_retake();
         return 0;
-    case WM_LBUTTONDOWN: g_mouse_buttons |= 1; g_mouse_clicks++; return 0;
+    case WM_LBUTTONDOWN:
+        g_mouse_buttons |= 1;
+        g_mouse_clicks++;
+        cursor_retake();
+        return 0;
     case WM_LBUTTONUP:   g_mouse_buttons &= (u8)~1; return 0;
     case WM_RBUTTONDOWN: g_mouse_buttons |= 2; return 0;
     case WM_RBUTTONUP:   g_mouse_buttons &= (u8)~2; return 0;
@@ -399,17 +453,24 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 
 static int make_window(const char *title)
 {
-    WNDCLASS wc;
+    WNDCLASSEXA wc;
     RECT r;
     DWORD style = window_style();
     int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w, h;
 
     memset(&wc, 0, sizeof wc);
+    wc.cbSize = sizeof wc;
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = GetModuleHandle(0);
     wc.hCursor = LoadCursor(0, IDC_ARROW);
+    /* The executable's own icon (src\runtime\plat\win32\icftd.rc, icon group 1), so the title bar
+     * and Alt+Tab show the game's picture instead of the system default. A build without the
+     * resource (the oracle) gets NULL here and keeps that default. */
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(1));
+    wc.hIconSm = (HICON)LoadImage(wc.hInstance, MAKEINTRESOURCE(1), IMAGE_ICON,
+                                  GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
     wc.lpszClassName = "ICFTD";
-    if (!RegisterClass(&wc)) return 0;
+    if (!RegisterClassExA(&wc)) return 0;
 
     if (g_fullscreen) {
         /* Borderless over the whole screen; plat_present scales the picture into it. */
@@ -497,6 +558,36 @@ static int make_palette(void)
     g_pal = CreatePalette(lp);
     free(lp);
     return g_pal != 0;
+}
+
+/* --- the console ---------------------------------------------------------------------------
+ * One executable is the game *and* every measurement: a run started from a terminal prints its log
+ * there, and the check scripts read that same log through a redirected handle. Such a run keeps
+ * its console. Started by a double click the process owns a console of its own instead - a black
+ * window that exists only for this run and would sit beside the game until it closes - and that
+ * one is hidden, so the release shows the game's window and nothing else. The host calls this as
+ * soon as it knows it will show the window, so the first start's missing-disks notice is not
+ * behind a console either.
+ *
+ * GetConsoleProcessList answers which case it is: one process attached means this run's own
+ * console. Both entry points are looked up by name, because this Watcom build links against an
+ * import library older than either (GetConsoleWindow is not in it at all, and GetConsoleProcessList
+ * is Windows 2000's). */
+void plat_console_hide_own(void)
+{
+    typedef DWORD (WINAPI *PROCLIST_FN)(DWORD *, DWORD);
+    typedef HWND  (WINAPI *CONWIN_FN)(void);
+    HMODULE kernel = GetModuleHandle("kernel32.dll");
+    PROCLIST_FN proclist;
+    CONWIN_FN conwin;
+    DWORD attached[2];
+
+    if (kernel == 0) return;
+    proclist = (PROCLIST_FN)GetProcAddress(kernel, "GetConsoleProcessList");
+    conwin = (CONWIN_FN)GetProcAddress(kernel, "GetConsoleWindow");
+    if (proclist == 0 || conwin == 0) return;
+    if (proclist(attached, 2) != 1) return;         /* a terminal's console: the log belongs there */
+    ShowWindow(conwin(), SW_HIDE);
 }
 
 u32 plat_init(const char *title)
@@ -657,6 +748,9 @@ void plat_shutdown(void)
     if (g_memdc) DeleteDC(g_memdc);
     if (g_hwnd) DestroyWindow(g_hwnd);
     g_hwnd = 0;
+    /* The run ended by itself, so its journal has nothing to tell: what is left beside the
+     * executable is the last run that did not end by itself (see the run journal below). */
+    journal_discard();
     g_quit = 1;
 }
 
@@ -679,7 +773,7 @@ u32 plat_set_framebuffer_size(u32 w, u32 h)
     if (nw != g_fb_w || nh != g_fb_h) {
         if (!make_dib(nw, nh)) return 0;
         g_pic_w = g_pic_h = 0;               /* the picture's rectangle is this frame's */
-        cursor_update();
+        cursor_refresh();
     }
     /* A DIB row is padded to a longword: that, not the width, is the row the core copies. */
     return (u32)((nw + 3) & ~3);
@@ -1232,17 +1326,21 @@ void plat_set_title(const char *text)
     if (g_hwnd && text) SetWindowText(g_hwnd, text);
 }
 
-/* --- crash journal -------------------------------------------------------------------------
+/* --- the run journal -----------------------------------------------------------------------
  * A native crash takes the process down with no output, so the last machine state is written to
- * <exe dir>\recomp-crash.txt every frame and flushed. An unhandled exception appends its code and
- * address to the same file, which makes "the window just closed" answerable after the fact. */
+ * <exe dir>\game-log.txt every frame and flushed. An unhandled exception appends its code and
+ * address to the same file, which makes "the window just closed" answerable after the fact.
+ *
+ * A run that ends by itself takes the file with it (plat_shutdown), so what is left beside the
+ * executable is only ever the last run that did *not* end by itself - a crash, a hang, a process
+ * killed from outside - and the file says which. */
 #define CRASH_STATE_BYTES 2048
 static FILE *g_crashFile;
 
-static const char *crash_path(void)
+static const char *journal_path(void)
 {
     static char path[MAX_PATH];
-    sprintf(path, "%s\\recomp-crash.txt", plat_exe_dir());
+    sprintf(path, "%s\\game-log.txt", plat_exe_dir());
     return path;
 }
 
@@ -1265,6 +1363,14 @@ static LONG CALLBACK crash_filter(EXCEPTION_POINTERS *ep)
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+/* The run ended by itself, so the journal has nothing to tell: the file is removed, and what is
+ * left beside the executable is only ever the last run that did not end by itself. */
+static void journal_discard(void)
+{
+    if (g_crashFile != 0) { fclose(g_crashFile); g_crashFile = 0; }
+    DeleteFile(journal_path());
+}
+
 void plat_crash_state(const char *text)
 {
     static char block[CRASH_STATE_BYTES];
@@ -1273,7 +1379,7 @@ void plat_crash_state(const char *text)
     if (text == 0) return;
     if (g_crashFile == 0)
     {
-        g_crashFile = fopen(crash_path(), "wb+");
+        g_crashFile = fopen(journal_path(), "wb+");
         if (g_crashFile == 0) return;
         SetUnhandledExceptionFilter(crash_filter);
     }

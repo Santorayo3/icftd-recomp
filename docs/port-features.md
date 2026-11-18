@@ -754,12 +754,42 @@ a pointer that was outside into the picture, and a windowed start takes the fore
 from a console window. Losing the focus gives the pointer back (`WM_KILLFOCUS`), and that is the way
 to the frame: Alt+Tab, then grab it.
 
+The pointer is the game's only **while it is over the picture** and the window has the focus, and
+the rule is decided by an *event*, not by where a cursor message happens to find the pointer:
+
+* **The frame's own press gives the pointer back** (`WM_NCLBUTTONDOWN`/`WM_NCRBUTTONDOWN`/
+  `WM_NCMBUTTONDOWN`): the caption, the close box, the borders. The system tracks such a press by
+  the pointer, so a clip that pulled the pointer into the picture before the press was seen turned
+  a click on the close box into a click on the picture - Alt+Tab followed by the X left the game
+  playing (measured: the pointer at the box moved 23 px into the client and the window received no
+  `WM_NCLBUTTONDOWN` at all). A frame click that starts a drag needs the same thing, and gets it
+  from the same message. The window's own tracking (DefWindowProc) then runs untouched.
+* **A move or a press over the picture takes it back** (`WM_MOUSEMOVE`, `WM_LBUTTONDOWN`,
+  `cursor_retake`): after a frame press or a drag the pointer is on the frame, free; the moment it
+  is over the picture again the game has it, hidden and confined, and a click there does the same.
+* **The focus decides the rest**: `WM_SETFOCUS` takes it when the pointer is already over the
+  picture (a click on the picture of a window that was not in use), `WM_KILLFOCUS` gives it back
+  (Alt+Tab), and a size or move loop releases it for as long as it runs.
+
+That is why the ownership is decided by *events* and not re-derived from where a cursor message finds
+the pointer. Two measurements make the difference plain: a hit test at the client's far edge - where
+the clip holds a pointer it has pulled in - answers `HTBOTTOMRIGHT` (that is where the frame's border
+starts), and `ClipCursor` holds a pointer it has clamped even a pixel *past* the far edge (measured:
+909,661 held by a clip of ../908,662). Either way, "is the pointer inside the picture?" answers no
+about a pointer the game already owns - and acting on that answer let the pointer go exactly when a
+player pushed it into a corner (`cursor_refresh` therefore keeps a pointer that is already the
+game's, whatever the arithmetic says). `WM_SETCURSOR` only suppresses the window's own cursor shape
+while the pointer is the game's (`g_cursorHidden`), so the game's drawn arrow is the only one seen
+there.
+
 A drag releases the pointer for as long as it runs (`WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE`,
-`g_inSizeMove`), because Windows measures a dragged frame from the pointer, and the pointer is
-captured again once the drag is over. A frame click also *activates* the window before the loop
-starts, so a `WM_SETFOCUS` that arrives with the left button already down only hides the pointer
-instead of confining it (`GetKeyState(VK_LBUTTON)`) - confining it there would pull it into the
-picture and the loop would measure its first size from the wrong place.
+`g_inSizeMove`), because Windows measures a dragged frame from the pointer; the drag ends on the
+frame, so the pointer stays the desktop's there and is the game's again over the picture. The
+`WM_SETFOCUS` used to ask `GetKeyState(VK_LBUTTON)` for that frame click and only hide the pointer
+when the button was down; that cannot work for the click that *activates* the window: the press is
+delivered after the activation, and the thread's button byte is only current once the press has been
+retrieved, so the state still read "up" and the activation took the pointer. Where the pointer is
+(`pointer_over_client`) is known at that moment.
 
 What it must never do is confine the pointer *during* a drag - that is what ran the window down to
 its minimum tracking size: the clip followed the shrinking client, and the sizing loop follows the
@@ -785,11 +815,16 @@ key at all. Claim (9) starts the one scene whose screen is not the game's own (`
 chicken race) and measures where its 368x216 picture lands: nothing outside the 640x375 rectangle the
 screen allows is anything but the border art, and the pixels just inside it are picture - so the
 scene has the screen's pixel shape instead of one of its own, and it cannot grow over the curtains
-(the pre-fix build draws 56 673 picture pixels where this claim allows none). Claims (6)-(8) drive
+(the pre-fix build draws 56 673 picture pixels where this claim allows none). Claim (10) clicks the
+window's own close box while the window is not in use (the Alt+Tab, then the X a player does) and
+requires the run to exit: taking the pointer for the picture during that click pulled it out of the
+box, so the press landed on the picture and the run kept playing (measured on the real game: the
+pointer moved 23 px into the client and the window received no `WM_NCLBUTTONDOWN`). Claims (6)-(8) drive
 the real pointer (`SetCursorPos` + `mouse_event`) because a frame
 can only be measured by dragging it: while the window has the focus the system cursor is `hidden`
-and a pointer pushed at the far screen corner stays inside the picture (the capture is read as the
-pointer's position, not as the clip rectangle), losing the focus makes it `visible` and lets the
+and a pointer pushed at the far screen corner by a hand's burst of relative moves stays inside the
+picture (the capture is read as the pointer's position, not as the clip rectangle), losing the focus
+makes it `visible` and lets the
 pointer go, a corner drag from there **grows** the window (with the border art still either side of
 the picture at its new height scale) instead of collapsing it, using the window again captures the
 pointer, and a drag inward stops at the 160x120 minimum.
@@ -840,10 +875,10 @@ by its build, and by the same argument, since a DOSBox run cannot be scripted fr
 
 ## The first start: the game data comes from the player's own disks
 
-The port ships **no game data**. A release is `ICFTD.EXE` plus three empty folders — `export\`,
-`disks\`, `saves\` (`tools\win32-pack.ps1`) — and the player puts the three original Amiga floppy
-images in `disks\`. `rt_assets_ensure` (`src\runtime\assets.c`) runs once at startup, before the
-machine boots, and asks one question: is there an extracted tree to run?
+The port ships **no game data**. A release is `It Came from the Desert.exe` plus three empty
+folders — `export\`, `disks\`, `saves\` (`tools\win32-pack.ps1`) — and the player puts the three
+original Amiga floppy images in `disks\`. `rt_assets_ensure` (`src\runtime\assets.c`) runs once at
+startup, before the machine boots, and asks one question: is there an extracted tree to run?
 
 * **What "there" means** is machine-checkable, not a stamp file: `export\disk1`, `export\disk2`,
   `export\disk3` and `export\code\dshell4k\dshell.img`. The image is written **last**, so an
@@ -854,6 +889,18 @@ machine boots, and asks one question: is there an extracted tree to run?
   written. The formats are the exporter's, ported to C because a release cannot run .NET:
   `src\assetExport\Adf.cs` (the raw image), `AmigaFs.cs` (AmigaDOS OFS directory and data chains)
   and `Hunk.cs` (the game program's load image).
+* **What is checked in an image is structure, never identity**: a size that is a multiple of 512
+  bytes in 100..2048 blocks (51 200..1 048 576 — a double-density floppy), a boot block starting
+  `DOS` with the OFS type byte, and the volume label in the root block. No checksum, hash or serial
+  is compared anywhere, so any dump of the same floppies is accepted — and so is a modified image
+  that keeps the filesystem (`disks\` is read file by file, so neither the file names nor the
+  extensions in it matter; the first image by file name wins a label that appears twice). FFS is
+  refused rather than half-read, because the data chains carry the 24-byte header only in OFS, and
+  compressed or flux-level containers (`.adz`, `.dms`, `.ipf`, `.scp`, `.hfe`) are not formats this
+  reader has at all — they have to be converted to a raw image first. What is extracted is the
+  whole tree of each disk; the engine then opens its files by name, and the program it boots is
+  bound to this exact `dshell` (fixed load base, entry and A4), so a different build of the game is
+  out of reach even though nothing would refuse it up front.
 * **The message is the feature's only player-facing text**, and it is the one the request named:
   `Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and
   restart.` A windowed start puts it in a modal box (`plat_message`), a headless one prints it and
