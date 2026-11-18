@@ -562,7 +562,44 @@ u32 rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size)
 
 static int rc_returned;
 
+/* --- the program being run --------------------------------------------------------------------
+ * Two engine builds share this address space (docs\antheads.md): the table and the save geometry
+ * belong to the build the front end selected, and nothing else in this layer differs. Each
+ * generated table describes its own build (rc_engine / ant_engine), and the 1989 one is the
+ * default, so every front end that does not switch runs what it always ran. */
+const rc_program *rc_active = &rc_engine;
+
 static void rc_stream(cpu_t *c, rt_machine *m);
+
+rc_fn rc_lookup(u32 addr)
+{
+    const rc_entry *e = rc_active->fns;
+    unsigned lo = 0, hi = rc_active->count;
+
+    while (lo < hi)
+    {
+        unsigned mid = (lo + hi) / 2u;
+        if (e[mid].addr == addr) return e[mid].fn;
+        if (e[mid].addr < addr) lo = mid + 1u;
+        else hi = mid;
+    }
+    return 0;
+}
+
+const rc_entry *rc_containing(u32 addr)
+{
+    const rc_entry *e = rc_active->fns;
+    unsigned lo = 0, hi = rc_active->count;
+
+    while (lo < hi)
+    {
+        unsigned mid = (lo + hi) / 2u;
+        if (e[mid].addr <= addr) lo = mid + 1u;
+        else hi = mid;
+    }
+    if (lo == 0) return 0;
+    return addr < e[lo - 1u].end ? &e[lo - 1u] : 0;
+}
 
 void rc_ret(cpu_t *c, rt_machine *m)
 {
@@ -608,7 +645,7 @@ static void rc_stream(cpu_t *c, rt_machine *m)
             if (rc_coverHook != 0)
             {
                 const rc_entry *own = rc_containing(c->pc);
-                if (own != 0) rc_coverHook((unsigned)(own - rc_functions));
+                if (own != 0) rc_coverHook((unsigned)(own - rc_active->fns));
             }
             rc_returned = 0;
             fn(c, m);

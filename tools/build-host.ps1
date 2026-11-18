@@ -71,6 +71,8 @@ if ($resStale) {
 
 $sources = @(
     (Join-Path $hs 'main.c'),
+    (Join-Path $hs 'programs.c'),
+    (Join-Path $hs 'seams.c'),
     (Join-Path $hs 'title.c'),
     (Join-Path $hs 'title_button.c'),
     (Join-Path $hs 'cheat.c'),
@@ -85,6 +87,7 @@ $sources = @(
     (Join-Path $rc 'cpu.c'),
     (Join-Path $rc 'hooks.c'),
     (Join-Path $rc 'fn_table.c'),
+    (Join-Path $rc 'ant\ant_table.c'),
     (Join-Path $rt 'amiga\memory.c'),
     (Join-Path $rt 'amiga\machine.c'),
     (Join-Path $rt 'amiga\blitter.c'),
@@ -103,6 +106,9 @@ $sources = @(
     (Join-Path $mus 'softfloat\softfloat.c')
 )
 $sources += Get-ChildItem (Join-Path $rc 'fn_*.c') | ForEach-Object { $_.FullName } | Sort-Object
+# The add-on "Antheads" is a second build of the same engine: its own generated set, in its own
+# directory (docs\antheads.md). One image is loaded at a time; both tables are linked.
+$sources += Get-ChildItem (Join-Path $rc 'ant\fn_*.c') | ForEach-Object { $_.FullName } | Sort-Object
 # Hand-written replacements for hot generated functions (the override seam, docs\recomp-architecture.md):
 # the dispatch consults rc_native_fns (src\recomp\cpu.c) before the generated table.
 $sources += Get-ChildItem (Join-Path $rc 'patches') -Filter *.c | ForEach-Object { $_.FullName } | Sort-Object
@@ -114,15 +120,19 @@ $sources += Get-ChildItem (Join-Path $rc 'patches') -Filter *.c | ForEach-Object
 $objDir = Join-Path $root 'bin\win32\recomp-obj-host'
 
 $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
+$wlink = Join-Path $WatcomHome 'binnt64\wlink.exe'
 $common = @('-bt=nt', '-q', '-5s', '-ox', '-zp8', '-zq', '-za99', '-c', '-dRC_BASE=0x4000',
             '-i=..\..\..\..\src\runtime', '-i=..\..\..\..\src\runtime\amiga',
             '-i=..\..\..\..\src\recomp', '-i=..\..\..\..\src\oracle',
             '-i=..\..\..\..\third_party\musashi')
+# The link goes through a directive file: two translated programs are ~1 600 objects, and one
+# Windows command line stops at 32 767 characters.
 $link = @('-bt=nt', '-q', '-fe=..\icftd-recomp.exe')
 
 $groupOf = {
     param([string]$path)
     if ($path -like '*\src\oracle\*') { return 'oracle' }
+    if ($path -like '*\src\recomp\ant\*') { return 'ant' }
     if ($path -like '*\src\recomp\*') { return 'recomp' }
     if ($path -like '*\third_party\*') { return 'core' }
     return 'rt'
@@ -142,7 +152,7 @@ $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $code = 0
 try {
-    foreach ($g in 'rt', 'oracle', 'recomp', 'core') {
+    foreach ($g in 'rt', 'oracle', 'recomp', 'ant', 'core') {
         $rel = @($plan.Stale | Where-Object { (& $groupOf $_) -eq $g } | ForEach-Object { '..\..\..\..\' + $_.Substring($root.Length + 1) })
         if ($rel.Count -eq 0) { continue }
         Push-Location (Join-Path $objDir $g)
@@ -166,7 +176,13 @@ try {
     if ($relink) {
         Push-Location $objDir
         try {
-            & $wcl @link @objs '..\res\icftd.res' 2>&1 | Out-Host
+            # One `file` line per object, plus the executable's resource. wlink's directive file
+            # has no command-line length limit, which the object list needs (32 767 characters).
+            $directives = @('option quiet', 'system nt', 'name ..\icftd-recomp.exe')
+            $directives += @($objs | ForEach-Object { "file $_" })
+            $directives += 'option resource=..\res\icftd.res'
+            Set-Content -LiteralPath 'link.lnk' -Value $directives -Encoding ASCII
+            & $wlink '@link.lnk' 2>&1 | Out-Host
             $code = $LASTEXITCODE
         }
         finally { Pop-Location }

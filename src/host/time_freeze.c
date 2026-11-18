@@ -46,16 +46,10 @@
 #include "machine.h"
 #include "display.h"
 #include "time_freeze.h"
+#include "seams.h"
 
-/* Model addresses; RC_ADDR adds the build's load address. */
-#define CLOCK_GATE     0x00021E26u  /* DAT_00021e26: FUN_00005406's pause gate (tested at 0x4006) */
-#define CLOCK_MIN      0x00021E24u  /* DAT_00021e24: the minute (0x3b is the last one)             */
-#define CLOCK_HOUR     0x00021E22u  /* DAT_00021e22: the hour (0..0x17)                            */
-#define CLOCK_DAY      0x00021E1Eu  /* DAT_00021e1e: days left in June, 0xe is the 1st             */
-#define CLOCK_DISP_H   0x00026870u  /* DAT_00026870: the hour the map prints, 1..12                */
-#define CLOCK_DISP_AP  0x00026872u  /* DAT_00026872: its "AM"/"PM" string - a long, not a word     */
-
-#define MAP_SCRIPT_PC  0x00003B1Eu  /* FUN_00003b1e: the situation map's own per-update script     */
+/* The clock words and the map's script are rows of the seam table (src\host\seams.c): the 1989
+ * game's addresses and the add-on's, chosen at run time. RC_ADDR adds the build's load address. */
 
 /* The date and time as the engine keeps them while the freeze was engaged. */
 typedef struct

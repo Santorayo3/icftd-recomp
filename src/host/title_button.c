@@ -65,12 +65,23 @@
 #define TITLE_SETTINGS_VALUE_X    (TITLE_SETTINGS_VOLUME_X + TITLE_STEP_W + TITLE_SETTINGS_VALUE_GAP)
 #define TITLE_SETTINGS_PLUS_X     (TITLE_SETTINGS_VALUE_X + TITLE_SETTINGS_VALUE_W + TITLE_SETTINGS_VALUE_GAP)
 
-static const struct
+/* The two layouts. Without the add-on the menu is what it has always been - four buttons at 85,
+ * 106, 127 and 164. With it there is a fifth row in between, and the four others move down to make
+ * room (a gap of 19 rows, the panel is y 72..184 and a button is 14 high, so 164 + 14 = 178 still
+ * fits); Quit Game keeps its place at the bottom either way.
+ *
+ * The fifth button starts the add-on's game, the way New Game starts the 1989 one; it is offered
+ * only when the add-on is there and is not what is running, so the menu never lists a game the
+ * player is already in. "Play Antheads" has to fit the 73 px button: measured with the game's own
+ * font it is 71 px. */
+typedef struct title_button_row
 {
     const char *label;
     s16 y;
     title_action action;
-} g_titleButtonLayout[] =
+} title_button_row;
+
+static const title_button_row g_titleButtonLayout[] =
 {
     { "New Game",  85, TITLE_ACTION_NEW_GAME },
     { "Load Game", 106, TITLE_ACTION_LOAD_GAME },
@@ -78,8 +89,16 @@ static const struct
     { "Quit Game", 164, TITLE_ACTION_QUIT }
 };
 
-#define TITLE_BUTTON_LAYOUT_COUNT \
-    ((int)(sizeof g_titleButtonLayout / sizeof g_titleButtonLayout[0]))
+static const title_button_row g_titleButtonLayoutAddon[] =
+{
+    { "New Game",      84, TITLE_ACTION_NEW_GAME },
+    { "Play Antheads", 103, TITLE_ACTION_ANTHEADS },
+    { "Load Game",     122, TITLE_ACTION_LOAD_GAME },
+    { "Settings",      141, TITLE_ACTION_SETTINGS },
+    { "Quit Game",     164, TITLE_ACTION_QUIT }
+};
+
+#define TITLE_BUTTON_LAYOUT_COUNT(l) ((int)(sizeof(l) / sizeof(l[0])))
 
 const u8 *title_menu_palette(void)
 {
@@ -108,21 +127,27 @@ const u8 *title_menu_palette(void)
     return pal;
 }
 
-void title_menu_init(title_menu *menu)
+void title_menu_init(title_menu *menu, int addon, int addonRunning)
 {
+    /* The add-on's row is offered to the menu that has a choice to make: a game already running
+     * the add-on has nothing to switch to, and its New Game plays it. */
+    int offerAddon = addon && !addonRunning;
+    const title_button_row *rows = offerAddon ? g_titleButtonLayoutAddon : g_titleButtonLayout;
+    int n = offerAddon ? TITLE_BUTTON_LAYOUT_COUNT(g_titleButtonLayoutAddon)
+                       : TITLE_BUTTON_LAYOUT_COUNT(g_titleButtonLayout);
     int i;
 
     memset(menu, 0, sizeof *menu);
     menu->hover = -1;
     menu->pointer_on = 0;
-    for (i = 0; i < TITLE_BUTTON_LAYOUT_COUNT && i < TITLE_BUTTON_MAX; i++)
+    for (i = 0; i < n && i < TITLE_BUTTON_MAX; i++)
     {
-        menu->buttons[i].label = g_titleButtonLayout[i].label;
+        menu->buttons[i].label = rows[i].label;
         menu->buttons[i].x = TITLE_BUTTON_X;
-        menu->buttons[i].y = g_titleButtonLayout[i].y;
+        menu->buttons[i].y = rows[i].y;
         menu->buttons[i].w = TITLE_BUTTON_W;
         menu->buttons[i].h = TITLE_BUTTON_H;
-        menu->buttons[i].action = g_titleButtonLayout[i].action;
+        menu->buttons[i].action = rows[i].action;
     }
     menu->count = i;
 }

@@ -141,6 +141,34 @@ u32  rc_shift(cpu_t *c, int type, int left, u32 count, u32 value, int size);
  * `jsr/jmp (d16,A6)` -> rc_os_call_a6(): stack convention, the return address is popped. */
 typedef void (*rc_fn)(cpu_t *c, rt_machine *m);
 
+/* --- one engine build ---------------------------------------------------------------
+ * ICfTD (1989) and its 1990 add-on "Antheads" are two builds of the same engine, linked for the
+ * same address: their translated code is two tables of functions over one address space, so the
+ * dispatch has to know which build the machine is running. A front end picks a program at boot
+ * (rc_active, default: the 1989 build); rc_lookup/rc_containing search its table, and the
+ * machine's save geometry follows from it. */
+typedef struct rc_entry
+{
+    u32   addr;                 /* the function's entry */
+    u32   end;                  /* one past its last byte */
+    rc_fn fn;
+} rc_entry;
+
+typedef struct rc_program
+{
+    const rc_entry *fns;        /* the build's translated functions, sorted by address */
+    unsigned        count;
+    u32             imageSize;  /* the flattened image the table was translated from */
+    u32             a4;         /* the build's small-data base at run time */
+    u32             entry;      /* where the build starts at run time */
+    const char     *saveName;   /* the file the engine writes on the save volume */
+    u32             saveBytes;  /* its size when the save is complete */
+    const char     *name;       /* the build's title, for the log */
+} rc_program;
+
+/* The build being executed. Every front end sets it before the first instruction. */
+extern const rc_program *rc_active;
+
 /* --- hand-written replacements ---------------------------------------------------------------
  * src\recomp\patches holds readable C for generated functions that are hot enough to be worth
  * writing by hand (docs\recomp-architecture.md, the override seam). The dispatch consults this

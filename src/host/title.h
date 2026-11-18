@@ -13,9 +13,19 @@ void host_title_arm(int on);
 /* --titlekey <n>: take one menu choice as soon as the title is up, so a scripted run can start a
  * scene from the title (the same class of dev seam as --call). 0 = the intro, 1..7 = a scene,
  * 8..10 = the endings (win, nest collapse, deadline), 11/12 = the Load Game and New Game buttons,
- * 13 = the Settings button, 14 = the menu itself for a --mouse script to click, -1 (the default) =
- * no choice. */
+ * 13 = the Settings button, 14 = the menu itself for a --mouse script to click, 15 = the fifth
+ * button, "Play Antheads" (docs\antheads.md), -1 (the default) = no choice. A scene the running
+ * build does not have (the add-on has no fire game, and Antheads has no "3") is said so and ends
+ * the run. */
 void host_title_key(int n);
+
+/* 1 when the add-on "It Came from the Desert II - Antheads" can be played from this data folder and
+ * this front end can boot it. It is what makes the menu's fifth button appear (title_button.c) and
+ * what --titlekey 15 needs; a player without the add-on's disks gets today's four buttons. Defined
+ * by each front end, because the data folder's layout and the bootable programs are its own: the
+ * Windows one answers from rt_assets_addon_ready(), the MS-DOS one 0 until it boots the add-on too
+ * (docs\antheads.md, Phase 8). */
+int host_title_addon(struct rt_machine *m);
 
 /* Esc in a played game. The front end's input layer calls this at a frame boundary; it asks the
  * run to stop and leaves a restart for the front end, which then re-initialises the machine and
@@ -25,6 +35,27 @@ void host_title_escape(struct rt_machine *m);
 
 /* Read by the front end after its run loop: 1 means Esc asked for a restart. Clears the request. */
 int host_title_restart_pending(void);
+
+/* Read by the front end after host_title_restart_pending() answered 1: the program that restart is
+ * to boot (HOST_PROGRAM_ORIGINAL / HOST_PROGRAM_ANT, src\host\programs.h), or -1 when the restart
+ * is a plain one. The front end picks that build's table, image, save geometry and file tree
+ * exactly as --program would at boot, then starts the machine again. The title always comes back on
+ * the 1989 program, so Escape answers HOST_PROGRAM_ORIGINAL and the menu's "Play Antheads" answers
+ * HOST_PROGRAM_ANT. Clears the request. */
+int host_title_restart_program(void);
+
+/* Read by the front end after host_title_restart_program(): 1 when that boot is a *game start* -
+ * the menu's "Play Antheads" - so the front end calls host_title_new_game() on the re-armed title
+ * and the player lands in the add-on's intro. 0 for Escape, which shows the menu. Clears the
+ * request. */
+int host_title_restart_play(void);
+
+/* The menu's "Play Antheads", taken by the front end after it booted the add-on: the new machine
+ * must go straight into the add-on's own intro, so the title does not hold it at an intro setup and
+ * draws no menu - it only answers the engine's YES/NO load screen (the one the boot loop runs after
+ * the intro) with "no", which is the decision the menu button already made. Called after
+ * host_title_arm(1), which is what makes Escape work in the resulting game. */
+void host_title_new_game(void);
 
 /* The front end's cpu_t mirror is scattered into the core when a CIA handler runs, so a register
  * write made here (an injected call's frame, or the pop that balances it) has to reach that mirror

@@ -14,9 +14,10 @@
  *                [--blitlog] [--base <addr>] [--window] [--run] [--speed <percent>] [--slot <n>]
  *                [--call <pc>[:<frame>]] [--osd <text>|save] [--shot <bmp>]
  *                [--dump <prefix> [n]] [--dumpfrom <frame>] [--cover <file>]
+ *                [--audiostall <n>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
  *                [--mouse <file>] [--hoverlog] [--srcdiff] [--genericblit]
- *                [--cameralog] [--savelog]
+ *                [--cameralog] [--savelog] [--program ant|original]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
  * launched by double-clicking it.
@@ -56,11 +57,14 @@
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
  * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
- * the title answers the load screen) so a scripted run can start a scene from the title; it is a
- * dev seam like `--call`.
+ * the title answers the load screen, and 15 is the fifth button, which plays the add-on "Antheads")
+ * so a scripted run can start a scene from the title; it is a dev seam like `--call`.
  * `--dump` writes one raster per presented frame, the way the oracle's does: a scroll is a
  * sequence of frames, so "does it move, and by how much" is measured on consecutive rasters
  * (`--dumpfrom` starts the sequence at an emulated frame, for a scene reached deep into a run).
+ * `--program ant` runs the 1990 add-on "It Came from the Desert II - Antheads" instead of the 1989
+ * game: a second build of the engine with its own translated table, A4, entry and save file. Both
+ * link at the same address, so only the program changes (docs\antheads.md).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,12 +88,15 @@
 #include "hospital_camera.h"
 #include "save_button.h"
 #include "save_ui.h"
+#include "programs.h"
+#include "seams.h"
 
-/* The game program inside the data folder, which a fresh release only gets by extraction. */
-#define IMAGE_RELATIVE "\\code\\dshell4k\\dshell.img"
+/* The game program inside the data folder, which a fresh release only gets by extraction. Both
+ * builds are extracted side by side: `\code\dshell4k` is the 1989 game, `\ant\code\dshell4k` the
+ * add-on (docs\antheads.md). */
+#define IMAGE_RELATIVE     "\\code\\dshell4k\\dshell.img"
+#define IMAGE_RELATIVE_ANT "\\ant\\code\\dshell4k\\dshell.img"
 #define HS_BASE       EMU_IMAGE_BASE
-#define HS_ENTRY      EMU_ENTRY
-#define HS_A4         EMU_A4
 
 /* Where the data folder and the floppy images are. A release keeps `export\`, `disks\` and
  * `saves\` next to the executable and is started from anywhere, so the executable's own folder is
@@ -99,6 +106,11 @@
 static char g_exportPath[300];
 static char g_disksPath[300];
 static char g_imagePath[300];
+
+/* Which engine build this run executes: HOST_PROGRAM_ORIGINAL (the 1989 game) or
+ * HOST_PROGRAM_ANT (the 1990 add-on). --program picks at start, the title's fifth button switches
+ * a running game (docs\antheads.md). */
+static int g_program = HOST_PROGRAM_ORIGINAL;
 
 static void host_asset_dirs(void)
 {
@@ -205,6 +217,34 @@ static void crosshair_present(rt_machine *m);
 static void loading_frame(rt_machine *m);
 static int  aim_live(rt_machine *m);
 
+/* The machine-side half of the audio fault log: one line when the engine frees its score. A
+ * silence with no such line is the host device's; one right before it is the game's own scene
+ * change. Loads are not logged - they happen in every scene and say nothing about a silence.
+ * DAT_00023C58 (the loaded score) and DAT_0002A170 (the hospital escape's progress) are rows of
+ * the seam table, src\host\seams.c. */
+
+static void host_audio_note(rt_machine *m)
+{
+    static u32 s_score;
+    static u32 s_frame;
+    static int s_seen;
+    u32 score = rt_read32(&m->mem, RC_ADDR(HOST_SCORE_PTR));
+
+    if (s_seen && m->frame < s_frame) { s_score = score; s_frame = m->frame; return; }
+    s_frame = m->frame;
+    if (!s_seen) { s_seen = 1; s_score = score; return; }
+    if (score == s_score) return;
+    if (s_score != 0 && score == 0)
+    {
+        char line[192];
+        sprintf(line, "machine: score freed at frame %lu, pc %06lX, hospital progress %04X",
+                (unsigned long)m->frame, (unsigned long)m->pc,
+                (unsigned)rt_read16(&m->mem, RC_ADDR(HOST_HOSP_PROG)));
+        plat_audio_log(line);
+    }
+    s_score = score;
+}
+
 /* The vertical blank, reached from inside translated code: the register file goes to the core, the
  * game's servers run there (they are original code, mostly untranslated), and whatever they left in
  * the registers comes back. */
@@ -224,6 +264,7 @@ static void host_frame(cpu_t *c, rt_machine *m)
     scatter(c, m);
     oracle_tick(m);
     gather(c, m);
+    host_audio_note(m);
     host_crash_note(m, c);
 }
 
@@ -340,7 +381,7 @@ static void cover_note(u32 pc)
     e = rc_containing(pc);
     if (e != 0)
     {
-        unsigned idx = (unsigned)(e - rc_functions);
+        unsigned idx = (unsigned)(e - rc_active->fns);
         if (idx < HOST_COVER_FUNCS) { g_covHits[idx]++; return; }
     }
     for (i = 0; i < g_covExtraCount; i++)
@@ -363,10 +404,10 @@ static void cover_report(void)
     f = fopen(coverPath, "w");
     if (f == 0) { printf("recomp: cannot write %s\n", coverPath); return; }
     fprintf(f, "# entry calls\n");
-    for (i = 0; i < rc_functionCount && i < HOST_COVER_FUNCS; i++)
+    for (i = 0; i < rc_active->count && i < HOST_COVER_FUNCS; i++)
         if (g_covHits[i] != 0)
         {
-            fprintf(f, "%08lX %lu\n", (unsigned long)rc_functions[i].addr,
+            fprintf(f, "%08lX %lu\n", (unsigned long)rc_active->fns[i].addr,
                     (unsigned long)g_covHits[i]);
             n++;
         }
@@ -375,7 +416,7 @@ static void cover_report(void)
                 (unsigned long)g_covExtraHits[k]);
     fclose(f);
     printf("recomp: coverage: %d of %u translated function(s) ran -> %s\n", n,
-           rc_functionCount, coverPath);
+           rc_active->count, coverPath);
 }
 
 /* JOY0DAT for the sixteen key combinations, indexed up|down<<1|left<<2|right<<3.
@@ -420,8 +461,8 @@ static const u16 g_joyDirs[16] =
  * mark: while the pointer is over the mark the window holds still, and a held fire is reported at
  * the mark's own map point so the script's click test takes its save path.
  * Only those words are written, and only while the map's script is the one being called, so no
- * other screen and no headless/scripted measurement (where this is not armed at all) can see it. */
-#define MAP_SCRIPT_PC  0x00003B1Eu
+ * other screen and no headless/scripted measurement (where this is not armed at all) can see it.
+ * The engine addresses are rows of the seam table, src\host\seams.c. */
 #define MAP_CUR_MIN    0x19        /* the travel window, from FUN_00003B1E */
 #define MAP_CUR_MAXX   0x136
 #define MAP_HOT_X      0x11        /* the cursor sprite's hot spot: its tip, from FUN_00003B1E */
@@ -429,18 +470,7 @@ static const u16 g_joyDirs[16] =
 #define MAP_SCROLL     6           /* picture pixels per update at the window's edge: the stick's
                                     * own ramp runs 1..14, and the pointer has no hold to ramp
                                     * with - reversing at the other edge must take effect at once */
-#define MAP_MAX_Y      0x00028A48u /* word, the window's bottom row (0xC4, 0xB0 in the 0xF mode) */
-#define MAP_ORG_X      0x00028A4Cu /* long, map picture offset <= 0 ... */
-#define MAP_ORG_Y      0x00028A50u
-#define MAP_ORG_MINY   0x00028A5Cu /* ... and the bottom limit FUN_000035D2 clamps to */
-#define MAP_ORG_MAXX   0x13F       /* the same clamp, x: -0x13F (FUN_000035D2) */
-#define MAP_CUR_X      0x00028A54u /* long, cursor screen x/y */
-#define MAP_CUR_Y      0x00028A58u
-#define MAP_AXIS_X     0x00026892u /* word, the decoded stick, +1 right / -1 left */
-#define MAP_AXIS_Y     0x00026894u /* ... +1 down / -1 up */
-#define MAP_FIRE_HELD  0x00026896u /* word, the decoded fire level (the test's own word) */
-#define MAP_PANEL      0x00028C1Cu /* word, a panel or menu is up */
-#define MAP_EVENT_PC   0x0001061Cu /* FUN_0001061c: the map's tail, just before its save test */
+#define MAP_ORG_MAXX   0x13F       /* FUN_000035D2's x clamp (the same in both builds) */
 /* The map's script runs every few vblanks (its loop flips buffers and waits), so "the map is not
  * on screen" cannot be decided on one frame: this many frames without a script call means the
  * screen is gone, and the next one starts with the game's own cursor placement again. */
@@ -719,9 +749,10 @@ static void map_pointer(rt_machine *m)
  *
  * The two words are A5-relative because the scene keeps them in its frame. The pointer gets the
  * map cursor's hot spot 0x11/0x12: AROW is drawn that far up-left of the point the scene keeps,
- * so the arrow's tip sits under the mouse. */
-#define PHONE_UPDATE_PC  0x00005FBEu   /* FUN_00005fbe: present one update of the scene */
-#define PHONE_UPDATE_RET 0x00006632u   /* ... called from the phone's cursor loop          */
+ * so the arrow's tip sits under the mouse.
+ *
+ * FUN_00005fbe, its return address in the phone's cursor loop are rows of the seam table
+ * (src\host\seams.c); the two stack offsets and the scene's clamps are the same in both builds. */
 #define PHONE_CUR_X      0x0Eu         /* word, A5-0x0e: the arrow's x                      */
 #define PHONE_CUR_Y      0x10u         /* word, A5-0x10: ... and y                          */
 #define PHONE_MIN_X      0x40          /* the scene's own clamps, from 0x65bc..0x65ec       */
@@ -776,19 +807,10 @@ static void phone_pointer(cpu_t *c, rt_machine *m)
  *
  * Nothing here runs in a measurement: rc_entryHook is installed only when the pointer is armed
  * (a played game or --mouse), and the arrow itself is drawn on top of the presented picture, never
- * into the machine's memory. */
-#define ROOM_DRAW_PC     0x00005EACu   /* FUN_00005eac: the location picture and its actors */
-#define ROOM_UPDATE_PC   0x00005824u   /* FUN_00005824: the room view's per-frame update */
-#define TEXT_LINE_PC     0x00004D76u   /* FUN_00004d76(text, x, y, pen, count) */
-#define MENU_FLIP_PC     0x0001D1DAu   /* FUN_0001d1da: the menu's bitmap flip */
-#define MENU_ACTION_PC   0x0000247Au   /* FUN_0000247a: the action list */
-#define MENU_ACTION_END  0x00002B0Eu
-#define MENU_LOOK_PC     0x00002B7Cu   /* FUN_00002b7c: Look North/South/... */
-#define MENU_LOOK_END    0x00002C92u
-#define MENU_ACTION_FLIP 0x000029D2u   /* the flip's return address inside FUN_0000247a */
-#define MENU_LOOK_FLIP   0x00002C62u   /* ... and inside FUN_00002b7c */
-#define TEXT_LINE_RET    0x00004F40u   /* the text draw's return address inside FUN_00004f0a */
-#define TEXT_RASTPORT    0x0002656Au   /* DAT_0002656a: the engine's animation RastPort */
+ * into the machine's memory.
+ *
+ * The five code points are rows of the seam table (src\host\seams.c). The stack offsets and the
+ * selection/entry locals are the same in both builds. */
 
 /* The selection and the entry loop counter, read from each menu's own frame:
  *   FUN_0000247a  link.w A5,-0x9a:  selection (local_a) at -0x6,  entry (local_6) at -0x2
@@ -982,10 +1004,9 @@ static void pointer_present(rt_machine *m)
  *                          was last drawn at.
  * Nothing here runs in a measurement: the hook and the overlay are armed only when the game is
  * being played (or with --mouse, the headless form of it) and the crosshair itself is drawn on
- * top of the presented picture, never into the machine's memory. */
-#define ANT_SCENE_PC   0x00007934u /* FUN_00007934: one update of the giant-ant fight */
-#define ANT_AIM_X      0x00029AE0u /* word, the pistol's screen x */
-#define ANT_AIM_Y      0x00029AE2u /* ... and y */
+ * top of the presented picture, never into the machine's memory.
+ *
+ * FUN_00007934 and the aim words are rows of the seam table (src\host\seams.c). */
 #define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim */
 #define ANT_SHOT_DY    (-0x3A)
 /* FUN_00007934 runs every update; this many frames without it means the fight is over (or is
@@ -1043,15 +1064,10 @@ static void crosshair_present(rt_machine *m)
  * the rule the map's cursor follows; and a pointer that was put down before the scene started
  * leaves the engine's own aim alone (g_aimOwn), exactly as such a pointer leaves the map's cursor
  * where the game put it. Nothing here runs in a measurement: rc_entryHook is installed only while
- * the game is being played (or for a --mouse test run). */
-#define AIM_SHOT_PC   0x000086A0u  /* FUN_000086a0: the fight's trigger, after FUN_00011bf0    */
-#define AIM_SPRAY_PC  0x0000B97Cu  /* FUN_0000b97c: the fire game's extinguisher movement     */
-#define AIM_X         0x00029AE0u  /* word, the aim both scenes share                          */
-#define AIM_Y         0x00029AE2u
-#define AIM_ACC_X     0x00029AE4u  /* word, the stick's ramped speed                           */
-#define AIM_ACC_Y     0x00029AE6u
-#define AIM_AXIS_X    0x00024A80u  /* word, FUN_00011bf0's decoded stick, +1 / 0 / -1          */
-#define AIM_AXIS_Y    0x00024A82u
+ * the game is being played (or for a --mouse test run). The two code points and the six aim words
+ * are rows of the seam table (src\host\seams.c); the fire game's travel rectangle is the fire
+ * game's own code and is the same in both builds (the add-on has no fire game at all, so its two
+ * seams are 0 and the spray seam is never installed there). */
 /* The fire game's travel rectangle, from the stops in FUN_0000B97C (0x28/0x12c at 0xb986..0xb9b0,
  * 0xa5/0xf0 at 0xb9ce..0xb9f8): inside it a held stick accelerates the aim, outside it the
  * acceleration is damped instead, so these are the positions the hand comes to rest at. */
@@ -1146,21 +1162,10 @@ static void aim_spray(rt_machine *m)
  * every frame the load runs. Nothing of the machine is written, and a measurement run never
  * installs the seam (g_portArm).
  */
-/* Image offsets of the load-only code, from re\decomp_all\dshell\ALL.c. Everything here is
- * reached only from a resource load: the SMS loader and its unpacker, the bank directory search,
- * the bank opener, the asset lookup inside a bank, the read helper, and the LZ decruncher's state
- * machine and decoder. */
-static const u32 g_loadRanges[][2] =
-{
-    { 0x00000AAAu, 0x00000FA2u },   /* FUN_00000b62, a scene's script: read, then parse it   */
-    { 0x0001EC42u, 0x0001F03Eu },   /* Sms_Load, a picture bank's header and data           */
-    { 0x0002011Au, 0x000201D4u },   /* Sms_Unpack, its RLE decode loop                      */
-    { 0x00020204u, 0x000202C4u },   /* bank directory search and cleanup                    */
-    { 0x000202C4u, 0x000204FAu },   /* FUN_000202c4, the bank opener, and the asset lookup  */
-    { 0x000204FAu, 0x00020518u },   /* FUN_000204fa, read n bytes out of the open bank      */
-    { 0x00020518u, 0x000205E6u },   /* the decruncher's state machine and bit reader        */
-    { 0x000205E6u, 0x000207F0u }    /* FUN_000205e6/FUN_0002069c, the LZ decruncher         */
-};
+/* The load-only code's ranges are per program: the SMS loader and its unpacker, the bank directory
+ * search, the bank opener, the asset lookup inside a bank, the read helper, and the LZ decruncher's
+ * state machine and decoder (src\host\seams.c carries both builds' ranges, measured from the same
+ * function boundaries in re\decomp_all\dshell\ALL.c). */
 #define LOAD_SHOW_FRAMES 25        /* 1/2 s of work before the line appears */
 #define LOAD_IDLE_FRAMES 8         /* ... and how long a gap still belongs to the load */
 #define LOAD_HOLD_FRAMES 500       /* 10 s: a transition the title announced has no such limit */
@@ -1174,12 +1179,13 @@ static int g_loadHoldSeen;         /* load work has run since the hold was armed
 
 static int load_pc(u32 pc)
 {
+    const seam_set *s = seam_active();
     int i;
 
     if (pc < RC_BASE) return 0;
     pc -= RC_BASE;
-    for (i = 0; i < (int)(sizeof g_loadRanges / sizeof g_loadRanges[0]); i++)
-        if (pc >= g_loadRanges[i][0] && pc < g_loadRanges[i][1]) return 1;
+    for (i = 0; i < s->loadRangeCount; i++)
+        if (pc >= s->loadRanges[i][0] && pc < s->loadRanges[i][1]) return 1;
     return 0;
 }
 
@@ -1265,7 +1271,7 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
-    if (pc == RC_ADDR(AIM_SPRAY_PC))
+    if (AIM_SPRAY_PC != 0 && pc == RC_ADDR(AIM_SPRAY_PC))
     {
         g_fireFrame = m->frame;
         aim_spray(m);
@@ -1284,6 +1290,15 @@ static void host_cheat_frame(rt_machine *m)
         printf("recomp: Ctrl+W at frame %lu\n", (unsigned long)m->frame);
         host_cheat_force(m);
     }
+}
+
+/* The title's fifth button, and --titlekey 15: the add-on is playable when its own tree - `ant1..3\`
+ * and `ant\code\dshell4k\dshell.img` - is in the data folder (src\runtime\assets.c extracts it when
+ * the player's disks carry it), and this front end links both tables, so it can always boot it.
+ * The MS-DOS front end answers 0 until it boots the add-on too (docs\antheads.md, Phase 8). */
+int host_title_addon(rt_machine *m)
+{
+    return rt_assets_addon_ready(m != 0 ? m->dataDir : 0, RT_ASSETS_WINDOWS) ? 1 : 0;
 }
 
 /* The title menu runs its own loop, so the frame hooks above do not run while it is up: a --mouse
@@ -1611,6 +1626,7 @@ int main(int argc, char **argv)
     u32 spriteLogFrom = 0;
     const char *audioDump = 0;
     int audioRegs = 0;
+    u32 audioStall = 0;                    /* --audiostall: make a submission never complete */
     int blitBytePtr = 0;
     int blitGeneric = 0;
     int slot = 1;
@@ -1650,6 +1666,22 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--window") == 0) { g_window = 1; continue; }
         if (strcmp(argv[i], "--run") == 0) { g_window = 1; runForever = 1; continue; }
         if (strcmp(argv[i], "--audiodump") == 0 && i + 1 < argc) { audioDump = argv[++i]; continue; }
+        if (strcmp(argv[i], "--program") == 0 && i + 1 < argc)
+        {
+            /* ant|antheads selects the add-on; original|0 is the 1989 game (the default). */
+            const char *p = argv[++i];
+            if (strcmp(p, "ant") == 0 || strcmp(p, "antheads") == 0 || strcmp(p, "1") == 0)
+                g_program = HOST_PROGRAM_ANT;
+            else if (strcmp(p, "original") == 0 || strcmp(p, "icftd") == 0 || strcmp(p, "0") == 0)
+                g_program = HOST_PROGRAM_ORIGINAL;
+            else { printf("recomp: --program wants ant or original, not %s\n", p); return 2; }
+            continue;
+        }
+        if (strcmp(argv[i], "--audiostall") == 0 && i + 1 < argc)
+        {
+            audioStall = (u32)strtoul(argv[++i], 0, 0);
+            continue;
+        }
         if (strcmp(argv[i], "--doslog") == 0) { dosLog = 1; continue; }
         if (strcmp(argv[i], "--textlog") == 0) { textLog = 1; continue; }
         if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
@@ -1760,8 +1792,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--titlekey") == 0 && i + 1 < argc)
         {
             /* <n>: 0 starts the game from the title, 1..7 start the debug scenes, 8..10 the three
-            * endings. A dev seam like --call, but through the title's own menu - see
-            * src\host\title.c. */
+            * endings, 15 the button that plays the add-on. A dev seam like --call, but through the
+            * title's own menu - see src\host\title.c. */
             titleKey = (int)strtol(argv[++i], 0, 0);
             if (titleKey < 0) titleKey = 0;
             continue;
@@ -1813,15 +1845,23 @@ int main(int argc, char **argv)
     host_asset_dirs();
     if (dataDir == 0) dataDir = g_exportPath;
     if (diskDir == 0) diskDir = g_disksPath;
-    if (image == 0)
     {
-        if ((int)strlen(dataDir) + (int)strlen(IMAGE_RELATIVE) + 1 > (int)sizeof g_imagePath)
+        const rc_program *prog = host_program(g_program);
+        const char *rel = g_program == HOST_PROGRAM_ANT ? IMAGE_RELATIVE_ANT : IMAGE_RELATIVE;
+
+        if (image == 0)
         {
-            printf("recomp: the data folder path is too long\n");
-            return 2;
+            if ((int)strlen(dataDir) + (int)strlen(rel) + 1 > (int)sizeof g_imagePath)
+            {
+                printf("recomp: the data folder path is too long\n");
+                return 2;
+            }
+            sprintf(g_imagePath, "%s%s", dataDir, rel);
+            image = g_imagePath;
         }
-        sprintf(g_imagePath, "%s%s", dataDir, IMAGE_RELATIVE);
-        image = g_imagePath;
+        /* The table the dispatcher searches, and the save geometry the engine writes with, belong
+         * to the build being run; every other constant is the same for both (same load address). */
+        rc_active = prog;
     }
     {   /* First start: fill `export\` from the player's `disks\`, or say what is missing. */
         char msg[600];
@@ -1844,6 +1884,11 @@ int main(int argc, char **argv)
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
     m.dataDir = dataDir;
+    m.saveName = rc_active->saveName;
+    m.saveBytes = rc_active->saveBytes;
+    /* The program's files come from its own extracted tree: `disk1..3` for the 1989 game,
+     * `ant1..3` for the add-on (src\runtime\assets.c extracts both). */
+    m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
     m.progress = progress;
     m.progressFrom = progressFrom;
     m.blitLog = blitLog;
@@ -1955,6 +2000,13 @@ int main(int argc, char **argv)
         if (!rt_audio_capture(&m, audioDump)) { printf("recomp: cannot write %s\n", audioDump); rt_shutdown(&m); return 1; }
         printf("recomp: audio -> %s (%lu Hz stereo, raw s16)\n", audioDump, (unsigned long)EMU_AUD_RATE);
     }
+    if (audioStall > 0)
+    {
+        if (!g_window)
+            printf("recomp: --audiostall needs --window (no device is opened in a headless run)\n");
+        else
+            plat_audio_simulate_stall(audioStall);
+    }
     if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
 
     /* The title screen is part of the played game, not of a measurement: a run with an input
@@ -1979,10 +2031,10 @@ int main(int argc, char **argv)
     host_hospital_camera_log(g_cameraLog);
     host_save_button_log(g_saveLog);
 
-    printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld\n", image, (unsigned long)base,
-           insns, (long)RC_BASE);
+    printf("recomp: %s at 0x%lx, %ld instruction(s), base %ld, %s\n", image, (unsigned long)base,
+           insns, (long)RC_BASE, rc_active->name);
 
-    oracle_boot(HS_ENTRY, HS_A4);
+    oracle_boot(rc_active->entry, rc_active->a4);
     if (statePrefix != 0)
     {
         if (!state_open(statePrefix, stateEvery, ramFrames)) { rt_shutdown(&m); return 1; }
@@ -2060,15 +2112,30 @@ int main(int argc, char **argv)
                        (unsigned long)translated);
         }
 
-        /* Esc in a played game: the whole game starts again, so every piece of emulated state is
-         * the one a fresh boot makes. The title arms itself as it does on the first boot; nothing
-         * of the old session - its stack, heap, loaded banks or scores - can leak into it. */
+        /* Esc in a played game (back to the menu) and the menu's "Play Antheads" (the add-on's
+         * game): the machine starts again, so every piece of emulated state is the one a fresh
+         * boot makes. The title arms itself as it does on the first boot; nothing of the old
+         * session - its stack, heap, loaded banks or scores - can leak into it. */
         if (!host_title_restart_pending()) break;
 
         {
             int keepSlot = m.saveSlot;
             int soundGain = m.audio.soundGain, musicGain = m.audio.musicGain;
             int hadAudio = m.audio.device;
+            int bootAs = host_title_restart_program();
+            int bootPlay = host_title_restart_play();
+
+            if (bootAs >= 0 && bootAs != g_program)
+            {
+                /* The other engine build, exactly as --program would have picked it at boot: its
+                 * table, entry, A4, save geometry, image and disk tree (docs\antheads.md). */
+                g_program = bootAs;
+                rc_active = host_program(g_program);
+                sprintf(g_imagePath, "%s%s", dataDir,
+                        g_program == HOST_PROGRAM_ANT ? IMAGE_RELATIVE_ANT : IMAGE_RELATIVE);
+                image = g_imagePath;
+                printf("recomp: restarting as %s\n", rc_active->name);
+            }
 
             printf("recomp: restarting the game\n");
             if (g_record != 0) { fclose(g_record); g_record = 0; }
@@ -2086,6 +2153,9 @@ int main(int argc, char **argv)
             /* The same per-session settings as above: rt_init starts from a zeroed machine, so the
              * callbacks, the slot and the logging switches have to be put back. */
             m.dataDir = dataDir;
+            m.saveName = rc_active->saveName;
+            m.saveBytes = rc_active->saveBytes;
+            m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
             m.progress = progress;
             m.progressFrom = progressFrom;
             m.blitLog = blitLog;
@@ -2105,6 +2175,7 @@ int main(int argc, char **argv)
             {
                 rt_audio_open(&m, EMU_AUD_RATE);
                 rt_audio_set_gain(&m, soundGain, musicGain);
+                if (audioStall > 0) plat_audio_simulate_stall(audioStall);
             }
             if (audioDump != 0)
             {
@@ -2116,7 +2187,7 @@ int main(int argc, char **argv)
             else if (g_escFrame != 0) m.on_frame = host_esc_frame;
             else if (g_cheatFrame != 0) m.on_frame = host_cheat_frame;
             if (g_window || shotPath != 0 || dumpPrefix != 0) m.on_present = host_present;
-            oracle_boot(HS_ENTRY, HS_A4);
+            oracle_boot(rc_active->entry, rc_active->a4);
             m.on_cia = host_cia;
             rc_frame_hook = host_frame;
             rc_stopOnUnknown = 1;
@@ -2155,9 +2226,12 @@ int main(int argc, char **argv)
             g_loadOn = g_loadShown = 0;
             g_loadSeen = g_loadStart = 0;
             /* A played game shows the title again. A headless run (the --titlekey seam) has no
-             * keyboard, so ask the menu to end the moment it is up: key 99 is not a scene. */
-            host_title_key(g_window ? -1 : 99);
+             * keyboard, so ask the menu for its scripted choice: a boot the menu asked for starts
+             * that game at once (the menu's New Game was taken before this), and an Esc restart
+             * ends on the menu itself (99 is not a scene). */
             host_title_arm(1);
+            if (bootPlay) host_title_new_game();
+            else host_title_key(g_window ? -1 : 99);
         }
     }
 
@@ -2201,7 +2275,14 @@ int main(int argc, char **argv)
     if (m.audio.device != 0)
     {
         u32 dropped = plat_audio_dropped();
+        u32 stalls = plat_audio_stalls();
+        u32 reopens = plat_audio_reopens();
         if (dropped != 0) printf("recomp: audio dropped %lu frame(s)\n", (unsigned long)dropped);
+        if (stalls != 0)
+            printf("recomp: audio device restarted %lu time(s) after it stopped completing buffers\n",
+                   (unsigned long)stalls);
+        if (reopens != 0)
+            printf("recomp: audio device reopened %lu time(s)\n", (unsigned long)reopens);
     }
     if (shotPath != 0)
     {

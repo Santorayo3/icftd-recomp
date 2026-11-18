@@ -10,7 +10,9 @@ config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
 assets.c         the first start: the player's three floppy images -> the extracted tree (an
                  AmigaDOS OFS reader and the hunk flattening of the exporter, in C, because a
                  release cannot run the .NET tool); two layouts, the Windows `export\` and the DOS
-                 release's `DISK1..3` / `NAMES.TXT` / `DSHELL.IMG` 8.3 tree
+                 release's `DISK1..3` / `NAMES.TXT` / `DSHELL.IMG` 8.3 tree; and the 1990 add-on's
+                 optional `ant1..3` tree (or `ANT1..3` / `ANTSHEL.IMG`), whose disks carry the same
+                 volume labels as the game's and are told apart by their contents
 plat/win32/      one implementation of that contract (framebuffer, keyboard, waveOut, Win32 files,
                  plus border.c: the artwork the fullscreen paints in the bars beside the picture)
 plat/dos/        the other: VGA mode 13h, the VGA DAC, polled 8042 scancodes, the 8254 frame clock

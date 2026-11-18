@@ -20,6 +20,9 @@
 # tools\dos-extract-check.ps1 compares an extraction against, so the naming rules live in exactly
 # one place.
 #
+# The 1990 add-on "Antheads" is staged beside the game when the export tree holds all of it:
+# `ANT1..3` and `ANTSHEL.IMG`, with one `NAMES.TXT` covering both trees (docs\antheads.md §4.4).
+#
 #   powershell -ExecutionPolicy Bypass -File tools\dos-pack.ps1 [-Out <dir>] [-Data <dir>]
 param(
     [string]$Out = '',
@@ -72,6 +75,60 @@ function Write-Conf([string]$dir) {
     Set-Content -Path (Join-Path $dir 'ICFTD.CONF') -Value $conf -Encoding ascii
 }
 
+# The order the name map is written in: src\runtime\assets.c's name_less, where '-' and '.' carry
+# no weight and everything else compares by code point ("DISK-VALIDATOR" after "DISKFONT.LIBRARY",
+# and "HDINSTALL2" before "HD_INSTALL"). Sort-Object compares by culture instead, which places '_'
+# - and, on another machine's culture, other characters - differently; the file has to come out the
+# same bytes from both tools, so the rule is spelled out here rather than borrowed.
+function Compare-LongName([string]$a, [string]$b) {
+    $c = [string]::CompareOrdinal(($a -replace '[-.]', ''), ($b -replace '[-.]', ''))
+    if ($c -ne 0) { return $c }
+    return [string]::CompareOrdinal($a, $b)
+}
+
+function Sort-LongNames([string[]]$names) {
+    $order = @($names)
+    for ($i = 1; $i -lt $order.Count; $i++) {
+        $k = $order[$i]
+        $j = $i
+        while ($j -gt 0 -and (Compare-LongName $order[$j - 1] $k) -gt 0) { $order[$j] = $order[$j - 1]; $j-- }
+        $order[$j] = $k
+    }
+    return $order
+}
+
+# One extracted tree -> its 8.3 copy under $dst, appending every renamed long name to $map - one
+# map for the whole data folder, which is what the first start writes too.
+function Stage-Tree([string]$src, [string]$dst, $map) {
+    $srcDirs = @($src) + @(Get-ChildItem -LiteralPath $src -Recurse -Directory | ForEach-Object { $_.FullName })
+    foreach ($sd in $srcDirs) {
+        $rel = $sd.Substring($src.Length)
+        if ($rel.StartsWith('\')) { $rel = $rel.Substring(1) }
+        $td = if ($rel -eq '') { $dst } else { Join-Path $dst $rel }
+        if ((Split-Path -Leaf $td).Length -gt 8 -or (Split-Path -Leaf $td).Contains('.')) {
+            Write-Warning "directory name is not 8.3: $rel"
+        }
+        New-Item -ItemType Directory -Force -Path $td | Out-Null
+
+        $used = @{}
+        Get-ChildItem -LiteralPath $td -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object { $used[$_.Name.ToUpperInvariant()] = $true }
+
+        foreach ($file in @(Get-ChildItem -LiteralPath $sd -File)) {
+            $short = Get-ShortName $file.Name $used
+            $long = $file.Name.ToUpperInvariant()
+            if ($short -ne $long) {
+                if ($map.ContainsKey($long) -and $map[$long] -ne $short) {
+                    Write-Warning "name maps differently per directory: $($file.Name)"
+                } else {
+                    $map[$long] = $short
+                }
+            }
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $td $short)
+        }
+    }
+}
+
 if ($Data -ne '') {
     if ($Out -ne '') { throw '-Out stages the release, -Data stages the extracted tree - give one' }
     $img = Join-Path $root 'export\code\dshell4k\dshell.img'
@@ -85,39 +142,21 @@ if ($Data -ne '') {
     foreach ($d in 1..3) {
         $src = Join-Path $root "export\disk$d"
         if (-not (Test-Path $src)) { throw "missing $src - run tools\extract.ps1 first" }
-        $dst = Join-Path $Data "DISK$d"
+        Stage-Tree $src (Join-Path $Data "DISK$d") $map
+    }
 
-        $srcDirs = @($src) + @(Get-ChildItem -LiteralPath $src -Recurse -Directory | ForEach-Object { $_.FullName })
-        foreach ($sd in $srcDirs) {
-            $rel = $sd.Substring($src.Length)
-            if ($rel.StartsWith('\')) { $rel = $rel.Substring(1) }
-            $td = if ($rel -eq '') { $dst } else { Join-Path $dst $rel }
-            if ((Split-Path -Leaf $td).Length -gt 8 -or (Split-Path -Leaf $td).Contains('.')) {
-                Write-Warning "directory name is not 8.3: $rel"
-            }
-            New-Item -ItemType Directory -Force -Path $td | Out-Null
-
-            $used = @{}
-            Get-ChildItem -LiteralPath $td -Directory -ErrorAction SilentlyContinue |
-                ForEach-Object { $used[$_.Name.ToUpperInvariant()] = $true }
-
-            foreach ($file in @(Get-ChildItem -LiteralPath $sd -File)) {
-                $short = Get-ShortName $file.Name $used
-                $long = $file.Name.ToUpperInvariant()
-                if ($short -ne $long) {
-                    if ($map.ContainsKey($long) -and $map[$long] -ne $short) {
-                        Write-Warning "name maps differently per directory: $($file.Name)"
-                    } else {
-                        $map[$long] = $short
-                    }
-                }
-                Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $td $short)
-            }
-        }
+    # The add-on, when the export tree holds all of it - the same "never half-used" rule the first
+    # start applies, so a release staged from a partial export tree matches what a player with one
+    # add-on image gets.
+    $antImg = Join-Path $root 'export\ant\code\dshell4k\dshell.img'
+    $antSrc = @(1..3 | ForEach-Object { Join-Path $root "export\ant$_" })
+    if ((Test-Path $antImg) -and -not ($antSrc | Where-Object { -not (Test-Path $_) })) {
+        Copy-Item -LiteralPath $antImg -Destination (Join-Path $Data 'ANTSHEL.IMG')
+        foreach ($d in 1..3) { Stage-Tree (Join-Path $root "export\ant$d") (Join-Path $Data "ANT$d") $map }
     }
 
     $lines = @('; long name = DOS 8.3 name, for the files MS-DOS could not hold')
-    foreach ($k in ($map.Keys | Sort-Object)) { $lines += "$k=$($map[$k])" }
+    foreach ($k in (Sort-LongNames @($map.Keys))) { $lines += "$k=$($map[$k])" }
     Set-Content -Path (Join-Path $Data 'NAMES.TXT') -Value $lines -Encoding ascii
 
     $count = @(Get-ChildItem -LiteralPath $Data -Recurse -File).Count

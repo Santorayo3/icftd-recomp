@@ -21,14 +21,18 @@ namespace ICFTD.AmigaExport.Recomp;
 /// </summary>
 public sealed class Emitter
 {
-    // The vector table and the small-data base of the base-0 image (the one rcmp runs and the one
-    // re\disasm describes). Slot resolution needs A4's value, so a `jsr (d,A4)` whose displacement
-    // does not land inside the table is refused - that is also the check that A4 is still 0x29A56.
-    public const uint VectorTableBase = 0x0002_1A58;
+    // The vector table start of the 1989 build, in the base-0 layout (the one rcmp runs and the one
+    // re\disasm describes). It is also the end of the code hunk. A second build passes its own.
+    public const uint DefaultVectorTableBase = 0x0002_1A58;
     public const int VectorTableSlots = 160;
-    public const uint SmallDataBase = 0x0002_9A56;
 
-    const uint ExecBaseGlobal = 0x0002_D54A;      // A4+0x3AF4: where the cstart stores AbsExecBase
+    // The small-data base sits A4_OFFSET past the vector table in both builds (the cstart is a
+    // `lea (0x7ffe).l,A4` over a data hunk that begins with the vector table), so A4 follows from
+    // the table base. Slot resolution needs A4's value: a `jsr (d,A4)` whose displacement does not
+    // land inside the table is refused.
+    const uint A4Offset = 0x0000_7FFE;
+    const uint ExecBaseA4 = 0x0000_3AF4;          // A4+0x3AF4: where the cstart stores AbsExecBase
+
     const string TV = "t0", TC = "t1", TR = "t2", TA = "t3", TX = "t4";
 
     readonly Decoder _dec;
@@ -37,12 +41,25 @@ public sealed class Emitter
     /// <param name="relocSites">Image offsets whose longword the Amiga loader relocates (the
     /// hunk's reloc32 table). Only those operands are pointers: everything else - `pea (0x10000).l`
     /// attributes, `(0xbfe001).l` hardware registers - is a literal and must not move.</param>
-    public Emitter(byte[] image, IEnumerable<uint>? relocSites = null)
+    /// <param name="vectorTableBase">Where this build's `jsr (d16,A4)` table starts in the base-0
+    /// image, i.e. where its code hunk ends. The image and the model must come from the same
+    /// build.</param>
+    public Emitter(byte[] image, IEnumerable<uint>? relocSites = null,
+                   uint vectorTableBase = DefaultVectorTableBase)
     {
         Image = image;
+        VectorTableBase = vectorTableBase;
+        SmallDataBase = vectorTableBase + A4Offset;
+        ExecBaseGlobal = SmallDataBase + ExecBaseA4;
         _dec = new Decoder(image);
         if (relocSites != null) foreach (uint s in relocSites) _reloc.Add(s);
     }
+
+    /// <summary>The vector-table base of the image being translated (model address).</summary>
+    public uint VectorTableBase { get; }
+    /// <summary>This build's A4 at run time (model address).</summary>
+    public uint SmallDataBase { get; }
+    readonly uint ExecBaseGlobal;
 
     public byte[] Image { get; }
 
@@ -421,9 +438,9 @@ public sealed class Emitter
     }
 
     /// <summary>Resolves `jsr/jmp (d16,A4)` to a slot; -1 when the displacement is not a slot.</summary>
-    public static int SlotOf(int disp)
+    public int SlotOf(int disp)
     {
-        int off = disp + 0x7FFE;
+        int off = disp - (int)(VectorTableBase - SmallDataBase);
         if (off < 0 || off % 6 != 0) return -1;
         int slot = off / 6;
         return slot < VectorTableSlots ? slot : -1;

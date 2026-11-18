@@ -356,6 +356,21 @@ Static translation of `dshell`'s 750 functions (137,816 bytes) to C, in the N64R
   the generated C gets the same treatment. Whole-game check: the frame hashes of the translated
   run must equal those of the pure-interpreter run.
 
+**Two programs, one machine.** The 1990 add-on *It Came from the Desert II - Antheads* is a second
+build of the same engine, not a data pack: its own `dshell`, linked for the same load address, with
+its own function boundaries (766 translated functions of 770). It is translated to
+`src\recomp\ant\` - prefixed symbols (`ant_fn_<addr>`, `ant_functions`), its own object directory -
+and shipped in the same executable. One image is loaded at a time, and `rc_program`
+(`src\recomp\cpu.h`) is what the dispatcher follows: the function table, the image size, A4, the
+entry, and the name and size of the save file that build's own save routine writes. Every generated
+table carries its build's descriptor (`rc_engine`, `ant_engine`); a front end picks one at boot
+(`rc_active`) and `rc_lookup`/`rc_containing` search its table. Because both builds link at
+`0x4000`, nothing else in the translated layer differs; the hand-written seams that *do* differ
+(engine addresses in `src\host`) are one table with a row per program. The data does differ: the
+first start extracts both sets side by side (`disk1..3` and `ant1..3`, `src\runtime\assets.c`) and
+the dos.library shim reads the tree of the program that is booted (`rt_machine::tree`). The
+measurements, the seam map and the plan are in [`antheads.md`](antheads.md).
+
 ### C - it is a port
 
 Front end, scaling, widescreen, then the mod seams above. The played game opens on a port-made

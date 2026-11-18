@@ -466,7 +466,7 @@ when the screen it waited for is up. A DOS measurement run (no `--mouse`) logs n
 
 ## The title's Load Game slot list
 
-The title menu's Load Game does not load the active slot: it replaces the four buttons with ten
+The title menu's Load Game does not load the active slot: it replaces the buttons with ten
 "Slot N" lines and a Back button, so the slot is picked with the pointer. It is drawn by
 `title_slots_draw` (`src\host\title_button.c`) in the buttons' column (x 230, ten 8 px rows from
 y 80, Back at y 164 on the shipped button art); the label font is the game's own, and the view is
@@ -475,7 +475,7 @@ plain host framebuffer work, so it writes no machine state. An empty slot is pen
 `#00FF00`; the menu's button pens moved to 252..255. Empty slots are inert in both hover and click.
 A click on an occupied slot sets `m->saveSlot` and takes the title's existing `TITLE_PICK_LOAD` path
 - the intro skip, the answered load screen and `FUN_0001029e`'s own `DSAVE:ICFTD` read; Back returns
-to the four buttons. `MAX_SAVE_SLOTS` is 10 in both front ends (F1..F4 still pick 1..4, F5 cycles
+to the buttons. `MAX_SAVE_SLOTS` is 10 in both front ends (F1..F4 still pick 1..4, F5 cycles
 all ten, `--slot` accepts 1..10).
 
 Measured in the window with posted mouse messages (fullscreen 2048x1152, so client points map back
@@ -487,7 +487,7 @@ scripted title check is unaffected.
 
 ## The title's settings menu
 
-Settings is not a placeholder any more: a click replaces the four buttons with the settings view, and
+Settings is not a placeholder any more: a click replaces the buttons with the settings view, and
 Back puts them back. Three options, one row each — the label in the game's own disk font, the control
 under it (the column is 73 px wide and "Music Vol." plus "[-] 10 [+]" needs 102, so the row's label
 is on its own line while minus/value/plus stay on one):
@@ -588,6 +588,71 @@ loop run as fast as the host can. A run without `--titlekey` logs none of it. Wh
 the game a window, the check samples the client area while the notice is up: **98.8 % black, 746
 white text pixels, their bounding box centred at 159,99 of the 320x200 picture, all four corners
 black** - the title art is gone and the text is where the feature says it is.
+
+## The title's fifth button: playing Antheads
+
+A player whose data folder also holds the add-on "It Came from the Desert II - Antheads" gets one
+more entry on the title menu, between New Game and Load Game: **Play Antheads**. The two entries are
+two games, not a mode switch - New Game plays the 1989 game, Play Antheads plays the add-on - and
+both start playing at once. The menu itself is the port's and is one menu: it is always drawn on the
+1989 program's hold point (0x9870), and Escape from either game boots that program again and returns
+to it, so the player always finds both games on the same screen. The add-on is a second translated
+table linked at the same address (`src\recomp\ant\ant_table.c`), so "Play Antheads" is a boot of the
+machine with that image (`docs\antheads.md`, Phases 3 and 6).
+
+The two layouts (`title_button.c`) are chosen from `host_title_addon()`:
+
+| | rows (y) |
+|---|---|
+| without the add-on | New Game 85, Load Game 106, Settings 127, Quit Game 164 - unchanged |
+| with it | New Game 84, **Play Antheads** 103, Load Game 122, Settings 141, Quit Game 164 |
+
+Quit Game keeps its place at the bottom of the panel either way; the four others move down to make
+the 19-row gap. "Play Antheads" is 71 px in the game's own font, inside the 73-px button. A game
+that is already running the add-on gets the four buttons: its New Game plays it, so the menu never
+lists a game the player is in (and the first draft's "Play Original Game" label, which would have
+needed 90 px, does not exist).
+
+Where it attaches:
+
+* **The action.** `TITLE_ACTION_ANTHEADS` is a pick the title takes like Quit Game's: `m->stop` and
+  `rc_stopAt` end the run (the same double stop `host_title_escape` uses) and `g_switchTo` names
+  the program. The front end's restart block - the one Esc already uses - reads it through
+  `host_title_restart_program()`, sets `g_program`, `rc_active`, the image path, the save geometry
+  and the disk tree (`ant1..3`), boots a machine made from scratch, and then calls
+  `host_title_new_game()` on it.
+* **A game start, never a screen.** `host_title_new_game()` does not park the new machine at the
+  add-on's intro setup and draws no menu: the add-on's own intro runs from its first frame (frame
+  17: `voice2`, `met`, `exp`) and the port answers only the engine's YES/NO load screen at the end
+  of it - "nothing to load", the decision the button already made - so the player goes from the menu
+  into the intro exactly as New Game goes into the 1989 one. The whole log holds **one** menu line.
+  This is not only simpler, it is required: parked at the add-on's hold point and started from
+  there, the port's injected calls change a stack word that the add-on's 8SVX chunk finder
+  (`FUN_0000aeac`) reads *before* writing it, the "VHDR" search is skipped and `ldiv(0x369E99, 0)`
+  traps (model 0x232BA). A natural boot has a non-zero word there - see the trap in
+  `docs\antheads.md` §8 - so the add-on's intro must run untouched.
+* **The gate.** `host_title_addon()` is the front end's answer, not a global: `main.c` asks
+  `rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)` - the add-on's own tree, which
+  `src\runtime\assets.c` extracts only when all three of its disks are present - and `dos_main.c`
+  answers 0 until that front end boots the add-on too. No add-on, no button, and the menu is the
+  one it has always been.
+* **Shared save slots.** The slots belong to the port, not to a build: both games save into
+  `saves\slotN\` (`ICFTD` and `ICFTD2`), which is what Phase 7's `(A)` marker is for and why a slot
+  will boot the program that owns its file.
+
+Measured with `tools\title-check.ps1` (gate step 6). Log: the two layouts rectangle by rectangle,
+`5 button(s); New Game 230,84 ...; Play Antheads 230,103 ...; Quit Game 230,164` with the add-on, the
+shipped four without it, and the four again on the add-on's own dev menu. Hit box: a `--mouse` click
+at 266,110 boots the add-on (`title: playing Antheads (frame 40)` then `recomp: restarting as
+Antheads`), and the identical click without it opens Load Game - the rectangle is where Load Game is
+in that layout, so a picture that moved without its hit box (or the reverse) cannot pass. Machine
+state: the booted run is on `A4=0002FAF6` with the add-on's own `voice2`/`met`/`exp` from `ant1`,
+does *not* stop on the add-on's hold point, and answers the load screen at frame 2140; Escape from
+an add-on game logs `restarting as It Came from the Desert` and ends on the 1989 hold point 0xD870
+with the five-button menu up. Pixels, where a desktop gives the game a window: each button's top
+edge is its art's 73-px black outline, found at 84/103/122/141/164 with the add-on and
+85/106/127/164 without it, with no such run in the rows where the other layout has a button - the
+four-button menu is drawn exactly where it was.
 
 ## The situation map's SAVE GAME mark
 
@@ -804,7 +869,8 @@ before `plat_init`, which creates the window at that client size. They are clamp
 work area, so a size saved on a bigger monitor cannot open a window nobody can reach. A size the
 file does not have is the picture at 1:1, 320x200.
 
-`tools\window-check.ps1` is the feature's own check, in the gate (step 22), and it measures the
+`tools\window-check.ps1` is the feature's own check - run by hand, not by the gate, because it needs
+a desktop and drives the real pointer (Alt+Tab, corner drags, the close box) - and it measures the
 window rather than a picture: (1) a 320x200 client becomes 960x400 when the frame is asked to, (2)
 at 960x400 the picture is 640x400 in the middle - the run's own 1:1 frame, doubled, no interpolation
 and no dropped column - and every pixel outside it is `assets\border.png` point-sampled over the
@@ -833,6 +899,49 @@ answer, and parks the run's `--mouse` script on one picture position so the arro
 under it is in the same place in every capture. It SKIPs where no desktop gives the game a window,
 like `tools\settings-check.ps1`. `tools\quit-check.ps1` drops a saved window size before its own
 320x200 run, so the checks cannot hand each other a window shape.
+
+## The sound device (playback, and never a one-way door)
+
+The mixer hands the platform 512 frames at a time (`src\runtime\amiga\audio.c`, `aud_flush`) and the
+platform's only job is to get them to the endpoint. There is no original counterpart to diff, so the
+rule is its own: **a stalled device may cost the audio that was in flight, never the rest of the
+run.** The DOS back end already kept that rule (`sb_service` notices a halted Sound Blaster transfer
+and re-issues it); the Win32 one did not, and that is exactly the shape of the bug a player reported
+in the hospital escape - the music played, cut out, played for a fraction of a second and was gone
+for good, with the game and the picture running on.
+
+The divergence was in `plat_audio_write`: with the eight-chunk queue full it returned after dropping
+the new chunk, so nothing was ever *handed to the device* again. A device that stopped for ~90 ms -
+an endpoint reset, another program taking it, a driver hiccup - filled the queue, and the ~93 ms
+already in the device played out while every later chunk was thrown away: that is the "music, then a
+fraction of a second, then silence" the player saw. Fixing it takes three pieces, all in
+`src\runtime\plat\win32\plat_win32.c`:
+
+* **The queue drains on every write** (`audio_drain`), whether or not the new chunk fitted. A full
+  queue is back-pressure, not a state to stay in.
+* **A watchdog** counts buffers that are outstanding with no completion for 300 ms; that is a device
+  that stopped, and `waveOutReset` hands the buffers back so the queue can start it again. The
+  chunks that were waiting are dropped rather than played as a burst from the wrong moment. A
+  `waveOutReset` that fails, or 16 failed writes in a row, means the handle itself is gone and it is
+  reopened (at most once a second, on whatever `WAVE_MAPPER` names now).
+* **`audio-log.txt`**, next to the executable, appended by the first thing worth recording: a device
+  fault (with the machine's own notes in front of it - the frame the score player was freed on) and
+  the first queue-full drop of a session. A session with nothing to report leaves no file, and a
+  measurement run, which opens no device, writes nothing at all. It is bounded, because it is a
+  diagnostic a player sends us and not a transcript: the machine's notes are a ring of the last 16
+  events, a session writes at most 200 lines (~18 KB) however badly the device behaves, and a file
+  that has grown to 64 KB is replaced rather than appended to. In a normal session it is a handful
+  of lines; its cost while playing is one 32-bit read of the score pointer per frame and one ~80-byte
+  write per scene change.
+
+`--audiostall <n>` is the check's seam: the *n*-th submission is taken and never played and nothing
+is handed over after it, i.e. the shape of a device that hung, so the watchdog has to recover it.
+The measurement is the report at the end of a windowed run: with `--audiostall 20` the log holds
+`device stopped completing buffers (1 outstanding, no completion for 312 ms) - reset`, the summary
+holds `audio device restarted 1 time(s)` and `audio dropped 16896 frame(s)` (the 312 ms that was in
+flight and nothing after it), while a plain windowed run of the same length reports no dropped
+frames at all. Before the fix the same seam run dropped 425 984 frames over 12 s - every chunk after
+the stall, for the rest of the session.
 
 ## The four directions, one per pair of keys
 
@@ -886,7 +995,11 @@ startup, before the machine boots, and asks one question: is there an extracted 
 * **Which images** are the right ones is decided by the volume labels — `Desert1`, `Desert2`,
   `Desert3`, the names the runtime's `dos.library` shim already maps to `disk1..3`. A set that does
   not cover all three is not a data set the engine could run, so it is refused *before* anything is
-  written. The formats are the exporter's, ported to C because a release cannot run .NET:
+  written. The 1990 add-on labels its disks the same way, so the label only names the disk; whose
+  disk it is, is decided by one measured file per disk (the program's own size on disk 1, a data
+  bank's on disks 2 and 3). Its three disks are extracted beside the game's (`ant1..3`) when all
+  three are there and ignored otherwise — the add-on is optional, and never half-used. The formats
+  are the exporter's, ported to C because a release cannot run .NET:
   `src\assetExport\Adf.cs` (the raw image), `AmigaFs.cs` (AmigaDOS OFS directory and data chains)
   and `Hunk.cs` (the game program's load image).
 * **What is checked in an image is structure, never identity**: a size that is a multiple of 512
@@ -916,16 +1029,23 @@ startup, before the machine boots, and asks one question: is there an extracted 
 622 relocations, 3 hunks, base 0x4000) — an empty `disks\` produces the message and exit 1, and a
 headless run from the extracted release folder is **frame-record identical** to the development
 tree's (`--state` dumps, 84 records). The extraction is a pure function of the images, so identity
-of the tree is identity of everything downstream.
+of the tree is identity of everything downstream. With the add-on's disks in the folder the same
+holds for its tree (82 files, the 196 712-byte `ant\code\dshell4k\dshell.img`): one add-on image
+alone changes no byte of the game's tree, and a folder that gets the add-on's disks later adds
+`ant1..3`, `ant\code\dshell4k\dshell.img` and the add-on's name-map entries without touching the
+game's. A run of `--program ant` from the extracted tree is instruction- and register-identical to
+the oracle's (`docs\antheads.md` §4).
 
 The DOS front end calls the same `rt_assets_ensure`, with a second layout (`RT_ASSETS_DOS`): the
 release tree there is `DISK1..3\` under 8.3 names, `NAMES.TXT` recording long=short (which is what
-`plat_dos.c`'s failed-open retry reads) and `DSHELL.IMG` in the data folder, image last. The DOS
+`plat_dos.c`'s failed-open retry reads) and `DSHELL.IMG` in the data folder, image last; the
+add-on's are `ANT1..3\` and `ANTSHEL.IMG`, sharing that one `NAMES.TXT`. The DOS
 release itself is `ICFTD.EXE` plus an empty `DISKS\` (and `SAVES\`, `ICFTD.CONF`), so no game data
 is distributed there either. The naming is `tools\dos-pack.ps1 -Data`'s, character for character, so
 an extracted tree and a staged one are the same bytes — `tools\dos-extract-check.ps1` asserts
-exactly that in DOSBox, including a first start that extracts and then boots the same machine as the
-staged reference tree.
+exactly that in DOSBox for both trees (163 files, both images, one name map), including a first
+start that extracts and then boots the same machine as the staged reference tree, the add-on's
+disks arriving on a later start, and one add-on image changing nothing.
 
 ## The dev loop
 

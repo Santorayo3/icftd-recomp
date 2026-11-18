@@ -148,6 +148,78 @@ static int disk_volume(const disk_image *d)
     return d->label[6] - '0';
 }
 
+/* --- which build a disk belongs to ------------------------------------------------------------
+ * The 1989 game and the 1990 add-on "Antheads" label their disks Desert1..3 alike, so the label
+ * names the disk and says nothing else. Only the content says whose disk it is, and the add-on is
+ * recognised positively - every other disk with a game label stays the 1989 release, the set the
+ * game cannot start without, exactly as it always was. One measured marker per disk
+ * (docs\antheads.md §1): the program's own size on disk 1, and a data bank whose size is the
+ * build's on the two data disks. */
+enum { DISK_BUILD_ORIGINAL = 1, DISK_BUILD_ADDON = 2 };
+
+static const struct {
+    const char *name;                        /* the file that tells the two builds apart */
+    u32         addon;                       /* its size in the add-on; the 1989 sizes are
+                                              * 160 332 / 388 436 / 60 349 */
+} g_diskMark[RT_ASSETS_DISK_COUNT] = {
+    { "dshell", 170972u },
+    { "BACKS",  400681u },
+    { "HOSP",    71752u }
+};
+
+static int name_equal(const char *a, const char *b)
+{
+    for (; *a != 0 && *b != 0; a++, b++) {
+        char ca = *a, cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+        if (ca != cb) return 0;
+    }
+    return *a == *b;
+}
+
+/* The byte size of a file in the disk's root directory; 1 when it is there. The hash table is the
+ * one extract_dir walks - 72 buckets unless the root says how many - and the names compare without
+ * case, because the two builds do not even agree on the spelling (`desert.dat` / `Desert2.dat`). */
+static int root_file_size(const disk_image *d, const char *want, u32 *size)
+{
+    u8 dir[ADF_BLOCK];
+    u32 htSize, i;
+
+    if (!disk_block(d, ADF_ROOT_BLOCK, dir) || be32(dir) != 2) return 0;
+    htSize = be32(dir + 12);
+    if (htSize == 0 || htSize > 200) htSize = 72;
+    for (i = 0; i < htSize; i++) {
+        u32 b = be32(dir + 24 + i * 4);
+        int guard = 0;
+        while (b > 0 && b < d->blocks && guard++ < 200) {
+            u8 hdr[ADF_BLOCK];
+            char name[ADF_NAME_CHARS + 1];
+            if (!disk_block(d, b, hdr) || be32(hdr) != 2) break;
+            disk_name(hdr, name, (int)sizeof name);
+            if (name[0] == 0) break;
+            b = be32(hdr + 0x1F0);
+            if (be32(hdr + 16) == 0) continue;          /* a folder, not a file */
+            if (name_equal(name, want)) {
+                if (size != 0) *size = be32(hdr + 0x144);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* The build the disk is from: the volume label has already said which disk it is, this says whose.
+ * 0 for a disk that is neither - it carries no marker, so nothing of it is extracted. */
+static int disk_build(const disk_image *d, int vol)
+{
+    u32 size;
+
+    if (vol < 1 || vol > RT_ASSETS_DISK_COUNT) return 0;
+    if (!root_file_size(d, g_diskMark[vol - 1].name, &size)) return 0;
+    return size == g_diskMark[vol - 1].addon ? DISK_BUILD_ADDON : DISK_BUILD_ORIGINAL;
+}
+
 /* Creates every level of path; plat_mkdir makes one. */
 static int make_dirs(const char *path)
 {
@@ -709,20 +781,15 @@ fail:
     return 0;
 }
 
-/* The game program - `dshell`, the only hunk executable on the disks - flattened to the image the
- * runtime boots. Written last: its presence is what makes a tree complete. The DOS release keeps it
- * in the data folder itself (the front end boots `<dataDir>\DSHELL.IMG`), the Windows export under
- * `code\dshell4k\`. */
-static int flatten_game(const char *dataDir, int layout)
+/* The program - `dshell`, the only hunk executable on the disks - flattened to the image the
+ * runtime boots. Written last: its presence is what makes a tree complete. */
+static int flatten_program(const char *in, const char *out, const char *dir)
 {
-    char in[ADF_PATH_CHARS];
-    char out[ADF_PATH_CHARS];
     plat_file *f;
     u32 size, imageSize;
     u8 *src, *img;
     int ok;
 
-    sprintf(in, layout == RT_ASSETS_DOS ? "%s\\DISK1\\DSHELL" : "%s\\disk1\\dshell", dataDir);
     f = plat_open(in);
     if (f == 0) return 0;
     size = plat_size(f);
@@ -741,13 +808,7 @@ static int flatten_game(const char *dataDir, int layout)
     }
     plat_free(src);
 
-    if (layout == RT_ASSETS_DOS) {
-        sprintf(out, "%s\\DSHELL.IMG", dataDir);
-    } else {
-        sprintf(out, "%s\\code\\dshell4k", dataDir);
-        if (!make_dirs(out)) { plat_free(img); return 0; }
-        sprintf(out, "%s\\code\\dshell4k\\dshell.img", dataDir);
-    }
+    if (dir[0] != 0 && !make_dirs(dir)) { plat_free(img); return 0; }
     ok = write_file(out, img, imageSize);
     plat_free(img);
     if (ok) printf("assets: %s (%lu bytes, base 0x%lx)\n", out, (unsigned long)imageSize,
@@ -755,26 +816,55 @@ static int flatten_game(const char *dataDir, int layout)
     return ok;
 }
 
-/* --- the two entry points ------------------------------------------------------------------ */
+/* --- the two builds' trees ------------------------------------------------------------------- */
 
-u32 rt_assets_ready(const char *dataDir, int layout)
+/* The folder a build's three disks are extracted into - `disk1..3` for the 1989 game, `ant1..3`
+ * for the add-on, side by side in one data folder (DOS: `DISK1..3`, `ANT1..3`). */
+static const char *tree_prefix(int layout, int build)
+{
+    if (layout == RT_ASSETS_DOS) return build == DISK_BUILD_ADDON ? "ANT" : "DISK";
+    return build == DISK_BUILD_ADDON ? "ant" : "disk";
+}
+
+/* Where a build's `dshell` sits once extracted (`in`), the image the runtime boots (`out`) and the
+ * image's folder when it has to be created (`dir`, empty when it is the data folder itself). The
+ * DOS release keeps the image beside the name map (`DSHELL.IMG`, `ANTSHEL.IMG`), the Windows
+ * export under the build's own `code\dshell4k\` beside its disk folders. */
+static void program_paths(char *in, char *out, char *dir, const char *dataDir, int layout,
+                          int build)
+{
+    if (layout == RT_ASSETS_DOS) {
+        sprintf(in, "%s\\%s1\\DSHELL", dataDir, tree_prefix(layout, build));
+        sprintf(out, "%s\\%s", dataDir, build == DISK_BUILD_ADDON ? "ANTSHEL.IMG" : "DSHELL.IMG");
+        dir[0] = 0;
+    } else {
+        const char *parent = build == DISK_BUILD_ADDON ? "ant\\code\\dshell4k" : "code\\dshell4k";
+        sprintf(in, "%s\\%s1\\dshell", dataDir, tree_prefix(layout, build));
+        sprintf(dir, "%s\\%s", dataDir, parent);
+        sprintf(out, "%s\\%s\\dshell.img", dataDir, parent);
+    }
+}
+
+/* 1 when dataDir holds one build's complete tree: the three disk folders, the name map (DOS), and
+ * the program image that completes it - written last, so an interrupted extraction is retried
+ * rather than half-used. */
+static u32 tree_ready(const char *dataDir, int layout, int build)
 {
     char path[ADF_PATH_CHARS];
+    char in[ADF_PATH_CHARS], out[ADF_PATH_CHARS], dir[ADF_PATH_CHARS];
     int i;
 
     if (dataDir == 0 || *dataDir == 0) return 0;
     for (i = 1; i <= RT_ASSETS_DISK_COUNT; i++) {
-        sprintf(path, layout == RT_ASSETS_DOS ? "%s\\DISK%d" : "%s\\disk%d", dataDir, i);
+        sprintf(path, "%s\\%s%d", dataDir, tree_prefix(layout, build), i);
         if (plat_path_kind(path) != PLAT_PATH_DIR) return 0;
     }
     if (layout == RT_ASSETS_DOS) {
         sprintf(path, "%s\\NAMES.TXT", dataDir);
         if (plat_path_kind(path) != PLAT_PATH_FILE) return 0;
-        sprintf(path, "%s\\DSHELL.IMG", dataDir);
-        return plat_path_kind(path) == PLAT_PATH_FILE;
     }
-    sprintf(path, "%s\\code\\dshell4k\\dshell.img", dataDir);
-    return plat_path_kind(path) == PLAT_PATH_FILE;
+    program_paths(in, out, dir, dataDir, layout, build);
+    return plat_path_kind(out) == PLAT_PATH_FILE;
 }
 
 static int asset_fail(int code, char *msg, u32 max, const char *text)
@@ -786,25 +876,106 @@ static int asset_fail(int code, char *msg, u32 max, const char *text)
     return code;
 }
 
+/* Extracts one build's three disks into its own folders. Returns the number of files written, or
+ * RT_ASSETS_FAILED with `msg` set. */
+static int extract_set(const char *dataDir, int layout, int build,
+                       disk_image *const byVol[RT_ASSETS_DISK_COUNT + 1], char *msg, u32 max)
+{
+    char path[ADF_PATH_CHARS];
+    static char text[ADF_PATH_CHARS * 2];
+    int vol, files = 0;
+
+    for (vol = 1; vol <= RT_ASSETS_DISK_COUNT; vol++) {
+        sprintf(path, "%s\\%s%d", dataDir, tree_prefix(layout, build), vol);
+        if (!make_dirs(path)) {
+            sprintf(text, "Cannot create '%s'. The game needs a writable folder next to the "
+                          "executable to extract its data into.", path);
+            return asset_fail(RT_ASSETS_FAILED, msg, max, text);
+        }
+        if (!extract_dir(byVol[vol], ADF_ROOT_BLOCK, path, 0, layout, &files)) {
+            if (g_nameError[0] == 0)
+                sprintf(text, "Cannot extract '%s'. The game needs a writable folder next to the "
+                              "executable to extract its data into.", byVol[vol]->path);
+            return asset_fail(RT_ASSETS_FAILED, msg, max,
+                              g_nameError[0] != 0 ? g_nameError : text);
+        }
+    }
+    return files;
+}
+
+/* --- the two entry points ------------------------------------------------------------------ */
+
+u32 rt_assets_ready(const char *dataDir, int layout)
+{
+    return tree_ready(dataDir, layout, DISK_BUILD_ORIGINAL);
+}
+
+u32 rt_assets_addon_ready(const char *dataDir, int layout)
+{
+    return tree_ready(dataDir, layout, DISK_BUILD_ADDON);
+}
+
+/* The name map already in dataDir, read back: one map serves both trees (DOS), and the add-on's
+ * disks can arrive on a later start than the game's, so what is recorded has to survive a second
+ * extraction. The format is write_names'. */
+static void read_names(const char *dataDir)
+{
+    char path[ADF_PATH_CHARS];
+    char from[ADF_NAME_CHARS + 1], to[DOS_NAME_MAX + 1];
+    plat_file *f;
+    u8 *buf;
+    u32 size, i;
+    int n = 0, field = 0, skip = 0;
+
+    sprintf(path, "%s\\NAMES.TXT", dataDir);
+    f = plat_open(path);
+    if (f == 0) return;
+    size = plat_size(f);
+    if (size == 0 || size > 4096) { plat_close(f); return; }   /* a name map is a few hundred bytes */
+    buf = (u8 *)plat_alloc(size);
+    if (buf == 0) { plat_close(f); return; }
+    if (plat_read(f, 0, buf, size) != size) { plat_free(buf); plat_close(f); return; }
+    plat_close(f);
+
+    for (i = 0; i <= size; i++) {
+        char c = i < size ? (char)buf[i] : '\n';          /* the last line ends like the others */
+        if (c != '\r' && c != '\n') {
+            if (!skip && n < ADF_NAME_CHARS && field < 2) {
+                if (c == '=' && field == 0) { from[n] = 0; field = 1; n = 0; }
+                else if (field == 0 && n == 0 && c == ';') skip = 1;
+                else if (field == 0) from[n++] = c;
+                else if (n < DOS_NAME_MAX) to[n++] = c;
+            }
+            continue;
+        }
+        if (!skip && field == 1) { to[n] = 0; record_name(from, to); }
+        skip = 0;
+        field = 0;
+        n = 0;
+    }
+    plat_free(buf);
+}
+
 int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char *msg, u32 max)
 {
     static disk_list list;                  /* ~3 KB: not something a DOS stack wants */
     disk_image *order[ADF_MAX_DISKS];
-    disk_image *byVol[RT_ASSETS_DISK_COUNT + 1];
-    char path[ADF_PATH_CHARS];
+    disk_image *bySet[DISK_BUILD_ADDON + 1][RT_ASSETS_DISK_COUNT + 1];
+    char in[ADF_PATH_CHARS], out[ADF_PATH_CHARS], dir[ADF_PATH_CHARS];
     static char text[ADF_PATH_CHARS * 2];
-    int i, vol, files = 0, code;
+    int i, b, vol, files, code;
+    int needOriginal, needAddon, haveAddon, wrote, gotAddon = 0;
 
     if (msg != 0 && max > 0) msg[0] = 0;
     if (dataDir == 0 || *dataDir == 0)
         return asset_fail(RT_ASSETS_FAILED, msg, max, "No game data folder was given.");
-    if (rt_assets_ready(dataDir, layout)) return RT_ASSETS_OK;
+    needOriginal = !tree_ready(dataDir, layout, DISK_BUILD_ORIGINAL);
+    needAddon = !tree_ready(dataDir, layout, DISK_BUILD_ADDON);
+    if (!needOriginal && !needAddon) return RT_ASSETS_OK;
     g_nameCount = 0;
     g_nameError[0] = 0;
+    if (layout == RT_ASSETS_DOS) read_names(dataDir);   /* one map for both trees, kept across starts */
 
-    /* Only the three original disks make a complete data set: the volume label says which disk a
-     * file belongs to (Desert1..3 is what the runtime's dos.library shim maps to disk1..3), and a
-     * set that does not cover all three would leave files the engine asks for and does not find. */
     if (diskDir != 0 && *diskDir != 0) plat_mkdir(diskDir);   /* the folder the message names */
     memset(&list, 0, sizeof list);
     list.dir = diskDir != 0 ? diskDir : "";
@@ -821,48 +992,73 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
             k--;
         }
     }
-    for (i = 0; i <= RT_ASSETS_DISK_COUNT; i++) byVol[i] = 0;
+    for (b = 0; b <= DISK_BUILD_ADDON; b++)
+        for (i = 0; i <= RT_ASSETS_DISK_COUNT; i++) bySet[b][i] = 0;
     for (i = 0; i < list.count; i++) {
         vol = disk_volume(order[i]);
-        if (vol != 0 && byVol[vol] == 0) byVol[vol] = order[i];
+        if (vol == 0) continue;
+        b = disk_build(order[i], vol);
+        if (b != 0 && bySet[b][vol] == 0) bySet[b][vol] = order[i];
     }
-    if (byVol[1] == 0 || byVol[2] == 0 || byVol[3] == 0) {
+
+    /* Only the three original disks make the data set the game cannot start without: a set that
+     * does not cover all three would leave files the engine asks for and does not find. */
+    if (needOriginal && (bySet[DISK_BUILD_ORIGINAL][1] == 0 ||
+                         bySet[DISK_BUILD_ORIGINAL][2] == 0 ||
+                         bySet[DISK_BUILD_ORIGINAL][3] == 0)) {
         code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
         goto done;
     }
+    /* The add-on is optional and never half-used: it is extracted only when all three of its disks
+     * are there, so one stray add-on image changes nothing at all (docs\antheads.md §4.3). */
+    haveAddon = bySet[DISK_BUILD_ADDON][1] != 0 && bySet[DISK_BUILD_ADDON][2] != 0 &&
+                bySet[DISK_BUILD_ADDON][3] != 0;
+    wrote = 0;
 
-    printf("assets: extracting the game data from %s\\ into %s\\\n", diskDir, dataDir);
-    for (vol = 1; vol <= RT_ASSETS_DISK_COUNT; vol++) {
-        sprintf(path, layout == RT_ASSETS_DOS ? "%s\\DISK%d" : "%s\\disk%d", dataDir, vol);
-        if (!make_dirs(path)) {
-            sprintf(text, "Cannot create '%s'. The game needs a writable folder next to the "
-                          "executable to extract its data into.", path);
-            code = asset_fail(RT_ASSETS_FAILED, msg, max, text);
-            goto done;
-        }
-        if (!extract_dir(byVol[vol], ADF_ROOT_BLOCK, path, 0, layout, &files)) {
-            if (g_nameError[0] == 0)
-                sprintf(text, "Cannot extract '%s'. The game needs a writable folder next to the "
-                              "executable to extract its data into.", byVol[vol]->path);
-            code = asset_fail(RT_ASSETS_FAILED, msg, max,
-                              g_nameError[0] != 0 ? g_nameError : text);
-            goto done;
+    if (needOriginal) {
+        printf("assets: extracting the game data from %s\\ into %s\\\n", diskDir, dataDir);
+        files = extract_set(dataDir, layout, DISK_BUILD_ORIGINAL, bySet[DISK_BUILD_ORIGINAL],
+                            msg, max);
+        if (files < 0) { code = files; goto done; }
+        printf("assets: %d file(s) from 3 disk image(s)\n", files);
+        wrote = 1;
+    }
+    if (needAddon && haveAddon) {
+        printf("assets: extracting the add-on data from %s\\ into %s\\\n", diskDir, dataDir);
+        files = extract_set(dataDir, layout, DISK_BUILD_ADDON, bySet[DISK_BUILD_ADDON], msg, max);
+        if (files < 0) {
+            /* Optional: the game is complete without it, so a failure is reported and dropped -
+             * the add-on's image is its completion marker, so a half-written tree is not used. */
+            printf("assets: %s (the add-on is ignored)\n",
+                   msg != 0 && msg[0] != 0 ? msg : "the add-on data could not be written");
+            if (msg != 0) msg[0] = 0;
+            needAddon = 0;
+        } else {
+            printf("assets: %d file(s) from the add-on's 3 disk image(s)\n", files);
+            wrote = 1;
+            gotAddon = 1;
         }
     }
-    /* The DOS release's name map goes in before the image: the image is the completion marker, so
+    /* The DOS release's name map goes in before the images: an image is the completion marker, so
      * an interrupted extraction is retried rather than half-used. */
-    if (layout == RT_ASSETS_DOS && !write_names(dataDir)) {
+    if (wrote && layout == RT_ASSETS_DOS && !write_names(dataDir)) {
         sprintf(text, "Cannot write '%s\\NAMES.TXT'. The game needs a writable folder next to the "
                       "executable to extract its data into.", dataDir);
         code = asset_fail(RT_ASSETS_FAILED, msg, max, text);
         goto done;
     }
-    if (!flatten_game(dataDir, layout)) {
-        code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
-        goto done;
+    if (needOriginal) {
+        program_paths(in, out, dir, dataDir, layout, DISK_BUILD_ORIGINAL);
+        if (!flatten_program(in, out, dir)) {
+            code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+            goto done;
+        }
     }
-
-    printf("assets: %d file(s) from 3 disk image(s)\n", files);
+    if (gotAddon) {
+        program_paths(in, out, dir, dataDir, layout, DISK_BUILD_ADDON);
+        if (!flatten_program(in, out, dir))
+            printf("assets: %s could not be flattened (the add-on is ignored)\n", out);
+    }
     code = RT_ASSETS_OK;
 
 done:

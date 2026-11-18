@@ -31,7 +31,9 @@
 #define EMU_MAX_FILES 16
 
 /* What FUN_0001042a writes: 0x78 bytes at 0x021E18 and 0x3024 at 0x02686C. A shorter write on the
- * save volume is the engine's own "no save yet" placeholder, not a save. */
+ * save volume is the engine's own "no save yet" placeholder, not a save. The 1990 add-on writes its
+ * own file (ICFTD2, 13 014 bytes); the size a machine accepts comes from the program it runs
+ * (rt_machine::saveBytes, filled from rc_active->saveBytes). */
 #define EMU_SAVE_BYTES (0x78u + 0x3024u)
 
 /* The chunky framebuffer the graphics.library shim presents into (emu\gfx.c). The planar model
@@ -207,6 +209,10 @@ typedef struct rt_machine
     u32     ring[EMU_RING_SIZE];          /* last executed PCs, for --watch and call dumps */
     int     ringPos;
     const char *dataDir;                  /* where the extracted disk folders live */
+    /* Which of the two trees in dataDir this program's files come from: "disk" for the 1989 game,
+     * "ant" for the add-on, whose disks are extracted beside the game's (docs\antheads.md §4.2).
+     * rt_init sets "disk"; a front end running the add-on sets "ant" from the program it boots. */
+    const char *tree;                     /* "disk" or "ant": <dataDir>\<tree><N>\<file> */
     rt_file files[EMU_MAX_FILES];        /* dos.library handles */
     rt_lock locks[EMU_MAX_LOCKS];        /* dos.library locks (Lock/CurrentDir/UnLock) */
     char    cwd[160];                     /* the name CurrentDir last selected */
@@ -215,6 +221,10 @@ typedef struct rt_machine
     u32     osdFont;                      /* the game's TextFont, for the on-screen display */
     int     saveSlot;                     /* saves\slot<N> - the player picks it with F1..F5 */
     const char *saveDir;                  /* "saves" relative to the executable */
+    /* The file the engine being run writes into the slot, and its size when complete: "ICFTD" and
+     * 12 444 bytes for the 1989 build, "ICFTD2" and 13 014 for the add-on (rt_save_slot_empty). */
+    const char *saveName;
+    u32     saveBytes;
     /* --poke: up to RT_MAX_POKES words written once, at the first frame boundary >= pokeFrame. */
     u32     pokeAddr[8];
     u32     pokeVal[8];

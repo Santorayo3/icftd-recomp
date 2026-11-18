@@ -3,8 +3,10 @@
 # A port feature: the original has no title screen and no settings, so there is nothing to diff it
 # against. What is checked is what the feature claims:
 #
-#   * a click on the Settings button replaces the four buttons with the settings view, showing what
+#   * a click on the Settings button replaces the buttons with the settings view, showing what
 #     the game was started with (the icftd.ini the check writes: fullscreen on, music 10, sound 7);
+#     with the add-on "Antheads" in the data folder the menu has five buttons and Settings is one
+#     row lower, so the click's position is read from the layout the build logs;
 #   * the fullscreen toggle flips the window mode and writes [VIDEO] fullscreen back to the ini;
 #   * a minus/plus click steps that volume by one, changes the mixer's gain **now** (the log line is
 #     the gain the machine is running with, not the number that was written) and rewrites its ini
@@ -87,7 +89,25 @@ music=10
 # Where the controls are (title_button.c): the column is x 230..302; the fullscreen row's toggle sits
 # under its label at y 84..97, the two volume rows' buttons at y 112..125 and 140..153, and Back where
 # Quit Game is (y 164..177).
+#
+# The Settings button itself is where the menu's own layout puts it: without the add-on's disks at
+# y 127..140, with them at y 141..154 (five buttons, the four others moved down). The build logs the
+# rectangles it drew, so the click follows the layout instead of assuming one.
 $settingsButton = @(266, 133)
+$probe = (& $Exe $Image 400000 --data $DataDir --titlekey 14 2>&1 | Out-String)
+$mm = [regex]::Match($probe, 'title: menu:.*?; Settings (\d+),(\d+) (\d+)x(\d+)')
+if ($mm.Success) {
+    $bx = [int]$mm.Groups[1].Value
+    $by = [int]$mm.Groups[2].Value
+    $bw = [int]$mm.Groups[3].Value
+    $bh = [int]$mm.Groups[4].Value
+    $settingsButton = @(($bx + [int]($bw / 2)), ($by + [int]($bh / 2)))
+    Write-Output ("settings: the menu has {0} buttons, Settings at {1},{2}" -f
+                  $(if ($probe -match 'Play Antheads') { 'five (the add-on is there)' } else { 'four' }),
+                  $settingsButton[0], $settingsButton[1])
+} else {
+    Write-Output 'settings: SKIP the layout probe gave no menu line'
+}
 $toggle         = @(256, 90)
 $musicDown      = @(246, 118)
 $musicUp        = @(284, 118)
@@ -196,9 +216,11 @@ try {
     #    runs: 320x200 first, the whole screen after the toggle, 320x200 again after the second one.
     #    No desktop (a headless machine) is a SKIP, like tools\keys-check.ps1.
     $startIni.Replace('fullscreen=true', 'fullscreen=false') | Set-Content -Encoding ascii $ini
-    @'
-40 266 133 1
-44 266 133 0
+    $sx = $settingsButton[0]
+    $sy = $settingsButton[1]
+    @"
+40 $sx $sy 1
+44 $sx $sy 0
 60 256 90 1
 64 256 90 0
 120 256 90 1
@@ -207,7 +229,7 @@ try {
 164 266 170 0
 180 266 171 1
 184 266 171 0
-'@ | Set-Content -Encoding ascii (Join-Path $Work 'geometry.txt')
+"@ | Set-Content -Encoding ascii (Join-Path $Work 'geometry.txt')
 
     $win = @'
 using System;
@@ -270,16 +292,16 @@ public class ICFTDWindow {
         #    and the key is posted once the view is up ("title: settings: ..." in its log), so the
         #    click that follows can only switch the window *back* if the view took the key's state.
         $startIni.Replace('fullscreen=true', 'fullscreen=false') | Set-Content -Encoding ascii $ini
-        @'
-40 266 133 1
-44 266 133 0
+        @"
+40 $sx $sy 1
+44 $sx $sy 0
 250 256 90 1
 254 256 90 0
 300 266 170 1
 304 266 170 0
 340 266 171 1
 344 266 171 0
-'@ | Set-Content -Encoding ascii (Join-Path $Work 'alt-enter.txt')
+"@ | Set-Content -Encoding ascii (Join-Path $Work 'alt-enter.txt')
         $altLog = Join-Path $Work 'alt-enter.log'
         $proc2 = Start-Process -FilePath (Resolve-Path $Exe).Path -PassThru -RedirectStandardOutput $altLog `
                     -ArgumentList @($Image, '60000000', '--data', $DataDir, '--window', '--titlekey', '14',

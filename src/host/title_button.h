@@ -36,14 +36,17 @@ enum
     TITLE_SETTINGS_PEN_COUNT
 };
 
-/* What a button does when it is clicked. */
+/* What a button does when it is clicked. TITLE_ACTION_ANTHEADS is the fifth button: it starts the
+ * add-on's game, exactly as TITLE_ACTION_NEW_GAME starts the 1989 one - the menu is the port's, and
+ * each of the two entries plays its own build (docs\antheads.md). */
 typedef enum title_action
 {
     TITLE_ACTION_NONE = 0,
     TITLE_ACTION_NEW_GAME,
     TITLE_ACTION_LOAD_GAME,
     TITLE_ACTION_SETTINGS,
-    TITLE_ACTION_QUIT
+    TITLE_ACTION_QUIT,
+    TITLE_ACTION_ANTHEADS
 } title_action;
 
 typedef struct title_button
@@ -85,7 +88,7 @@ typedef enum title_setting_hit
     TITLE_SETTING_SOUND_UP
 } title_setting_hit;
 
-/* The settings view: the four buttons are replaced by one row per option (its label in the game's
+/* The settings view: the buttons are replaced by one row per option (its label in the game's
  * font, the control under it) and the Back button where Quit Game was. The view shows the settings
  * the game was started with (icftd.ini), and the caller applies what a click changes, so nothing
  * here touches the machine. `fullscreen_on` is 0 on a platform with no window mode of its own (the
@@ -105,8 +108,14 @@ typedef struct title_settings
  * hover fill and text. */
 const u8 *title_menu_palette(void);
 
-/* Fills the menu with the shipped layout; call it once before drawing. */
-void title_menu_init(title_menu *menu);
+/* Fills the menu with the shipped layout; call it once before drawing.
+ *
+ * Four buttons, or five when the add-on is playable (`addon` = 1) and is not the build running
+ * (`addonRunning` = 0): the extra row sits between New Game and Load Game and starts the add-on's
+ * game, so the four others move down and Quit Game keeps its place at the bottom of the panel. A
+ * game that is already running the add-on gets the four buttons, because its New Game plays it -
+ * there is no second game to offer. */
+void title_menu_init(title_menu *menu, int addon, int addonRunning);
 
 /* Notes where the pointer is (framebuffer coordinates) and whether the platform has one at all,
  * and returns the button it is over, or -1. A pointer outside every button clears the hover. */

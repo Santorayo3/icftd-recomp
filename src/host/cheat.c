@@ -40,54 +40,12 @@
 #include "types.h"
 #include "../recomp/cpu.h"
 #include "cheat.h"
+#include "seams.h"
 
-#define SCENE_RESULT   0x0002991Eu  /* DAT_0002991e                             */
-#define SCENE_INIT     0x00029896u  /* DAT_00029896                             */
-
-/* The seven per-frame updates, at model addresses. */
-#define FIGHT_UPDATE   0x0000A74Eu  /* FUN_0000a74e                             */
-#define ANT_UPDATE     0x00007934u  /* FUN_00007934                             */
-#define FIRE_UPDATE    0x0000B528u  /* FUN_0000b528                             */
-#define CHICKEN_UPDATE 0x0001C838u  /* FUN_0001c838                             */
-#define UNDER_UPDATE   0x0000D376u  /* FUN_0000d376                             */
-#define HOSP_UPDATE    0x00019E9Cu  /* FUN_00019e9c                             */
-#define FLIGHT_UPDATE  0x000125AAu  /* FUN_000125aa                             */
-
-/* The fight: DAT_000230f6 is the update's own "fight over" flag, DAT_00029e26 the opponent's pose
- * (8 is FUN_0000ac30's knockout state, which also sets 230f6), DAT_00029e24 the player's pose (8 is
- * FUN_0000afba's knocked-out state - the one the result must not be taken from), and DAT_00029e36
- * the player's health (0x76 at setup; FUN_0000afba picks pose 8 when it is 0). */
-#define FIGHT_OVER     0x000230F6u
-#define FIGHT_O_POSE   0x00029E26u
-#define FIGHT_H_POSE   0x00029E24u
-#define FIGHT_H_HEALTH 0x00029E36u
-
-/* The fire game: DAT_00029e88 is the eight flames' active flags, DAT_00029cc0 FUN_0000b7b2's "no
- * fire left" flag (it re-ignites a flame while this is 0), and DAT_00029eba the countdown
- * FUN_0000b528 runs once the room is out before it returns 1. */
-#define FIRE_ACTIVE    0x00029E88u
-#define FIRE_CLEAR     0x00029CC0u
-#define FIRE_END_WAIT  0x00029EBAu
-
-/* The chicken race: DAT_0002bcd4 is "Ice swerved" (the win FUN_0001cd94 narrates), DAT_0002bcce
- * was braking, and DAT_0002bcd0 ends FUN_0001ba3e's loop. */
-#define CHICK_WON      0x0002BCD4u
-#define CHICK_BRAKE    0x0002BCCEu
-#define CHICK_OVER     0x0002BCD0u
-
-/* The underground nest and the hospital escape both end their loop when DAT_0002a170 reaches 8
- * (FUN_0000bfca's `while (DAT_0002a170 < 8)`; FUN_00018832 counts the escape up the same way). */
-#define SCENE_STEPS    0x0002A170u
-
-/* The giant ant: the success branch of FUN_00007934 sets this pair (and DAT_00029cc0, the update's
- * exit flag it tests at 0x7cde). */
-#define ANT_WON        0x00029920u
-#define ANT_OVER       0x00029CC0u
-
-/* The flight: FUN_00017b9c's landing at the nest writes DAT_0002a552 (the "landed" word
- * FUN_000107a6 follows into FUN_0000bfca), DAT_0002a544 (the flight is over) and the result. */
-#define FLIGHT_LANDED  0x0002A552u
-#define FLIGHT_OVER    0x0002A544u
+/* Every address this file writes is a row of the seam table (src\host\seams.c): the 1989 game's
+ * value and the add-on's, chosen at run time by seam_active(). The seven updates, the scene words
+ * and the fight's flags keep the names their comments always gave them. The add-on has no fire
+ * game, so its fire seams are 0 - the request then simply has nothing to end there. */
 
 /* A request is good for the scene update it was made for. Each scene updates every frame, so three
  * frames is slack for the vblank's position in the stream; a key pressed on a screen that is not a
@@ -194,6 +152,9 @@ static void flight_win(rt_machine *m)
 int host_cheat_entry(rt_machine *m, u32 pc)
 {
     const char *name;
+    u32 fightPc = FIGHT_UPDATE, antPc = ANT_UPDATE, firePc = SEAM(fireUpdatePc);
+    u32 chickPc = CHICKEN_UPDATE, underPc = UNDER_UPDATE, hospPc = HOSP_UPDATE;
+    u32 flightPc = FLIGHT_UPDATE;
 
     if (!s_requested) return 0;
     if ((s32)(m->frame - s_requestFrame) > CHEAT_REQUEST_FRAMES)
@@ -201,41 +162,48 @@ int host_cheat_entry(rt_machine *m, u32 pc)
         s_requested = 0;
         return 0;
     }
-
-    switch (pc)
+    /* Each scene has one update; the two "setup has not run yet" cases must wait a frame, because
+     * those updates put their initial state in place while the flag is 0. */
+    if (fightPc != 0 && pc == RC_ADDR(fightPc))
     {
-    case RC_ADDR(FIGHT_UPDATE):
-        if (r16(m, SCENE_INIT) == 0) return 0;      /* this frame still initialises the fight */
+        if (r16(m, SCENE_INIT) == 0) return 0;
         fight_win(m);
         name = "Fight";
-        break;
-    case RC_ADDR(ANT_UPDATE):
+    }
+    else if (antPc != 0 && pc == RC_ADDR(antPc))
+    {
         if (r16(m, SCENE_INIT) == 0) return 0;
         ant_win(m);
         name = "Giant Ant";
-        break;
-    case RC_ADDR(FIRE_UPDATE):
+    }
+    else if (firePc != 0 && pc == RC_ADDR(firePc))
+    {
         if (r16(m, SCENE_INIT) == 0) return 0;
         fire_win(m);
         name = "Fire Game";
-        break;
-    case RC_ADDR(CHICKEN_UPDATE):
+    }
+    else if (chickPc != 0 && pc == RC_ADDR(chickPc))
+    {
         chicken_win(m);
         name = "Chicken Race";
-        break;
-    case RC_ADDR(UNDER_UPDATE):
+    }
+    else if (underPc != 0 && pc == RC_ADDR(underPc))
+    {
         steps_win(m);
         name = "Underground";
-        break;
-    case RC_ADDR(HOSP_UPDATE):
+    }
+    else if (hospPc != 0 && pc == RC_ADDR(hospPc))
+    {
         steps_win(m);
         name = "Escape Hospital";
-        break;
-    case RC_ADDR(FLIGHT_UPDATE):
+    }
+    else if (flightPc != 0 && pc == RC_ADDR(flightPc))
+    {
         flight_win(m);
         name = "Take a Flight";
-        break;
-    default:
+    }
+    else
+    {
         return 0;
     }
 

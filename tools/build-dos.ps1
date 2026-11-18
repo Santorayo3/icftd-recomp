@@ -43,6 +43,7 @@ $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')
 
 $sources = @(
     (Join-Path $hs 'dos_main.c'),
+    (Join-Path $hs 'seams.c'),
     (Join-Path $hs 'title.c'),
     (Join-Path $hs 'title_button.c'),
     (Join-Path $hs 'cheat.c'),

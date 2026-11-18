@@ -912,7 +912,20 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
  * waveOut with a ring of small buffers plus a short waiting queue. The runtime renders emulated
  * time ahead of the device, so a write only hands a chunk over; a chunk that finds every buffer
  * still playing waits in the queue (up to AUDIO_QUEUE of them) instead of being lost, which is
- * what absorbs a frame the emulation produced in a catch-up burst. */
+ * what absorbs a frame the emulation produced in a catch-up burst.
+ *
+ * A device is not guaranteed to keep playing. A default-endpoint change, another program taking
+ * the endpoint in exclusive mode, or a driver that stops signalling completion leaves every buffer
+ * "still playing" for ever - the queue fills, every later chunk is dropped, and the game runs on in
+ * silence. There is no callback to notice it with (CALLBACK_NULL), so the writer watches the one
+ * thing a playing device must do, complete a buffer, and treats a stretch with outstanding buffers
+ * and no completion as a stopped device: waveOutReset returns the outstanding buffers and the queue
+ * is written again. A handle that keeps refusing writes is reopened on the current default device.
+ * The DOS layer has the same rule for a halted Sound Blaster transfer (sb_service).
+ *
+ * Those events - and nothing else - are appended to <exe>\audio-log.txt (audio_log below): a run
+ * that never faults creates no file. The host adds one line when the game frees its score, so a
+ * silence can be told apart as device-side or game-side from that one file. */
 
 #define AUDIO_BUFFERS 8
 /* 512 frames is ~12 ms. The mixer hands over a frame's worth at each vblank, so the queue is the
@@ -921,6 +934,8 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
  * audio, which nothing in this game notices. */
 #define AUDIO_FRAMES  512
 #define AUDIO_QUEUE   8           /* chunks waiting for a free device buffer, ~93 ms */
+#define AUDIO_STALL_MS 300        /* outstanding buffers, no completion for this long: stopped */
+#define AUDIO_WRITE_ERRORS 16     /* failed writes in a row before the handle is reopened */
 
 static HWAVEOUT g_wave;
 static WAVEHDR  g_hdr[AUDIO_BUFFERS];
@@ -931,14 +946,113 @@ static int      g_qcount;
 static int      g_aopen;
 static int      g_anext;
 static u32      g_adropped;
+static u32      g_arate;                  /* the rate the handle was opened at */
+static int      g_abusyMask;              /* buffers submitted and not seen done, one bit each */
+static u32      g_aprogress;              /* GetTickCount() of the last completion seen */
+static u32      g_astalls;                /* stopped devices reset */
+static u32      g_areopens;               /* handles reopened after write errors */
+static u32      g_areopenAt;              /* GetTickCount() of the last reopen attempt */
+static int      g_awriteErrors;           /* failed writes in a row */
+static int      g_alost;                  /* the handle refuses writes: reopen it */
+static int      g_astallAt;               /* --audiostall: the device stops at this submission */
+static int      g_asubmits;               /* submissions seen, for --audiostall */
+static int      g_astalled;               /* --audiostall: the simulated stop is in effect */
+static int      g_adropLogged;            /* the first drop of a session is worth one line */
+static FILE    *g_alog;                   /* <exe>\audio-log.txt, opened by the first line written */
+static int      g_alogTried;
+static int      g_alogLines;              /* lines this session, against AUDIO_LOG_MAX_LINES */
+/* What the machine did that explains a silence, kept in memory until a fault (or the end of the
+ * run) writes it out. Only a run that opened a device records anything, so a headless measurement
+ * run - which has no audio device at all - never writes this file. */
+#define AUDIO_NOTES 16
+#define AUDIO_NOTE_LEN 200
+static char     g_anote[AUDIO_NOTES][AUDIO_NOTE_LEN];
+static int      g_anoteNext;
+static int      g_anoteCount;
 
-u32 plat_audio_open(u32 rate)
+/* One line in the audio fault log, stamped with the local time. The file is created by the first
+ * line and appended to afterwards, so a session with nothing to report leaves nothing behind. It is
+ * a diagnostic a player sends us, so it is strictly bounded: a device that keeps failing can log a
+ * line every 300 ms for hours, and that must not fill a disk. */
+#define AUDIO_LOG_MAX_BYTES 65536         /* rolled over (started fresh) when the file is this big */
+#define AUDIO_LOG_MAX_LINES 200           /* one session writes at most this many lines */
+
+static void audio_log_write(const char *text)
+{
+    SYSTEMTIME st;
+
+    if (!g_alogTried) {
+        char path[MAX_PATH];
+        g_alogTried = 1;
+        sprintf(path, "%s\\audio-log.txt", plat_exe_dir());
+        g_alog = fopen(path, "a");
+        /* An old log that has grown to the cap is replaced rather than appended to: the newest
+         * session is the one a report is about. */
+        if (g_alog != 0 && fseek(g_alog, 0, SEEK_END) == 0 &&
+            ftell(g_alog) > AUDIO_LOG_MAX_BYTES) {
+            fclose(g_alog);
+            g_alog = fopen(path, "w");
+        }
+    }
+    if (g_alog == 0) return;
+    if (g_alogLines >= AUDIO_LOG_MAX_LINES) {
+        if (g_alogLines++ == AUDIO_LOG_MAX_LINES) {
+            fprintf(g_alog, "-- more than %d lines this session: logging stops here\n",
+                    AUDIO_LOG_MAX_LINES);
+            fflush(g_alog);
+        }
+        return;
+    }
+    g_alogLines++;
+    GetLocalTime(&st);
+    fprintf(g_alog, "%04u-%02u-%02u %02u:%02u:%02u  %s\n",
+            (unsigned)st.wYear, (unsigned)st.wMonth, (unsigned)st.wDay,
+            (unsigned)st.wHour, (unsigned)st.wMinute, (unsigned)st.wSecond, text);
+    fflush(g_alog);
+}
+
+/* The notes before the fault, oldest first: a device that stopped right after the engine freed its
+ * score and one that stopped in the middle of a scene look the same in the log otherwise. */
+static void audio_note_flush(void)
+{
+    int i, at;
+
+    if (g_anoteCount == 0) return;
+    at = (g_anoteNext - g_anoteCount + AUDIO_NOTES) % AUDIO_NOTES;
+    for (i = 0; i < g_anoteCount; i++)
+        audio_log_write(g_anote[(at + i) % AUDIO_NOTES]);
+    g_anoteCount = 0;
+    g_anoteNext = 0;
+}
+
+/* A fault of the device itself: the notes lead up to it. */
+static void audio_fault(const char *text)
+{
+    audio_note_flush();
+    audio_log_write(text);
+}
+
+/* A note from the machine, written when a fault needs its context or when the run ends. */
+void plat_audio_log(const char *text)
+{
+    char *dst;
+
+    if (!g_aopen || text == 0) return;
+    dst = g_anote[g_anoteNext];
+    strncpy(dst, text, AUDIO_NOTE_LEN - 1);
+    dst[AUDIO_NOTE_LEN - 1] = 0;
+    g_anoteNext = (g_anoteNext + 1) % AUDIO_NOTES;
+    if (g_anoteCount < AUDIO_NOTES) g_anoteCount++;
+}
+
+/* Opens the device and its buffers; the statistics and the queue belong to plat_audio_open. */
+static void audio_device_close(void);
+
+static int audio_device_open(u32 rate)
 {
     WAVEFORMATEX wf;
     int i;
 
-    if (g_aopen) return 1;
-    if (rate == 0) return 0;
     memset(&wf, 0, sizeof(wf));
     wf.wFormatTag = WAVE_FORMAT_PCM;
     wf.nChannels = 2;
@@ -950,9 +1064,10 @@ u32 plat_audio_open(u32 rate)
         g_wave = 0;
         return 0;
     }
+    g_arate = rate;
     for (i = 0; i < AUDIO_BUFFERS; i++) {
         g_abuf[i] = (s16 *)malloc(AUDIO_FRAMES * 4);
-        if (g_abuf[i] == 0) { plat_audio_close(); return 0; }
+        if (g_abuf[i] == 0) { audio_device_close(); return 0; }
         memset(&g_hdr[i], 0, sizeof(g_hdr[i]));
         g_hdr[i].lpData = (LPSTR)g_abuf[i];
         g_hdr[i].dwBufferLength = AUDIO_FRAMES * 4;
@@ -960,17 +1075,17 @@ u32 plat_audio_open(u32 rate)
         g_hdr[i].dwFlags |= WHDR_DONE;      /* never queued yet: a free buffer */
     }
     g_anext = 0;
-    g_qcount = 0;
-    g_adropped = 0;
+    g_abusyMask = 0;
+    g_aprogress = GetTickCount();
     g_aopen = 1;
     return 1;
 }
 
-void plat_audio_close(void)
+static void audio_device_close(void)
 {
     int i;
 
-    if (!g_aopen) return;
+    if (g_wave == 0) { g_aopen = 0; return; }
     waveOutReset(g_wave);
     for (i = 0; i < AUDIO_BUFFERS; i++) {
         if (g_abuf[i] != 0) {
@@ -981,21 +1096,113 @@ void plat_audio_close(void)
     }
     waveOutClose(g_wave);
     g_wave = 0;
-    g_qcount = 0;
     g_aopen = 0;
+    g_abusyMask = 0;
 }
 
-void plat_audio_write(const s16 *frames, u32 count)
+u32 plat_audio_open(u32 rate)
+{
+    if (g_aopen) return 1;
+    if (rate == 0) return 0;
+    g_adropped = 0;
+    g_astalls = 0;
+    g_areopens = 0;
+    g_awriteErrors = 0;
+    g_alost = 0;
+    g_qcount = 0;
+    g_arate = rate;
+    g_astallAt = 0;
+    g_astalled = 0;
+    g_asubmits = 0;
+    g_adropLogged = 0;
+    return audio_device_open(rate) ? 1 : 0;
+}
+
+void plat_audio_close(void)
+{
+    audio_device_close();
+    g_qcount = 0;
+    /* The end of a played session: whatever the machine noted about its own score is worth keeping
+     * beside the device's own lines, and nothing else writes this file. */
+    audio_note_flush();
+}
+
+/* A handle that went away - the default device changed, or another program took the endpoint - is
+ * reopened on whatever WAVE_MAPPER names now. At most one attempt a second, so a machine with no
+ * endpoint at all does not spend the run in waveOutOpen and does not fill the log. */
+static void audio_reopen(void)
+{
+    u32 now = GetTickCount();
+    char msg[160];
+
+    if ((u32)(now - g_areopenAt) < 1000u) return;
+    g_areopenAt = now;
+    audio_device_close();
+    g_awriteErrors = 0;
+    if (audio_device_open(g_arate)) {
+        g_alost = 0;
+        g_areopens++;
+        sprintf(msg, "audio: device reopened at %lu Hz", (unsigned long)g_arate);
+    } else {
+        sprintf(msg, "audio: device reopen at %lu Hz failed", (unsigned long)g_arate);
+    }
+    audio_fault(msg);
+}
+
+/* The watchdog: a playing device completes a buffer. Outstanding buffers with no completion for
+ * AUDIO_STALL_MS is a device that stopped, and waveOutReset hands the buffers back so the queue can
+ * start it again. Runs only from a write, so a machine that is not producing audio (a paused run, a
+ * scene with its sound off) never looks stopped. Completions are compared by buffer, not by count:
+ * one buffer completing while another is handed over keeps the count the same. */
+static void audio_watchdog(void)
+{
+    int i, busy = 0;
+    u32 mask = 0, now = GetTickCount();
+    char msg[160];
+
+    for (i = 0; i < AUDIO_BUFFERS; i++)
+        if ((g_hdr[i].dwFlags & WHDR_DONE) == 0) { mask |= 1u << i; busy++; }
+    if ((g_abusyMask & ~mask) != 0) g_aprogress = now;   /* a buffer completed: it is playing */
+    g_abusyMask = mask;
+    if (busy == 0) { g_aprogress = now; return; }
+    if ((u32)(now - g_aprogress) < AUDIO_STALL_MS) return;
+
+    sprintf(msg, "audio: device stopped completing buffers (%d outstanding, no completion for %lu ms) - reset",
+            busy, (unsigned long)(now - g_aprogress));
+    audio_fault(msg);
+    if (waveOutReset(g_wave) != MMSYSERR_NOERROR) {
+        g_alost = 1;                            /* the handle itself is gone: reopen it */
+        return;
+    }
+    for (i = 0; i < AUDIO_BUFFERS; i++) g_hdr[i].dwFlags |= WHDR_DONE;
+    g_abusyMask = 0;
+    g_astalled = 0;                             /* --audiostall: the one simulated stop is over */
+    g_astalls++;
+    g_aprogress = now;
+    /* What was waiting for the device is now late by as much as it was stopped: it is dropped
+     * rather than played as a burst of sound from the wrong moment. */
+    for (i = 0; i < g_qcount; i++) g_adropped += g_qsize[i];
+    g_qcount = 0;
+}
+
+void plat_audio_simulate_stall(u32 afterBuffers)
+{
+    g_astallAt = (int)afterBuffers;
+    g_asubmits = 0;
+    g_astalled = 0;
+}
+
+u32 plat_audio_stalls(void) { return g_astalls; }
+u32 plat_audio_reopens(void) { return g_areopens; }
+
+/* Hands queued chunks to whatever buffers the device has free, oldest first. Runs on every write,
+ * so a queue that filled while the device was stopped drains again as soon as it is back: a full
+ * queue must never be a one-way door. */
+static void audio_drain(void)
 {
     int i, slot, tries;
 
-    if (!g_aopen || frames == 0 || count == 0) return;
-    if (count > AUDIO_FRAMES) count = AUDIO_FRAMES;
-    if (g_qcount >= AUDIO_QUEUE) { g_adropped += count; return; }
-    memcpy(g_queue[g_qcount], frames, count * 4);
-    g_qsize[g_qcount] = count;
-    g_qcount++;
-    /* Hand over whatever the device can take now, oldest chunk first. */
+    if (g_astalled) return;
     for (i = 0; i < g_qcount; ) {
         slot = -1;
         for (tries = 0; tries < AUDIO_BUFFERS; tries++) {
@@ -1007,9 +1214,28 @@ void plat_audio_write(const s16 *frames, u32 count)
         memcpy(g_abuf[slot], g_queue[i], g_qsize[i] * 4);
         g_hdr[slot].dwBufferLength = g_qsize[i] * 4;
         g_hdr[slot].dwFlags &= ~WHDR_DONE;
+        if (g_astallAt > 0 && ++g_asubmits >= g_astallAt) {
+            /* --audiostall: this buffer is taken and never played, and nothing is handed over
+             * after it - the shape of a device that hung. The watchdog must recover it. */
+            g_astallAt = 0;
+            g_astalled = 1;
+            g_adropped += g_qsize[i];
+            i++;
+            break;
+        }
         if (waveOutWrite(g_wave, &g_hdr[slot], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
             g_hdr[slot].dwFlags |= WHDR_DONE;
             g_adropped += g_qsize[i];
+            if (++g_awriteErrors >= AUDIO_WRITE_ERRORS) {
+                char msg[160];
+                g_awriteErrors = 0;
+                g_alost = 1;
+                sprintf(msg, "audio: %d writes failed in a row - reopening the device",
+                        AUDIO_WRITE_ERRORS);
+                audio_fault(msg);
+            }
+        } else {
+            g_awriteErrors = 0;
         }
         i++;
     }
@@ -1018,6 +1244,38 @@ void plat_audio_write(const s16 *frames, u32 count)
         memmove(g_qsize, g_qsize + i, (u32)(g_qcount - i) * sizeof(g_qsize[0]));
         g_qcount -= i;
     }
+}
+
+/* One chunk of mixed audio from the machine. The device gets what it can take; what does not fit is
+ * kept for the next write and the oldest thing is lost only when the queue itself is full. The
+ * draining runs every time, whether or not this chunk fitted: a queue that filled while the device
+ * was stopped has to empty again once it is back, or the run would stay silent for good. */
+void plat_audio_write(const s16 *frames, u32 count)
+{
+    if (count == 0 || frames == 0) return;
+    if (g_alost) audio_reopen();
+    if (!g_aopen) return;
+    if (count > AUDIO_FRAMES) count = AUDIO_FRAMES;
+    audio_watchdog();
+    if (!g_aopen) return;
+    if (g_qcount < AUDIO_QUEUE) {
+        memcpy(g_queue[g_qcount], frames, count * 4);
+        g_qsize[g_qcount] = count;
+        g_qcount++;
+    } else {
+        if (!g_adropLogged) {
+            char msg[160];
+            int k, out = 0;
+            for (k = 0; k < AUDIO_BUFFERS; k++)
+                if ((g_hdr[k].dwFlags & WHDR_DONE) == 0) out++;
+            g_adropLogged = 1;
+            sprintf(msg, "audio: dropping chunks, queue full (%d held, %d buffer(s) outstanding, stalled %d, lost %d)",
+                    g_qcount, out, g_astalled, g_alost);
+            audio_fault(msg);
+        }
+        g_adropped += count;
+    }
+    audio_drain();
 }
 
 u32 plat_audio_dropped(void)

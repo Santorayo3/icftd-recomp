@@ -3,7 +3,7 @@
  * Port code, not a translation: the original boots straight into its intro, and its own title is
  * drawn by code we have not translated. This scene exists so the product has a place for the main
  * menu (settings, save slots, ...) that a DOS/Win32 release needs and a 1989 game never had; for
- * now it shows assets\titlescreen.png with its four menu buttons (title_button.c), plays the map
+ * now it shows assets\titlescreen.png with its menu buttons (title_button.c), plays the map
  * screen's score, and starts the game on fire or 0 (or one of the minigames on a digit key - see
  * the end of this comment).
  *
@@ -52,6 +52,19 @@
  * then closes the application. A click is `input_state.mouse_left_pressed`, not the game's /FIRE,
  * so a click that misses a button does nothing at all.
  *
+ * When the player's data folder also holds the add-on "It Came from the Desert II - Antheads", the
+ * menu has a fifth button between New Game and Load Game - "Play Antheads" - and the two game
+ * entries are exactly that: New Game plays the 1989 game, Play Antheads plays the add-on. The
+ * add-on is another *program* (a second translated table linked at the same address), so choosing
+ * it is a boot of the machine with that image; but it is a game start and not a screen: the fresh
+ * machine runs the add-on's own intro from the very start, and the port only answers the engine's
+ * YES/NO load screen at the end of it (host_title_new_game) - nothing is parked at an intro setup,
+ * no menu of the add-on's own is drawn, and the player goes from the menu into the intro exactly as
+ * New Game goes into the 1989 one. The menu itself belongs to the port, not to a build: it is
+ * always drawn on the 1989 program's hold point, and Escape from either game boots that program
+ * again and shows it - one menu, two games, and the save slots they share (docs\antheads.md). A
+ * data folder without the add-on's three disks gets the four buttons it has always had.
+ *
  * The settings view changes the running machine, not just the file: the two volumes are the
  * mixer's gains (rt_audio_set_gain - the title's own score is what a player hears the step on) and
  * the toggle switches the window (plat_set_fullscreen), and each one is written back to icftd.ini
@@ -76,28 +89,23 @@
 #include "../oracle/cpu.h"
 #include "../recomp/cpu.h"
 #include "title.h"
+#include "programs.h"
 #include "title_art.h"
 #include "title_button.h"
 #include "time_freeze.h"
+#include "seams.h"
 
-/* Runtime addresses: the image loads at 0x4000, and the model addresses named in the comments are
- * the ones in re\disasm\dshell.asm. */
-#define TITLE_HOLD_PC     0x0D870u   /* FUN_00009870, the intro's setup          (model 0x9870) */
-#define TITLE_SCORE_PC    0x0DCF2u   /* FUN_00009CF2(descriptor, loop): load a score and start it
-                                      * - the map's setup calls it with &"Overhead2.tiny" at
-                                      *   FUN_0000bfca; the map's re-entry path does the same at
-                                      *   0x10920..0x1093e (load, then FUN_00009cc4 to start) */
-#define TITLE_UNLOAD_PC   0x12C8Au   /* FUN_0000EC8A, stop and free that score   (model 0xEC8A) */
-#define TITLE_SCORE_DESC  0x27B84u   /* &"Overhead2.tiny", the map's score       (model 0x23B84) */
-#define TITLE_MUSIC_BLOCK 0x27C5Eu   /* DAT_00023C5E: the loaded music block     (model 0x23C5E) */
+/* Every engine address this file holds is a row of the seam table (src\host\seams.c), as a model
+ * (image) offset - the convention the other seam files use - so every use goes through RC_ADDR.
+ * The model addresses named in the comments below are the ones in re\disasm\dshell.asm; the
+ * add-on's column of the table carries its own. */
 
-/* The engine's own entry points for the scenes the digit keys start, at runtime addresses (the
- * image loads at 0x4000). Each is what FUN_00002cc8's dispatcher calls once its action is picked:
- * the fight is mode 3 (`jsr` slot 46 at 0x2E3E), Take a Flight is mode 9 with the argument 6
- * (0x2F72), the fire game is mode 0xb (0x2EBA), the hospital escape is mode 6 through vector slot
- * 70 (0x2EF8). None of them needs the room the dispatcher tears down first: each loads its own
- * banks, programs its own screen and returns to its caller - measured from this very hold point,
- * see tools\title-check.ps1.
+/* The engine's own entry points for the scenes the digit keys start. Each is what FUN_00002cc8's
+ * dispatcher calls once its action is picked: the fight is mode 3 (`jsr` slot 46 at 0x2E3E), Take
+ * a Flight is mode 9 with the argument 6 (0x2F72), the fire game is mode 0xb (0x2EBA), the
+ * hospital escape is mode 6 through vector slot 70 (0x2EF8). None of them needs the room the
+ * dispatcher tears down first: each loads its own banks, programs its own screen and returns to its
+ * caller - measured from this very hold point, see tools\title-check.ps1.
  *
  * The chicken race is FUN_0001BA3E itself (0x1FA3E), the scene FUN_0001CC2E runs once its two
  * narration pages are over. Its caller also sets the swerve window from the encounter count
@@ -110,10 +118,6 @@
  * with its own 32-colour palette into g_palWant, builds its copper list from the template at
  * 0x24EB2 (LoadView), keeps the tunnel state in 0x2A1xx (runtime 0x2E1xx) and runs until its
  * eight steps are done. */
-#define TITLE_CHICKEN_PC  0x1FA3Eu  /* FUN_0001BA3E, the road/chicken scene   (model 0xBA3E) */
-#define TITLE_UNDER_PC    0x0FFCAu  /* FUN_0000BFCA, the underground ant nest (model 0xBFCA) */
-#define TITLE_SWERVE_PC   0x30100u  /* DAT_0002C100: the truck x that makes him swerve */
-#define TITLE_SWERVE_END  0x30102u  /* DAT_0002C102, the window's other edge  */
 
 /* The giant-ant fight is FUN_00008C5C (0xCC5C), the chapter's own entry: it opens the BACKS bank,
  * then Desert3:BIGANT, and runs FUN_00007934 as its per-update script. It is entered from a room
@@ -127,78 +131,114 @@
  * whose record byte is 0x0C, i.e. "!B12", and its prefix is "Cone" - BACKS holds ConeSP1/SP2.
  * The fire button is the world loop's: FUN_0000551C installs the clock VBI (FUN_000054CC) whose
  * FUN_0000A500 is the only writer of DAT_00026898, the edge FUN_000086a0's shot reads. Without it
- * the pistol in a title launch could be aimed but never fired. */
-#define TITLE_ANT_PC      0x0CC5Cu  /* FUN_00008C5C, the giant-ant fight      (model 0x8C5C) */
-#define TITLE_CLOCKVBI_PC 0x0951Cu  /* FUN_0000551C, installs the clock VBI   (model 0x551C) */
-#define TITLE_LOCATION_PC 0x2CA3Au  /* DAT_00028A3A, the location             (model 0x28A3A) */
-#define TITLE_ROOM_PC     0x2CB10u  /* DAT_00028B10, the room byte            (model 0x28B10) */
-#define TITLE_ROOM_NAME   0x2CB3Eu  /* DAT_00028B3E, "!B%02d" of that byte    (model 0x28B3E) */
-#define TITLE_ANT_LOC     0x0011u
-#define TITLE_ANT_ROOM    0x000Cu
+ * the pistol in a title launch could be aimed but never fired.
+ *
+ * The four scene entries themselves are rows of the seam table (fight, flight, fire, hospital): the
+ * add-on's dispatcher calls its own. The fire game is 0 there - the add-on has none - and the key
+ * that would start it is then not offered. */
 
-/* The endings, the same way: 1 win, 2 the nest collapse, 3 the deadline. FUN_0000A4D6 reads the
- * word and runs `!WIN` or `!LOS` itself, so the key only has to set it first. */
-#define TITLE_END_PC      0x0E4D6u  /* FUN_0000A4D6, the ending dispatcher    (model 0xA4D6) */
-#define TITLE_END_FLAG    0x26D68u  /* DAT_00022D68, which ending it runs     (model 0x22D68) */
-
-/* The engine's own YES/NO load screen, FUN_0001029e ("Lizard Breath has been awaiting your
- * return."), which the boot loop calls at 0x1EA right after the intro's setup returns. A played
+/* The score the title holds: the map's own. FUN_00009CF2(descriptor, loop) loads a score and
+ * starts it - the map's setup calls it with &"Overhead2.tiny" (FUN_0000bfca), and the map's
+ * re-entry path does the same at 0x10920..0x1093e (load, then FUN_00009cc4 to start). Whatever is
+ * playing has to go first: FUN_0000EC8A stops and frees it.
+ *
+ * The endings are the same shape: 1 win, 2 the nest collapse, 3 the deadline. FUN_0000A4D6 reads
+ * the word and runs `!WIN` or `!LOS` itself, so the key only has to set it first.
+ *
+ * The engine's own YES/NO load screen, FUN_0001029e ("Lizard Breath has been awaiting your
+ * return."), is what the boot loop calls at 0x1EA right after the intro's setup returns. A played
  * game never shows it: the decision it asks for was taken on the title, so the host answers it. The
  * break pc is the routine's first instruction after its `link` (A5 then addresses its frame), and
  * the answer is delivered the way its own prompt delivers it - D0 written at the instruction right
  * after the `jsr FUN_000101e4`, where the routine stores it and branches to its load or its
  * "a new game" path. Only the screen - the dim, the three lines, the prompt - is skipped; the
- * decision, the palette restore and the load itself are the engine's own code. */
-#define TITLE_LOAD_PROMPT 0x142A2u  /* FUN_0001029e+4, after `link A5,#ffffee` (model 0x102A2) */
-#define TITLE_LOAD_ANSWER 0x142E6u  /* ... and after `jsr FUN_000101e4`, which reads D0 (0x102E6) */
-
-/* The intro is a MovE scene, not an animation the setup draws itself: FUN_00009870 loads the scene
+ * decision, the palette restore and the load itself are the engine's own code.
+ *
+ * The intro is a MovE scene, not an animation the setup draws itself: FUN_00009870 loads the scene
  * record at 0x993c and hands it to FUN_0001EB94, which runs it through FUN_0001D2C6 - the runner
  * the situation map uses too. Load Game has nothing to show before the save, so the host skips that
  * one call: the break is the `jsr` itself, so the four arguments it would have consumed are left for
  * the `lea (0x10,A7),A7` that follows, and the setup's own cleanup (close the bank, free the score)
  * still runs. Nothing of the scene is entered. */
-#define TITLE_INTRO_RUN   0x0D8F8u  /* FUN_00009870's `jsr (vector 96)`      (model 0x98F8) */
-#define TITLE_INTRO_SKIP  0x0D8FCu  /* the `lea (0x10,A7),A7` after it       (model 0x98FC) */
+#define TITLE_ANT_LOC     0x0011u
+#define TITLE_ANT_ROOM    0x000Cu
+
+/* What a digit key starts: the seam row that holds that scene's entry. The entries are not
+ * compile-time constants any more (the running program decides them), so the table names the row
+ * and title_entry_pc() resolves it. */
+typedef enum
+{
+    TITLE_ENTRY_FIGHT,
+    TITLE_ENTRY_FLIGHT,
+    TITLE_ENTRY_FIRE,
+    TITLE_ENTRY_HOSPITAL,
+    TITLE_ENTRY_CHICKEN,
+    TITLE_ENTRY_UNDER,
+    TITLE_ENTRY_ANT,
+    TITLE_ENTRY_END
+} title_entry;
 
 typedef struct title_scene
 {
     int         key;                     /* the key that starts it (KEY_1 is "1") */
     const char *keyName;                 /* how title_keys() writes it down */
     const char *name;
-    u32         entry;
+    title_entry entry;
     int         nargs;
     u32         arg0, arg1;
-    u16         ending;                  /* non-0: write DAT_00022D68 before entering TITLE_END_PC */
+    u16         ending;                  /* non-0: write TITLE_END_FLAG before entering TITLE_END_PC */
 } title_scene;
 
 static const title_scene g_scenes[] =
 {
-    { KEY_1, "1", "Fight",           0x0F46Cu, 0, 0, 0, 0 },
-    { KEY_2, "2", "Take a Flight",   0x147A6u, 1, 6, 0, 0 },   /* 6 = the dispatcher's own argument */
-    { KEY_3, "3", "Fire Game",       0x0FE34u, 0, 0, 0, 0 },
-    { KEY_4, "4", "Escape Hospital", 0x1C19Au, 0, 0, 0, 0 },
-    { KEY_5, "5", "Chicken Race",    TITLE_CHICKEN_PC, 0, 0, 0, 0 },
-    { KEY_6, "6", "Underground",     TITLE_UNDER_PC,   0, 0, 0, 0 },
-    { KEY_7, "7", "Giant Ant",       TITLE_ANT_PC,     0, 0, 0, 0 },
-    { KEY_W, "W", "Win Ending",      TITLE_END_PC,     0, 0, 0, 1 },
-    { KEY_C, "C", "Nest Collapse",   TITLE_END_PC,     0, 0, 0, 2 },
-    { KEY_T, "T", "Time Ran Out",    TITLE_END_PC,     0, 0, 0, 3 }
+    { KEY_1, "1", "Fight",           TITLE_ENTRY_FIGHT,    0, 0, 0, 0 },
+    { KEY_2, "2", "Take a Flight",   TITLE_ENTRY_FLIGHT,   1, 6, 0, 0 }, /* 6 = the dispatcher's own argument */
+    { KEY_3, "3", "Fire Game",       TITLE_ENTRY_FIRE,     0, 0, 0, 0 },
+    { KEY_4, "4", "Escape Hospital", TITLE_ENTRY_HOSPITAL, 0, 0, 0, 0 },
+    { KEY_5, "5", "Chicken Race",    TITLE_ENTRY_CHICKEN,  0, 0, 0, 0 },
+    { KEY_6, "6", "Underground",     TITLE_ENTRY_UNDER,    0, 0, 0, 0 },
+    { KEY_7, "7", "Giant Ant",       TITLE_ENTRY_ANT,      0, 0, 0, 0 },
+    { KEY_W, "W", "Win Ending",      TITLE_ENTRY_END,      0, 0, 0, 1 },
+    { KEY_C, "C", "Nest Collapse",   TITLE_ENTRY_END,      0, 0, 0, 2 },
+    { KEY_T, "T", "Time Ran Out",    TITLE_ENTRY_END,      0, 0, 0, 3 }
 };
+
+/* The running program's entry for a scene row, or 0 when it has no such scene (the add-on has no
+ * fire game). A key whose entry is 0 is not offered and does not start anything. */
+static u32 title_entry_pc(title_entry entry)
+{
+    switch (entry)
+    {
+    case TITLE_ENTRY_FIGHT:    return SCENE_FIGHT_PC;
+    case TITLE_ENTRY_FLIGHT:   return SCENE_FLIGHT_PC;
+    case TITLE_ENTRY_FIRE:     return SCENE_FIRE_PC;
+    case TITLE_ENTRY_HOSPITAL: return SCENE_HOSPITAL_PC;
+    case TITLE_ENTRY_CHICKEN:  return TITLE_CHICKEN_PC;
+    case TITLE_ENTRY_UNDER:    return TITLE_UNDER_PC;
+    case TITLE_ENTRY_ANT:      return TITLE_ANT_PC;
+    case TITLE_ENTRY_END:      return TITLE_END_PC;
+    }
+    return 0;
+}
 
 #define TITLE_SCENE_COUNT ((int)(sizeof g_scenes / sizeof g_scenes[0]))
 
-/* What title_play() picked: 0 leaves the game, 1 is the intro, 2 loads a save, 3 + n is scene n. */
-#define TITLE_PICK_QUIT   0
-#define TITLE_PICK_INTRO  1
-#define TITLE_PICK_LOAD   2
-#define TITLE_PICK_SCENE  3
+/* What title_play() picked: 0 leaves the game, 1 is the intro, 2 loads a save, 3 + n is scene n,
+ * and TITLE_PICK_ANTHEADS starts the add-on's game - the fifth button, which is New Game for the
+ * other build. */
+#define TITLE_PICK_QUIT     0
+#define TITLE_PICK_INTRO    1
+#define TITLE_PICK_LOAD     2
+#define TITLE_PICK_SCENE    3
+#define TITLE_PICK_ANTHEADS 100            /* past every scene index (3 + n) */
 /* --titlekey's values for the menu's New Game, Load Game and Settings buttons, past the scenes and
- * endings - and the menu itself, for a run whose --mouse script does the clicking. */
+ * endings - and the menu itself, for a run whose --mouse script does the clicking - and the fifth
+ * button, which plays the add-on (docs\antheads.md). */
 #define TITLE_KEY_LOAD     11
 #define TITLE_KEY_NEW_GAME 12
 #define TITLE_KEY_SETTINGS 13
 #define TITLE_KEY_MENU     14
+#define TITLE_KEY_ADDON    15
 
 /* Quit Game shows where the successor lives for ten seconds before the application ends, so a
  * click is not an instant disappearance. The notice is the game's own font on black - port art,
@@ -242,7 +282,9 @@ static int g_ticks;                      /* menu frames run since the title came
 static u32 g_popOnReturn;                /* argument bytes the injected call's caller would pop */
 static int g_clockVbi;                   /* the world loop's clock VBI is installed (once) */
 static int g_playMode;                   /* this session is a played game: Esc restarts it */
-static int g_restart;                    /* Esc asked the front end for a fresh boot */
+static int g_restart;                    /* Esc or the fifth button asked the front end for a boot */
+static int g_switchTo = -1;              /* ... and which program that boot is to run (-1: the same) */
+static int g_playOnBoot;                 /* ... and whether it goes straight into that game */
 static int g_wantLoad;                   /* the menu chose Load Game: the load screen answers yes */
 static int g_fromMenu;                   /* the pick was the player's, not --titlekey's */
 
@@ -254,13 +296,30 @@ void host_title_arm(int on)
     g_ticks = 0;
     g_clockVbi = 0;                      /* a fresh machine has no clock VBI installed */
     g_playMode = on;                     /* Esc restarts a played game, never a measurement */
+    g_switchTo = -1;                     /* a boot has not been asked to switch build */
+    g_playOnBoot = 0;
     g_wantLoad = 0;
     g_fromMenu = 0;
     g_scriptMenu = 0;
     /* The intro's setup is reached inside a translated function (the mode dispatcher runs it as a
      * block), so there is no call boundary to catch: ask the dispatch to hand the program back
      * before that instruction runs. Cleared again as soon as the title is done with it. */
-    rc_breakPc = on ? TITLE_HOLD_PC : 0;
+    rc_breakPc = on ? RC_ADDR(TITLE_HOLD_PC) : 0;
+}
+
+void host_title_new_game(void)
+{
+    /* A program booted for the menu's "Play Antheads": its own intro is what the player asked for,
+     * so nothing of the menu runs on this machine - no hold at the intro's setup, no score of ours
+     * loaded and freed again (which is also what perturbed the add-on's own sound loader: parking
+     * it at 0xAC3C and calling into it left a stack word the loader reads before writing it), and
+     * no keyboard. The one thing the port still owns here is the engine's YES/NO load screen, which
+     * the boot loop runs once the intro is over and which asks whether to restore a save: the menu
+     * has already answered that, so the title answers "no" the moment the prompt is reached and the
+     * game continues into itself. */
+    g_state = TITLE_PROMPT;
+    g_wantLoad = 0;
+    rc_breakPc = RC_ADDR(TITLE_LOAD_PROMPT);
 }
 
 void host_title_key(int n)
@@ -277,12 +336,19 @@ void host_title_key(int n)
  * has to mean: the title is a host menu parked at the intro's setup, and nothing of the old
  * session's stack, heap or banks can survive into it. The stop is forced twice: m->stop leaves the
  * stream at the next function boundary, and rc_stopAt unwinds a translated busy loop that would
- * never reach one. */
+ * never reach one.
+ *
+ * The title belongs to the port, not to a build: it is always drawn on the 1989 program's hold
+ * point, and its two game entries pick the build. So Escape from an add-on session boots the 1989
+ * program again and the player gets the same menu he started from - with both games on it, and
+ * with the save slots they share (docs\antheads.md). */
 void host_title_escape(rt_machine *m)
 {
     if (!g_playMode) { m->stop = 1; return; }   /* a measurement: the front end's old stop */
     if (g_restart) return;
     g_restart = 1;
+    g_switchTo = HOST_PROGRAM_ORIGINAL;
+    g_playOnBoot = 0;                    /* back to the menu, not into a game */
     m->stop = 1;
     rc_stopAt = (long)m->insns + 1;
 }
@@ -292,6 +358,20 @@ int host_title_restart_pending(void)
     int r = g_restart;
     g_restart = 0;
     return r;
+}
+
+int host_title_restart_program(void)
+{
+    int p = g_switchTo;
+    g_switchTo = -1;
+    return p;
+}
+
+int host_title_restart_play(void)
+{
+    int p = g_playOnBoot;
+    g_playOnBoot = 0;
+    return p;
 }
 
 /* Enters `pc` the way a caller would: its stack arguments, then the return address on top, so the
@@ -321,7 +401,7 @@ static void title_tick(rt_machine *m)
     oracle_tick(m);                      /* vblank, interrupt servers, one frame */
 }
 
-/* The art, then either the four buttons, the load game view (slots != 0) or the settings view
+/* The art, then either the buttons, the load game view (slots != 0) or the settings view
  * (settings != 0). */
 static void title_draw(rt_machine *m, const title_menu *menu, const title_slots *slots,
                        const title_settings *settings)
@@ -414,15 +494,17 @@ static void title_quit_notice(rt_machine *m)
            (long)m->frame - start, (unsigned long)m->frame);
 }
 
-/* The debug keys, on the console: the four menu entries are drawn on the title itself, but the
- * scenes and endings have no button, so this line is where those keys are written down. */
+/* The debug keys, on the console: the menu entries are drawn on the title itself, but the
+ * scenes and endings have no button, so this line is where those keys are written down. A scene the
+ * running program does not have is not listed - the add-on's list has no "3 Fire Game". */
 static void title_keys(void)
 {
     int i;
 
     printf("title: fire or 0 starts the game;");
     for (i = 0; i < TITLE_SCENE_COUNT; i++)
-        printf("  %s %s", g_scenes[i].keyName, g_scenes[i].name);
+        if (title_entry_pc(g_scenes[i].entry) != 0)
+            printf("  %s %s", g_scenes[i].keyName, g_scenes[i].name);
     printf("\n");
 }
 
@@ -519,9 +601,20 @@ static int title_play(rt_machine *m)
     int quitNotice = 0;                  /* the pick was a click on Quit Game */
     long scriptFrames = 0;
 
-    title_menu_init(&menu);
+    title_menu_init(&menu, host_title_addon(m), seam_is_addon());
     title_slots_init(&slots);
     title_settings_init(&settings, m, (int)plat_has_fullscreen());
+    {
+        /* The menu's rectangles on the console: a check asserts them instead of a picture, and it
+         * is where "four buttons without the add-on, five with it" is visible in a log. */
+        int i;
+
+        printf("title: menu: %d button(s)", menu.count);
+        for (i = 0; i < menu.count; i++)
+            printf("; %s %d,%d %dx%d", menu.buttons[i].label, menu.buttons[i].x,
+                   menu.buttons[i].y, menu.buttons[i].w, menu.buttons[i].h);
+        printf("\n");
+    }
     m->on_frame = 0;                     /* the title owns the keyboard ... */
     m->on_present = 0;                   /* ... and the screen */
     while (pick < 0)
@@ -580,7 +673,7 @@ static int title_play(rt_machine *m)
         else if (showSlots)
         {
             /* Load Game's view: an empty slot is inert, a slot with a save loads itself, and Back
-             * puts the four buttons back. Fire and the scene keys belong to the main menu only. */
+             * puts the buttons back. Fire and the scene keys belong to the main menu only. */
             if (in.mouse_left_pressed)
             {
                 if (slots.back_hover)
@@ -618,7 +711,7 @@ static int title_play(rt_machine *m)
                 }
                 else if (b->action == TITLE_ACTION_SETTINGS)
                 {
-                    /* The four buttons go; the options and Back take their place. */
+                    /* The buttons go; the options and Back take their place. */
                     title_settings_open(m, &settings);
                     showSettings = 1;
                     menu.hover = -1;
@@ -627,6 +720,13 @@ static int title_play(rt_machine *m)
                 {
                     pick = TITLE_PICK_QUIT;
                     quitNotice = 1;
+                }
+                else if (b->action == TITLE_ACTION_ANTHEADS)
+                {
+                    /* New Game for the other build: the game starts, the menu does not come back
+                     * (docs\antheads.md). */
+                    pick = TITLE_PICK_ANTHEADS;
+                    printf("title: playing Antheads (frame %lu)\n", (unsigned long)m->frame);
                 }
                 if (pick >= 0) g_fromMenu = 1;
             }
@@ -637,8 +737,10 @@ static int title_play(rt_machine *m)
             }
             for (i = 0; i < TITLE_SCENE_COUNT && pick < 0; i++)
                 /* Ctrl+W is the minigame cheat (src\host\cheat.c), so it must not also take the W
-                 * ending here; W alone still does. */
+                 * ending here; W alone still does. A scene the program has no entry for is not
+                 * offered at all (the add-on's "3" starts nothing). */
                 if (in.pressed[g_scenes[i].key] &&
+                    title_entry_pc(g_scenes[i].entry) != 0 &&
                     !(g_scenes[i].key == KEY_W && in.down[KEY_CTRL]))
                     pick = TITLE_PICK_SCENE + i;
             if (g_virtualKey >= 0 && pick < 0 && g_ticks > 0) /* --titlekey: a scripted choice */
@@ -646,7 +748,17 @@ static int title_play(rt_machine *m)
                 int k = g_virtualKey;
                 g_virtualKey = -1;
                 if (k == 0) pick = TITLE_PICK_INTRO;
-                else if (k <= TITLE_SCENE_COUNT) pick = TITLE_PICK_SCENE + (k - 1);
+                else if (k <= TITLE_SCENE_COUNT &&
+                         title_entry_pc(g_scenes[k - 1].entry) != 0)
+                    pick = TITLE_PICK_SCENE + (k - 1);
+                else if (k <= TITLE_SCENE_COUNT)
+                {
+                    /* A scene this program does not have: say so and end the run rather than
+                     * waiting for a game that can never start. */
+                    printf("title: --titlekey %d is \"%s\", which this program has no entry for\n",
+                           k, g_scenes[k - 1].name);
+                    pick = TITLE_PICK_QUIT;
+                }
                 else if (k == TITLE_KEY_LOAD || k == TITLE_KEY_NEW_GAME)
                 {
                     /* The Load Game / New Game buttons, for a scripted run: the menu path (the
@@ -666,6 +778,26 @@ static int title_play(rt_machine *m)
                 {
                     /* The menu itself: the run's --mouse script clicks the buttons. */
                     g_scriptMenu = 1;
+                }
+                else if (k == TITLE_KEY_ADDON)
+                {
+                    /* The fifth button: the add-on's game. A data folder without its tree has no
+                     * such button, and a game already running the add-on does not offer it - either
+                     * way a scripted run says so instead of waiting for a button that is not
+                     * drawn. */
+                    if (host_title_addon(m) && !seam_is_addon())
+                    {
+                        printf("title: playing Antheads (frame %lu)\n",
+                               (unsigned long)m->frame);
+                        pick = TITLE_PICK_ANTHEADS;
+                        g_fromMenu = 1;
+                    }
+                    else
+                    {
+                        printf("title: --titlekey %d is the add-on's game, which this run does not "
+                               "offer\n", TITLE_KEY_ADDON);
+                        pick = TITLE_PICK_QUIT;
+                    }
                 }
                 else pick = TITLE_PICK_QUIT;    /* no such key: a scripted run must not wait for one */
             }
@@ -687,7 +819,7 @@ static int title_play(rt_machine *m)
 
 int host_title_check(rt_machine *m, u32 pc)
 {
-    if (g_state == TITLE_SKIP_INTRO && pc == TITLE_INTRO_RUN)
+    if (g_state == TITLE_SKIP_INTRO && pc == RC_ADDR(TITLE_INTRO_RUN))
     {
         /* Load Game: the intro's setup is running and is about to enter the intro scene. Skip that
          * one call - the arguments it was given are dropped by the `lea (0x10,A7),A7` at
@@ -695,17 +827,17 @@ int host_title_check(rt_machine *m, u32 pc)
         u32 r[18];
 
         oracle_regs_get(r);
-        r[REGS_PC] = TITLE_INTRO_SKIP;
+        r[REGS_PC] = RC_ADDR(TITLE_INTRO_SKIP);
         oracle_regs_set(r);
         host_regs_sync(m);
         host_loading_hold(m);       /* the intro is skipped: the game starts building now */
         printf("title: skipping the intro (frame %lu)\n", (unsigned long)m->frame);
         g_state = TITLE_PROMPT;
-        rc_breakPc = TITLE_LOAD_PROMPT;
+        rc_breakPc = RC_ADDR(TITLE_LOAD_PROMPT);
         return 1;
     }
 
-    if (g_state == TITLE_PROMPT && pc == TITLE_LOAD_PROMPT)
+    if (g_state == TITLE_PROMPT && pc == RC_ADDR(TITLE_LOAD_PROMPT))
     {
         /* The intro is over and the boot loop is about to run the engine's YES/NO load screen.
          * The decision it asks for was taken on the title, so hand it the answer the prompt would
@@ -716,7 +848,7 @@ int host_title_check(rt_machine *m, u32 pc)
 
         oracle_regs_get(r);
         r[REGS_D + 0] = g_wantLoad ? 1u : 0u;
-        r[REGS_PC] = TITLE_LOAD_ANSWER;
+        r[REGS_PC] = RC_ADDR(TITLE_LOAD_ANSWER);
         oracle_regs_set(r);
         host_regs_sync(m);
         /* The save is about to be read back into the image; its pause word is the port's, not the
@@ -732,7 +864,7 @@ int host_title_check(rt_machine *m, u32 pc)
         return 1;
     }
 
-    if (g_state == TITLE_OFF || pc != TITLE_HOLD_PC) return 0;
+    if (g_state == TITLE_OFF || pc != RC_ADDR(TITLE_HOLD_PC)) return 0;
 
     if (g_popOnReturn != 0)
     {
@@ -757,14 +889,15 @@ int host_title_check(rt_machine *m, u32 pc)
          * FUN_0000E804 returns immediately while DAT_00023C58 (a score is loaded) is set, so a
          * scene's leftover score would keep the title silent, and the title's would keep the scene
          * silent. On the first engage nothing is loaded and this call does nothing. */
-        title_call(m, TITLE_UNLOAD_PC, pc, 0, 0, 0);
+        title_call(m, RC_ADDR(TITLE_UNLOAD_PC), pc, 0, 0, 0);
         g_state = TITLE_LOAD;
         return 1;
     }
 
     if (g_state == TITLE_LOAD)
     {
-        title_call(m, TITLE_SCORE_PC, pc, 2, TITLE_SCORE_DESC, 0xFFFFFFFFu);  /* loop for ever */
+        title_call(m, RC_ADDR(TITLE_SCORE_PC), pc, 2, RC_ADDR(TITLE_SCORE_DESC),
+                   0xFFFFFFFFu);                                        /* loop for ever */
         g_state = TITLE_PLAYING;
         printf("title: the map screen's score starts under the title\n");
         return 1;
@@ -773,19 +906,31 @@ int host_title_check(rt_machine *m, u32 pc)
     if (g_state == TITLE_LAUNCH)
     {
         const title_scene *s = &g_scenes[g_pick];
+        u32 entry = title_entry_pc(s->entry);
+
+        if (entry == 0)
+        {
+            /* This program has no such scene (the add-on has no fire game): nothing to enter, and
+             * the title stays up. Asked for by --titlekey, that ends the scripted run instead of
+             * waiting for a game that will never start. */
+            printf("title: the running program has no \"%s\" scene (frame %lu)\n",
+                   s->name, (unsigned long)m->frame);
+            g_state = TITLE_PLAYING;
+            return 1;
+        }
 
         /* The scene returns to this same instruction, and rc_breakPc stays armed so the dispatch
          * hands the program back here when it does - a translated stream runs on through an rts
          * (`rc_ret` only sets rc_returned), so without the break the program would simply continue
          * into the intro's setup and the title would never come back. */
-        if (s->entry == TITLE_CHICKEN_PC)
+        if (s->entry == TITLE_ENTRY_CHICKEN)
         {
             /* The race's caller (FUN_0001CC2E) sets the swerve window from the encounter count
              * before running it; a race entered from the title is the first one. */
-            rt_write16(&m->mem, TITLE_SWERVE_PC, 0x0078u);
-            rt_write16(&m->mem, TITLE_SWERVE_END, 0x0104u);
+            rt_write16(&m->mem, RC_ADDR(TITLE_SWERVE_PC), 0x0078u);
+            rt_write16(&m->mem, RC_ADDR(TITLE_SWERVE_END), 0x0104u);
         }
-        if (s->entry == TITLE_ANT_PC)
+        if (s->entry == TITLE_ENTRY_ANT)
         {
             /* The room's own state, every launch. The clock VBI is the world loop's, installed
              * once and left installed (the engine keeps it for the whole session); a second
@@ -793,21 +938,21 @@ int host_title_check(rt_machine *m, u32 pc)
             const char *name = "!B12";
             int i;
 
-            rt_write16(&m->mem, TITLE_LOCATION_PC, TITLE_ANT_LOC);
-            rt_write16(&m->mem, TITLE_ROOM_PC, TITLE_ANT_ROOM);
+            rt_write16(&m->mem, RC_ADDR(TITLE_LOCATION_PC), TITLE_ANT_LOC);
+            rt_write16(&m->mem, RC_ADDR(TITLE_ROOM_PC), TITLE_ANT_ROOM);
             for (i = 0; name[i] != 0; i++)
-                rt_write8(&m->mem, TITLE_ROOM_NAME + (u32)i, (u32)(u8)name[i]);
-            rt_write8(&m->mem, TITLE_ROOM_NAME + (u32)i, 0);
+                rt_write8(&m->mem, RC_ADDR(TITLE_ROOM_NAME) + (u32)i, (u32)(u8)name[i]);
+            rt_write8(&m->mem, RC_ADDR(TITLE_ROOM_NAME) + (u32)i, 0);
             if (!g_clockVbi)
             {
                 g_clockVbi = 1;
-                title_call(m, TITLE_CLOCKVBI_PC, pc, 0, 0, 0);   /* returns here */
+                title_call(m, RC_ADDR(TITLE_CLOCKVBI_PC), pc, 0, 0, 0);   /* returns here */
                 return 1;
             }
         }
         if (s->ending != 0)
-            rt_write16(&m->mem, TITLE_END_FLAG, s->ending);      /* the word FUN_0000A4D6 reads */
-        title_call(m, s->entry, pc, s->nargs, s->arg0, s->arg1);
+            rt_write16(&m->mem, RC_ADDR(TITLE_END_FLAG), s->ending);  /* the word FUN_0000A4D6 reads */
+        title_call(m, RC_ADDR(entry), pc, s->nargs, s->arg0, s->arg1);
         printf("title: %s at frame %lu\n", s->name, (unsigned long)m->frame);
         if (s->ending != 0)
             printf("title: ending %u\n", (unsigned)s->ending);
@@ -819,12 +964,30 @@ int host_title_check(rt_machine *m, u32 pc)
      * does the same thing at FUN_0000bfca: FUN_00009cf2(&"Overhead2.tiny") and then 100 into the
      * music block, so the title sounds exactly as loud as the map screen does. */
     {
-        u32 block = rt_read32(&m->mem, TITLE_MUSIC_BLOCK);
+        u32 block = rt_read32(&m->mem, RC_ADDR(TITLE_MUSIC_BLOCK));
         int pick;
 
         if (block != 0) rt_write16(&m->mem, block, 100);
         title_keys();
         pick = title_play(m);
+        if (pick == TITLE_PICK_ANTHEADS)
+        {
+            /* Play Antheads: the add-on's game, from the same menu. The add-on is another program,
+             * so this is a boot of the machine with that image - a game start, not a screen: the
+             * front end boots it and hands the new machine to host_title_new_game(), which lets
+             * the add-on's own intro run from the very start and only answers the load screen at
+             * its end. The player never sees a menu of the add-on's own, and nothing of this
+             * session survives into it - which is why the stop is forced twice, as
+             * host_title_escape() does. */
+            g_switchTo = HOST_PROGRAM_ANT;
+            g_playOnBoot = 1;
+            g_restart = 1;
+            m->stop = 1;
+            rc_stopAt = (long)m->insns + 1;
+            g_state = TITLE_OFF;
+            rc_breakPc = 0;
+            return 1;
+        }
         if (pick == TITLE_PICK_QUIT)
         {
             m->stop = 1;
@@ -837,7 +1000,7 @@ int host_title_check(rt_machine *m, u32 pc)
             /* A new game or a loaded one replaces the clock the freeze was holding: it starts
              * running from the date and time the game (or the save) has. */
             host_time_freeze_reset();
-            title_call(m, TITLE_UNLOAD_PC, pc, 0, 0, 0);  /* the engine gets the score back */
+            title_call(m, RC_ADDR(TITLE_UNLOAD_PC), pc, 0, 0, 0);  /* the engine gets the score back */
             if (pick == TITLE_PICK_INTRO)
                 printf("title: starting the game (frame %lu)\n", (unsigned long)m->frame);
             else
@@ -852,7 +1015,7 @@ int host_title_check(rt_machine *m, u32 pc)
                  * The setup is what loads the resources the restored state expects, so it runs
                  * either way. */
                 g_state = g_wantLoad ? TITLE_SKIP_INTRO : TITLE_PROMPT;
-                rc_breakPc = g_wantLoad ? TITLE_INTRO_RUN : TITLE_LOAD_PROMPT;
+                rc_breakPc = g_wantLoad ? RC_ADDR(TITLE_INTRO_RUN) : RC_ADDR(TITLE_LOAD_PROMPT);
             }
             else
             {
@@ -864,7 +1027,7 @@ int host_title_check(rt_machine *m, u32 pc)
         /* A minigame: free the map's score first, exactly as the dispatcher does, then enter it on
          * the next pass through this point. */
         g_pick = pick - TITLE_PICK_SCENE;
-        title_call(m, TITLE_UNLOAD_PC, pc, 0, 0, 0);
+        title_call(m, RC_ADDR(TITLE_UNLOAD_PC), pc, 0, 0, 0);
         g_state = TITLE_LAUNCH;
         return 1;
     }

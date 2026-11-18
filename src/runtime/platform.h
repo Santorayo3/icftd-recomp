@@ -136,6 +136,21 @@ void plat_audio_close(void);
 void plat_audio_write(const s16 *frames, u32 count);
 u32  plat_audio_dropped(void);
 
+/* The device's own fault path. A platform is free to lose its device while the machine runs on (a
+ * default-endpoint change, an exclusive-mode grab, a driver that stops completing buffers); what it
+ * must not do is stay silent for the rest of the run. A platform that notices a stopped device
+ * restarts it here and counts it, and `--audiostall` can make the n-th submitted buffer never
+ * complete, so the recovery is testable without breaking a real device. */
+u32  plat_audio_stalls(void);
+u32  plat_audio_reopens(void);
+void plat_audio_simulate_stall(u32 afterBuffers);
+
+/* A note for the platform's audio fault log: the host uses it for the machine-side facts - when the
+ * game freed its score - so one file can hold both halves of a silence. The platform keeps the notes
+ * and writes them in front of a fault, or when the session ends; a run with nothing to report leaves
+ * no file, and a platform with no log ignores them. */
+void plat_audio_log(const char *text);
+
 /* Bytes the device has consumed since it opened (0 when it cannot report it). */
 u32  plat_audio_played(void);/* Frames that began with the ring empty: the card had nothing to play and repeated its buffer. */
 u32 plat_audio_starved(void);

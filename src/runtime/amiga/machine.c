@@ -18,8 +18,9 @@ rt_machine *rt_current = 0;
 
 /* --- host filesystem behind dos.library ---------------------------------------------------- */
 /* The game asks for AmigaDOS names like "Desert1:OPEN". The extracted disk folders on the host
- * hold exactly those files, so a volume becomes a directory: Desert1 -> <dataDir>\disk1. A real
- * OFS/FFS reader over the ADFs replaces this later; the shim interface will not change. */
+ * hold exactly those files, so a volume becomes a directory: Desert1 -> <dataDir>\disk1 - or
+ * \ant1 when the add-on is the program running (m->tree). A real OFS/FFS reader over the ADFs
+ * replaces this later; the shim interface will not change. */
 
 static int rt_volume_index(const char *name)
 {
@@ -61,10 +62,13 @@ static void rt_save_ensure(rt_machine *m, char *out, int max)
 
 /* Whether a slot holds a save. The directory being empty is the common case, but the engine's own
  * "no save yet" path writes a one-byte placeholder into the slot before it opens the file for
- * reading (FUN_0000067c), so a file shorter than EMU_SAVE_BYTES is a placeholder, not a save. */
+ * reading (FUN_0000067c), so a file shorter than the save of the engine being run is a placeholder,
+ * not a save. */
 int rt_save_slot_empty(const rt_machine *m, int slot)
 {
     const char *dir = m->saveDir != 0 ? m->saveDir : "saves";
+    const char *file = m->saveName != 0 ? m->saveName : "ICFTD";
+    u32 want = m->saveBytes != 0 ? m->saveBytes : EMU_SAVE_BYTES;
     char path[288];
     plat_file *f;
     u32 size;
@@ -72,12 +76,12 @@ int rt_save_slot_empty(const rt_machine *m, int slot)
     if ((int)strlen(plat_exe_dir()) + (int)strlen(dir) + 32 >= (int)sizeof(path)) return 1;
     sprintf(path, "%s\\%s\\slot%d", plat_exe_dir(), dir, slot);
     if (plat_dir_empty(path)) return 1;
-    sprintf(path, "%s\\%s\\slot%d\\ICFTD", plat_exe_dir(), dir, slot);
+    sprintf(path, "%s\\%s\\slot%d\\%s", plat_exe_dir(), dir, slot, file);
     f = plat_open(path);
     if (f == 0) return 1;
     size = plat_size(f);
     plat_close(f);
-    return size < EMU_SAVE_BYTES ? 1 : 0;
+    return size < want ? 1 : 0;
 }
 
 /* Splits an AmigaDOS name into the disk it belongs to and the path inside it. Only Desert1..3
@@ -144,7 +148,7 @@ static int rt_exists(rt_machine *m, const char *name)
     rt_split_name(full, rel, (int)sizeof(rel), &vol);
     if (rel[0] == 0)                            /* a volume on its own: its directory */
     {
-        if (vol >= 0) sprintf(path, "%s\\disk%d", m->dataDir, vol + 1);
+        if (vol >= 0) sprintf(path, "%s\\%s%d", m->dataDir, m->tree, vol + 1);
         else if (vol == -2)
         {
             rt_save_ensure(m, path, (int)sizeof(path));
@@ -163,14 +167,14 @@ static int rt_exists(rt_machine *m, const char *name)
     }
     if (vol >= 0)
     {
-        sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
+        sprintf(path, "%s\\%s%d\\%s", m->dataDir, m->tree, vol + 1, rel);
         if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
     }
     sprintf(path, "%s\\%s", m->dataDir, rel);
     if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
     for (d = 1; d <= 3; d++)                    /* the file may sit on another disk */
     {
-        sprintf(path, "%s\\disk%d\\%s", m->dataDir, d, rel);
+        sprintf(path, "%s\\%s%d\\%s", m->dataDir, m->tree, d, rel);
         if (plat_path_kind(path) != PLAT_PATH_MISSING) return 1;
     }
     return 0;
@@ -273,7 +277,7 @@ static u32 rt_file_open(rt_machine *m, const char *name, int mode)
     }
 
     if (vol >= 0)
-        sprintf(path, "%s\\disk%d\\%s", m->dataDir, vol + 1, rel);
+        sprintf(path, "%s\\%s%d\\%s", m->dataDir, m->tree, vol + 1, rel);
     else
         sprintf(path, "%s\\%s", m->dataDir, rel);
 
@@ -283,7 +287,7 @@ static u32 rt_file_open(rt_machine *m, const char *name, int mode)
         int d;
         for (d = 1; d <= 3 && m->files[slot].f == 0; d++)
         {
-            sprintf(path, "%s\\disk%d\\%s", m->dataDir, d, rel);
+            sprintf(path, "%s\\%s%d\\%s", m->dataDir, m->tree, d, rel);
             m->files[slot].f = plat_open(path);
         }
     }
@@ -352,7 +356,8 @@ static void rt_file_close(rt_machine *m, u32 fh)
      * as "Unresolvable file read/write error!". */
     if (f->addr != 0) rt_free(f->addr);
     f->addr = 0;
-    if (f->writable && f->inSaveDir && f->pos >= EMU_SAVE_BYTES)
+    if (f->writable && f->inSaveDir &&
+        f->pos >= (m->saveBytes != 0 ? m->saveBytes : EMU_SAVE_BYTES))
     {
         /* A completed save: the icon in the top right corner is the only feedback the player
          * gets, because the engine writes the file silently. The size matters - when the load
@@ -818,7 +823,7 @@ static u8 *rt_host_file(rt_machine *m, const char *rel, u32 *outSize)
     for (d = 0; d <= 3 && !found; d++)
     {
         if (d == 0) sprintf(path, "%s\\%s", m->dataDir, rel);
-        else sprintf(path, "%s\\disk%lu\\%s", m->dataDir, (unsigned long)d, rel);
+        else sprintf(path, "%s\\%s%lu\\%s", m->dataDir, m->tree, (unsigned long)d, rel);
         f = plat_open(path);
         found = f != 0;
         if (!found) continue;
@@ -1677,9 +1682,16 @@ int rt_init(rt_machine *m)
      * axis and the XOR of the two bit pairs as the horizontal one, so 0xFFFF read as "down". */
     m->joy0 = 0x0000u;
     m->joy1 = 0x0000u;
-    /* Save slots: the player cycles them with F1..F5, so there is nothing to configure. */
+    /* Save slots: the player cycles them with F1..F5, so there is nothing to configure. The file
+     * name and size belong to the engine build; the front end overwrites them with its program's
+     * when it boots. */
     m->saveSlot = 1;
     m->saveDir = "saves";
+    m->saveName = "ICFTD";
+    m->saveBytes = EMU_SAVE_BYTES;
+    /* The 1989 game's files are in disk1..3; a front end booting the add-on overwrites this with
+     * "ant" for the tree beside it (docs\antheads.md §4.2). */
+    m->tree = "disk";
     /* AbsExecBase: the cstart does `movea.l 4.w,a6` and stores it where it needs it, exactly
      * like on the real machine. */
     rt_write32(&m->mem, 4, m->libraryBase[0]);

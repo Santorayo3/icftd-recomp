@@ -35,12 +35,15 @@
 #include "../recomp/cpu.h"
 #include "machine.h"
 #include "save_button.h"
+#include "seams.h"
 
-/* Image offsets; RC_ADDR adds the build's load address. */
-#define SAVE_DRAW_PC   0x0001DBD0u  /* FUN_0001dbd0: Move_DrawNode(node, x, y, flags) */
-#define SAVE_ASSET     0x0002682Cu  /* DAT_0002682c: the map's SVGM asset             */
-#define SAVE_SCREEN_W  0x140        /* the map screen's width, FUN_00003912's clamp   */
-#define SAVE_SCREEN_H  0x00026618u  /* DAT_00026618: ... and its height, word         */
+/* The renderer's entry, the map's SVGM asset and the screen's height are rows of the seam table
+ * (src\host\seams.c); RC_ADDR adds the build's load address. SAVE_SCREEN_W is the map's own
+ * rectangle in the bitmap and is the same in both builds. */
+
+/* The map's own rectangle in the bitmap. SAVE_SCREEN_W is the width FUN_00003912 clamps the
+ * selection box to and is the same in both builds; the height is the engine's own word. */
+#define SAVE_SCREEN_W  0x140
 
 /* The words of docs\structs.md's move_node, move_asset and move_bitmap. */
 #define NODE_ASSET     0x04u

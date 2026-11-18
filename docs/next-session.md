@@ -17,6 +17,185 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## Antheads, phase 6: "Play Antheads" on the title menu (2026-11-18)
+
+Phase 6 of [`antheads.md`](antheads.md) is done, in the shape the session asked for: the title menu
+is *one* menu and its entries are two games. **New Game** plays the 1989 game, **Play Antheads**
+plays the add-on; neither is a mode switch, and nothing ever drops the player back on a menu between
+the click and the game.
+
+**Two layouts, one gate.** `title_button.c` has a four- and a five-button table and
+`title_menu_init(menu, addon, addonRunning)` picks one: 85/106/127/164 (today's rows) or
+84/103/122/141/164 with `Play Antheads` in the gap and Quit Game keeping its place at the bottom of
+the panel. The gate is a front-end function, `host_title_addon(m)`: `main.c` answers from
+`rt_assets_addon_ready(m->dataDir, RT_ASSETS_WINDOWS)` (the add-on's own tree - its three folders and
+its image), `dos_main.c` answers 0 until that front end boots the add-on too (Phase 8), so the DOS
+menu stays the one it has. Nothing is behind an opt-in flag: a shipped launch with the add-on's
+disks shows five buttons. A game already running the add-on gets the four (its New Game plays it).
+
+**The menu is the port's, not a build's.** It is always drawn on the 1989 program's hold point, and
+Escape from either game boots that program again and shows it - so the player never needs a "back to
+the original" entry, and the slots stay what they are (shared, `ICFTD` / `ICFTD2`, which is what
+Phase 7's `(A)` marker is for).
+
+**A game start, not a screen.** `TITLE_ACTION_ANTHEADS` returns `TITLE_PICK_ANTHEADS`, which sets
+`m->stop` and `rc_stopAt` (the double stop `host_title_escape` uses) and leaves
+`g_switchTo = HOST_PROGRAM_ANT` + a "play on boot" flag. `main.c`'s existing restart block picks the
+add-on's table, image, save geometry and `m.tree`, boots the machine, and calls
+`host_title_new_game()`, which parks nothing and draws nothing: the add-on's own intro runs from
+frame 17 (`voice2`, `met`, `exp`), and the port answers only the engine's YES/NO load screen at the
+end of it ("a new game, nothing to load", frame 2140). Measured: one `title: menu:` line in the
+whole log, `A4 = 0x0002FAF6`, `recomp: restarting as Antheads`, and the player is in the intro.
+
+**Why the add-on must not be started from its own hold point.** The first cut did exactly that
+(park at 0xAC3C, load the map score, take New Game) and the add-on died at frame 22 with a divide by
+zero. The cause is the add-on's own 8SVX chunk finder `FUN_0000aeac`: it tests its loop flag at
+`(-0xe,A5)` **before writing it**, and the title's injected calls (the score unload, the return into
+the hold pc) leave a zero there. With a zero the "VHDR" search is skipped, the sample rate word
+stays 0 and `ldiv(0x369E99, 0)` traps at model 0x232BA (runtime 0x272BA) - the very `divu` Phase 5
+left open for the add-on's hospital. A natural boot has a non-zero word there, so the add-on's
+intro runs untouched when the port boots the program instead of parking it. No game code was
+changed; the trap is written down in `antheads.md` §8.
+
+**Checks.** `tools\title-check.ps1` (gate step 6) now asserts: both layouts rectangle by rectangle;
+the fifth button's *hit box* (a `--mouse` click at 266,110 plays the add-on with it present and
+opens Load Game without it - the rectangle *is* Load Game's in that layout); the boot with the
+add-on's own assets from `ant1`, one menu line and the answered load screen; Escape from an add-on
+game landing on the 1989 menu (`restarting as It Came from the Desert`, stop 0xD870); and, where a
+desktop gives the game a window, the drawn pixels - 73-px black top edges at 84/103/122/141/164 with
+the add-on and 85/106/127/164 without it, nothing where the other layout has a button.
+`tools\settings-check.ps1` (step 7) was the check the shift broke - Settings moves from y 127 to
+141 - so it now reads Settings' rectangle from the `title: menu: ...` line; `tools\quit-check.ps1`
+(step 19) is green unchanged (Quit Game does not move). Both front ends build; a windowed run was
+watched clicking Play Antheads and showing the add-on's intro.
+
+**Next: phase 7, saves and the "(A)" marker** - the add-on writes `ICFTD2` (13 014 bytes) where the
+1989 game writes `ICFTD` (12 444), the slots are shared, and the slot list has to show both.
+
+**Still open from phase 5, and now explained.** The add-on's *Escape Hospital* launched **from the
+add-on's own title** (`--program ant --titlekey 4`) still ends at frame 30 with a divide by zero, and
+the cause is the one Phase 6's trap names: the add-on's 8SVX chunk finder (`FUN_0000aeac`) tests its
+loop flag at `(-0xe,A5)` before writing it, and a launch that goes through the title's injected
+calls leaves a zero there - the "VHDR" search is skipped, the sample rate word stays 0, and
+`ldiv(0x369E99, 0)` traps at model 0x232BA (runtime 0x272BA). The `divu` is inside the image's own
+soft-library stub at model 0x232A6, called from `FUN_0000ad50` (an IFF 8SVX loader: "FORM"/"8SVX"/
+"VHDR"/"BODY" are the strings it compares), which divides the PAL clock by the VHDR's
+`samplesPerSec`. A natural boot has a non-zero word there, so the add-on's own game - and its
+hospital, reached from a room and not from the title - is untouched: the played path (Play Antheads)
+boots the program and never parks it at 0xAC3C. The digit-key seam keeps the trap; it is a
+diagnostic path, and it is worth one more look only if a played run is ever recorded up to the
+add-on's hospital.
+
+## Antheads, phase 5: one seam table, two programs (2026-11-18)
+
+Phase 5 of [`antheads.md`](antheads.md) is done: the port's engine addresses are no longer `#define`s
+scattered over eight files but one table with a row per engine build. `src\host\seams.h` declares
+`seam_set` (100 rows: 41 code points, 55 data words, the loading line's ranges and their count);
+`src\host\seams.c` holds the 1989 column and the add-on's, and `seam_active()` picks one by
+comparing `rc_active` with `rc_engine` (so it can never disagree with the program that is running,
+and the MS-DOS front end, which does not link the add-on's table yet, keeps working). The eight
+files' old names are macros onto the active row, so every call site kept its shape and its
+`RC_ADDR()`. Only two shapes had to change: `cheat.c`'s `switch` became an `if/else` chain (a `case`
+label must be constant), and the title's scene list now names a *row* (`title_entry`) instead of an
+address, because the row is resolved at run time. The loading line's load-only code ranges are rows
+too - left local they would have silently stopped matching in the add-on.
+
+**The bug this uncovered is the one the plan warned about.** `title.c` was the one seam file that
+stored *runtime* addresses. Moved into the table as model addresses, the fight and fire scene
+entries (0x0F46C, 0x0FE34) were off by exactly 0x4000: as *runtime* values they are the fight's and
+fire game's entries, as *model* values they are instructions inside other functions. `title-check`
+went red with "the scene never loaded Desert3:FIGHT", which is what it is for. The four scene
+entries are now table rows (`0xB46C->0xC974` fight, `0x107A6->0x11FF8` flight, `0x1819A->0x198D4`
+hospital, fire gone) and a key whose row is 0 is not offered: `--program ant --titlekey 3` says the
+add-on has no such scene instead of waiting.
+
+**Measurements.** Original and add-on boots are unchanged, register for register (3 000 199
+instructions / stop `0x22AE4` / 1061 rasters; add-on 3 000 262 / `0x24BE6` / 1074, A4 `0x2FAF6`), so
+the table is inert in a measurement. The MS-DOS front end builds with the table and boots under
+DOSBox (300 frames, 1 745 077 instructions). The port tier (`tools\gate.ps1 -Only port`) is green
+except `minigame cheat`, whose `Escape Hospital` case fails **identically on the pre-change tree**
+(checked by stashing the host sources and rebuilding: at `--cheat 600` neither tree fires, at 300
+both do) - the hospital's update is simply not called at that frame; a pre-existing property of that
+check, left alone and written down. The *core* tier's fixture steps now run again (`ref\fixtures` is
+partly present) and fail 13 of 21 cases, including a missing `ref\fixtures\sms\UANT.rec` - also
+pre-existing: this session touched no part of the interpreter or the exporter.
+
+In the add-on the seams are live where I could reach them: the title itself (hold, score, unload,
+music block), every scene key entering its own scene and loading its own bank (`Desert3:FIGHT` from
+`ant3`, `Desert1:UNDER` from `ant1`, `Desert3:BIGANT`, `tankidle`), a played run reaching the
+add-on's first room and 295 text-menu lines, then its situation map with the SAVE GAME mark pinned
+at 259,170 - which proves `TEXT_LINE_PC/RET`, `MENU_ACTION_PC/END`, `TEXT_RASTPORT`, `SAVE_DRAW_PC`
+and `SAVE_ASSET` in the add-on - and "Loading" appearing during the add-on's loads. All 41 code rows
+in both columns are also checked against the translated tables (every address the table holds is a
+`case` label in the program's own `fn_*.c`; a two-line script over `src\recomp\fn_*.c` and
+`src\recomp\ant\fn_*.c` redoes it) - a typo lands outside the model and is seen at once.
+
+**Open, for phase 6/7.** The add-on's *Escape Hospital*, started from the title, ends at frame 30
+with a divide-by-zero inside the image's own library stub (`divu` at runtime `0x272BA`); its six
+siblings run their budget, and the 1989 build reaches the same scene normally. Before the title's
+fifth button ships, measure what the add-on's hospital needs (a room's state? a library call the
+runtime does not shim?). The add-on's *map cursor, phone book, two aims, hospital camera, clock
+freeze and save picker* have no live add-on run yet either - their rows are the §6 measurements and
+the code path is the same one the 1989 checks exercise.
+
+**Next: phase 6, the title screen** - done in the section above (2026-11-18).
+
+## Antheads, phase 4: the add-on's disks are extracted beside the game's (2026-11-18)
+
+The 1990 add-on *It Came from the Desert II - Antheads* is a second build of the same engine and is
+being integrated as one executable with two programs. Phases 0–3 (measurements, an image-agnostic
+translator, the add-on translated into `src\recomp\ant\`, and a boot that selects it) were done
+under the plan in [`antheads.md`](antheads.md); this session did **phase 4, the second disk set**,
+and the plan file carries the measured notes for all four phases.
+
+**Two sets, same labels.** Both builds label their disks `Desert1..3`, so the label names the disk
+and nothing else. `src\runtime\assets.c` gained `disk_build()`: one measured marker per disk decides
+whose it is — `dshell` 170 972 bytes on disk 1 (1989: 160 332), `BACKS` 400 681 on disk 2 (388 436),
+`HOSP` 71 752 on disk 3 (60 349). The add-on is recognised *positively* and everything else stays
+the 1989 game, so a patched original set is still accepted exactly as it was; only a disk that is
+neither (no marker at all) is skipped, and a set that does not cover all three is refused before
+anything is written, as before. The add-on's three disks go to `ant1..3` (`ANT1..3` on DOS) and its
+program flattens to `ant\code\dshell4k\dshell.img` (`ANTSHEL.IMG`), 196 712 bytes, alongside the
+game's 185 752. The set is optional and never half-used: `rt_assets_addon_ready(dataDir, layout)` is
+all three folders plus the image (the image is written last, so a failed or interrupted add-on
+extraction is simply not used), and `rt_assets_ensure` extracts it only when all three disks are
+present — which is what the title's fifth button will key on in phase 6.
+
+**The bug this exposed, and which no bullet in the plan named.** A booted add-on could not read its
+own files: the dos.library shim maps every program's `DesertN:` to `<data>\diskN`, so the engine
+asked for `sfx/voice2` and got `Open("voice2",1006) failed: no disk holds sfx\voice2`. That is the
+port's own code (the original reads a real floppy), so it was fixed on its own terms rather than by
+moving the tree: `rt_machine` gained `tree` ("disk" / "ant"), `rt_init` defaults to `"disk"`, the
+front end sets `"ant"` from `g_program`, and `rt_exists`, `rt_file_open` and `rt_host_file` (the
+diskfont reader) use it. Measured, machine state not pictures: `--program ant --data export
+3000000` is **3 000 262 instructions, stop at `0x24BE6`, A4 = 0x2FAF6, 1074 rasters** — the
+oracle's numbers from the plan (§2) — and the 1989 run from the same tree is register-identical to
+the oracle's (3 000 199 instructions, stop `0x22AE4`, 1061 rasters), so the change is inert for the
+game.
+
+**One name map for both trees (DOS).** `NAMES.TXT` is one file for the whole data folder; the
+extractor records both trees' 8.3 renames into it, and a start that only adds the add-on reads the
+existing map back (`read_names`) so the game's entries survive. `tools\dos-pack.ps1 -Data` stages
+both trees from `export\` and writes the map with an explicit rule instead of `Sort-Object`: culture
+order puts `_` after letters and wrote `HD_INSTALL` before `HDINSTALL2`, the extractor's rule (skip
+`-` and `.`, compare code points) has it the other way — the two tools must produce the same bytes
+on any machine's culture. `tools\extract.ps1` splits the two sets as well (`export\disk1..3`,
+`export\ant1..3`, `export\ant\code\dshell4k`), because that tree is what the packer stages from.
+
+**Measured** (a port feature; there is no oracle for extraction, so the claim is the tooling
+agreement and the machine afterwards): Windows `--extract` writes 78 + 82 files, all six trees
+byte-identical to the exporter's; add-on only → the "Please put the three original …" message, exit
+1, nothing written; 3 originals + 1 add-on disk → the game's tree only, byte-identical to an
+originals-only run. `tools\dos-extract-check.ps1` is green in DOSBox with the add-on cases added:
+163 files byte-identical to `dos-pack.ps1 -Data` (both images, one map), the add-on arriving on a
+later start, one add-on image changing nothing, a second start extracting nothing, and the same
+300-frame RAM dump. The core gate (`tools\gate.ps1`) passes its build/patch/wait steps; its two
+fixture steps still fail for the documented reason (`ref\fixtures` is absent in this tree).
+
+**Next: phase 5, the seam table** — `src\host\seams.h` + `seams.c`, one row per program, the
+addresses from §6 of the plan. Note that `--data out\antscan\data` (phase 3's scratch tree, add-on
+files in `disk1..3`) no longer runs the add-on; use `--program ant --data export`.
+
 ## The chicken race is the same shape as the rest of the game (2026-11-17)
 
 Reported as "the chicken mini game seems to have a different aspect ratio than the rest of the game.
@@ -44,7 +223,7 @@ before (the 320x200 window is still the 1:1 fast path); the chicken's picture be
 client does, because a scene with a bigger screen would otherwise leave the previous picture in the
 bands it no longer covers.
 
-**Measured** with `tools\window-check.ps1` (the feature's own check, gate step 22), claim 9: a
+**Measured** with `tools\window-check.ps1` (the feature's own check, run by hand), claim 9: a
 `--titlekey 5` run at a 960x400 client - the 640x400 screen with the 368x216 picture fitted into it
 as 640x375 - has **0** pixels outside 640x375 that are not `border.png` point-sampled, while 74% of
 the 8-pixel ring just inside it is picture (so the picture really occupies the rectangle, it is not
@@ -4185,3 +4364,56 @@ And a third: the DOS command tail is 126 bytes, so a longer autoexec line is sil
 `--refwait` plus `--dump` plus a full path already overruns it, and the run then writes a RAM dump
 to a cut-off name in the drive's root instead of the file asked for. Keep one optional argument per
 run, or put the input script and the dump on the C: drive (8.3 names) to leave room.
+
+## The sound device stopped and never came back (2026-11-18)
+
+Reported as: in the hospital escape the music played for a short time, cut out, played "for maybe a
+couple of frames (less than a second)" and then was gone for the rest of the session - and so were
+the sound effects - while the game and the picture kept running. Not reproducible on demand, so the
+report was treated as a place to look, and the machine was cleared first: the only write that
+silences all four Paula channels is `FUN_00009bec` (`DMACON = 0x000F`), it happens at a score load or
+a scene end ([`implementation-survey.md`](implementation-survey.md)), and a replay of a hospital run
+that reached the "staff was too quick" fail frees the score through that path *with* the scene's
+ending - not what the player saw. No `DMACON` write in the image ever clears `DMAEN`, and no score
+player path stops the CIA-A tick, so a total silence with the machine running cannot come from the
+game.
+
+That leaves the playback backend, which has no original counterpart, and there the rule is its own
+(it is written up in [`port-features.md`](port-features.md), "The sound device"): a stalled device may
+cost the audio in flight, never the rest of the run. The Win32 back end broke it. `plat_audio_write`
+dropped the new chunk and returned when its eight-chunk queue was full, so after the queue filled
+**nothing was ever handed to the device again**, no matter how long it kept playing. A device that
+stops for ~90 ms fills that queue, and the ~93 ms already in the device plays out meanwhile: music,
+then cut out, then a fraction of a second, then silence - the report, in order. The DOS back end
+never had the bug (`sb_service` re-issues a halted transfer).
+
+**The fix**, all in `src\runtime\plat\win32\plat_win32.c`: the queue drains on *every* write
+(`audio_drain`), so a full queue is back-pressure instead of a state to stay in; a watchdog sees
+buffers outstanding with no completion for 300 ms and resets the device (dropping what had queued,
+because it is late), and a handle that refuses `waveOutReset` or 16 writes in a row is reopened at
+most once a second; and `audio-log.txt`, next to the executable, records the first device fault of a
+session (with the machine's own note - the frame the score player was freed on - in front of it) and
+the first queue-full drop. A session with nothing to report leaves no file; a measurement run opens
+no device and writes nothing.
+
+**Measured** with the seam it ships with, `--audiostall <n>` (the *n*-th submission is taken and
+never played and nothing is handed over after it, i.e. a hung endpoint): a 12 s windowed run with
+`--audiostall 20` logs
+`audio: device stopped completing buffers (1 outstanding, no completion for 312 ms) - reset`, ends
+with `audio device restarted 1 time(s)` and `audio dropped 16896 frame(s)` - the 312 ms in flight and
+nothing after it - while the same run without the seam reports no dropped frames at all. The pre-fix
+build dropped 425 984 frames over 12 s under the same seam: every chunk from the stall to the end,
+which is the silence the player heard. `tools\window-check.ps1` (the presenter's own check, run by
+hand - it is no longer a gate step) still passes, so the device path did not disturb the picture.
+
+Still open: the *trigger* is the player's machine/endpoint - a device reset, another program taking
+it, a driver hiccup - and is not reproducible here, so `audio-log.txt` beside the executable is what
+classifies the next occurrence: a `device stopped completing buffers` line means the endpoint went
+away (now recovered), and the absence of any line while the sound is gone means the machine itself
+freed its score, which is where the next investigation would start.
+
+**Bounded**, because it is a diagnostic a player sends us and not a transcript: the machine notes are
+a ring of the last 16 events, a session writes at most 200 lines (~18 KB) however badly a device
+behaves, and a file that has reached 64 KB is replaced instead of appended to. Measured: a 120 KB old
+log is replaced on the next fault (2 lines written), and the whole cost while playing is one 32-bit
+read of the score pointer per frame plus one ~80-byte write per scene change.

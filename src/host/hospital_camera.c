@@ -64,15 +64,10 @@
 #include "../recomp/cpu.h"
 #include "machine.h"
 #include "hospital_camera.h"
+#include "seams.h"
 
-/* Image offsets; RC_ADDR adds the build's load address. */
-#define HOSP_DRAW_PC   0x00019E9Cu  /* FUN_00019e9c: the loop's actor draw, right after the update */
-#define HOSP_PLAYER_X  0x00029ED0u  /* word, the character's world x                             */
-#define HOSP_PLAYER_Y  0x00029ED2u  /* ... and y                                                 */
-#define HOSP_VIEW_X    0x00029EC6u  /* word, the picture's world x in the bitmap                 */
-#define HOSP_VIEW_Y    0x00029EC8u  /* ... and y                                                 */
-#define HOSP_FINE      0x00028CD4u  /* word, the horizontal fine scroll (the display's delay)    */
-#define HOSP_SCROLL    0x000297F2u  /* word, the four direction bits FUN_00017cec applies        */
+/* The hospital's words are rows of the seam table (src\host\seams.c); RC_ADDR adds the build's
+ * load address. FUN_00019e9c is the loop's actor draw, right after the update. */
 
 /* The window is 288x180 and the character's middle is what is held: 144 across, and 100 down -
  * the original's own band midpoint, which is 10 px below the geometric centre because that is

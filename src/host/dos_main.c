@@ -77,6 +77,7 @@
 #include "hospital_camera.h"
 #include "save_button.h"
 #include "save_ui.h"
+#include "seams.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define MAX_SAVE_SLOTS 10
@@ -380,47 +381,22 @@ void host_regs_sync(rt_machine *m)
  * run (g_portArm), and the arrow and the crosshair are drawn on top of the composed picture, never
  * into the machine's memory.
  */
-#define MAP_SCRIPT_PC  0x00003B1Eu
 #define MAP_CUR_MIN    0x19        /* the map's travel window, from FUN_00003B1E          */
 #define MAP_CUR_MAXX   0x136
 #define MAP_HOT_X      0x11        /* the cursor sprite's hot spot: its tip               */
 #define MAP_HOT_Y      0x12
 #define MAP_SCROLL     6           /* picture pixels per update at the window's edge      */
-#define MAP_MAX_Y      0x00028A48u /* word, the window's bottom row                       */
-#define MAP_ORG_X      0x00028A4Cu /* long, the map picture offset <= 0                   */
-#define MAP_ORG_Y      0x00028A50u
-#define MAP_ORG_MINY   0x00028A5Cu /* ... and the bottom limit FUN_000035D2 clamps to      */
-#define MAP_ORG_MAXX   0x13F       /* the same clamp, x: -0x13F                           */
-#define MAP_CUR_X      0x00028A54u /* long, the cursor's screen x/y                       */
-#define MAP_CUR_Y      0x00028A58u
-#define MAP_AXIS_X     0x00026892u /* word, the decoded stick, +1 right / -1 left         */
-#define MAP_AXIS_Y     0x00026894u /* ... +1 down / -1 up                                 */
-#define MAP_FIRE_HELD  0x00026896u /* word, the decoded fire level (the save test's own)   */
-#define MAP_PANEL      0x00028C1Cu /* word, a panel or menu is up                          */
-#define MAP_EVENT_PC   0x0001061Cu /* FUN_0001061c: the map's tail, just before its save test */
+#define MAP_ORG_MAXX   0x13F       /* FUN_000035D2's x clamp (the same in both builds)    */
 /* The map's script runs every few vblanks, so "the map is not on screen" cannot be decided on one
  * frame: this many frames without a script call means the screen is gone. */
 #define MAP_IDLE_FRAMES 30
 
 /* The room screens' pointer: the arrow is shown on a room, and the menu line under it becomes the
- * menu's selection at the flip. */
-#define ROOM_DRAW_PC     0x00005EACu   /* FUN_00005eac: the location picture and its actors */
-#define ROOM_UPDATE_PC   0x00005824u   /* FUN_00005824: the room view's per-frame update    */
-#define TEXT_LINE_PC     0x00004D76u   /* FUN_00004d76(text, x, y, pen, count)              */
-#define MENU_FLIP_PC     0x0001D1DAu   /* FUN_0001d1da: the menu's bitmap flip              */
-#define MENU_ACTION_PC   0x0000247Au   /* FUN_0000247a: the action list                     */
-#define MENU_ACTION_END  0x00002B0Eu
-#define MENU_LOOK_PC     0x00002B7Cu   /* FUN_00002b7c: Look North/South/...                */
-#define MENU_LOOK_END    0x00002C92u
-#define MENU_ACTION_FLIP 0x000029D2u   /* the flip's return address inside FUN_0000247a     */
-#define MENU_LOOK_FLIP   0x00002C62u   /* ... and inside FUN_00002b7c                       */
-#define TEXT_LINE_RET    0x00004F40u   /* the text draw's return address inside FUN_00004f0a */
-#define TEXT_RASTPORT    0x0002656Au   /* DAT_0002656a: the engine's animation RastPort     */
+ * menu's selection at the flip. The five code points are rows of the seam table (src\host\seams.c);
+ * the stack offsets and the menus' own locals are the same in both builds. */
 
 /* The phone book's cursor (FUN_00005fbe called from the phone's own loop): the two words are
  * A5-relative locals of the scene. */
-#define PHONE_UPDATE_PC  0x00005FBEu   /* FUN_00005fbe: present one update of the scene */
-#define PHONE_UPDATE_RET 0x00006632u   /* ... called from the phone's cursor loop       */
 #define PHONE_CUR_X      0x0Eu         /* word, A5-0x0e: the arrow's x                  */
 #define PHONE_CUR_Y      0x10u         /* word, A5-0x10: ... and y                      */
 #define PHONE_MIN_X      0x40          /* the scene's own clamps                        */
@@ -429,21 +405,12 @@ void host_regs_sync(rt_machine *m)
 #define PHONE_MAX_Y      0xCE
 
 /* The two aiming scenes: the fight's shot point is the aim 0x1b left and 0x3a up, and the fire
- * game's hand travels inside x 0x28..0x12c, y 0xa5..0xf0. */
-#define ANT_SCENE_PC   0x00007934u /* FUN_00007934: one update of the giant-ant fight          */
-#define ANT_AIM_X      0x00029AE0u /* word, the pistol's screen x                              */
-#define ANT_AIM_Y      0x00029AE2u /* ... and y                                               */
+ * game's hand travels inside x 0x28..0x12c, y 0xa5..0xf0. FUN_00007934, the aim words and the two
+ * aim routines are rows of the seam table; the rectangle is the fire game's own code and is the
+ * same in both builds (the add-on has no fire game, so its seams are 0 and never armed). */
 #define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim      */
 #define ANT_SHOT_DY    (-0x3A)
 #define ANT_IDLE_FRAMES 10
-#define AIM_SHOT_PC    0x000086A0u /* FUN_000086a0: the fight's trigger                        */
-#define AIM_SPRAY_PC   0x0000B97Cu /* FUN_0000b97c: the fire game's extinguisher movement      */
-#define AIM_X          0x00029AE0u /* word, the aim both scenes share                          */
-#define AIM_Y          0x00029AE2u
-#define AIM_ACC_X      0x00029AE4u /* word, the stick's ramped speed                           */
-#define AIM_ACC_Y      0x00029AE6u
-#define AIM_AXIS_X     0x00024A80u /* word, FUN_00011bf0's decoded stick                       */
-#define AIM_AXIS_Y     0x00024A82u
 #define FIRE_MIN_X     0x0028      /* the fire game's travel rectangle                         */
 #define FIRE_MAX_X     0x012C
 #define FIRE_MIN_Y     0x00A5
@@ -589,6 +556,15 @@ static void pointer_input(const input_state *in, int stickHeld)
         g_ptrActive = 1;
         g_hoverOwn = 1;                /* a menu line under it is selected from now on */
     }
+}
+
+/* The title's fifth button: 0 here, because this front end still boots only the 1989 game - it does
+ * not link the add-on's table (docs\antheads.md, Phase 8). A data folder that holds the add-on's
+ * tree therefore keeps today's four buttons, instead of one that could not switch anything. */
+int host_title_addon(rt_machine *m)
+{
+    (void)m;
+    return 0;
 }
 
 /* The title menu runs its own loop, so the frame hooks do not run while it is up: a --mouse
@@ -1024,20 +1000,10 @@ static void crosshair_present(rt_machine *m)
  * line appears after LOAD_SHOW_FRAMES of work and stays through the gaps between one resource and
  * the next. Nothing of the machine is written, and a measurement run never installs the seam.
  *
- * Image offsets of the load-only code, from re\decomp_all\dshell\ALL.c: the SMS loader and its
- * unpacker, the bank directory search, the bank opener, the asset lookup inside a bank, the read
- * helper, and the LZ decruncher's state machine and decoder. */
-static const u32 g_loadRanges[][2] =
-{
-    { 0x00000AAAu, 0x00000FA2u },   /* FUN_00000b62, a scene's script: read, then parse it   */
-    { 0x0001EC42u, 0x0001F03Eu },   /* Sms_Load, a picture bank's header and data           */
-    { 0x0002011Au, 0x000201D4u },   /* Sms_Unpack, its RLE decode loop                      */
-    { 0x00020204u, 0x000202C4u },   /* bank directory search and cleanup                    */
-    { 0x000202C4u, 0x000204FAu },   /* FUN_000202c4, the bank opener, and the asset lookup  */
-    { 0x000204FAu, 0x00020518u },   /* FUN_000204fa, read n bytes out of the open bank      */
-    { 0x00020518u, 0x000205E6u },   /* the decruncher's state machine and bit reader        */
-    { 0x000205E6u, 0x000207F0u }    /* FUN_000205e6/FUN_0002069c, the LZ decruncher         */
-};
+ * Image offsets of the load-only code are per program - src\host\seams.c carries both builds'
+ * ranges, measured from the same function boundaries in re\decomp_all\dshell\ALL.c: the SMS loader
+ * and its unpacker, the bank directory search, the bank opener, the asset lookup inside a bank, the
+ * read helper, and the LZ decruncher's state machine and decoder. */
 #define LOAD_SHOW_FRAMES 25        /* 1/2 s of work before the line appears */
 #define LOAD_IDLE_FRAMES 8         /* ... and how long a gap still belongs to the load */
 #define LOAD_HOLD_FRAMES 500       /* 10 s: a transition the title announced has no such limit */
@@ -1051,12 +1017,13 @@ static int g_loadHoldSeen;         /* load work has run since the hold was armed
 
 static int load_pc(u32 pc)
 {
+    const seam_set *s = seam_active();
     int i;
 
     if (pc < RC_BASE) return 0;
     pc -= RC_BASE;
-    for (i = 0; i < (int)(sizeof g_loadRanges / sizeof g_loadRanges[0]); i++)
-        if (pc >= g_loadRanges[i][0] && pc < g_loadRanges[i][1]) return 1;
+    for (i = 0; i < s->loadRangeCount; i++)
+        if (pc >= s->loadRanges[i][0] && pc < s->loadRanges[i][1]) return 1;
     return 0;
 }
 
@@ -1128,7 +1095,7 @@ static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
-    if (pc == RC_ADDR(AIM_SPRAY_PC))
+    if (AIM_SPRAY_PC != 0 && pc == RC_ADDR(AIM_SPRAY_PC))
     {
         g_fireFrame = m->frame;
         aim_spray(m);

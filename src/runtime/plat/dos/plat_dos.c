@@ -1497,6 +1497,14 @@ u32 plat_audio_played(void)
     return g_sb.open ? g_sb.written : 0;
 }
 
+/* The Sound Blaster's own fault path is sb_service's (a halted transfer is re-issued); there is no
+ * second device to reopen and no place to write a log, so these answer with what it counted and do
+ * nothing. The host's --audiostall is a waveOut seam and has no DOS counterpart. */
+u32 plat_audio_stalls(void) { return g_sb.resumes; }
+u32 plat_audio_reopens(void) { return 0; }
+void plat_audio_simulate_stall(u32 afterBuffers) { (void)afterBuffers; }
+void plat_audio_log(const char *text) { (void)text; }
+
 /* --- mouse --------------------------------------------------------------------------------- */
 
 /* INT 33h, function 0: reset the driver and read whether one is there. Function 2 hides its

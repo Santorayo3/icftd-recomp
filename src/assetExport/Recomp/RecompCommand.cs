@@ -15,18 +15,32 @@ namespace ICFTD.AmigaExport.Recomp;
 /// <see cref="Emitter"/> - and is otherwise reported with the reason, so the next session knows
 /// exactly which construct is missing. Nothing is guessed: an unemitted function keeps the
 /// interpreter fallback and still runs.
+///
+/// The defaults are the 1989 build. A second build of the engine (Antheads, docs\antheads.md) is
+/// translated by naming its own image, hunk, model, output directory and vector-table base.
 /// </summary>
 public static class RecompCommand
 {
-    const string ImagePath = "export/code/dshell/dshell.img";
-    const string HunkPath = "export/disk1/dshell";
-    const string ModelPath = "re/model/functions.csv";
-    const string OutDir = "src/recomp";
+    const string DefaultImagePath = "export/code/dshell/dshell.img";
+    const string DefaultHunkPath = "export/disk1/dshell";
+    const string DefaultModelPath = "re/model/functions.csv";
+    const string DefaultOutDir = "src/recomp";
 
     public static int Run(string[] args)
     {
         string? outDir = null;
         string? reportPath = null;
+        string? imageArg = null;
+        string? hunkArg = null;
+        string? modelArg = null;
+        string? prefixArg = null;
+        string? saveName = null;
+        string? programName = null;
+        uint saveBytes = 0;
+        uint? a4Model = null;
+        uint? entryModel = null;
+        uint? codeEnd = null;
+        uint vectorTableBase = Emitter.DefaultVectorTableBase;
         bool verbose = false;
         bool translateThunks = true;
         for (int i = 1; i < args.Length; i++)
@@ -35,22 +49,34 @@ public static class RecompCommand
             {
                 case "--report": reportPath = args[++i]; break;
                 case "--out": outDir = args[++i]; break;
+                case "--image": imageArg = args[++i]; break;
+                case "--hunk": hunkArg = args[++i]; break;
+                case "--model": modelArg = args[++i]; break;
+                case "--prefix": prefixArg = args[++i]; break;
+                case "--save-name": saveName = args[++i]; break;
+                case "--save-bytes": saveBytes = ParseAddress(args[++i]); break;
+                case "--program-name": programName = args[++i]; break;
+                case "--a4": a4Model = ParseAddress(args[++i]); break;
+                case "--entry": entryModel = ParseAddress(args[++i]); break;
+                case "--code-end": codeEnd = ParseAddress(args[++i]); break;
+                case "--vector-base": vectorTableBase = ParseAddress(args[++i]); break;
                 case "--no-thunks": translateThunks = false; break;
                 case "-v": verbose = true; break;
                 default: outDir ??= args[i]; break;
             }
         }
-        outDir ??= OutDir;
+        outDir ??= DefaultOutDir;
 
         string root = FindRepoRoot() ?? throw new Exception("not inside the icftd-recomp repo");
-        string imagePath = Path.Combine(root, ImagePath.Replace('/', Path.DirectorySeparatorChar));
-        string hunkPath = Path.Combine(root, HunkPath.Replace('/', Path.DirectorySeparatorChar));
-        string modelPath = Path.Combine(root, ModelPath.Replace('/', Path.DirectorySeparatorChar));
+        string imagePath = Path.Combine(root, ImagePath(imageArg ?? DefaultImagePath));
+        string hunkPath = Path.Combine(root, ImagePath(hunkArg ?? DefaultHunkPath));
+        string modelPath = Path.Combine(root, ImagePath(modelArg ?? DefaultModelPath));
         if (!File.Exists(imagePath)) throw new FileNotFoundException($"no image at {imagePath}");
         if (!File.Exists(hunkPath)) throw new FileNotFoundException($"no hunk file at {hunkPath}");
         if (!File.Exists(modelPath)) throw new FileNotFoundException($"no model at {modelPath}");
         outDir = Path.IsPathRooted(outDir) ? outDir : Path.Combine(root, outDir);
         Directory.CreateDirectory(outDir);
+        codeEnd ??= vectorTableBase;
 
         byte[] image = File.ReadAllBytes(imagePath);
 
@@ -62,7 +88,25 @@ public static class RecompCommand
         uint[] relocSites = hunk.Relocations.Where(r => r.Width == 4).Select(r => (uint)r.Site).ToArray();
 
         var functions = LoadModel(modelPath);
-        var emitter = new Emitter(image, relocSites);
+        var emitter = new Emitter(image, relocSites, vectorTableBase);
+
+        // A second build of the engine shares the address space with the first, so both its file
+        // contents and its table symbols carry a prefix: `ant_fn_0001dcb0`, `ant_functions`.
+        string fnPrefix = prefixArg == null ? "" : prefixArg + "_";
+        string sym = prefixArg ?? "rc";
+
+        // The build as a program: where it runs (A4 and entry as image offsets - the emitted
+        // descriptor applies RC_ADDR) and the save file its own save routine writes.
+        uint a4 = a4Model ?? vectorTableBase + 0x7FFEu;
+        uint entry = entryModel ?? 0u;
+        string save = saveName ?? "ICFTD";
+        uint saveSize = saveBytes != 0 ? saveBytes : 0x78u + 0x3024u;
+        string program = programName ?? "It Came from the Desert";
+
+        // The provenance line in every emitted file names the image it came from, so a second build
+        // cannot be mistaken for the first.
+        string label = Path.GetRelativePath(root, imagePath).Replace(Path.DirectorySeparatorChar, '\\');
+        bool rcmp = vectorTableBase == Emitter.DefaultVectorTableBase;
 
         // The output is generated: stale files would claim functions that no longer qualify.
         foreach (string stale in Directory.GetFiles(outDir, "fn_*.c"))
@@ -100,7 +144,7 @@ public static class RecompCommand
                 else
                 {
                     string path = Path.Combine(outDir, $"fn_{addr:x8}.c");
-                    File.WriteAllText(path, Header(f, body) + body + "}\n", Utf8NoBom());
+                    File.WriteAllText(path, Header(label, rcmp, f, body, fnPrefix) + body + "}\n", Utf8NoBom());
                     /* The model's size is the sum of instruction bytes; a function with an embedded
                      * switch table spans further than that (the table sits between instructions),
                      * and a jsr return address can land after the size boundary. The table entry
@@ -148,7 +192,7 @@ public static class RecompCommand
                 if (verbose) Console.WriteLine($"  reject {t:x8}  block: {b.Why}");
                 continue;
             }
-            File.WriteAllText(Path.Combine(outDir, $"fn_{t:x8}.c"), Header(b, body) + body + "}\n", Utf8NoBom());
+            File.WriteAllText(Path.Combine(outDir, $"fn_{t:x8}.c"), Header(label, rcmp, b, body, fnPrefix) + body + "}\n", Utf8NoBom());
             blocks.Add(b);
             if (verbose) Console.WriteLine($"block   {t:x8}  {b.Size,5} B  {b.Insns.Count,4} insn");
             foreach (uint u in emitter.Targets(b)) work.Enqueue(u);
@@ -162,7 +206,9 @@ public static class RecompCommand
             blockInsns += b.Insns.Count;
         }
 
-        WriteTable(Path.Combine(outDir, "fn_table.c"), emitted);
+        WriteTable(Path.Combine(outDir, prefixArg == null ? "fn_table.c" : prefixArg + "_table.c"),
+                   sym, fnPrefix, emitted,
+                   new TableProgram((uint)image.Length, a4, entry, save, saveSize, program));
 
         var sb = new StringBuilder();
         sb.AppendLine($"recomp: {functions.Count} function(s), {totalBytes} byte(s) of code");
@@ -170,7 +216,7 @@ public static class RecompCommand
         sb.AppendLine($"  blocks        {blocks.Count,4} block(s) outside the model, {blockBytes} byte(s), {blockInsns} instruction(s)");
         sb.AppendLine($"  thunk/entry   {thunks,4} function(s) (a bare jmp: never called as a function)");
         sb.AppendLine($"  not emitted   {functions.Count - modelEmitted - thunks,4} function(s)");
-        int codeRelocs = relocSites.Count(s => s < Emitter.VectorTableBase);
+        int codeRelocs = relocSites.Count(s => s < vectorTableBase);
         sb.AppendLine($"  relocations   {relocSites.Length,4} longword(s) in the hunk, {codeRelocs} inside the code hunk");
         if (reasons.Count > 0)
         {
@@ -228,17 +274,25 @@ public static class RecompCommand
         return at > 0 && at < 12 ? why[(at + 2)..] : why;
     }
 
-    static string Header(Emitter.Function f, string body)
+    /// <summary>
+    /// One emitted file's opening block. <paramref name="label"/> names the image the code came
+    /// from; <paramref name="rcmp"/> says whether this is the build the interpreter harness models
+    /// (the 1989 one) - a second build is checked against the oracle's machine state instead.
+    /// </summary>
+    static string Header(string label, bool rcmp, Emitter.Function f, string body, string fnPrefix)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"/* fn_{f.Entry:x8} - {f.Size} byte(s), {f.Insns.Count} instruction(s).");
-        sb.AppendLine(" * Generated from export\\code\\dshell\\dshell.img by `recomp` - one C statement per 68000");
+        sb.AppendLine(" * Generated from " + label + " by `recomp` - one C statement per 68000");
         sb.AppendLine(" * instruction, the original's control flow as labels. Hand edits belong in src\\recomp\\patches.");
         sb.AppendLine(" * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.");
-        sb.AppendLine(" * Verified against the interpreter as `rcmp` runs it: tools\\recomp-fixtures.ps1. */");
+        if (rcmp)
+            sb.AppendLine(" * Verified against the interpreter as `rcmp` runs it: tools\\recomp-fixtures.ps1. */");
+        else
+            sb.AppendLine(" * Verified against the oracle's machine state: tools\\state-diff.ps1. */");
         sb.AppendLine("#include \"cpu.h\"");
         sb.AppendLine();
-        sb.AppendLine($"void fn_{f.Entry:x8}(cpu_t *c, rt_machine *m)");
+        sb.AppendLine($"void {fnPrefix}fn_{f.Entry:x8}(cpu_t *c, rt_machine *m)");
         sb.AppendLine("{");
         var used = new List<string>();
         foreach (string t in new[] { "t0", "t1", "t2", "t3", "t4" })
@@ -248,59 +302,105 @@ public static class RecompCommand
         return sb.ToString();
     }
 
-    static void WriteTable(string path, List<(uint Addr, int Bytes, int Insns)> emitted)
+    /// <summary>What the generated table says about its build beyond the functions themselves.</summary>
+    sealed class TableProgram
     {
+        public TableProgram(uint imageSize, uint a4, uint entry, string saveName, uint saveBytes,
+                            string name)
+        { ImageSize = imageSize; A4 = a4; Entry = entry; SaveName = saveName; SaveBytes = saveBytes; Name = name; }
+
+        public uint ImageSize { get; }
+        public uint A4 { get; }        // image offset; the emitted field is RC_ADDR()'d
+        public uint Entry { get; }
+        public string SaveName { get; }
+        public uint SaveBytes { get; }
+        public string Name { get; }
+    }
+
+    /// <summary>
+    /// The function table of one engine build: the sorted <c>rc_entry</c> array, its count and the
+    /// <c>rc_program</c> the front end runs it with. The count is an enumerator because a static
+    /// initializer cannot read the <c>const unsigned</c>, and the array is declared with the
+    /// enumerator's size, so the compiler checks the count against the emitted list.
+    /// <paramref name="sym"/> is the symbol prefix: <c>rc</c> for the 1989 build's
+    /// <c>fn_table.c</c> (and <c>rc_engine</c>), <c>ant</c> for a second build's
+    /// <c>ant_table.c</c> (plus a matching <c>ant_table.h</c>, because the shared
+    /// <c>fn_table.h</c> names the 1989 table).
+    /// </summary>
+    static void WriteTable(string path, string sym, string fnPrefix,
+                           List<(uint Addr, int Bytes, int Insns)> emitted, TableProgram prog)
+    {
+        bool addon = fnPrefix.Length != 0;
+        string decl = sym + "_DECL";
+        string count = sym.ToUpperInvariant() + "_FUNCTION_COUNT";
+        string what = addon ? $"the {sym} build" : "the 1989 build";
         var sb = new StringBuilder();
-        sb.AppendLine("/* The translated function table. Generated by `recomp`; sorted by address, so the lookup is");
-        sb.AppendLine(" * a binary search. `end` lets a call that lands in the middle of a function find its owner." );
-        sb.AppendLine(" * A call the table cannot resolve reaches the interpreter second (rc_interpreter, set by the");
-        sb.AppendLine(" * development build only). */");
+        sb.AppendLine($"/* The translated function table of {what}. Generated by `recomp`; sorted by address,");
+        sb.AppendLine(" * so the lookup is a binary search. `end` lets a call that lands in the middle of a function");
+        sb.AppendLine(" * find its owner. A call no table resolves reaches the interpreter second (rc_interpreter,");
+        sb.AppendLine(" * set by the development build only). */");
         sb.AppendLine("#include \"fn_table.h\"");
         sb.AppendLine();
+        if (addon)
+        {
+            sb.AppendLine($"#define {decl}(addr) extern void {fnPrefix}fn_##addr(cpu_t *c, rt_machine *m)");
+            sb.AppendLine();
+        }
         foreach (var f in emitted.OrderBy(x => x.Addr))
-            sb.AppendLine($"RC_DECL({f.Addr:x8});");
+            sb.AppendLine($"{(addon ? decl : "RC_DECL")}({f.Addr:x8});");
         sb.AppendLine();
-        sb.AppendLine("const rc_entry rc_functions[] =");
+        sb.AppendLine($"enum {{ {count} = {emitted.Count} }};");
+        sb.AppendLine();
+        sb.AppendLine($"const rc_entry {sym}_functions[{count} + 1] =");
         sb.AppendLine("{");
         foreach (var f in emitted.OrderBy(x => x.Addr))
-            sb.AppendLine($"    {{ RC_ADDR(0x{f.Addr:x8}u), RC_ADDR(0x{f.Addr + f.Bytes:x8}u), fn_{f.Addr:x8} }},");
+            sb.AppendLine($"    {{ RC_ADDR(0x{f.Addr:x8}u), RC_ADDR(0x{f.Addr + f.Bytes:x8}u), {fnPrefix}fn_{f.Addr:x8} }},");
         sb.AppendLine("    { 0x00000000u, 0x00000000u, 0 }");
         sb.AppendLine("};");
         sb.AppendLine();
-        sb.AppendLine("const unsigned rc_functionCount = sizeof(rc_functions) / sizeof(rc_functions[0]) - 1u;");
+        sb.AppendLine($"const unsigned {sym}_functionCount = {count};");
         sb.AppendLine();
-        sb.AppendLine("rc_fn rc_lookup(u32 addr)");
+        sb.AppendLine("/* This build as the runtime sees it. A4 and the entry are image offsets (the port's load");
+        sb.AppendLine(" * address is added by RC_ADDR), and the save file is the one this build's own save routine");
+        sb.AppendLine(" * writes, which is what tells a slot's saves apart (src\\runtime\\amiga\\machine.c). */");
+        sb.AppendLine($"const rc_program {sym}_engine =");
         sb.AppendLine("{");
-        sb.AppendLine("    unsigned lo = 0, hi = rc_functionCount;");
-        sb.AppendLine();
-        sb.AppendLine("    while (lo < hi)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        unsigned mid = (lo + hi) / 2u;");
-        sb.AppendLine("        if (rc_functions[mid].addr == addr) return rc_functions[mid].fn;");
-        sb.AppendLine("        if (rc_functions[mid].addr < addr) lo = mid + 1u;");
-        sb.AppendLine("        else hi = mid;");
-        sb.AppendLine("    }");
-        sb.AppendLine("    return 0;");
-        sb.AppendLine("}");
-        sb.AppendLine();
-        sb.AppendLine("/* The function that owns an address: a call can land in the middle of a body, which is how the");
-        sb.AppendLine(" * engine's own opcode and jump tables work. Every instruction is a dispatch case there. */");
-        sb.AppendLine("const rc_entry *rc_containing(u32 addr)");
-        sb.AppendLine("{");
-        sb.AppendLine("    unsigned lo = 0, hi = rc_functionCount;");
-        sb.AppendLine();
-        sb.AppendLine("    while (lo < hi)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        unsigned mid = (lo + hi) / 2u;");
-        sb.AppendLine("        if (rc_functions[mid].addr <= addr) lo = mid + 1u;");
-        sb.AppendLine("        else hi = mid;");
-        sb.AppendLine("    }");
-        sb.AppendLine("    if (lo == 0) return 0;");
-        sb.AppendLine("    const rc_entry *e = &rc_functions[lo - 1u];");
-        sb.AppendLine("    return addr < e->end ? e : 0;");
-        sb.AppendLine("}");
+        sb.AppendLine($"    {sym}_functions, (unsigned){count}, 0x{prog.ImageSize:x8}u,");
+        sb.AppendLine($"    RC_ADDR(0x{prog.A4:x8}u), RC_ADDR(0x{prog.Entry:x8}u),");
+        sb.AppendLine($"    \"{prog.SaveName}\", 0x{prog.SaveBytes:x8}u,");
+        sb.AppendLine($"    \"{prog.Name}\"");
+        sb.AppendLine("};");
         File.WriteAllText(path, sb.ToString(), Utf8NoBom());
+        if (!addon) return;
+
+        // The second build's table needs its own header: fn_table.h names the 1989 one, and every
+        // fn_*.c of this build includes only cpu.h.
+        string guard = "ICFTD_RECOMP_" + sym.ToUpperInvariant() + "_TABLE_H";
+        var h = new StringBuilder();
+        h.AppendLine($"/* The translated function table of the {sym} build of the engine. Generated by `recomp`. */");
+        h.AppendLine($"#ifndef {guard}");
+        h.AppendLine($"#define {guard}");
+        h.AppendLine();
+        h.AppendLine("#include \"fn_table.h\"");
+        h.AppendLine();
+        h.AppendLine($"extern const rc_entry {sym}_functions[];");
+        h.AppendLine($"extern const unsigned {sym}_functionCount;");
+        h.AppendLine($"extern const rc_program {sym}_engine;");
+        h.AppendLine();
+        h.AppendLine("#endif");
+        File.WriteAllText(Path.ChangeExtension(path, ".h"), h.ToString(), Utf8NoBom());
     }
+
+    /// <summary>An address argument: <c>0x23AF8</c> or <c>0X23AF8</c> (hex is assumed).</summary>
+    static uint ParseAddress(string text)
+    {
+        string t = text.Trim();
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t[2..];
+        return uint.Parse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>A path argument as a root-relative path with this repo's separators.</summary>
+    static string ImagePath(string arg) => arg.Replace('/', Path.DirectorySeparatorChar);
 
     static List<(uint Addr, int Size, int Insns, bool Thunk)> LoadModel(string path)
     {
