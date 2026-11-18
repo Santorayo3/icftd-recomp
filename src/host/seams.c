@@ -115,6 +115,7 @@ static const seam_set g_original =
     0x00028CD4u, 0x000297F2u,                  /* fine scroll, scroll request         */
     0x00029EC6u, 0x00029EC8u,                  /* picture origin                      */
     0x00029ED0u, 0x00029ED2u,                  /* player position                     */
+    0x00021F5Au, 0x00021F50u,                  /* panel open flag, its five colours   */
     g_loadRangesOriginal,
     (int)(sizeof g_loadRangesOriginal / sizeof g_loadRangesOriginal[0])
 };
@@ -170,6 +171,7 @@ static const seam_set g_ant =
     0x0002B51Cu, 0x0002C1F6u,
     0x0002C962u, 0x0002C964u,
     0x0002C96Cu, 0x0002C96Eu,
+    0x00024068u, 0x0002405Eu,                  /* panel open flag, its five colours   */
     g_loadRangesAnt,
     (int)(sizeof g_loadRangesAnt / sizeof g_loadRangesAnt[0])
 };

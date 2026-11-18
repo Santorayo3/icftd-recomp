@@ -582,6 +582,8 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 | `HOSP_VIEW_Y` | 0x29EC8 | 0x2C964 | use-site |
 | `HOSP_PLAYER_X` | 0x29ED0 | 0x2C96C | use-site |
 | `HOSP_PLAYER_Y` | 0x29ED2 | 0x2C96E | use-site |
+| `PANEL_FLAG` | 0x21F5A | 0x24068 | use-site |
+| `PANEL_COLS` | 0x21F50 | 0x2405E | use-site |
 | `HOST_HOSP_PROG` | 0x2A170 | 0x2CC0C | use-site |
 | `FLIGHT_OVER` | 0x2A544 | 0x2CFDE | use-site |
 | `FLIGHT_LANDED` | 0x2A552 | 0x2CFEC | use-site |
@@ -608,6 +610,16 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 * **Not in §6, measured now:** `MAP_MAX_Y` 0x28A48 → 0x2B290 and `MAP_ORG_MINY` 0x28A5C → 0x2B2A4
   (the map script and FUN_000035D2's twin read/write them at the same instructions; the whole
   0x28A36..0x28A62 block moves by +0x2848).
+* **`PANEL_FLAG` 0x21F5A → 0x24068 and `PANEL_COLS` 0x21F50 → 0x2405E** — the runtime display's
+  narration-panel palette compensation (`display.c`, "while the panel flag is up its five entries
+  come from the engine's own table") used the 1989 build's two addresses unconditionally. Under
+  the add-on 0x21F5A lands in its *code* hunk, so the test read a non-zero instruction word,
+  believed the panel was open and took five code words as colours: the intro's background came out
+  blue (COLOR00 = 0x0000EE) with pen 1..4 wrong as well. The add-on's twin FUN_00000b9e stages its
+  colours at 0x2405E (`lea (-0x7a98,A4)`) and raises its flag at 0x24068
+  (`move.w #1,(-0x7a8e,A4)`), the same instruction indices as FUN_000007F4's 0x21F50/0x21F5A.
+  Both rows now reach the display through `rt_machine.panelFlag/panelCols`, set from this table at
+  boot.
 * **The title's four scene entries** are seams too and were not in the table: fight 0xB46C→0xC974
   (the same "Fight.tiny", `0x40` into the music block and FUN_0000a74e as its update), flight
   0x107A6→0x11FF8, hospital 0x1819A→0x198D4, fire gone. **Read them as model addresses:** the 1989
@@ -632,6 +644,12 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 ## 8. Traps (all of these cost time if rediscovered)
 
 * **No uniform data delta.** Code hunk +0x20A0, clock +0x20BA, map +0x2848, aim +0x2AE0. Use §6.
+* **The runtime model reads engine addresses too.** `display.c` consults the narration panel's
+  flag and colour words (0x21F5A/0x21F50) to keep the panel visible through the intro fade. They
+  are engine data, so the add-on's differ (0x24068/0x2405E); left hard-coded, the add-on's intro
+  read code bytes as colours and came out blue. They are the `PANEL_FLAG`/`PANEL_COLS` rows now,
+  reaching the display through `rt_machine.panelFlag/panelCols`. Any other `rt_read*` of an engine
+  address in the runtime needs the same row.
 * **`Emitter.VectorTableBase` is a `const`.** Without Phase 1 the translator *crashes*
   (`IndexOutOfRangeException`) instead of reporting; do not debug the addon with the old build.
 * **`title.c` mixes conventions** with every other seam file (runtime vs model addresses). Moving

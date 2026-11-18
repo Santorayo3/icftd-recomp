@@ -127,6 +127,8 @@ typedef struct seam_set
     u32 hospViewY;
     u32 hospPlayerX;        /* the character's world x/y                                */
     u32 hospPlayerY;
+    u32 panelFlag;          /* FUN_000007f4: the narration panel is open                */
+    u32 panelCols;          /* the five colours it stages into the live palette         */
 
     /* --- the loading line's load-only code (see src\host\main.c) ---------------------------- */
     const u32 (*loadRanges)[2];
@@ -228,6 +230,8 @@ int seam_is_addon(void);
 #define TITLE_SWERVE_END    SEAM(titleSwerveEnd)
 #define TEXT_RASTPORT       SEAM(textRastPort)
 #define SAVE_ASSET          SEAM(saveAsset)
+#define PANEL_FLAG          SEAM(panelFlag)
+#define PANEL_COLS          SEAM(panelCols)
 #define SAVE_SCREEN_H       SEAM(saveScreenH)
 #define HOSP_FINE           SEAM(hospFine)
 #define HOSP_SCROLL         SEAM(hospScroll)

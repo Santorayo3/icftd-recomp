@@ -44,8 +44,10 @@ enum {
     EMU_TF_CHAR_LOC = 40, EMU_TF_CHAR_SPACE = 44, EMU_TF_CHAR_KERN = 48
 };
 
-/* Engine variables the display has to consult - link-map addresses of dshell loaded at 0x4000
- * (image offset + 0x4000). See the panel-palette note in display.c. */
+/* The 1989 build's narration-panel variables - link-map addresses of dshell loaded at 0x4000
+ * (image offset + 0x4000). These are the defaults rt_gfx_reset installs; a front end booting
+ * another build replaces them through rt_machine.panelFlag/panelCols. See the panel-palette note
+ * in display.c. */
 #define EMU_PANEL_FLAG 0x25F5Au      /* 0x21F5A: the narration panel is open */
 #define EMU_PANEL_COLS 0x25F50u      /* 0x21F50: the five colours that panel draws in */
 

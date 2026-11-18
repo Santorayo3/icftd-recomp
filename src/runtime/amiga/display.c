@@ -221,6 +221,10 @@ void rt_gfx_reset(rt_machine *m)
     gfx->frames = 0;
     g_srcValid = 0;
     row_src_invalidate();
+    /* The narration panel's engine variables: the 1989 build's until a front end booting the other
+     * program overwrites them (rt_machine.panelFlag/panelCols, set from the seam table). */
+    m->panelFlag = EMU_PANEL_FLAG;
+    m->panelCols = EMU_PANEL_COLS;
 }
 
 void rt_gfx_init_bitmap(rt_machine *m, u32 bm, int depth, int width, int height)
@@ -1960,17 +1964,19 @@ void rt_gfx_present(rt_machine *m, u32 view)
         }
     }
 
-    /* The narration panel (FUN_000007F4) stages its five colours at 0x21F50 and raises a "panel
-     * open" flag at 0x21F5A, but the engine's intro fade keeps rewriting the live table (0x298D2)
-     * every frame and finishes on black - so the panel would be drawn in a palette that has
-     * already faded out. While that flag is up its five entries come straight from the engine's
-     * own table, which is the palette the panel routine intended. */
-    if (rt_read16(&m->mem, EMU_PANEL_FLAG) != 0)
+    /* The narration panel (FUN_000007F4) stages its five colours at `panelCols` and raises a
+     * "panel open" flag at `panelFlag`, but the engine's intro fade keeps rewriting the live table
+     * (0x298D2) every frame and finishes on black - so the panel would be drawn in a palette that
+     * has already faded out. While that flag is up its five entries come straight from the
+     * engine's own table, which is the palette the panel routine intended. Both addresses belong
+     * to the build being run: the add-on's twin (FUN_00000b9e) stages its colours at 0x2405E and
+     * raises its flag at 0x24068. */
+    if (rt_read16(&m->mem, m->panelFlag) != 0)
     {
         int k;
         for (k = 0; k < 5; k++)
         {
-            u32 v = rt_read16(&m->mem, EMU_PANEL_COLS + (u32)k * 2u);
+            u32 v = rt_read16(&m->mem, m->panelCols + (u32)k * 2u);
             gfx->pal[k * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
             gfx->pal[k * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
             gfx->pal[k * 3 + 2] = (u8)((v & 0xF) * 17);
@@ -2401,17 +2407,17 @@ void rt_gfx_present(rt_machine *m, u32 view)
                    (int)rt_read16(&m->mem, 0x25E1Eu), (int)rt_read16(&m->mem, 0x2CA3Au));
         }
     }
-    /* FUN_000007F4 (panel open, flag 0x21F5A) loads five colours from 0x21F50 into the live table
-     * and FUN_000008D6 restores the saved five when it closes - the engine expects them to stay up
-     * while the panel waits for input. Its intro fade, however, rewrites the whole table every
-     * frame and finishes at black 11 frames after the panel opens, which leaves the prompt
-     * invisible. While the panel flag is up, take those five entries from the engine's own panel
-     * palette, i.e. the colours FUN_000007F4 would have put there. */
-    if (rt_read16(&m->mem, 0x25F5Au) != 0)
+    /* FUN_000007F4 (panel open, flag `panelFlag`) loads five colours from `panelCols` into the
+     * live table and FUN_000008D6 restores the saved five when it closes - the engine expects them
+     * to stay up while the panel waits for input. Its intro fade, however, rewrites the whole
+     * table every frame and finishes at black 11 frames after the panel opens, which leaves the
+     * prompt invisible. While the panel flag is up, take those five entries from the engine's own
+     * panel palette, i.e. the colours FUN_000007F4 would have put there. */
+    if (rt_read16(&m->mem, m->panelFlag) != 0)
     {
         for (p = 0; p < 5; p++)
         {
-            u32 v = rt_read16(&m->mem, 0x25F50u + (u32)p * 2u);
+            u32 v = rt_read16(&m->mem, m->panelCols + (u32)p * 2u);
             gfx->pal[p * 3 + 0] = (u8)(((v >> 8) & 0xF) * 17);
             gfx->pal[p * 3 + 1] = (u8)(((v >> 4) & 0xF) * 17);
             gfx->pal[p * 3 + 2] = (u8)((v & 0xF) * 17);

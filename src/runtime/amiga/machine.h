@@ -225,6 +225,13 @@ typedef struct rt_machine
      * 12 444 bytes for the 1989 build, "ICFTD2" and 13 014 for the add-on (rt_save_slot_empty). */
     const char *saveName;
     u32     saveBytes;
+    /* The narration panel's staged colours (FUN_000007F4): the engine copies five words from
+     * `panelCols` into its live palette and raises `panelFlag` while the panel is open. The display
+     * reads them because the intro fade would otherwise have blanked the panel (see the note in
+     * display.c). Runtime addresses; rt_gfx_reset starts them at the 1989 build's, and a front end
+     * booting another program sets the build's own from the seam table (docs\antheads.md §6). */
+    u32     panelFlag;
+    u32     panelCols;
     /* --poke: up to RT_MAX_POKES words written once, at the first frame boundary >= pokeFrame. */
     u32     pokeAddr[8];
     u32     pokeVal[8];

@@ -1889,6 +1889,10 @@ int main(int argc, char **argv)
     /* The program's files come from its own extracted tree: `disk1..3` for the 1989 game,
      * `ant1..3` for the add-on (src\runtime\assets.c extracts both). */
     m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+    /* The narration panel's engine variables belong to the build being run too: the display would
+     * otherwise read the add-on's code bytes as colours (docs\antheads.md §6). */
+    m.panelFlag = RC_ADDR(PANEL_FLAG);
+    m.panelCols = RC_ADDR(PANEL_COLS);
     m.progress = progress;
     m.progressFrom = progressFrom;
     m.blitLog = blitLog;
@@ -2156,6 +2160,8 @@ int main(int argc, char **argv)
             m.saveName = rc_active->saveName;
             m.saveBytes = rc_active->saveBytes;
             m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
+            m.panelFlag = RC_ADDR(PANEL_FLAG);
+            m.panelCols = RC_ADDR(PANEL_COLS);
             m.progress = progress;
             m.progressFrom = progressFrom;
             m.blitLog = blitLog;
