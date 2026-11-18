@@ -150,7 +150,9 @@ features; 8 pays DOS; 9 closes.
 - [x] **2.1** `recomp --image out\antscan\img0\dshell.img --hunk out\antscan\data\disk1\dshell
   --model out\antscan\ghidra\model\functions.csv --out src\recomp\ant --vector-base 0x23AF8`
   → 766 functions, 35 blocks, 4 refused (`line f`). — done, exactly those numbers. The command
-  now also needs the add-on's save file, see 2.2.
+  now also needs the add-on's save file, see 2.2. (2026-11-18: with the F-line stub and the block
+  hand-over in the emitter, the same command reports **770 of 770 functions and 42 blocks, nothing
+  refused**; `src\recomp\ant` was regenerated, see `implementation-survey.md` §6.6.)
 - [x] **2.2** Rename the emitted table's symbols: `rc_functions`→`ant_functions`,
   `rc_lookup`→`ant_lookup`, `rc_containing`→`ant_containing`, `rc_functionCount`→`ant_functionCount`
   (a flag on the emitter, or a small post-step; **do not** hand-edit 766 files). — done with

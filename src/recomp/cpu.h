@@ -188,6 +188,8 @@ rc_fn rc_native_lookup(u32 addr);
 void rc_call(cpu_t *c, rt_machine *m, u32 addr);
 /* Reported by the generated dispatch when an address is not an instruction of that function. */
 void rc_bad_entry(cpu_t *c, rt_machine *m);
+/* An F-line instruction (68881): the 68000 raises an F-line trap on it. */
+void rc_line_f(cpu_t *c, rt_machine *m, const char *what);
 void rc_os_call(cpu_t *c, rt_machine *m, int lib, s32 lvo);
 /* `jsr/jmp (d16,A6)`: the library is whatever A6 points at, so it is resolved at run time. */
 void rc_os_call_a6(cpu_t *c, rt_machine *m, s32 lvo);
@@ -264,5 +266,12 @@ extern u32 rc_breakPc;
 /* Stop the dispatch (leaving c->pc at the next instruction) instead of handing control to
  * rc_interpreter: the host's own driver owns the seam between translated and interpreted code. */
 extern int rc_stopOnUnknown;
+/* Same hand-back, at the frame boundary: a front end sets this from rc_frame_hook when its own
+ * loop has to run there (it is where `--call`, `--esc`, `--cheat` and the title's keys are
+ * serviced). The stream leaves with c->pc on the instruction that has not run, exactly as
+ * rc_breakPc does. Until 2026-11-18 no front end needed it: the stream returned at every untranslated
+ * block, and a frame could not pass without one. With the whole program translated there is no such
+ * boundary left, so the front end asks for the one it actually wants. */
+extern int rc_frameBreak;
 
 #endif

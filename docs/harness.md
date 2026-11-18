@@ -80,11 +80,11 @@ case needs no arguments. Exit code 0 = RTS, 2 = step budget, 3 = named failure.
 * Unimplemented opcodes, illegal EAs, divide-by-zero, CHK traps and TRAPs fail with the
   address and the mnemonic. Nothing is skipped, nothing is approximated.
 
-## Validated so far (2026-11-09)
+## Validated so far (2026-11-09, fixture set re-pinned 2026-11-18)
 
 | case | fixture | result |
 |---|---|---|
-| `00002410` `move.l -(A4),(d16,A2)` | `00002410.json` | A4 -= 4, 4 bytes copied, N set — hand-checked |
+| `00002410` `move.l -(A4),(d16,A2)` | `00002410.json` | A4 -= 4, 4 bytes copied, N set — hand-checked. The start state has A4 at base+4, because `0x2410` is not a function at all: it is the `"%d"` Ghidra took for one when it saw the `pea 0x2410` two instructions earlier, and starting at the real base would leave A4 four bytes low (see below) |
 | `00002cc4` `move.w (d8,A0,D0.w),-(A1)` | `00002cc4.json` | index EA, A1 -= 2, word copy — hand-checked |
 | `00020698` `unlk`/`rts` | `00020698.json` | frame restore, stops on RTS — hand-checked |
 | `0000f160` `bclr.b #0,(d16,A6)` | `0000f160.json` | 0xFF -> 0xFE, Z = old bit — hand-checked |
@@ -97,20 +97,41 @@ case needs no arguments. Exit code 0 = RTS, 2 = step budget, 3 = named failure.
 The SMS run is the strongest evidence collected: the interpreter, the stub ABI, the RLE
 unpacker and the C decoder all agree on 680 bytes of bitplane data.
 
-`powershell -ExecutionPolicy Bypass -File tools\harness-check.ps1` re-runs all twelve cases
+`powershell -ExecutionPolicy Bypass -File tools\harness-check.ps1` re-runs every case above
 plus the 680-byte plane comparison and prints PASS/FAIL — run it after touching the interpreter,
 the stub ABI or the harness itself. A ported function is covered by `tools\recomp-fixtures.ps1`,
 which needs no new pinned case: the fixtures in `ref\fixtures` are a regression set, not a
 per-function obligation.
 
 
-## The Phase B differential (to build)
+## The Phase B differential
 
 The pieces above are the oracle: `rcmp` runs one original function in the interpreter on a
 fixture and dumps registers + the memory it touched. Phase B reuses exactly that: the *translated*
-function is called with the same fixture and its dump must be byte-identical. Seeded random
+function is called with the same fixture and its dump must be byte-identical
+(`tools\recomp-fixtures.ps1`, `src\recomp\check.c`). Seeded random
 fixtures (`rcmp --rand addr:len --seed N`) cover branches the game rarely takes, and `rleaf`
 pins a fixture per function so a translated function is replayable forever.
+
+As of 2026-11-18 the pinned set is **263 fixtures and all 263 verify, none skipped, none failed**
+against the complete translation (750 functions + 51 blocks). Three conventions had to agree for a
+dump to be comparable, and they are the whole of what "skip" used to cover:
+
+* **A refused library call stops inside the library on both sides.** The `jsr/jmp (d16,A6)` has
+  been taken, so the PC is `A6 + LVO`; the translation always reported it that way (it is where the
+  oracle stands too), the interpreter reported the call site until 2026-11-18.
+* **A dump is complete.** `Memory.Modified()` used to stop at 4 096 changed ranges; a fixture that
+  scatters 65 536 writes was being compared truncated against a complete dump.
+* **Some model entries are not code.** Ghidra creates a function wherever a `pea`/`lea` names an
+  address inside the code hunk, so `0x2410` (the string `"%d"`) and `0x1c20` (the 7 200-byte size
+  word passed to `AllocMem`) are phantom entries. Their instructions still translate - the
+  differential proves the translation of whatever bytes the model calls a function - but the
+  fixture has to start in a state where those bytes are legal for both machines.
+
+What a skip can still mean, and why the current set has none: a fixture whose function never
+returns (a busy-wait nothing releases) or whose `rts` pops a value that is not code. Both are
+fixture defects, not translation evidence, and both are fixed by pinning a start state the
+function can finish in.
 
 Nothing here compares images. A dump is registers plus memory, so a difference is a byte and an
 address, not a picture.

@@ -143,7 +143,7 @@ divergence). The driver is a frame-indexed input script, so any run can be repla
 
 | layer | test | cost |
 |---|---|---|
-| CPU | translated function == interpreted function: all registers + a memory hash over the touched ranges | seconds, automated |
+| CPU | translated function == interpreted function: all registers + a memory hash over the touched ranges. 263 pinned fixtures over the whole program, every one verified (2026-11-18) | seconds, automated |
 | whole program | interpreted build vs translated build, same input script, state hash equal at **every** frame boundary | minutes, automated |
 | OS surface | the call census: every library call the binary makes is implemented, and none is answered with 0 | seconds, automated |
 | display | planar->chunky + palette is a pure function of RAM, so it is verified once with synthetic bitmaps and then never re-examined | once |
@@ -346,11 +346,14 @@ Static translation of `dshell`'s 750 functions (137,816 bytes) to C, in the N64R
   memory accessors shared with the emulator).
 * **ABI**: literal instruction-to-C (`ctx->d[4] = add32(ctx->d[4], 0x20)`), `bsr/jsr <const>` →
   a direct C call, `rts` → `return`, `jsr (d16,A6)` → `os_call(cpu, d16)`, computed jumps →
-  `cpu_jump(cpu, target)` which looks the address up in `fn_table` and falls back to the
-  interpreter for anything not translated yet.
-* **Incremental by construction**: the interpreter stays as the fallback, so partially translated
-  builds run. Translate hot code first (`Move_Walk`, `Move_StepScript`, `Move_DrawNode`, the
-  scene/game loops); the DOS build eventually needs all of it.
+  `cpu_jump(cpu, target)` which looks the address up in `fn_table` and reports anything it cannot
+  resolve. The table now covers the whole program - 750 of 750 functions and all 51 blocks of code
+  the model does not cover - so the interpreter fallback is a development-build safety net, not a
+  part of the product. The one thing it cannot translate is a construct no 68000 has
+  (`frestore`, whose line-F trap the runtime reports instead of emulating).
+* **Incremental by construction**: while the translation was being built the interpreter was the
+  fallback, so a partially translated build still ran. That is history now; a new refusal would be
+  a regression in the report, not a slow function.
 * **Validation**: for each function, run interpreter and translated C on identical fixtures
   (registers + touched memory hash). The C# `rcmp`/`rleaf` machinery already produces fixtures;
   the generated C gets the same treatment. Whole-game check: the frame hashes of the translated
@@ -358,7 +361,7 @@ Static translation of `dshell`'s 750 functions (137,816 bytes) to C, in the N64R
 
 **Two programs, one machine.** The 1990 add-on *It Came from the Desert II - Antheads* is a second
 build of the same engine, not a data pack: its own `dshell`, linked for the same load address, with
-its own function boundaries (766 translated functions of 770). It is translated to
+its own function boundaries (770 translated functions of 770, plus 42 blocks). It is translated to
 `src\recomp\ant\` - prefixed symbols (`ant_fn_<addr>`, `ant_functions`), its own object directory -
 and shipped in the same executable. One image is loaded at a time, and `rc_program`
 (`src\recomp\cpu.h`) is what the dispatcher follows: the function table, the image size, A4, the

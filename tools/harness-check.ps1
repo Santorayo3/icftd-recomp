@@ -8,7 +8,7 @@ function Check([string]$name, [string[]]$argv, [string]$pattern) {
     else { $script:results.Add("FAIL $name") }
 }
 
-Check '2410 move.l -(A4),(d16,A2)' @('rcmp', '00002410') 'A4=00029a52[\s\S]*deadbeef'
+Check '2410 move.l -(A4),(d16,A2)' @('rcmp', '00002410') 'A4=00029a56[\s\S]*00030a00\s+4B\s+deadbeef'
 Check '2cc4 move.w (d8,A0,D0.w),-(A1)' @('rcmp', '00002cc4') 'A1=00030ffe[\s\S]*3333'
 Check '20698 unlk/rts' @('rcmp', '00020698') 'stop RTS after 2 instructions[\s\S]*A5=00012345'
 Check 'f160 bclr.b #0' @('rcmp', '0000f160') '0002201c       1B  fe'

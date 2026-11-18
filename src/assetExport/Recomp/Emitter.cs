@@ -79,26 +79,55 @@ public sealed class Emitter
     /// skips the bytes a branch jumps over (opcode tables, hand-written data). Either attempt must
     /// account for exactly Ghidra's byte count and instruction count, and the differential against
     /// the interpreter is the second check.
+    ///
+    /// <paramref name="nested"/> lists model entries that sit inside this function's byte span and
+    /// own their bytes themselves: the cstart's FPU-state stubs (`0x20956`, `0x21334`) are separate
+    /// Ghidra functions reached through the ROM's Supervisor trampoline, so their six bytes are not
+    /// instructions of the function around them. The walks step over them; the model's size counts
+    /// only this function's own instruction bytes, which is what the byte check proves.
     /// </summary>
-    public Function Decode(uint entry, int size, int expectedInsns, uint limit)
+    public Function Decode(uint entry, int size, int expectedInsns, uint limit,
+                           IReadOnlyList<(uint Addr, int Size)>? nested = null)
     {
-        Function f = DecodeLinear(entry, size, expectedInsns);
+        Function f = DecodeLinear(entry, size, expectedInsns, nested);
         if (f.Why == null) return f;
 
-        Function g = DecodeFlow(entry, size, expectedInsns, limit);
+        Function g = DecodeFlow(entry, size, expectedInsns, limit, nested);
         if (g.Why == null) return g;
 
         return f;                                       // report the simpler failure
     }
 
-    Function DecodeLinear(uint entry, int size, int expectedInsns)
+    /// <summary>The nested entry that owns `pc`, or null. `nested` is sorted by address.</summary>
+    static (uint Addr, int Size)? NestedAt(IReadOnlyList<(uint Addr, int Size)>? nested, uint pc)
+    {
+        if (nested == null) return null;
+        for (int i = 0; i < nested.Count; i++)
+            if (pc >= nested[i].Addr && pc < nested[i].Addr + (uint)nested[i].Size) return nested[i];
+        return null;
+    }
+
+    static int NestedBytes(IReadOnlyList<(uint Addr, int Size)>? nested)
+    {
+        int n = 0;
+        if (nested != null) foreach (var e in nested) n += e.Size;
+        return n;
+    }
+
+    Function DecodeLinear(uint entry, int size, int expectedInsns, IReadOnlyList<(uint Addr, int Size)>? nested)
     {
         var f = new Function { Entry = entry, Size = size };
-        uint end = entry + (uint)size;
+        uint end = entry + (uint)size + (uint)NestedBytes(nested);
         uint pc = entry;
+        int bytes = 0;
 
-        while (pc < end)
+        while (bytes < size && pc < end)
         {
+            if (NestedAt(nested, pc) is (uint nAddr, int nSize))
+            {
+                pc = nAddr + (uint)nSize;
+                continue;
+            }
             Insn insn = _dec.Decode(pc);
             if (insn.Kind == Opk.Unsupported)
             {
@@ -106,11 +135,12 @@ public sealed class Emitter
                 return f;
             }
             f.Insns.Add(insn);
+            bytes += insn.Len;
             pc += (uint)insn.Len;
         }
-        if (pc != end)
+        if (bytes != size)
         {
-            f.Why = $"decode ends at {pc:x8}, Ghidra says {end:x8}";
+            f.Why = $"decode ends at {pc:x8}, Ghidra says {entry + (uint)size:x8}";
             return f;
         }
         if (expectedInsns > 0 && f.Insns.Count != expectedInsns)
@@ -121,20 +151,28 @@ public sealed class Emitter
         return f;
     }
 
-    Function DecodeFlow(uint entry, int size, int expectedInsns, uint limit)
+    Function DecodeFlow(uint entry, int size, int expectedInsns, uint limit,
+                        IReadOnlyList<(uint Addr, int Size)>? nested)
     {
         var f = new Function { Entry = entry, Size = size };
         var done = new Dictionary<uint, Insn>();
         var work = new Stack<uint>();
         work.Push(entry);
+        uint walkEnd = entry + (uint)size + (uint)NestedBytes(nested);
+        if (limit > walkEnd) walkEnd = limit;            /* embedded tables sit between instructions */
 
         while (work.Count > 0)
         {
             uint pc = work.Pop();
             var path = new List<Insn>();
-            while (pc >= entry && pc < limit)
+            while (pc >= entry && pc < walkEnd)
             {
                 if (done.ContainsKey(pc)) break;
+                if (NestedAt(nested, pc) is (uint nAddr, int nSize))
+                {
+                    pc = nAddr + (uint)nSize;            // another function's bytes: step over them
+                    continue;
+                }
                 Insn insn = _dec.Decode(pc);
                 if (insn.Kind == Opk.Unsupported)
                 {
@@ -148,7 +186,7 @@ public sealed class Emitter
                  * instruction itself is not a branch this walk can follow. Enqueue them here, or
                  * most of the function is never decoded and the size/count check fails. */
                 if (insn.Kind == Opk.Jmp)
-                    EnqueueSwitchTargets(path, insn, done, entry, limit, work);
+                    EnqueueSwitchTargets(path, insn, done, entry, walkEnd, work);
 
                 uint next = pc + (uint)insn.Len;
                 switch (insn.Kind)
@@ -159,11 +197,11 @@ public sealed class Emitter
                         pc = 0;
                         break;
                     case Opk.Bra:
-                        pc = (insn.Target >= entry && insn.Target < limit) ? insn.Target : 0;
+                        pc = (insn.Target >= entry && insn.Target < walkEnd) ? insn.Target : 0;
                         break;
                     case Opk.Bcc:
                     case Opk.DBcc:
-                        if (insn.Target >= entry && insn.Target < limit) work.Push(insn.Target);
+                        if (insn.Target >= entry && insn.Target < walkEnd) work.Push(insn.Target);
                         pc = next;
                         break;
                     default:
@@ -338,19 +376,29 @@ public sealed class Emitter
 
     /// <summary>
     /// Decodes a block of code the model does not cover: a table dispatch target that sits outside
-    /// every modelled function (typically a shared epilogue). A straight line until it terminates;
-    /// a block that does not terminate is refused.
+    /// every modelled function (typically a shared epilogue, or a case body that a table splits off
+    /// a modelled function). A straight line until it terminates or reaches code the model *does*
+    /// cover - then the block ends with a transfer to that address and the translated function it
+    /// belongs to takes over. A block that reaches neither is refused.
+    ///
+    /// Ending on modelled code matters where Ghidra's boundaries are cut through an instruction: the
+    /// function that falls through into `0x1c1e` continues with a `cmpi.w` that is six bytes long and
+    /// runs past the entry Ghidra placed at `0x1c20` (the size word passed to `AllocMem`), and the
+    /// MovE dispatcher's case bodies at `0x1f512`/`0x1f562`/`0x1f674` continue into the functions at
+    /// `0x1f51e`/`0x1f56e`/`0x1f69a`. Both are the machine's own control flow, not a defect in the
+    /// bytes, so the block ends where the modelled instructions begin.
     /// </summary>
-    public Function DecodeBlock(uint addr, uint limit)
+    public Function DecodeBlock(uint addr, Func<uint, bool> isModelledInstruction)
     {
         var f = new Function { Entry = addr };
         uint pc = addr;
 
-        for (int n = 0; n < 128; n++)
+        for (int n = 0; n < 256; n++)
         {
-            if (pc >= limit || (long)pc + 2 > Image.Length)
+            if (pc != addr && isModelledInstruction(pc)) break;         // continues in modelled code
+            if ((long)pc + 2 > Image.Length)
             {
-                f.Why = $"block at {addr:x8} runs past its end at {pc:x8}";
+                f.Why = $"block at {addr:x8} runs past the image at {pc:x8}";
                 break;
             }
             Insn insn = _dec.Decode(pc);
@@ -361,13 +409,23 @@ public sealed class Emitter
             }
             f.Insns.Add(insn);
             pc += (uint)insn.Len;
-            if (insn.Kind == Opk.Rts || insn.Kind == Opk.Rtr || insn.Kind == Opk.Jmp || insn.Kind == Opk.Bra)
+            if (insn.Kind == Opk.Rts || insn.Kind == Opk.Rtr || insn.Kind == Opk.Rte ||
+                insn.Kind == Opk.Jmp || insn.Kind == Opk.Bra)
             {
                 f.Size = (int)(pc - addr);
                 return f;
             }
         }
-        if (f.Why == null) f.Why = $"block at {addr:x8} does not terminate";
+        if (f.Why == null)
+        {
+            if (pc != addr && isModelledInstruction(pc))
+            {
+                f.Size = (int)(pc - addr);                              // hands over to modelled code
+                return f;
+            }
+            f.Why = $"block at {addr:x8} does not terminate";
+        }
+        f.Size = 0;
         f.Insns.Clear();
         return f;
     }
@@ -501,7 +559,7 @@ public sealed class Emitter
         // A body that does not end in a terminator falls through into the next function: that is a
         // tail call, exactly what the machine does, not an error.
         Opk last = f.Insns[^1].Kind;
-        if (last != Opk.Rts && last != Opk.Bra && last != Opk.Jmp)
+        if (last != Opk.Rts && last != Opk.Rte && last != Opk.Bra && last != Opk.Jmp)
         {
             uint next = f.Entry + (uint)f.Size;
             c.Line($"/* falls through into {next:x8} */");
@@ -851,6 +909,22 @@ public sealed class Emitter
                 break;
             case Opk.Rts:
                 c.Line("rc_ret(c, m);");
+                c.Line("return;");
+                break;
+            case Opk.Rte:
+                /* The cstart's FPU stub ends with the `rte` that leaves supervisor mode: the status
+                 * word it pops is the one `Supervisor()` pushed, the long that follows is the
+                 * return address. Unreachable on a 68000 (the F-line traps first). */
+                c.Line("c->sr = (u16)rc_pop16(c, m);");
+                c.Line("c->pc = rc_pop32(c, m);");
+                c.Line("return;");
+                break;
+            case Opk.FRestore:
+                /* The machine has no 68881: the 68000 raises an F-line trap on the opcode word, and
+                 * this runtime has no exception vectors, so the run stops the way it does on a divide
+                 * by zero. The stub is unreachable on a 68000 anyway (the cstart only jumps to it
+                 * when AttnFlags says 68020). */
+                c.Line("rc_line_f(c, m, \"frestore\");");
                 c.Line("return;");
                 break;
             case Opk.Nop:
@@ -1227,6 +1301,8 @@ public sealed class Emitter
             case Opk.Link: return $"link.w A{i.Reg},#{i.Imm:x}";
             case Opk.Unlk: return $"unlk A{i.Reg}";
             case Opk.Rts: return "rts";
+            case Opk.Rte: return "rte";
+            case Opk.FRestore: return "frestore (A7)+";
             case Opk.Nop: return "nop";
             case Opk.Tas: return $"tas {Ea(i.Dst!)}";
             case Opk.Lea: return $"lea {Ea(i.Dst!)},A{i.Reg}";

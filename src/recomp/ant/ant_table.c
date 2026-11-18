@@ -9,6 +9,7 @@
 ant_DECL(00000000);
 ant_DECL(000003f0);
 ant_DECL(00000440);
+ant_DECL(0000046e);
 ant_DECL(000004cc);
 ant_DECL(0000065e);
 ant_DECL(0000068a);
@@ -48,6 +49,7 @@ ant_DECL(000024ac);
 ant_DECL(000025ac);
 ant_DECL(000026e4);
 ant_DECL(00002720);
+ant_DECL(00002738);
 ant_DECL(0000273a);
 ant_DECL(00002752);
 ant_DECL(000027d8);
@@ -71,6 +73,7 @@ ant_DECL(00003994);
 ant_DECL(000039da);
 ant_DECL(00003a52);
 ant_DECL(00003a90);
+ant_DECL(00003b12);
 ant_DECL(00003b86);
 ant_DECL(00003d92);
 ant_DECL(00003f9e);
@@ -144,6 +147,7 @@ ant_DECL(00007a94);
 ant_DECL(00007b30);
 ant_DECL(00007c6e);
 ant_DECL(00007cc4);
+ant_DECL(00007cfe);
 ant_DECL(00007d00);
 ant_DECL(00007d1a);
 ant_DECL(00007d32);
@@ -633,13 +637,16 @@ ant_DECL(00021554);
 ant_DECL(0002156c);
 ant_DECL(00021598);
 ant_DECL(000215a6);
+ant_DECL(000215b4);
 ant_DECL(000215c0);
+ant_DECL(00021604);
 ant_DECL(00021610);
 ant_DECL(00021660);
 ant_DECL(0002166e);
 ant_DECL(0002167e);
 ant_DECL(000216a6);
 ant_DECL(000216dc);
+ant_DECL(00021716);
 ant_DECL(0002173c);
 ant_DECL(000217a0);
 ant_DECL(000217ae);
@@ -691,6 +698,8 @@ ant_DECL(000228d4);
 ant_DECL(00022946);
 ant_DECL(0002295a);
 ant_DECL(0002298a);
+ant_DECL(000229ba);
+ant_DECL(000229f8);
 ant_DECL(00022a2c);
 ant_DECL(00022a34);
 ant_DECL(00022b6c);
@@ -709,6 +718,8 @@ ant_DECL(00023290);
 ant_DECL(0002329c);
 ant_DECL(000232a6);
 ant_DECL(000232f6);
+ant_DECL(00023314);
+ant_DECL(000233d6);
 ant_DECL(00023430);
 ant_DECL(0002347c);
 ant_DECL(00023488);
@@ -808,13 +819,14 @@ ant_DECL(00023a54);
 ant_DECL(00023a5e);
 ant_DECL(00023ace);
 
-enum { ANT_FUNCTION_COUNT = 801 };
+enum { ANT_FUNCTION_COUNT = 812 };
 
 const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
 {
     { RC_ADDR(0x00000000u), RC_ADDR(0x00000006u), ant_fn_00000000 },
     { RC_ADDR(0x000003f0u), RC_ADDR(0x00000440u), ant_fn_000003f0 },
     { RC_ADDR(0x00000440u), RC_ADDR(0x0000046eu), ant_fn_00000440 },
+    { RC_ADDR(0x0000046eu), RC_ADDR(0x000004ccu), ant_fn_0000046e },
     { RC_ADDR(0x000004ccu), RC_ADDR(0x00000618u), ant_fn_000004cc },
     { RC_ADDR(0x0000065eu), RC_ADDR(0x0000068au), ant_fn_0000065e },
     { RC_ADDR(0x0000068au), RC_ADDR(0x0000085eu), ant_fn_0000068a },
@@ -854,6 +866,7 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x000025acu), RC_ADDR(0x000026e4u), ant_fn_000025ac },
     { RC_ADDR(0x000026e4u), RC_ADDR(0x0000271cu), ant_fn_000026e4 },
     { RC_ADDR(0x00002720u), RC_ADDR(0x00002738u), ant_fn_00002720 },
+    { RC_ADDR(0x00002738u), RC_ADDR(0x0000273cu), ant_fn_00002738 },
     { RC_ADDR(0x0000273au), RC_ADDR(0x00002752u), ant_fn_0000273a },
     { RC_ADDR(0x00002752u), RC_ADDR(0x000027a4u), ant_fn_00002752 },
     { RC_ADDR(0x000027d8u), RC_ADDR(0x00002e96u), ant_fn_000027d8 },
@@ -877,6 +890,7 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x000039dau), RC_ADDR(0x00003a52u), ant_fn_000039da },
     { RC_ADDR(0x00003a52u), RC_ADDR(0x00003a90u), ant_fn_00003a52 },
     { RC_ADDR(0x00003a90u), RC_ADDR(0x00003b12u), ant_fn_00003a90 },
+    { RC_ADDR(0x00003b12u), RC_ADDR(0x00003b86u), ant_fn_00003b12 },
     { RC_ADDR(0x00003b86u), RC_ADDR(0x00003d6eu), ant_fn_00003b86 },
     { RC_ADDR(0x00003d92u), RC_ADDR(0x00003f9eu), ant_fn_00003d92 },
     { RC_ADDR(0x00003f9eu), RC_ADDR(0x000045c0u), ant_fn_00003f9e },
@@ -950,6 +964,7 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x00007b30u), RC_ADDR(0x00007c6eu), ant_fn_00007b30 },
     { RC_ADDR(0x00007c6eu), RC_ADDR(0x00007cc4u), ant_fn_00007c6e },
     { RC_ADDR(0x00007cc4u), RC_ADDR(0x00007cfeu), ant_fn_00007cc4 },
+    { RC_ADDR(0x00007cfeu), RC_ADDR(0x00007d04u), ant_fn_00007cfe },
     { RC_ADDR(0x00007d00u), RC_ADDR(0x00007d0cu), ant_fn_00007d00 },
     { RC_ADDR(0x00007d1au), RC_ADDR(0x00007d32u), ant_fn_00007d1a },
     { RC_ADDR(0x00007d32u), RC_ADDR(0x00007e40u), ant_fn_00007d32 },
@@ -1439,13 +1454,16 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x0002156cu), RC_ADDR(0x00021598u), ant_fn_0002156c },
     { RC_ADDR(0x00021598u), RC_ADDR(0x000215a6u), ant_fn_00021598 },
     { RC_ADDR(0x000215a6u), RC_ADDR(0x000215b4u), ant_fn_000215a6 },
+    { RC_ADDR(0x000215b4u), RC_ADDR(0x000215c0u), ant_fn_000215b4 },
     { RC_ADDR(0x000215c0u), RC_ADDR(0x00021604u), ant_fn_000215c0 },
+    { RC_ADDR(0x00021604u), RC_ADDR(0x00021610u), ant_fn_00021604 },
     { RC_ADDR(0x00021610u), RC_ADDR(0x00021660u), ant_fn_00021610 },
     { RC_ADDR(0x00021660u), RC_ADDR(0x0002166eu), ant_fn_00021660 },
     { RC_ADDR(0x0002166eu), RC_ADDR(0x0002167eu), ant_fn_0002166e },
     { RC_ADDR(0x0002167eu), RC_ADDR(0x000216a6u), ant_fn_0002167e },
     { RC_ADDR(0x000216a6u), RC_ADDR(0x000216dcu), ant_fn_000216a6 },
     { RC_ADDR(0x000216dcu), RC_ADDR(0x00021716u), ant_fn_000216dc },
+    { RC_ADDR(0x00021716u), RC_ADDR(0x0002173cu), ant_fn_00021716 },
     { RC_ADDR(0x0002173cu), RC_ADDR(0x000217a0u), ant_fn_0002173c },
     { RC_ADDR(0x000217a0u), RC_ADDR(0x000217aeu), ant_fn_000217a0 },
     { RC_ADDR(0x000217aeu), RC_ADDR(0x000217b6u), ant_fn_000217ae },
@@ -1497,6 +1515,8 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x00022946u), RC_ADDR(0x0002295au), ant_fn_00022946 },
     { RC_ADDR(0x0002295au), RC_ADDR(0x00022972u), ant_fn_0002295a },
     { RC_ADDR(0x0002298au), RC_ADDR(0x000229bau), ant_fn_0002298a },
+    { RC_ADDR(0x000229bau), RC_ADDR(0x00022a20u), ant_fn_000229ba },
+    { RC_ADDR(0x000229f8u), RC_ADDR(0x000229feu), ant_fn_000229f8 },
     { RC_ADDR(0x00022a2cu), RC_ADDR(0x00022a34u), ant_fn_00022a2c },
     { RC_ADDR(0x00022a34u), RC_ADDR(0x00022b6au), ant_fn_00022a34 },
     { RC_ADDR(0x00022b6cu), RC_ADDR(0x00022d32u), ant_fn_00022b6c },
@@ -1515,6 +1535,8 @@ const rc_entry ant_functions[ANT_FUNCTION_COUNT + 1] =
     { RC_ADDR(0x0002329cu), RC_ADDR(0x000232a6u), ant_fn_0002329c },
     { RC_ADDR(0x000232a6u), RC_ADDR(0x000232f6u), ant_fn_000232a6 },
     { RC_ADDR(0x000232f6u), RC_ADDR(0x00023314u), ant_fn_000232f6 },
+    { RC_ADDR(0x00023314u), RC_ADDR(0x0002342au), ant_fn_00023314 },
+    { RC_ADDR(0x000233d6u), RC_ADDR(0x000233dcu), ant_fn_000233d6 },
     { RC_ADDR(0x00023430u), RC_ADDR(0x0002347cu), ant_fn_00023430 },
     { RC_ADDR(0x0002347cu), RC_ADDR(0x00023488u), ant_fn_0002347c },
     { RC_ADDR(0x00023488u), RC_ADDR(0x00023496u), ant_fn_00023488 },

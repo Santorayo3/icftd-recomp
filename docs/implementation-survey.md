@@ -10,9 +10,10 @@ show *what a scene is*, never as proof (RULE 0: machine state is the evidence).
 ## 0. The answer in one paragraph
 
 **The game's own logic is complete by construction and nothing is hand-ported.** All 750 functions
-of the original `dshell` are in the build: 746 translated to C, 4 refused by the translator
-(cstart + `restoreFPUStateFrame` stubs, line-F) and executed by the vendored 68000 core, plus 47
-blocks outside the model. There is no "missing feature" in the sense of a scene that was not
+of the original `dshell` are in the build: **all 750 translated to C** — the last four (cstart and
+its three `restoreFPUStateFrame` stubs, which the translator used to refuse as line-F) went in on
+2026-11-18, see §6.6 — plus 51 blocks outside the model, so nothing of the program is left to the
+vendored 68000 core. There is no "missing feature" in the sense of a scene that was not
 written — a scene is present exactly when its function runs and the runtime can carry out what it
 programs. **What is not proven is behaviour**: of 750 functions, **513 (68 %) have executed** in the
 12 recorded/injected sessions below; **237 (10 266 of 35 323 model instructions = 29.1 %) have never
@@ -281,13 +282,41 @@ an unimplemented call. One function is nevertheless unhandled:
 original returns nothing) but a difference. `dos.Delay` is implemented and never called;
 `exec.DoIO` returns immediately (no device timing), and only one call was ever seen.
 
-### 6.6 Four functions still run on the 68000 core
+### 6.6 Nothing runs on the 68000 core any more (closed 2026-11-18)
 
-`0x20918` (cstart), `0x20956`, `0x21272`, `0x21334` — the last three are `restoreFPUStateFrame(0)`
-stubs (line-F, unreachable on a 68000). The translator refuses the whole linear walk at the line-F
-instruction, so even the cstart runs interpreted; the cstart itself is a few dozen instructions, and
-the fallback in total is ~14 000 interpreted instructions per 30M (0.05 %), most of them the MovE
-computed-jump blocks (`0x1f35e..0x1f750`).
+`0x20918` (cstart), `0x20956`, `0x21272`, `0x21334` used to be refused: the cstart's byte span
+*contains* two `restoreFPUStateFrame` stubs (`clr.l -(SP)` / `frestore (SP)+` / `rte`) that are
+model functions of their own, and the translator's walk stopped dead at the `frestore`'s line-F
+opcode. Three things closed it, all in `src\assetExport\Recomp`:
+
+* the F-line decoder knows `frestore (A7)+` (the only F-line encoding in the image), and the
+  emitter compiles it to `rc_line_f()`, which stops the run the way the 68000's F-line trap would
+  (there is no exception-vector model here, the same rule the divide by zero follows). `rte` -
+  the stub's last instruction - is emitted as the status-word/PC restore it is;
+* a function's decode may now step over a nested model entry the way it steps over embedded
+  tables: the model's size counts only the function's own instruction bytes, so the cstart's 29
+  instructions and 96 bytes are provable even though a six-byte stub sits between them;
+* a block outside the model ends where modelled instructions begin, instead of being refused for
+  running past the next entry. That also closed the four blocks the MovE dispatcher's case bodies
+  cut off a modelled function (`0x1f512`, `0x1f562`, `0x1f674`) and the cstart's fall-through
+  (`0x1c1e`, whose `cmpi.w` runs past the entry Ghidra placed at `0x1c20` - the size word passed
+  to `AllocMem`).
+
+The report is now **750 of 750 functions, 121 362 of 121 362 bytes, 51 blocks, 0 refused**; the
+add-on ("Antheads") went from 766 + 35 blocks + 4 refused to **770 of 770 functions, 42 blocks**.
+The stubs stay unreachable on a 68000 (the cstart only jumps to them when `AttnFlags` says 68020),
+so this changes no behaviour - it removes the last interpreted instructions from the build.
+
+Two things it *did* change, both fixed in the same session:
+
+* **The front end lost its per-frame hand-back.** The translated stream used to return to the
+  host's loop at every untranslated block, and every frame had one - which is where `--call`,
+  `--esc`, `--cheat` and the title's keys are serviced. `rc_frameBreak` now asks for the program at
+  the frame boundary explicitly (cpu.h/cpu.c), so a preset injects at the frame the oracle injects
+  at. Two port checks that had been calibrated against the old lag were re-calibrated against the
+  oracle (camera, crosshair).
+* **A refused library call now reports the same PC on both sides** (§8, the differential), which is
+  what let fourteen fixtures stop being skipped.
 
 ### 6.7 Presenter: what it supports and what it does not need to
 
@@ -364,6 +393,15 @@ project".
 * `--interpstat` — which refused PCs ran; `--state`/`--ram` + `state-diff.ps1` — parity;
   `present-check.ps1` — raster coverage/motion/border; `--call`, `--poke`, `--input`, `--record`,
   `--shot`, `--dump` — reaching and observing a scene.
+* **The differential's dump conventions (2026-11-18).** Three things made fixtures look different
+  when the machines agreed, and all three are conventions, not behaviour: a library call the
+  fixture does not model now reports the PC *inside* the library on both sides (the `jsr`/`jmp` has
+  been taken; the translation already did this, the interpreter now does too, and it is where the
+  oracle stands as well); `Memory.Modified()` no longer caps a dump at 4 096 ranges (a scatter
+  fixture was being compared truncated against complete); and a fixture that is a Ghidra phantom
+  entry (`0x2410` is the string `"%d"` passed to a `pea`, `0x1c20` the 7 200-byte size word passed
+  to `AllocMem`) needs a start state in which its bytes are legal instructions - `00002410.json`
+  starts with A4 at base+4 so the fragment's predecrement lands on the real base.
 * The survey artifacts are under `out\survey\` (gitignored): `cov\*.txt` per run,
   `never-executed.csv/.txt`, `never-addresses.txt`, the logs, and screenshots of phone/fire/ending.
 

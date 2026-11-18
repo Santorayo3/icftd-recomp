@@ -266,6 +266,10 @@ static void host_frame(cpu_t *c, rt_machine *m)
     gather(c, m);
     host_audio_note(m);
     host_crash_note(m, c);
+    /* The front end's own loop services the per-frame seams (`--call`, `--esc`, `--cheat`, the
+     * title's keys); with the whole program translated nothing else hands it the program, so it
+     * asks for the boundary here. See rc_frameBreak (src\recomp\cpu.h). */
+    rc_frameBreak = 1;
 }
 
 /* A CIA timer expiry (the engine's music driver) can land inside translated code as well as

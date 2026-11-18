@@ -61,6 +61,7 @@ public sealed class Decoder
                 case 0xC: GroupC(insn, op); break;
                 case 0xD: AddSub(insn, op, true); break;
                 case 0xE: Shift(insn, op); break;
+                case 0xF: LineF(insn, op); break;
                 default: Unsupported(insn, $"line {op >> 12:x}"); break;
             }
         }
@@ -92,6 +93,24 @@ public sealed class Decoder
     static void Need(bool ok, string why)
     {
         if (!ok) throw new UnsupportedException(why);
+    }
+
+    /// <summary>
+    /// The F-line: instructions for the 68881, which this machine does not have. On a 68000 the
+    /// first word of one raises an F-line trap, so the operand words after it never execute.
+    /// The image contains exactly one F-line encoding - the cstart's FPU-state stub, whose
+    /// `frestore (SP)+` and `rte` pair sit behind a `btst #4,(AttnFlags)` test only a 68020 passes -
+    /// and decoding that form is what proves the stub's bytes. Every other F-line encoding stays
+    /// unsupported rather than guessed at.
+    /// </summary>
+    static void LineF(Insn i, ushort op)
+    {
+        if ((op & 0xFFC0) == 0xF340 && (op & 0x3F) == 0x1F)      // frestore (A7)+, no extension
+        {
+            i.Kind = Opk.FRestore;
+            return;
+        }
+        Unsupported(i, $"line f ({op:x4})");
     }
 
     // ---- effective addresses -------------------------------------------------
@@ -392,8 +411,8 @@ public sealed class Decoder
         {
             case 0x4E71: i.Kind = Opk.Nop; return;
             case 0x4E75: i.Kind = Opk.Rts; return;
-            case 0x4E73: i.Kind = Opk.Rtr; return;          // RTE: rejected by the emitter
-            case 0x4E77: i.Kind = Opk.Rtr; return;
+            case 0x4E73: i.Kind = Opk.Rte; return;
+            case 0x4E77: i.Kind = Opk.Rtr; return;          // RTR: rejected by the emitter
             case 0x4E76: Need(false, "TRAPV"); return;
         }
         if ((op & 0xFFF0) == 0x4E40) { Need(false, "TRAP"); return; }

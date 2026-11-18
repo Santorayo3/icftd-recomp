@@ -32,9 +32,11 @@ public enum Opk
     Btst, Bchg, Bclr, Bset,
     Shift,
     Link, Unlk, Rts, Rtr, Nop, Swap, Ext, ExtB, Tas,
+    Rte,
     Lea, Pea, MovemToMem, MovemToReg,
     Bra, Bsr, Bcc, DBcc, Scc,
     Jsr, Jmp,
+    FRestore,
 }
 
 /// <summary>One decoded instruction, in the shape the emitter consumes.</summary>

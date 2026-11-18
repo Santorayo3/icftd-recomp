@@ -314,8 +314,10 @@ landing are the game's own.
 | Giant Ant | `FUN_00007934`, `0x007934` | `0x2991e=1`, `0x29920=1`, `0x29cc0=1` | the update's success branch, word for word |
 
 Each update is called from one scene only (the callers are in `re\decomp_all\dshell\ALL.c`), so the
-update identifies the scene. The request is consumed at its entry, within the three-frame window
-`CHEAT_REQUEST_FRAMES` (measured 0..2 frames after the key).
+update identifies the scene. The request is consumed at its entry, within the eight-frame window
+`CHEAT_REQUEST_FRAMES`: not every scene updates every frame (the escape's runs once per five
+vblanks, the flight's once per three), so the window spans the slowest cadence with a vblank to
+spare.
 
 Attachment points, in the table's order:
 
@@ -327,9 +329,10 @@ Attachment points, in the table's order:
   request at the entry of the seven updates. The hook is installed in a played game (and for a
   `--mouse`/`--cheat` test run), never in a plain measurement, where the machine state must be the
   original's.
-* A request is good for three frames (`CHEAT_REQUEST_FRAMES`), so a press on the title, a room or
-  the map expires instead of winning the next scene. The title also ignores its W ending key while
-  Ctrl is held, so the chord does not take that menu entry on the way in.
+* A request is good for eight frames (`CHEAT_REQUEST_FRAMES`), so a press on the title, a room or
+  the map expires instead of winning the next scene, while a scene that updates every fifth vblank
+  still sees the key. The title also ignores its W ending key while Ctrl is held, so the chord does
+  not take that menu entry on the way in.
 * `--cheat <frame>` is the scripted form (a test seam like `--esc`): it feeds the same
   `input_state` the platform reports, so a test run exercises the one test that decides the chord.
 * The DOS front end installs the same hook, shared with the pointer, crosshair, aim and loading

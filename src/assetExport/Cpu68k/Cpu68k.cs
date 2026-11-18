@@ -1110,8 +1110,12 @@ public sealed class Cpu68k
         if (StubHost?.Invoke(call) != true)
         {
             if (!AllowOsStubs)
-                throw new Cpu68kException(opAddr, $"library call LVO {lvo} ({LvoName(lvo)}) at 0x{opAddr:X6} " +
-                                                  "- allowOsStubs is false");
+                /* The jsr/jmp has been taken: on the machine the pc is inside the library, which is
+                 * where the translated build stands too when it refuses the same call (cpu.c,
+                 * rc_os_call_a6). Reporting the call site here made the differential compare two
+                 * different conventions for one event. */
+                throw new Cpu68kException(A[6] + (uint)lvo, $"library call LVO {lvo} ({LvoName(lvo)}) at 0x{opAddr:X6} " +
+                                                            "- allowOsStubs is false");
             call.Result = 0;
             call.Note = "unmodelled";
             _purityUnknown = true;

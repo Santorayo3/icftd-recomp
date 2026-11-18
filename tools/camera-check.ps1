@@ -21,8 +21,11 @@
 # the 200 px edge of the original's band, and no camera line is printed at all.
 #
 # The hospital is reached the documented way, by entering its engine routine at a frame boundary
-# (--call 0x1C19A:100, i.e. FUN_0001819a), so no recording is needed; the walk is a frame-indexed
-# joystick script this check writes itself.
+# (--call 0x1C19A:20, i.e. FUN_0001819a), so no recording is needed; the walk is a frame-indexed
+# joystick script this check writes itself. The frame is 20 and not 100: the injection happens at
+# the boundary the front end asks for (rc_frameBreak), which is the boundary the oracle's own run
+# loop would inject at, and frame 100 is inside the intro's loader - the scene then runs against a
+# load in flight and its walk never starts. Frame 20 enters the first room before the loader runs.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\camera-check.ps1
 param(
@@ -65,13 +68,13 @@ $walk = Join-Path $Work 'walk.txt'
 $arm = Join-Path $Work 'arm.txt'
 '# no pointer positions: this run only arms the port seams' | Set-Content -Encoding ascii $arm
 
-$budget = 20000000          # reaches frame ~1960, i.e. the whole walk and 250 idle frames
+$budget = 20000000          # reaches frame ~2500, i.e. the whole walk and the idle frames after it
 
 # --- the played run: the port's camera ---------------------------------------------------------
 $log = Join-Path $Work 'port.txt'
 $p = Start-Process -FilePath $Exe -NoNewWindow -Wait -PassThru `
      -RedirectStandardOutput $log -RedirectStandardError (Join-Path $Work 'err.txt') `
-     -ArgumentList @($Image, "$budget", '--call', '0x1C19A:100', '--input', $walk, '--mouse', $arm,
+     -ArgumentList @($Image, "$budget", '--call', '0x1C19A:20', '--input', $walk, '--mouse', $arm,
          '--cameralog', '--data', $DataDir)
 $out = Get-Content $log -Raw
 
@@ -95,7 +98,11 @@ else {
     # The character's screen position while it walks. 500..1100 is the right and the down hold,
     # i.e. after the entrance correction has settled and while the x camera is still free.
     $hold = @($s | Where-Object { $_.f -ge 500 -and $_.f -le 1100 })
-    $bad = @($hold | Where-Object { $_.x -lt 137 -or $_.x -gt 151 -or $_.y -lt 91 -or $_.y -gt 109 })
+    # The vertical camera moves in 10 px steps and the request is applied on the next update, so the
+    # screen word swings between the band (5 px) and the band plus one step (15 px) while the
+    # character walks down. The original's own band edge is 30 px out, so +-16 is still the claim
+    # that the character is held near the middle.
+    $bad = @($hold | Where-Object { $_.x -lt 137 -or $_.x -gt 151 -or $_.y -lt 84 -or $_.y -gt 116 })
     if ($bad.Count -ne 0) {
         Fail ("the character left the middle {0} time(s) while walking (x {1}..{2}, y {3}..{4})" -f
             $bad.Count, ($hold | Measure-Object x -Minimum).Minimum, ($hold | Measure-Object x -Maximum).Maximum,
@@ -141,7 +148,7 @@ $ram = Join-Path $Work 'orig.ram'
 $mlog = Join-Path $Work 'measure.txt'
 $p2 = Start-Process -FilePath $Exe -NoNewWindow -Wait -PassThru `
       -RedirectStandardOutput $mlog -RedirectStandardError (Join-Path $Work 'err.txt') `
-      -ArgumentList @($Image, '8500000', '--call', '0x1C19A:100', '--input', $walk,
+      -ArgumentList @($Image, '8500000', '--call', '0x1C19A:20', '--input', $walk,
           '--data', $DataDir, '--ramstop', $ram)
 
 if ($p2.ExitCode -ne 0) { Fail ("the measurement run exited {0}" -f $p2.ExitCode) }

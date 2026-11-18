@@ -174,7 +174,7 @@ public sealed class Memory
     }
 
     /// <summary>Every run of bytes that differs from the snapshot, ascending by address.</summary>
-    public List<MemRange> Modified(int maxRanges = 4096)
+    public List<MemRange> Modified(int maxRanges = 1 << 20)
     {
         var ranges = new List<MemRange>();
         if (!_armed) return ranges;

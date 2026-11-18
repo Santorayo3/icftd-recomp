@@ -1,4 +1,4 @@
-/* fn_000014d6 - 28 byte(s), 9 instruction(s).
+/* fn_000014d6 - 24 byte(s), 7 instruction(s).
  * Generated from export\code\dshell\dshell.img by `recomp` - one C statement per 68000
  * instruction, the original's control flow as labels. Hand edits belong in src\recomp\patches.
  * Addresses are image offsets; RC_ADDR (cpu.h) adds the load address of the build.
@@ -18,8 +18,6 @@ void fn_000014d6(cpu_t *c, rt_machine *m)
     case RC_ADDR(0x000014e4u): goto L_14E4;
     case RC_ADDR(0x000014e8u): goto L_14E8;
     case RC_ADDR(0x000014ecu): goto L_14EC;
-    case RC_ADDR(0x000014eeu): goto L_14EE;
-    case RC_ADDR(0x000014f0u): goto L_14F0;
     default:
         rc_bad_entry(c, m);
         return;
@@ -82,19 +80,7 @@ L_14EC:
     rc_step(c, m, 4);
     c->a[7] += rc_ext(0x00000004u, RC_W);
 
-L_14EE:
-    /* 000014ee   2  unlk A5 */
+    /* falls through into 000014ee */
     c->pc = RC_ADDR(0x000014eeu);
-    rc_step(c, m, 12);
-    c->a[7] = c->a[5];
-    c->a[5] = rc_rd32(c, m, c->a[7]);
-    c->a[7] += 4;
-
-L_14F0:
-    /* 000014f0   2  rts */
-    c->pc = RC_ADDR(0x000014f0u);
-    rc_step(c, m, 16);
-    rc_ret(c, m);
     return;
-
 }

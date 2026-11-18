@@ -26,7 +26,7 @@ instead is [`docs/port-features.md`](docs/port-features.md).
 | phase | what it is | state |
 |---|---|---|
 | **A — run the original** | The real `dshell` image executing on the vendored Musashi 68000 core plus our own Amiga OS shims. This is the **oracle** (`src\oracle` + `src\runtime`): it is how we learn what the program actually does, and where the fixtures come from. A tool — the shipped game links no 68000 core. | **Done, frozen.** Boots, plays the intro, runs the game loop: 30M instructions reach frame 5823 with a raster presented every frame, 0 dropped blit writes. OS surface measured every run: **49 library calls used, 45 kinds implemented, 4 answered with 0** (`OpenDiskFont`, three IEEE single-precision ops). |
-| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Started.** `recomp` emits 746 of 750 functions (120,982 of 121,362 bytes) plus 47 blocks of code the model does not cover; the other 4 are reported with the construct that is missing. The differential is green: **241 of 260 fixtures verified, 19 skipped, 0 failed**. |
+| **B — the product** | Static translation of the 750 functions into `src\recomp\fn_<addr>.c` + `fn_table.c` against a `cpu_t` context, `jsr (d16,A6)` → `os_call()`, computed jumps → table lookup with interpreter fallback. | **Done.** `recomp` emits **all 750 functions (121 362 of 121 362 bytes) plus all 51 blocks** of code the model does not cover; nothing is left for the interpreter, and the report has no refused entry. The differential is green: **263 of 263 fixtures verified, 0 skipped, 0 failed**. |
 
 ## How correctness is decided
 

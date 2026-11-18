@@ -216,7 +216,10 @@ Scenario @{
     name    = 'fire'
     scene   = 'fire game'
     preset  = @('--call', '0xFE34:1000')
-    budget  = 9000000
+    # 10 M and not 9: the pointer run sprays at frame 2080 and extinguishes flames, so the scene
+    # does more per frame than the keyboard's run and would not reach the last frame read below
+    # (2180) inside 9 M instructions.
+    budget  = 10000000
     move    = 1960
     initial = @(0xA0, 0xB4)
     stick   = @('1960 0 0x0003', '2100 0 0x0000')

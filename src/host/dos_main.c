@@ -341,6 +341,9 @@ static void dos_frame(cpu_t *c, rt_machine *m)
     scatter(c, m);
     frame_vblank(m);
     gather(c, m);
+    /* Hand the program back to the front end's loop at the boundary, where its per-frame seams
+     * (`--call`, `--esc`, `--cheat`, the title's keys) are serviced - see rc_frameBreak. */
+    rc_frameBreak = 1;
 }
 
 /* The same vblank on the interpreter, which has no mirror to scatter: the core already holds the

@@ -121,8 +121,21 @@ public static class RecompCommand
         int bytes = 0, insns = 0, totalBytes = 0, thunks = 0;
 
         // A function's decode may not run past the next function: embedded data ends where the
-        // following entry begins.
+        // following entry begins. A model entry can also sit *inside* a function's bytes - the
+        // cstart's FPU-state stubs do - and then it owns those bytes itself.
         uint[] starts = functions.Select(f => f.Addr).OrderBy(a => a).ToArray();
+
+        List<(uint Addr, int Size)> Nested(uint addr, int size)
+        {
+            var list = new List<(uint, int)>();
+            int idx = Array.BinarySearch(starts, addr);
+            for (int i = (idx >= 0 ? idx : ~idx) + 1; i < starts.Length && starts[i] < addr + (uint)size; i++)
+            {
+                var e = functions.First(f => f.Addr == starts[i]);
+                list.Add((e.Addr, e.Size));
+            }
+            return list;
+        }
 
         foreach (var (addr, size, expectedInsns, thunk) in functions)
         {
@@ -132,7 +145,7 @@ public static class RecompCommand
             int at = Array.BinarySearch(starts, addr);
             uint limit = at + 1 < starts.Length ? starts[at + 1] : addr + (uint)size + 0x1000u;
 
-            Emitter.Function f = emitter.Decode(addr, size, expectedInsns, limit);
+            Emitter.Function f = emitter.Decode(addr, size, expectedInsns, limit, Nested(addr, size));
             if (f.Why == null)
             {
                 string? body = emitter.EmitBody(f);
@@ -165,10 +178,15 @@ public static class RecompCommand
 
         // Code outside every modelled function that translated code transfers to - a shared epilogue,
         // for instance, which the model records as a label rather than a function. Emitted as its own
-        // block so the dispatch resolves it instead of falling into the interpreter.
+        // block so the dispatch resolves it instead of falling into the interpreter. A block ends
+        // where the model's own instructions begin, so a case body cut off a modelled function hands
+        // over to it instead of duplicating it.
         var blocks = new List<Emitter.Function>();
         var claimed = new HashSet<uint>();
         var work = new Queue<uint>();
+        var code = new HashSet<uint>();
+        foreach (Emitter.Function f in kept)
+            foreach (Insn i in f.Insns) code.Add(i.Addr);
         foreach (Emitter.Function f in kept)
             foreach (uint t in emitter.Targets(f)) work.Enqueue(t);
         while (work.Count > 0)
@@ -180,11 +198,7 @@ public static class RecompCommand
             if (blocks.Any(b => t >= b.Entry && t < b.Entry + (uint)b.Size)) continue;
             claimed.Add(t);
 
-            int at = Array.BinarySearch(starts, t);
-            if (at < 0) at = ~at;
-            uint limit = at < starts.Length ? starts[at] : (uint)image.Length;
-
-            Emitter.Function b = emitter.DecodeBlock(t, limit);
+            Emitter.Function b = emitter.DecodeBlock(t, code.Contains);
             string? body = b.Why == null ? emitter.EmitBody(b) : null;
             if (body == null)
             {
@@ -194,6 +208,7 @@ public static class RecompCommand
             }
             File.WriteAllText(Path.Combine(outDir, $"fn_{t:x8}.c"), Header(label, rcmp, b, body, fnPrefix) + body + "}\n", Utf8NoBom());
             blocks.Add(b);
+            foreach (Insn i in b.Insns) code.Add(i.Addr);
             if (verbose) Console.WriteLine($"block   {t:x8}  {b.Size,5} B  {b.Insns.Count,4} insn");
             foreach (uint u in emitter.Targets(b)) work.Enqueue(u);
         }

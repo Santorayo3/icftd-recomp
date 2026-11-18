@@ -17,6 +17,62 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## The translation is complete: 750 of 750 (2026-11-18)
+
+`recomp` now emits **every function of both builds** - 750 of 750 (121 362 of 121 362 bytes) plus
+all 51 blocks outside the model for the 1989 engine, 770 of 770 plus 42 blocks for Antheads - and
+the differential is **263 of 263 fixtures verified, 0 skipped, 0 failed**. The four functions that
+used to be refused were the cstart and its three `restoreFPUStateFrame` stubs; three changes closed
+them, all in `src\assetExport\Recomp` (details: `implementation-survey.md` §6.6):
+
+* **`frestore (A7)+` decodes and emits.** It is the only F-line encoding in either image, and it
+  sits in a stub that is a model function of its own. The generated code calls `rc_line_f()`, which
+  stops the run naming the instruction - the 68000's F-line trap, with no exception-vector model
+  (the rule a divide by zero already follows). `rte` became its own opcode and is emitted as the
+  status-word/PC restore it is.
+* **A nested model entry is stepped over.** The model's `size` is the sum of a function's own
+  instruction bytes, so the cstart's 96 bytes are provable even though the six-byte stub sits
+  between its instructions; `Decode` takes the nested entries and walks around them.
+* **A block ends where modelled instructions begin** instead of being refused for running past the
+  next entry. That closed the four refused blocks (the MovE dispatcher's case bodies at `0x1f512`,
+  `0x1f562`, `0x1f674`, and the cstart's fall-through at `0x1c1e`, whose `cmpi.w` runs past the
+  entry Ghidra placed at `0x1c20` - the size word passed to `AllocMem`) and shortened four blocks
+  that used to duplicate a modelled epilogue.
+
+Two harness conventions had to be corrected for the differential to be *complete* rather than
+skipped, and both are stated in `harness.md`, "The Phase B differential": a refused library call
+now reports the PC inside the library on both sides (the `jsr` has been taken; `Cpu68k` used to
+report the call site), and `Memory.Modified()` no longer truncates a dump at 4 096 ranges. The
+fixture set was also re-pinned where a fixture had been degenerate (a scatter loop with garbage
+arguments, a busy-wait nothing releases, and the phantom `0x2410` entry, which is the string
+`"%d"`). `ref\fixtures` is gitignored and had been lost in this tree; it was reconstructed from
+`out\fx\*.fx` (the ICFX start state of every replay) and is 263 files again.
+
+**One consequence of translating everything had to be fixed in the runtime, and it is not
+cosmetic.** Until now the translated stream returned to the front end's loop whenever it reached
+code outside the table - and with an untranslated MovE block in every scene that happened inside
+every frame, which is how `--call`, `--esc`, `--cheat` and the title's keys (all serviced in that
+loop) ever ran. With 750 of 750 translated there is no such boundary left: a 4M-instruction run
+dispatched *once*, and the hospital preset never injected at all. `rc_frameBreak` (`src\recomp\cpu.h`)
+is the explicit form: the front end asks for the program at the frame boundary from
+`rc_frame_hook`, and `step_budget` leaves the stream with `c->pc` on the next instruction, before
+anything is charged for it (the same contract `rc_breakPc` and `rc_stopAt` have). With it the port
+stands where the oracle's run loop stands - between the vblank and the first instruction of the new
+frame - so a `--call X:frame` preset injects at the frame the oracle injects at. Measured: the
+12 M-instruction intro comparison is unchanged (RAM equal at frame 600, two dead-stack bytes at
+300), and the injected hospital run went from "the call never happens" to matching the oracle's
+words.
+
+That changed the *timing* of the frame-calibrated port checks, and two of them had been calibrated
+against the old lag: `camera-check` injected at frame 100 (inside the intro's loader - the scene
+then never walks) and read its shot/settle frames against the old phase; `crosshair-check` read the
+stored shot at frame 2122, one vblank before it lands. Both are re-calibrated in the oracle's terms
+(`--call 0x1C19A:20`, and the shot read at 2130 - the oracle stores the same words at the same
+frames), and `camera-check`'s vertical tolerance now allows the camera's own 10 px step plus the
+band, which is what the seam can physically hold. `cheat-check`'s hospital failure was real and
+pre-existing (a session note already recorded it): the escape's update runs once per five vblanks
+while the cheat request lived for three frames, so `CHEAT_REQUEST_FRAMES` is 8 now.
+
 ## Antheads, phase 8: the add-on on MS-DOS (2026-11-18)
 
 Phase 8 of [`antheads.md`](antheads.md) is done: the DOS release is one EXE with both engine builds
@@ -4416,11 +4472,12 @@ measure the next one. And the game writes `sound=10, music=10` when it has no `I
 package has none), which is not the level these figures are made at - `-Audio 1` writes the file
 before the run starts.
 
-One unrelated failure was seen while checking the port surfaces, and it is neither caused by this
-change nor new: `tools\cheat-check.ps1` reports "Escape Hospital: the cheat never ended the scene".
-The scene's update (`FUN_00019e9c`) runs once per four-frame pass and the cheat request is held for
-three frames, so the request at frame 600 is missed; the pre-change tree behaves identically (the
-same stop at `0x1C222` after 8 M instructions, framing 818, the same 804 rasters).
+One failure seen while checking the port surfaces here was real and is now closed: `tools\cheat-check.ps1`
+reported "Escape Hospital: the cheat never ended the scene". The scene's update (`FUN_00019e9c`) runs
+once per five vblanks while the cheat request was held for three frames, so a request at frame 600
+was missed - a key pressed at the wrong phase would have done nothing in a played game too.
+`CHEAT_REQUEST_FRAMES` is now 8 (2026-11-18), which clears the slowest scene's cadence with a vblank
+to spare; the check is green and the "no key, no change" invariant still holds.
 
 And a third: the DOS command tail is 126 bytes, so a longer autoexec line is silently truncated -
 `--refwait` plus `--dump` plus a full path already overruns it, and the run then writes a RAM dump

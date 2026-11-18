@@ -54,7 +54,7 @@ $call  = '0x951C:1000:0x200:0xCC5C'    # FUN_0000551C, returning into FUN_00008C
 $fire  = 2120                          # the trigger, once the stick is back in the middle
 $from  = 2095                          # the dump window covers the aim moving and the shot
 $count = 40
-$ram   = @(2095, 2121, 2122)           # before the stick, the frame the mark is aimed on, after
+$ram   = @(2095, 2121, 2130)           # before the stick, the frame the mark is aimed on, after the shot
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Get-ChildItem $Work -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force

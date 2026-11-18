@@ -47,10 +47,13 @@
  * and the fight's flags keep the names their comments always gave them. The add-on has no fire
  * game, so its fire seams are 0 - the request then simply has nothing to end there. */
 
-/* A request is good for the scene update it was made for. Each scene updates every frame, so three
- * frames is slack for the vblank's position in the stream; a key pressed on a screen that is not a
+/* A request is good for the scene update it was made for. Not every scene updates every frame: the
+ * hospital escape's update (FUN_00019e9c) runs once per five vblanks and the flight's once per
+ * three (measured; docs\next-session.md on the flight's tick), so a three-frame hold expired before
+ * the escape's next update and the cheat did nothing there. Eight frames clears the slowest cadence
+ * with one vblank to spare, and is still short enough that a key pressed on a screen that is not a
  * minigame (the title, a room, the map) expires instead of winning the next scene. */
-#define CHEAT_REQUEST_FRAMES 3
+#define CHEAT_REQUEST_FRAMES 8
 
 static int s_requested;
 static u32 s_requestFrame;

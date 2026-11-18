@@ -33,6 +33,7 @@ void (*rc_frame_hook)(cpu_t *c, rt_machine *m);
 int rc_stopOnUnknown;
 long rc_stopAt;
 u32 rc_breakPc;
+int rc_frameBreak;
 
 /* Armed only while rc_call runs the stream, so rc_step can leave it in the middle of a function. */
 static jmp_buf rc_stopBuf;
@@ -81,6 +82,16 @@ static void step_budget(cpu_t *c, rt_machine *m, u32 cost, int words)
     {
         if (rc_stopJump != 0) longjmp(*rc_stopJump, 1);
         return;
+    }
+    /* The same hand-back at the frame boundary: rc_frame_hook (below, in this function, or in the
+     * previous instruction's call) asked for it. Like rc_breakPc and rc_stopAt this happens before
+     * anything is charged for the instruction, or the re-entry would charge it twice - and the
+     * instruction it leaves on is the first one of the new frame, which is where the oracle's run
+     * loop stands when it serves the front end's per-frame seams. */
+    if (rc_frameBreak && rc_stopJump != 0)
+    {
+        rc_frameBreak = 0;
+        longjmp(*rc_stopJump, 1);
     }
     /* A WaitTOF/WaitBOVP - or a dos.Delay behind one - ended the frame early: the rest of it is
      * idle, so its budget slot is the idle one. Each pending boundary is run here, in one go,
@@ -678,6 +689,17 @@ static void rc_stream(cpu_t *c, rt_machine *m)
 void rc_bad_entry(cpu_t *c, rt_machine *m)
 {
     printf("recomp: %06lX is not an instruction of the function it entered\n", (unsigned long)c->pc);
+    m->stop = 1;
+}
+
+/* F-line: an instruction for the 68881, which this machine does not have. The 68000 takes an
+ * F-line trap on the opcode word, and there is no exception vector model here (the same rule the
+ * divide by zero follows), so the run stops naming the instruction. The one encoding the image
+ * contains is the cstart's unreachable FPU-state stub. */
+void rc_line_f(cpu_t *c, rt_machine *m, const char *what)
+{
+    printf("recomp: F-line %s at %06lX - the 68000 raises an F-line trap here\n",
+           what, (unsigned long)c->pc);
     m->stop = 1;
 }
 
