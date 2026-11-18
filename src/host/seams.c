@@ -24,6 +24,13 @@
  * MAP_ORG_MINY 0x28a5c -> 0x2b2a4 (the map script and FUN_000035d2's twin read the same words at
  * the same instructions; the whole 0x28a36..0x28a62 block moves by +0x2848).
  *
+ * The add-on's room action "Fight Ant Head" is a scene the 1989 game does not have: the room
+ * dispatcher's case 0x10 enters FUN_0000d534 (`jsr` slot 0x23c0c at 0x32d8), which registers
+ * FUN_0000ca1a as the per-update script; that script ramps and draws the pistol in FUN_0000cf24
+ * (call at 0xcba8) and tests its shots in FUN_0000cf4e, against the giant-ant fight's own aim
+ * words (0x2c5c0..) and at the same offset (-0x1b/-0x3a, stored at 0xd00c/0xd01e). The 1989
+ * build has no twin for either function, so its two rows are 0.
+ *
  * MENU_ACTION_FLIP is corrected: 0x29d2 -> 0x2d5a, not 0x1f410. The menu names itself by the return
  * address of its own flip call, and the add-on's action list calls it at 0x2d56 (0x2d5a is where
  * it returns), the twin of the original's 0x29ce -> 0x29d2. 0x1f410 is the return address one level
@@ -84,6 +91,7 @@ static const seam_set g_original =
     0x00019E9Cu,                               /* hospital draw                       */
     0x0001DBD0u,                               /* Move_DrawNode                       */
     0x00007934u, 0x000086A0u, 0x0000B97Cu,     /* ant update, shot, extinguisher      */
+    0x00000000u, 0x00000000u,                  /* no "Fight Ant Head"                 */
     0x0000A74Eu,                               /* fight update                        */
     0x0000B528u,                               /* fire update                         */
     0x0001C838u,                               /* chicken update                      */
@@ -140,6 +148,7 @@ static const seam_set g_ant =
     0x0001B766u,
     0x0001FC6Cu,
     0x00009238u, 0x00009F60u, 0x00000000u,     /* no fire game: no extinguisher       */
+    0x0000CA1Au, 0x0000CF24u,                  /* "Fight Ant Head": script, pistol    */
     0x0000BC56u,
     0x00000000u,                               /* no fire game: no update             */
     0x0001E8AAu,

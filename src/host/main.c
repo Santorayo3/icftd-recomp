@@ -961,7 +961,7 @@ static void save_ui_watch(rt_machine *m)
     s_saveCommit = 0;
 }
 
-/* The arrow is a room-screen feature; the map, the phone and the two aiming scenes draw or move
+/* The arrow is a room-screen feature; the map, the phone and the aiming scenes draw or move
  * their own mark under the pointer (the game's cursor, the crosshair, the extinguisher), so it
  * stays hidden there. */
 static void pointer_present(rt_machine *m)
@@ -1006,7 +1006,13 @@ static void pointer_present(rt_machine *m)
  * being played (or with --mouse, the headless form of it) and the crosshair itself is drawn on
  * top of the presented picture, never into the machine's memory.
  *
- * FUN_00007934 and the aim words are rows of the seam table (src\host\seams.c). */
+ * FUN_00007934 and the aim words are rows of the seam table (src\host\seams.c).
+ *
+ * The add-on adds a second shooting scene the 1989 game does not have: the room action "Fight Ant
+ * Head" (FUN_0000D534) keeps the pistol in the same aim words and tests a shot at the same offset
+ * -0x1b/-0x3a (FUN_0000CF4E at 0xd00c/0xd01e), so one crosshair serves both. Only the entry points
+ * differ: the scene's per-update script FUN_0000CA1A and the routine that ramps and draws its
+ * pistol, FUN_0000CF24. They are seam rows too, 0 in the 1989 build. */
 #define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim */
 #define ANT_SHOT_DY    (-0x3A)
 /* FUN_00007934 runs every update; this many frames without it means the fight is over (or is
@@ -1014,12 +1020,21 @@ static void pointer_present(rt_machine *m)
 #define ANT_IDLE_FRAMES 10
 
 static u32 g_antFrame;             /* last frame the giant-ant fight updated */
+static u32 g_antHeadFrame;         /* last frame "Fight Ant Head" updated (the add-on only) */
+
+/* 1 while either shooting scene is running: they share the aim, the shot offset and therefore the
+ * crosshair. */
+static int crosshair_live(rt_machine *m)
+{
+    return (g_antFrame != 0 && m->frame - g_antFrame <= ANT_IDLE_FRAMES) ||
+           (g_antHeadFrame != 0 && m->frame - g_antHeadFrame <= ANT_IDLE_FRAMES);
+}
 
 static void crosshair_present(rt_machine *m)
 {
     s16 aimX, aimY;
 
-    if (!g_portArm || g_antFrame == 0 || m->frame - g_antFrame > ANT_IDLE_FRAMES)
+    if (!g_portArm || !crosshair_live(m))
     {
         rt_crosshair_hidden();
         return;
@@ -1030,7 +1045,7 @@ static void crosshair_present(rt_machine *m)
 }
 
 /* --- the gun and the extinguisher, moved with the pointer (port features) --------------------
- * The original aims both minigames with the stick, and both scenes read it the same way:
+ * The original aims its minigames with the stick, and they read it the same way:
  * FUN_00011bf0 - called at the top of every update - decodes JOY0DAT into DAT_00024A80/0x24A82
  * (+1/0/-1 per axis) and /FIRE into DAT_00024A84, and both scenes keep their aim in the word pair
  * DAT_00029AE0/0x29AE2:
@@ -1040,9 +1055,13 @@ static void crosshair_present(rt_machine *m)
  *                         FUN_000086A0 fires before that, storing the point it tests at as the aim
  *                         0x1b left and 0x3a up - the point the port's crosshair marks;
  *   the fire game         FUN_0000B97C is the same code over the same words, and the extinguisher
- *                         sprite is drawn at the aim, which is where FUN_0000BADE's spray starts.
+ *                         sprite is drawn at the aim, which is where FUN_0000BADE's spray starts;
+ *   "Fight Ant Head"      the add-on's variant (docs\antheads.md): FUN_0000CA1A moves and draws the
+ *                         pistol with FUN_0000CF24 (which ramps through the same FUN_00009DE8) and
+ *                         FUN_0000CF4E stores each shot 0x1b left and 0x3a up of the aim, exactly
+ *                         as the giant-ant fight does.
  *
- * So the pointer writes the aim itself, at the entry of those two routines: after FUN_00011bf0 has
+ * So the pointer writes the aim itself, at the entry of those routines: after FUN_00011BF0 has
  * read the stick (which is why it is not the scene's entry - that is where the stick is read) and
  * before the shot, the spray or the drawing. The axes and the acceleration are cleared with it, so
  * the engine's own ramp cannot pull the aim away from the pointer while it owns the gun.
@@ -1051,6 +1070,10 @@ static void crosshair_present(rt_machine *m)
  *
  *   the fight        the aim is the pistol, and the scene acts 0x1b left and 0x3a up of it, so the
  *                    pointer is that point - the crosshair the port draws sits under the mouse;
+ *   "Fight Ant Head" the same, and its own routine draws the pistol at the aim and tests each shot
+ *                    at the same offset - so the pointer writes the aim at FUN_0000CF24's entry,
+ *                    the routine that runs (and ramps) before the pistol is drawn and the shot is
+ *                    tested;
  *   the fire game    the aim is the hand itself (the sprite is drawn there and the spray starts
  *                    there), and FUN_0000B97C only accelerates it *inside* a travel rectangle:
  *                    x 0x28..0x12c and y 0xa5..0xf0, damped outside, which is where a held stick
@@ -1082,11 +1105,11 @@ static void crosshair_present(rt_machine *m)
 static int g_aimOwn;               /* the pointer owns the aim of the scene that is up */
 static u32 g_fireFrame;            /* last frame the fire game's extinguisher moved  */
 
-/* The pointer owns the aim only while one of the two scenes is running, and only after it moved
+/* The pointer owns the aim only while one of the scenes is running, and only after it moved
  * while that scene was up. */
 static int aim_live(rt_machine *m)
 {
-    return (g_antFrame != 0 && m->frame - g_antFrame <= ANT_IDLE_FRAMES) ||
+    return crosshair_live(m) ||
            (g_fireFrame != 0 && m->frame - g_fireFrame <= FIRE_IDLE_FRAMES);
 }
 
@@ -1124,8 +1147,9 @@ static s32 aim_span(s32 v, s32 vmax, s32 lo, s32 hi)
     return lo + (v * (hi - lo)) / vmax;
 }
 
-/* Runs at FUN_000086a0's entry: the pointer is the shot point, so the aim - the pistol - is that
- * point 0x1b right and 0x3a down, and the port's crosshair lands under the mouse. */
+/* Runs at FUN_000086a0's entry (and at FUN_0000cf24's in the add-on's "Fight Ant Head"): the
+ * pointer is the shot point, so the aim - the pistol - is that point 0x1b right and 0x3a down, and
+ * the port's crosshair lands under the mouse. */
 static void aim_shot(rt_machine *m)
 {
     if (!g_aimOwn || !g_ptrKnown) return;
@@ -1271,6 +1295,12 @@ static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
+    if (ANT_HEAD_SCENE_PC != 0 && pc == RC_ADDR(ANT_HEAD_SCENE_PC))
+    {
+        g_antHeadFrame = m->frame;
+        return;
+    }
+    if (ANT_HEAD_AIM_PC != 0 && pc == RC_ADDR(ANT_HEAD_AIM_PC)) { aim_shot(m); return; }
     if (AIM_SPRAY_PC != 0 && pc == RC_ADDR(AIM_SPRAY_PC))
     {
         g_fireFrame = m->frame;
@@ -1398,8 +1428,9 @@ static void host_input(rt_machine *m)
         save_ui_frame(m, click);
         if (click) save_click_note(m);
         save_ui_watch(m);
-        /* The two aiming scenes (the giant-ant fight, the fire game) take the aim from the pointer
-         * once it moved over them; everywhere else this latch stays clear. */
+        /* The aiming scenes (the giant-ant fight, the fire game and the add-on's "Fight Ant Head")
+         * take the aim from the pointer once it moved over them; everywhere else this latch stays
+         * clear. */
         aim_input(m, moved, joy != 0 || m->joy0 != 0);
         /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
          * owns nothing, so the next screen starts with the game's own placement until the pointer
@@ -2224,7 +2255,7 @@ int main(int argc, char **argv)
             s_clickHeld = 0;
             s_markHover = 0;
             s_fakeView = 0;
-            g_mapFrame = g_phoneFrame = g_roomFrame = g_antFrame = 0;
+            g_mapFrame = g_phoneFrame = g_roomFrame = g_antFrame = g_antHeadFrame = 0;
             g_fireFrame = 0;
             g_aimOwn = 0;
             g_lineCount = 0;

@@ -42,6 +42,8 @@
                                 skipped without the add-on's extracted data)
      10. fight crosshair       (tools\crosshair-check.ps1 - the giant-ant fight's aiming aid marks
                                 the point the engine's shot test reads)
+    10b. ant-head fight (add-on) (tools\anthead-check.ps1 - the same aid and pointer control in
+                                Antheads' own "Fight Ant Head" scene; skipped without its disks)
      11. fullscreen border     (tools\border-check.ps1 - the bars either side of the 4:3 picture
                                 are the port's artwork, point-sampled, not black)
      12. loading line          (tools\load-check.ps1 - the "Loading" line covers the engine's own
@@ -166,6 +168,7 @@ $all = @(
     @{ Name = 'room pointer (hover)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pointer-check.ps1 } },
     @{ Name = 'room pointer (add-on)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\ant-pointer-check.ps1 } },
     @{ Name = 'fight crosshair (aim)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\crosshair-check.ps1 } },
+    @{ Name = 'ant-head fight (aim)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\anthead-check.ps1 } },
     @{ Name = 'fullscreen border (bars)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\border-check.ps1 } },
     @{ Name = 'loading line (transitions)';           Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\load-check.ps1 } },
     @{ Name = 'pointer aim (gun, extinguisher)';      Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\aim-check.ps1 } },

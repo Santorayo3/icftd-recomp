@@ -472,6 +472,27 @@ the original writes `ICFTD`, 12 444 bytes. No metadata is needed to tell them ap
 - [ ] **9.4** `tools\win32-pack.ps1` unchanged (the release still ships an empty `disks\`); a
   release with the addon images dropped in shows the button.
 
+### Phase 10 — the add-on's own minigame (the aiming aid)
+
+- [x] **10.1** The room action `Fight Ant Head` (`+` in the action list, action `0x10`) is a
+  shooting scene the 1989 build does not have: the dispatcher's case 0x10 (`jsr` slot `0x23C0C` at
+  `0x32D8`, argument `pea (0x83C,A4)`) enters **`FUN_0000D534`**, which registers **`FUN_0000CA1A`**
+  as the per-update script. That script keeps the pistol in the giant-ant fight's own aim words
+  (`0x2C5C0`/`0x2C5C2`), ramps and draws it in **`FUN_0000CF24`**, and stores each shot at the aim
+  `-0x1B`/`-0x3A` (`0xD00C`/`0xD01E`) in `0x2C5D2`/`0x2C5DC` before comparing it with the left and
+  right antennas. — measured.
+- [x] **10.2** Two seam rows, `antHeadPc` = `0xCA1A` and `antHeadAimPc` = `0xCF24` (both 0 in the
+  1989 build), and the two front ends' entry hooks: the scene's update marks it as live (the
+  crosshair's frame test), and its pistol routine takes the pointer's aim through the same
+  `aim_shot` the giant-ant fight uses — the offsets are the same, so the geometry is the fight's.
+  — done; `tools\anthead-check.ps1` (gate step 10b) is the regression check: pointer `120,60` →
+  aim `147,118`, pointer `200,120` → aim `227,178`, crosshair at `200,120` on frame 722, the shot
+  stored on 723 is `200,120`; the stick still moves the aim (`305,180`); a pointer put down before
+  the scene leaves all 898 frame records unchanged and the aid at the engine's own mark `133,122`.
+  The same check measures the add-on's column of the fight's own rows, live for the first time in
+  Antheads: pointer `150,80` → aim `177,138`, the shot stored is `200,120`, and the crosshair is
+  drawn there.
+
 ---
 
 ## 5. What the addon changes for the player
@@ -512,6 +533,8 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
 | `PHONE_UPDATE_RET` | 0x6632 | 0x6CAA | return (settled: see §6.1) |
 | `ANT_SCENE_PC` | 0x7934 | 0x9238 | function-hash |
 | `AIM_SHOT_PC` | 0x86A0 | 0x9F60 | function-hash |
+| `ANT_HEAD_SCENE_PC` | (none) | 0xCA1A | the add-on's own scene: `FUN_0000d534` registers it |
+| `ANT_HEAD_AIM_PC` | (none) | 0xCF24 | ... and it calls it before the pistol is drawn |
 | `TITLE_ANT_PC` | 0x8C5C | 0xA526 | caller |
 | `TITLE_HOLD_PC` | 0x9870 | 0xAC3C | function-hash |
 | `TITLE_INTRO_RUN` | 0x98F8 | 0xACC4 | insn-index |
@@ -634,6 +657,15 @@ routine writes `3` into; the clock words keep their relative order (day/hour/gat
   (`move.w #1,(-0x7a8e,A4)`), the same instruction indices as FUN_000007F4's 0x21F50/0x21F5A.
   Both rows now reach the display through `rt_machine.panelFlag/panelCols`, set from this table at
   boot.
+* **`ANT_HEAD_SCENE_PC` 0xCA1A / `ANT_HEAD_AIM_PC` 0xCF24** — the room action `Fight Ant Head`
+  (`+` in the action list) is a scene the 1989 game does not have, so it is mapped by its own code,
+  not by a twin. The action's dispatcher case 0x10 (`jsr` slot 0x23C0C at 0x32D8) calls
+  `FUN_0000D534`, which registers `FUN_0000CA1A` as the per-update script (`jsr (-0x7f26,A4)` +
+  `pea 0xCA1A` at 0xD5xx); that script calls `FUN_0000CF24` every update (0xCBA8), which ramps
+  through `FUN_00009DE8` and draws `PistolHand.win` at the aim words. `FUN_0000CF4E` tests shots at
+  `aim-0x1B/aim-0x3A` (0xD00C/0xD01E) against the antennas' own rectangles, i.e. the giant-ant
+  fight's geometry. Both rows are 0 in the 1989 column; the port's crosshair and pointer aim use
+  them only when they are non-0.
 * **The title's four scene entries** are seams too and were not in the table: fight 0xB46C→0xC974
   (the same "Fight.tiny", `0x40` into the music block and FUN_0000a74e as its update), flight
   0x107A6→0x11FF8, hospital 0x1819A→0x198D4, fire gone. **Read them as model addresses:** the 1989

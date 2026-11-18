@@ -375,7 +375,9 @@ void host_regs_sync(rt_machine *m)
  *   FUN_00004d76 / FUN_0001d1da  a text menu's line and its flip: the line under the pointer
  *                 becomes the menu's own selection;
  *   FUN_00005fbe  the phone book's update: the arrow is pinned under the pointer;
- *   FUN_00007934 / FUN_000086a0 / FUN_0000b97c  the two aiming scenes: the pointer is the gun.
+ *   FUN_00007934 / FUN_000086a0 / FUN_0000b97c  the two aiming scenes: the pointer is the gun;
+ *   FUN_0000ca1a / FUN_0000cf24  the add-on's "Fight Ant Head", the same gun, the same aim words
+ *                 (0 in the 1989 build - the scene is the add-on's own).
  *
  * Nothing here runs in a measurement: the hook is installed only in a played run or a --mouse test
  * run (g_portArm), and the arrow and the crosshair are drawn on top of the composed picture, never
@@ -404,10 +406,12 @@ void host_regs_sync(rt_machine *m)
 #define PHONE_MIN_Y      0x97
 #define PHONE_MAX_Y      0xCE
 
-/* The two aiming scenes: the fight's shot point is the aim 0x1b left and 0x3a up, and the fire
+/* The aiming scenes: the fight's shot point is the aim 0x1b left and 0x3a up, and the fire
  * game's hand travels inside x 0x28..0x12c, y 0xa5..0xf0. FUN_00007934, the aim words and the two
  * aim routines are rows of the seam table; the rectangle is the fire game's own code and is the
- * same in both builds (the add-on has no fire game, so its seams are 0 and never armed). */
+ * same in both builds (the add-on has no fire game, so its seams are 0 and never armed).
+ * The add-on's "Fight Ant Head" tests its shots at the fight's offset too, on the same aim words,
+ * so it shares ANT_SHOT_DX/DY and the crosshair (its two seams are 0 in the 1989 build). */
 #define ANT_SHOT_DX    (-0x1B)     /* where FUN_000086a0 tests a shot, relative to the aim      */
 #define ANT_SHOT_DY    (-0x3A)
 #define ANT_IDLE_FRAMES 10
@@ -450,6 +454,7 @@ static u32 g_roomFrame;            /* last frame a location view was drawn or up
 static u32 g_menuFrame;            /* last frame a text menu flipped */
 static u32 g_phoneFrame;           /* last frame the phone's cursor loop presented */
 static u32 g_antFrame;             /* last frame the giant-ant fight updated */
+static u32 g_antHeadFrame;         /* last frame "Fight Ant Head" updated (the add-on only) */
 static u32 g_fireFrame;            /* last frame the fire game's extinguisher moved */
 static int g_aimOwn;               /* the pointer owns the aim of the scene that is up */
 static host_text_line g_line[HOST_LINE_MAX];
@@ -855,11 +860,17 @@ static void menu_flip(cpu_t *c, rt_machine *m)
     g_lineCount = 0;
 }
 
-/* The pointer owns the aim only while one of the two scenes is running, and only after it moved
+/* The pointer owns the aim only while one of the scenes is running, and only after it moved
  * while that scene was up. */
-static int aim_live(rt_machine *m)
+static int crosshair_live(rt_machine *m)
 {
     return (g_antFrame != 0 && m->frame - g_antFrame <= ANT_IDLE_FRAMES) ||
+           (g_antHeadFrame != 0 && m->frame - g_antHeadFrame <= ANT_IDLE_FRAMES);
+}
+
+static int aim_live(rt_machine *m)
+{
+    return crosshair_live(m) ||
            (g_fireFrame != 0 && m->frame - g_fireFrame <= FIRE_IDLE_FRAMES);
 }
 
@@ -950,7 +961,7 @@ static void save_ui_watch(rt_machine *m)
     s_saveCommit = 0;
 }
 
-/* The arrow is a room-screen feature; the map, the phone and the two aiming scenes draw or move
+/* The arrow is a room-screen feature; the map, the phone and the aiming scenes draw or move
  * their own mark under the pointer, so it stays hidden there. */
 static void pointer_present(rt_machine *m)
 {
@@ -981,7 +992,7 @@ static void crosshair_present(rt_machine *m)
 {
     s16 aimX, aimY;
 
-    if (!g_portArm || g_antFrame == 0 || m->frame - g_antFrame > ANT_IDLE_FRAMES)
+    if (!g_portArm || !crosshair_live(m))
     {
         rt_crosshair_hidden();
         return;
@@ -1095,6 +1106,12 @@ static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
     if (pc == RC_ADDR(PHONE_UPDATE_PC)) { phone_pointer(c, m); return; }
     if (pc == RC_ADDR(ANT_SCENE_PC)) { g_antFrame = m->frame; return; }
     if (pc == RC_ADDR(AIM_SHOT_PC)) { aim_shot(m); return; }
+    if (ANT_HEAD_SCENE_PC != 0 && pc == RC_ADDR(ANT_HEAD_SCENE_PC))
+    {
+        g_antHeadFrame = m->frame;
+        return;
+    }
+    if (ANT_HEAD_AIM_PC != 0 && pc == RC_ADDR(ANT_HEAD_AIM_PC)) { aim_shot(m); return; }
     if (AIM_SPRAY_PC != 0 && pc == RC_ADDR(AIM_SPRAY_PC))
     {
         g_fireFrame = m->frame;
@@ -1163,7 +1180,7 @@ static void dos_input(rt_machine *m)
         save_ui_frame(m, click);
         if (click) save_click_note(m);
         save_ui_watch(m);
-        /* The two aiming scenes take the aim from the pointer once it moved over them. */
+        /* The aiming scenes take the aim from the pointer once it moved over them. */
         aim_input(m, moved, joy != 0 || m->joy0 != 0);
         /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
          * owns nothing, so the next screen starts with the game's own placement. */
@@ -1737,7 +1754,7 @@ int main(int argc, char **argv)
             s_fakeView = 0;
             s_ptrShown = 0;
             g_mapFrame = g_phoneFrame = g_roomFrame = g_menuFrame = 0;
-            g_antFrame = g_fireFrame = 0;
+            g_antFrame = g_antHeadFrame = g_fireFrame = 0;
             g_aimOwn = 0;
             g_lineCount = 0;
             g_loadHold = g_loadHoldSeen = 0;

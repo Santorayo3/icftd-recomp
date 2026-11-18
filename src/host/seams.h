@@ -13,7 +13,8 @@
  *
  * A seam that the running program does not have is 0. The add-on has no fire game (no FIRE asset,
  * no "Fire Game" entry, no update routine), so its four fire seams are 0 and the code that owns
- * them is not armed - it never "keeps pointing at the original's address".
+ * them is not armed - it never "keeps pointing at the original's address". The add-on's own
+ * "Fight Ant Head" scene has no counterpart in the 1989 build, so its two seams are 0 there.
  *
  * Addresses are model (image) offsets at the 0x4000 load origin, exactly as in
  * re\disasm\dshell.asm and out\antscan\ghidra\disasm\dshell.asm; §6 of docs\antheads.md carries
@@ -47,6 +48,8 @@ typedef struct seam_set
     u32 antScenePc;         /* FUN_00007934: one update of the giant-ant fight          */
     u32 aimShotPc;          /* FUN_000086a0: the fight's trigger                        */
     u32 aimSprayPc;         /* FUN_0000b97c: the fire game's extinguisher (0: no game)  */
+    u32 antHeadPc;          /* FUN_0000ca1a: "Fight Ant Head", one update (0: none)      */
+    u32 antHeadAimPc;       /* FUN_0000cf24: its pistol ramp and draw (0: none)          */
     u32 fightUpdatePc;      /* FUN_0000a74e: the fight's update                         */
     u32 fireUpdatePc;       /* FUN_0000b528: the fire game's update (0: no game)        */
     u32 chickenUpdatePc;    /* FUN_0001c838: the chicken race's update                  */
@@ -171,6 +174,8 @@ int seam_is_addon(void);
 #define ANT_UPDATE          SEAM(antScenePc)
 #define AIM_SHOT_PC         SEAM(aimShotPc)
 #define AIM_SPRAY_PC        SEAM(aimSprayPc)
+#define ANT_HEAD_SCENE_PC   SEAM(antHeadPc)
+#define ANT_HEAD_AIM_PC     SEAM(antHeadAimPc)
 #define FIGHT_UPDATE        SEAM(fightUpdatePc)
 #define CHICKEN_UPDATE      SEAM(chickenUpdatePc)
 #define UNDER_UPDATE        SEAM(underUpdatePc)

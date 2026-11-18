@@ -71,6 +71,7 @@ bin\win32\icftd-recomp.exe <reach it with> --state out\pf\<name>\s --ram <frames
 | **chicken race** | `--input ref\inputs\chicken.txt --call 0x1FA3E:1513` | 20 000 000 (1 787 records, 5 954 188); the win path returns at frame 1673 | 1560, 1600, 1630, 1660 | `FUN_0001BA3E` → `0x1FA3E`; PC at 1560–1630 is `0x1FB20` (`FUN_0001ba3e`), at 1660/1673 `0x201D4` (`FUN_0001c1c6`) |
 | **underground ant nest** (UNDER) | `--input ref\inputs\under.txt --call 0xFFCA:1513` | 20 000 000 (2 335 records, 12 523 955); returns at frame 2334, idle at 2100 | 1750, 1950, 2150 | `FUN_0000BFCA` → `0xFFCA`; PCs `0x155DA` (`FUN_00011512`), `0x11D1C` (`FUN_0000dc74`), `0x1220E` (`FUN_0000e03c`) |
 | **giant-ant fight** (the pistol) | `--poke 999:0x2CA38=0x11,0x2CB10=0xC000000,0x2CB3E=0x21423132,0x2CB42=0 --call 0x951C:1000:0x200:0xCC5C` | 14 000 000 (3 391 records, 13 999 993); the fight is up from frame ~1700 | 2095 (aim 212,120), 2121 (aim 238,120 — the mark the next shot uses), 2122 (that shot stored) | `FUN_00008C5C` → `0xCC5C`, the chapter's entry, which runs `FUN_00007934` per update; the injection enters `FUN_0000551C` first (the clock VBI) and returns *into* `0xCC5C`, which is why the argument is `0x200` (the END sentinel the scene's own `rts` returns to) |
+| **"Fight Ant Head"** (the add-on's pistol) | `--program ant --call 0x11534:300:0x30332` | 12 000 000 (898 records); the scene's first update is at frame ~530 and it returns by itself at 897 | 605 (aim 147,118), 722 (aim 227,178 — the mark the shot uses), 723 (that shot stored) | `FUN_0000D534` → `0x11534`, the room dispatcher's case 0x10 entry; its argument is the word the dispatcher pushes (`pea (0x83C,A4)` = model `0x2C332`, runtime `0x30332`). It loads its own assets and runs `FUN_0000CA1A` per update |
 
 Things the table does not say, because they are not what a preset needs:
 
@@ -220,9 +221,32 @@ stack bytes at `0x17FCBC`, the known artifact). The DOS front end installs the s
 yet — reaching the fight headlessly there needs the preset's pokes, which the DOS front end does
 not carry.
 
+### The add-on's "Fight Ant Head"
+
+Antheads has a second shooting scene the 1989 game does not: the room action `Fight Ant Head`
+(dispatcher case 0x10 → `FUN_0000D534`), where the player shoots the antennas off people who have
+turned into ant heads. It is built like the giant-ant fight and reads the same aim: `FUN_0000CA1A`
+is its per-update script, `FUN_0000CF24` ramps and draws the pistol out of the aim words, and
+`FUN_0000CF4E` stores each shot at the aim `−0x1B`/`−0x3A` (`0xD00C`/`0xD01E`) before comparing it
+with the left and right antennas. The aim words are the fight's own (`0x2C5C0`/`0x2C5C2` in the
+add-on), so the crosshair and the pointer need no second geometry — only the two entry points,
+which are `antHeadPc`/`antHeadAimPc` in the seam table and 0 in the 1989 build.
+
+Measured with `tools\anthead-check.ps1` (the scene reached the way its own room action reaches it,
+`--call 0x11534:300:0x30332`): the pointer `200,120` puts the aim at `227,178`, the crosshair is
+drawn at `200,120` on the frame before the trigger, and the shot the engine stores is `200,120`.
+The keyboard still aims it (the stick moves the aim to `305,180`), a pointer put down before the
+scene leaves the engine's own aim alone (the aid sits at `133,122`, the aim `160,180` less the
+offset) and all 898 frame records unchanged, and the plain run's frame carries no crosshair.
+
+The same check measures the add-on's column of the fight's own rows, which had never been reached
+live in Antheads: in the add-on's giant-ant fight (`--poke` location/room/picture in the add-on's
+words, `--call 0x9B5E:1000:0x200:0xE526`) the pointer `150,80` puts the aim at `177,138`, the shot
+the engine stores is `200,120` for the pointer at `200,120`, and the crosshair is drawn there.
+
 ## The gun and the extinguisher, moved with the pointer
 
-Two more original scenes are stick-only, and both read the stick the same way: `FUN_00011BF0` (called
+The stick-only scenes all read the stick the same way: `FUN_00011BF0` (called
 at the top of every update) decodes JOY0DAT into `0x24A80`/`0x24A82` and /FIRE into `0x24A84`, and
 each scene keeps its aim in the word pair `0x29AE0`/`0x29AE2`:
 
@@ -230,16 +254,20 @@ each scene keeps its aim in the word pair `0x29AE0`/`0x29AE2`:
 |---|---|---|
 | giant-ant fight | `FUN_000084E4` ramps the axes into `0x29AE4`/`0x29AE6` (clamped ±8) and adds them | the pistol; `FUN_000086A0` tests a shot at it `−0x1B`/`−0x3A` — the crosshair's point |
 | fire game | `FUN_0000B97C`, same ramp, same words | the hand: the sprite is drawn at it and `FUN_0000BADE`'s spray starts there |
+| "Fight Ant Head" (add-on) | `FUN_0000CF24` ramps through the same routine and draws the pistol | the pistol; `FUN_0000CF4E` stores the shot at it `−0x1B`/`−0x3A`, exactly as the fight does |
 
-The port writes the aim itself, at the entry of **`FUN_000086A0`** and **`FUN_0000B97C`** — not at
-the scene's entry, because that is where `FUN_00011BF0` reads the stick and a write there would be
-overwritten a few instructions later. Each write also clears the axes and the ramped acceleration, so
-the engine's ramp cannot pull the aim away while the pointer owns it.
+The port writes the aim itself, at the entry of **`FUN_000086A0`**, **`FUN_0000B97C`** and the
+add-on's **`FUN_0000CF24`** — not at the scene's entry, because that is where `FUN_00011BF0` reads
+the stick and a write there would be overwritten a few instructions later. Each write also clears
+the axes and the ramped acceleration, so the engine's ramp cannot pull the aim away while the
+pointer owns it.
 
-What the pointer *means* differs, because the two aims are not the same thing:
+What the pointer *means* differs, because the aims are not the same thing:
 
 * **the fight**: pointer = the shot point, so the aim is the pointer `+0x1B/+0x3A` and the crosshair
   is drawn under the mouse.
+* **"Fight Ant Head"** (the add-on's own fight): exactly the fight's rule — pointer = the shot
+  point, aim = pointer `+0x1B/+0x3A`, crosshair under the mouse.
 * **the fire game**: the aim is the hand, and `FUN_0000B97C` only accelerates it *inside* a travel
   rectangle — x `0x28..0x12C`, y `0xA5..0xF0`, damped outside. Raw screen coordinates are the wrong
   control there: they aim the hand above the room (the sprite floats) and they cannot reach the low
@@ -259,10 +287,12 @@ Measured with `tools\aim-check.ps1` (the fight's preset as above; the fire game 
 |---|---|---|---|---|
 | fight | `150,80` → `177,138`; `200,120` → `227,178` | the shot stored is `200,120` | stick moves it to `212,120` | a stale pointer leaves all 3 392 frame records unchanged; the pointer run first differs at 2001 (moved at 2000) |
 | fire game | `100,50` → `121,183`; `200,100` → `203,202`; corners → `40,165` / `300,240` | the spray stored is `203,202` | stick moves it to `188,180` | a stale pointer leaves all 2 280 frame records unchanged; the pointer run first differs at 1963 (moved at 1960) |
+| "Fight Ant Head" (add-on, `tools\anthead-check.ps1`) | `120,60` → `147,118`; `200,120` → `227,178` | the shot stored is `200,120` | stick moves it to `305,180` | a stale pointer leaves all 898 frame records unchanged; the pointer run first differs at 723 (moved at 600) |
 
 The DOS front end installs the same two aim seams (`aim_shot`, `aim_spray` in
-`src\host\dos_main.c`) and the same ownership rule; like the crosshair they have no DOS measurement
-yet, because the scenes are reached with the Windows-only `--poke`/recording presets.
+`src\host\dos_main.c`) and the same ownership rule, and its entry hook carries the add-on's scene
+rows too; like the crosshair they have no DOS measurement yet, because the scenes are reached with
+the Windows-only `--poke`/recording presets.
 
 ## The Ctrl+W minigame cheat
 
