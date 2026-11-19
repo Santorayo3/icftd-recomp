@@ -17,7 +17,7 @@
  *                [--audiostall <n>]
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
  *                [--mouse <file>] [--hoverlog] [--srcdiff] [--genericblit]
- *                [--cameralog] [--savelog] [--program ant|original]
+ *                [--cameralog] [--savelog] [--program ant|original] [--langdump <file>]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
  * launched by double-clicking it.
@@ -54,6 +54,12 @@
  * nothing).
  * `--savelog` does the same for the situation map's SAVE GAME mark: the node's own position, the
  * screen's corner it is moved to and the surface it is drawn on, once per placement.
+ * `--langdump <file>` writes every distinct string the run hands to the engine's text routines,
+ * one `<English><TAB>` row each - the raw material of a translation file, including the text that
+ * only exists in memory (the intro's compressed narration pages, the room menus, the map's
+ * messages). The run stays English while it dumps, whatever `[GAME] language` says, so a row is
+ * always the original's text; tools\lang-export.ps1 runs it and merges its rows with the prose read
+ * out of the data files into `lang\de.csv` (docs\port-features.md, "The language").
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
  * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
@@ -90,6 +96,9 @@
 #include "save_ui.h"
 #include "programs.h"
 #include "seams.h"
+#include "lang_dump.h"
+#include "lang_hook.h"
+#include "../runtime/lang.h"
 
 /* The game program inside the data folder, which a fresh release only gets by extraction. Both
  * builds are extracted side by side: `\code\dshell4k` is the 1989 game, `\ant\code\dshell4k` the
@@ -1235,7 +1244,7 @@ void host_loading_hold(rt_machine *m)
     if (!g_portArm) return;
     g_loadHold = LOAD_HOLD_FRAMES;
     g_loadHoldSeen = 0;
-    rt_osd_text(m, "Loading", 2);
+    rt_osd_text(m, rt_lang_text("Loading"), 2);
 }
 
 /* Runs at the frame boundary, before the vblank whose present composes the overlay. */
@@ -1272,8 +1281,8 @@ static void loading_frame(rt_machine *m)
     /* A slot message has the corner while it is up; the load line takes it back when that
      * expires. Re-arming every frame keeps it up for as long as the load runs. */
     if (m->gfx.osdText[0] == 0 || (s32)(m->gfx.osdTextUntil - m->frame) <= 0 ||
-        strcmp(m->gfx.osdText, "Loading") == 0)
-        rt_osd_text(m, "Loading", 2);
+        strcmp(m->gfx.osdText, rt_lang_text("Loading")) == 0)
+        rt_osd_text(m, rt_lang_text("Loading"), 2);
 }
 
 /* --- the hospital escape's camera (a port feature, src\host\hospital_camera.c) ----------------
@@ -1296,6 +1305,7 @@ static void loading_frame(rt_machine *m)
  * seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
+    host_lang_entry(c, m, pc);            /* [GAME] language: the German string, if there is one */
     if (host_cheat_entry(m, pc)) return;
     if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (host_hospital_camera_entry(m, pc)) return;
@@ -1496,8 +1506,8 @@ static void host_input(rt_machine *m)
             char msg[40];
             if (slot == 0) slot = m->saveSlot;
             m->saveSlot = slot;
-            sprintf(msg, "Save Slot - %d%s", m->saveSlot,
-                    rt_save_slot_empty(m, m->saveSlot) ? " (Empty)" : "");
+            sprintf(msg, rt_lang_text("Save Slot - %d%s"), m->saveSlot,
+                    rt_save_slot_empty(m, m->saveSlot) ? rt_lang_text(" (Empty)") : "");
             rt_osd_text(m, msg, EMU_OSD_FRAMES);
             printf("recomp: %s (frame %lu)\n", msg, (unsigned long)m->frame);
         }
@@ -1756,6 +1766,7 @@ int main(int argc, char **argv)
     u32 slotsAt = 0;
     const char *busTablePath = 0;
     int titleKey = -1;                     /* --titlekey: take this menu choice on the title */
+    const char *langDumpPath = 0;          /* --langdump: the English text a run draws */
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -1810,6 +1821,10 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--hoverlog") == 0) { g_hoverLog = 1; continue; }
         if (strcmp(argv[i], "--cameralog") == 0) { g_cameraLog = 1; continue; }
         if (strcmp(argv[i], "--savelog") == 0) { g_saveLog = 1; continue; }
+        /* --langdump <file>: writes every distinct string the run hands to the engine's text
+         * routines, one `<English><TAB>` row each, which is what a translation file is made of
+         * (tools\lang-export.ps1 runs this and merges the rows with the data files' prose). */
+        if (strcmp(argv[i], "--langdump") == 0 && i + 1 < argc) { langDumpPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
@@ -1963,6 +1978,12 @@ int main(int argc, char **argv)
      * nothing else (see plat_console_hide_own). A run started from a terminal keeps its console. */
     if (g_window) plat_console_hide_own();
 
+    /* The settings file, written with its defaults when this is the first start, and the language
+     * it selects - before the first message the player can see and before the program boots. */
+    rt_config_ensure();
+    host_lang_load();
+    if (langDumpPath != 0) { host_lang_dump(langDumpPath); atexit(host_lang_dump_end); }
+
     /* The data folder, the folder the player's floppy images go in, and the image inside the data
      * folder; all three can be given, and otherwise come from the layout the executable sits in. */
     host_asset_dirs();
@@ -1991,8 +2012,8 @@ int main(int argc, char **argv)
         if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_WINDOWS, msg, (u32)sizeof msg) !=
             RT_ASSETS_OK)
         {
-            printf("recomp: %s\n", msg);
-            if (g_window) plat_message("It Came from the Desert", msg);
+            printf("recomp: %s\n", rt_lang_text(msg));
+            if (g_window) plat_message("It Came from the Desert", rt_lang_text(msg));
             return 1;
         }
     }
@@ -2007,6 +2028,7 @@ int main(int argc, char **argv)
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
     g_m = &m;
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
+    host_lang_open(&m);                    /* [GAME] language=de: the catalog into this machine */
     m.dataDir = dataDir;
     m.saveName = rc_active->saveName;
     m.saveBytes = rc_active->saveBytes;
@@ -2047,8 +2069,8 @@ int main(int argc, char **argv)
         /* The command line picked a slot: say so the way the F-keys do, so a headless --shot can
          * check the overlay (and the empty marker) without a keyboard. */
         char msg[40];
-        sprintf(msg, "Save Slot - %d%s", m.saveSlot,
-                rt_save_slot_empty(&m, m.saveSlot) ? " (Empty)" : "");
+        sprintf(msg, rt_lang_text("Save Slot - %d%s"), m.saveSlot,
+                rt_save_slot_empty(&m, m.saveSlot) ? rt_lang_text(" (Empty)") : "");
         printf("recomp: %s\n", msg);
         rt_osd_text(&m, msg, EMU_OSD_FRAMES);
     }
@@ -2069,8 +2091,6 @@ int main(int argc, char **argv)
     }
     if (callLog != 0) rt_calllog_open(&m, callLog);
     if (frameLog != 0) rt_framelog_open(&m, frameLog);
-    /* The settings file, written with its defaults when this is the first start. */
-    rt_config_ensure();
     m.traceFrom = traceFrom;
     m.traceTo = traceTo;
     m.tickLog = tickLog;
@@ -2166,8 +2186,9 @@ int main(int argc, char **argv)
     g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                 dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
     /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry hook
-     * even in a run that is otherwise a measurement, because that run asked for the cheat. */
-    if (g_portArm || g_cheatFrame != 0) rc_entryHook = host_entry;
+     * even in a run that is otherwise a measurement, because that run asked for the cheat. German
+     * needs it too: the translation is the hook's other job (src\host\lang_hook.c). */
+    if (g_portArm || g_cheatFrame != 0 || host_lang_on() || host_lang_dump_on()) rc_entryHook = host_entry;
     host_hospital_camera_log(g_cameraLog);
     host_save_button_log(g_saveLog);
 
@@ -2299,6 +2320,7 @@ int main(int argc, char **argv)
             }
             /* The same per-session settings as above: rt_init starts from a zeroed machine, so the
              * callbacks, the slot and the logging switches have to be put back. */
+            host_lang_open(&m);
             m.dataDir = dataDir;
             m.saveName = rc_active->saveName;
             m.saveBytes = rc_active->saveBytes;

@@ -77,13 +77,19 @@
                                 against a simulated machine: the same elapsed time at any sampling rate,
                                 both PIT modes, racing latches, late BIOS ticks and midnight)
 
+     22. language              (tools\lang-check.ps1 - [GAME] language: en draws the original's line
+                                and de the German one from the same machine, the RAM differs only in
+                                the catalog's own region, the machine state is record-for-record
+                                identical up to the first German line, and a room's action list is
+                                German too)
+
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
-    capture or reference-image test can prove a translated function. Steps 5-21 cover the port's
+    capture or reference-image test can prove a translated function. Steps 5-22 cover the port's
     own surfaces - the presenter, the title menu and its settings and farewell, the map cursor, the
     save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
-    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys and the Ctrl+T
-    clock freeze - which have no counterpart in the original to diff against; they can only fail on
-    their own terms.
+    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys, the Ctrl+T
+    clock freeze and the language - which have no counterpart in the original to diff against; they
+    can only fail on their own terms.
 
     The window presenter has a check of its own, tools\window-check.ps1, and it is deliberately
     *not* in the table: it needs a desktop, it drives the real pointer (Alt+Tab, a corner drag, the
@@ -109,7 +115,7 @@
 
 .PARAMETER Only
     Run only the steps whose name matches this wildcard, instead of the tier. A group keyword
-    selects a tier:     'core' (1-4), 'port' (5-21), 'build' (1-2).
+    selects a tier:     'core' (1-4), 'port' (5-22), 'build' (1-2).
     e.g. -Only pointer, -Only recomp, -Only port.
 
 .EXAMPLE
@@ -197,7 +203,8 @@ $all = @(
     @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
     @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
     @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } },
-    @{ Name = 'profiler clock (8254)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } }
+    @{ Name = 'profiler clock (8254)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } },
+    @{ Name = 'language ([GAME] language)';            Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\lang-check.ps1 } }
 )
 
 if ($Only) {

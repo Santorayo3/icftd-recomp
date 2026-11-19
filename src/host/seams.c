@@ -47,6 +47,25 @@
  * why the model address of "Fight" is 0xb46c and not 0xf46c: 0xf46c is its runtime address, and
  * 0xf46c *as a model address* is an instruction in the middle of another function. Moving the
  * table to one convention (model addresses) is what exposed that.
+ *
+ * The text group (2026-11-19) is the routines a string reaches the screen through, added for
+ * icftd.ini [GAME] language (docs\port-features.md, "The language"): the boot's centred message
+ * FUN_0000093A, the centred line FUN_00004E2E, the wrapped block FUN_00004F0A, the line count
+ * FUN_00004F5C, the narration page FUN_00005012 and its opener FUN_000050CA, the paginator
+ * FUN_0000510E, the message frame FUN_00004328, and the two routines that run a paged text -
+ * the story screen FUN_00002218 (its text is argument 2) and a speech FUN_00001FAA (argument 3).
+ * Each add-on address is the twin in
+ * out\antscan\ghidra\disasm\dshell.asm: the same size, the same instruction sequence, and the
+ * callers shifted with it - FUN_00000CE4 for 0x93A, FUN_00005468 for 0x4E2E, FUN_00005544 for
+ * 0x4F0A, FUN_00005596 for 0x4F5C, FUN_0000564C for 0x5012, FUN_00005704 for 0x50CA,
+ * FUN_00005748 for 0x510E, FUN_00004852 for 0x4328 - and each calls the same twins of its callees
+ * (0x54BE is 0x4E84's, 0x53B0 is 0x4D76's). Verified on both builds: `--program ant` draws the
+ * German load screen through FUN_00000CE4, the 1989 image through FUN_0000093A.
+ *
+ * The two paged routines (2026-11-19) are FUN_00002218 -> FUN_000024AC and FUN_00001FAA ->
+ * FUN_000022D0: each pushes its page count (5 and 4) and its string and calls the paginator's
+ * twin 0x5748 exactly as the original pushes 5/4 and calls 0x510E, and the string is the argument
+ * the twin reads from (0xc,A5) / (0x10,A5) - measured, not guessed (out\antscan\ghidra\disasm).
  */
 #include "../recomp/cpu.h"
 #include "../recomp/fn_table.h"
@@ -86,6 +105,9 @@ static const seam_set g_original =
     0x0001D1DAu,                               /* the menu's flip                     */
     0x00003B1Eu, 0x0001061Cu,                  /* map script, map tail                */
     0x00004D76u, 0x00004F40u,                  /* text line, its return address       */
+    0x0000093Au, 0x00004E2Eu, 0x00004F0Au,     /* text: boot box, centred line, block */
+    0x00004F5Cu, 0x00005012u, 0x000050CAu,     /* line count, page, page opener       */
+    0x0000510Eu, 0x00004328u,                  /* paginator, message frame            */
     0x00005FBEu, 0x00006632u,                  /* phone update, its return address    */
     0x00005824u, 0x00005EACu,                  /* room update, room draw              */
     0x00019E9Cu,                               /* hospital draw                       */
@@ -105,6 +127,7 @@ static const seam_set g_original =
     0x0000551Cu,                               /* clock VBI                           */
     0x0000A4D6u,                               /* endings                             */
     0x000102A2u, 0x000102E6u,                  /* load prompt, load answer            */
+    0x00002218u, 0x00001FAAu,                  /* text: story pages, speech pages     */
     /* data */
     0x00023C58u, 0x0002A170u,                  /* score, hospital progress            */
     0x00021E1Eu, 0x00021E22u, 0x00021E24u, 0x00021E26u,  /* day, hour, minute, gate   */
@@ -143,6 +166,9 @@ static const seam_set g_ant =
     0x0001F260u,
     0x00003F9Eu, 0x00011E8Au,
     0x000053B0u, 0x0000557Au,
+    0x00000CE4u, 0x00005468u, 0x00005544u,     /* text: boot box, centred line, block */
+    0x00005596u, 0x0000564Cu, 0x00005704u,     /* line count, page, page opener       */
+    0x00005748u, 0x00004852u,                  /* paginator, message frame            */
     0x00006612u, 0x00006CAAu,
     0x00005E3Eu, 0x00006500u,
     0x0001B766u,
@@ -162,6 +188,7 @@ static const seam_set g_ant =
     0x00005B5Eu,
     0x0000B9DEu,
     0x00011B10u, 0x00011B54u,
+    0x000024ACu, 0x000022D0u,                  /* text: story pages, speech pages     */
     /* data */
     0x00025F18u, 0x0002CC0Cu,
     0x00023ED8u, 0x00023EDCu, 0x00023EDAu, 0x00023EE0u,

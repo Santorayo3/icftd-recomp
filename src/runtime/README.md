@@ -6,7 +6,10 @@ This is the shipped half of the project. It contains **no 68000 core**: it is th
 ```
 types.h          fixed-width types, no OS headers
 platform.h       the platform contract: window, input, audio, files, heap, 50 Hz clock
-config.c         icftd.ini: [SECTION] / key=value settings (video + audio)
+config.c         icftd.ini: [SECTION] / key=value settings (video + audio + language)
+lang.c           the German catalog and its lookup: the text the engine's own routines are handed
+                 (docs\port-features.md, "The language"), plus the translation file
+                 `lang\<code>.txt` merged over it, copied into the machine's RAM once a run starts
 assets.c         the first start: the player's three floppy images -> the extracted tree (an
                  AmigaDOS OFS reader and the hunk flattening of the exporter, in C, because a
                  release cannot run the .NET tool); two layouts, the Windows `export\` and the DOS
@@ -96,7 +99,17 @@ window_height=200   ;   (a cross the desktop cannot show is shrunk to fit)
 [AUDIO]
 sound=10            ; 0..10, 0 = sound effects off
 music=10            ; 0..10, 0 = music off
+
+[GAME]
+language=en         ; en = the original's English (the default), de = German
 ```
+
+`[GAME] language` is read once, before the machine boots (`host_lang_load` in `src\host\main.c`
+and `src\host\dos_main.c`): `de` hands the engine's text routines the German strings from
+`src\runtime\lang.c` and from the translation file `lang\de.csv` (see docs\port-features.md, "The
+language" and "The translation file"), and anything else - a missing
+key included - leaves the original's English. It is not written back by the game; the file is
+where the player chooses.
 
 It is not read-only: the title's settings menu writes the three values back with
 `rt_config_save_int`, which patches the file in place and re-reads it, and the window size is

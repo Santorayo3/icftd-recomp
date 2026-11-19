@@ -39,6 +39,16 @@ typedef struct seam_set
     u32 mapEventPc;         /* FUN_0001061c: the map's tail, just before its save test  */
     u32 textLinePc;         /* FUN_00004d76: draws one line of a text menu              */
     u32 textLineRet;        /* its return address inside FUN_00004f0a                   */
+    /* The engine's text routines: the entry points a string arrives at, and the only places
+     * [GAME] language=de swaps one (src\host\lang_hook.c). */
+    u32 textBootPc;         /* FUN_0000093a: a centred message in its own box (boot)    */
+    u32 textCenterPc;       /* FUN_00004e2e: one centred line                           */
+    u32 textBlockPc;        /* FUN_00004f0a: a wrapped block of lines                   */
+    u32 textLinesPc;        /* FUN_00004f5c: how many lines such a block needs          */
+    u32 textPagePc;         /* FUN_00005012: a narration page                           */
+    u32 textPageOpenPc;     /* FUN_000050ca: the page's own wrapper                     */
+    u32 textPaginatePc;     /* FUN_0000510e: splits a string into pages (writes to it)  */
+    u32 textFramePc;        /* FUN_00004328: a message inside the map's frame           */
     u32 phoneUpdatePc;      /* FUN_00005fbe: presents one update of the phone book      */
     u32 phoneUpdateRet;     /* ... called from the phone's own cursor loop              */
     u32 roomUpdatePc;       /* FUN_00005824: the room view's per-frame update           */
@@ -72,6 +82,8 @@ typedef struct seam_set
     u32 titleEndPc;         /* FUN_0000a4d6: the ending dispatcher                      */
     u32 titleLoadPrompt;    /* FUN_0001029e+4: after its `link`                         */
     u32 titleLoadAnswer;    /* ... and after the prompt call that reads D0              */
+    u32 textStoryPc;        /* FUN_00002218: the story screen's pages (string: arg 2)   */
+    u32 textSpeechPc;       /* FUN_00001faa: a speech's pages (string: arg 3)           */
 
     /* --- data ------------------------------------------------------------------------------ */
     u32 scorePtr;           /* the loaded score, 0 when there is none                   */
@@ -164,6 +176,16 @@ int seam_is_addon(void);
 #define MAP_EVENT_PC        SEAM(mapEventPc)
 #define TEXT_LINE_PC        SEAM(textLinePc)
 #define TEXT_LINE_RET       SEAM(textLineRet)
+#define TEXT_BOOT_PC        SEAM(textBootPc)
+#define TEXT_CENTER_PC      SEAM(textCenterPc)
+#define TEXT_BLOCK_PC       SEAM(textBlockPc)
+#define TEXT_LINES_PC       SEAM(textLinesPc)
+#define TEXT_PAGE_PC        SEAM(textPagePc)
+#define TEXT_PAGE_OPEN_PC   SEAM(textPageOpenPc)
+#define TEXT_PAGINATE_PC    SEAM(textPaginatePc)
+#define TEXT_FRAME_PC       SEAM(textFramePc)
+#define TEXT_STORY_PC       SEAM(textStoryPc)
+#define TEXT_SPEECH_PC      SEAM(textSpeechPc)
 #define PHONE_UPDATE_PC     SEAM(phoneUpdatePc)
 #define PHONE_UPDATE_RET    SEAM(phoneUpdateRet)
 #define ROOM_UPDATE_PC      SEAM(roomUpdatePc)

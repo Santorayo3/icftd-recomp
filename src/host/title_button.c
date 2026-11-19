@@ -32,6 +32,7 @@
 #include "config.h"
 #include "display.h"
 #include "platform.h"
+#include "../runtime/lang.h"
 #include "settings_art.h"
 #include "title_buttons.h"
 
@@ -208,6 +209,7 @@ void title_button_draw_at(rt_machine *m, u8 *dst, u32 stride, int w, int h,
     s32 tw;
     int th, tx, ty;
 
+    label = rt_lang_text(label);            /* [GAME] language: the port's own labels too */
     pens[0] = TITLE_BUTTON_PEN_OUTLINE;
     pens[1] = hovered ? TITLE_BUTTON_PEN_HOVER : TITLE_BUTTON_PEN_NORMAL;
     title_button_blit(dst, stride, w, h, x, y,
@@ -475,19 +477,22 @@ void title_settings_draw(rt_machine *m, const title_settings *settings, u8 *dst,
     {
         const int ctl = fs + TITLE_SETTINGS_CONTROL_DY;
 
-        title_settings_label(m, dst, stride, w, h, fs, "Fullscreen");
+        title_settings_label(m, dst, stride, w, h, fs, rt_lang_text("Fullscreen"));
         title_settings_picture(dst, stride, w, h, TITLE_SETTINGS_TOGGLE_X, ctl,
                                settings->fullscreen ? g_titleToggleOn : g_titleToggleOff,
                                TITLE_TOGGLE_W, TITLE_TOGGLE_H);
         rt_font_text_draw(m, dst, stride, w, h,
                           TITLE_SETTINGS_TOGGLE_X + TITLE_TOGGLE_W + TITLE_SETTINGS_VALUE_GAP,
                           ctl + (TITLE_TOGGLE_H - rt_font_height(m)) / 2 + 1,
-                          settings->fullscreen ? "On" : "Off", TITLE_BUTTON_PEN_TEXT);
+                          settings->fullscreen ? rt_lang_text("On") : rt_lang_text("Off"),
+                          TITLE_BUTTON_PEN_TEXT);
     }
-    title_settings_volume(m, settings, dst, stride, w, h, music, "Music Vol.", settings->music,
+    title_settings_volume(m, settings, dst, stride, w, h, music, rt_lang_text("Music Vol."),
+                          settings->music,
                           settings->hover == TITLE_SETTING_MUSIC_DOWN,
                           settings->hover == TITLE_SETTING_MUSIC_UP);
-    title_settings_volume(m, settings, dst, stride, w, h, sound, "Sound Vol.", settings->sound,
+    title_settings_volume(m, settings, dst, stride, w, h, sound, rt_lang_text("Sound Vol."),
+                          settings->sound,
                           settings->hover == TITLE_SETTING_SOUND_DOWN,
                           settings->hover == TITLE_SETTING_SOUND_UP);
     title_button_draw_at(m, dst, stride, w, h, TITLE_BUTTON_X, TITLE_BACK_Y, "Back",
@@ -519,7 +524,7 @@ void title_slots_draw(rt_machine *m, const title_slots *slots, u8 *dst, u32 stri
         if (e == 0) break;
         /* "(A)" is the add-on's mark, and it is the row's promise: this row loads Antheads. The
          * 1989 game's file in the same slot has its own row above it. */
-        sprintf(label, "Slot %d%s", (int)e->slot,
+        sprintf(label, rt_lang_text("Slot %d%s"), (int)e->slot,
                 e->kind == RT_SAVE_ANTHEADS ? " (A)" : "");
         title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + i * TITLE_SLOT_STEP, label,
                          i == slots->hover ? TITLE_BUTTON_PEN_SLOT_HOVER : TITLE_BUTTON_PEN_TEXT);
@@ -528,7 +533,8 @@ void title_slots_draw(rt_machine *m, const title_slots *slots, u8 *dst, u32 stri
     if (title_slots_paging(slots))
     {
         /* More files than rows: the last row pages through the rest, so no save is out of reach. */
-        title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + rows * TITLE_SLOT_STEP, "More",
+        title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + rows * TITLE_SLOT_STEP,
+                         rt_lang_text("More"),
                          slots->more_hover ? TITLE_BUTTON_PEN_SLOT_HOVER : TITLE_BUTTON_PEN_TEXT);
     }
     else
@@ -540,7 +546,7 @@ void title_slots_draw(rt_machine *m, const title_slots *slots, u8 *dst, u32 stri
             char label[16];
 
             if (slots->state[slot - 1] != RT_SAVE_EMPTY) continue;
-            sprintf(label, "Slot %d", slot);
+            sprintf(label, rt_lang_text("Slot %d"), slot);
             title_slots_line(m, dst, stride, w, h, TITLE_SLOT_Y + used * TITLE_SLOT_STEP, label,
                              TITLE_BUTTON_PEN_SLOT_EMPTY);
             used++;

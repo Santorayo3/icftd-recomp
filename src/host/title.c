@@ -94,6 +94,7 @@
 #include "title_button.h"
 #include "time_freeze.h"
 #include "seams.h"
+#include "../runtime/lang.h"
 
 /* Every engine address this file holds is a row of the seam table (src\host\seams.c), as a model
  * (image) offset - the convention the other seam files use - so every use goes through RC_ADDR.
@@ -482,11 +483,12 @@ static void title_notice_draw(rt_machine *m)
     for (y = 0; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
     for (i = 0; i < TITLE_NOTICE_LINES; i++)
     {
-        s32 w = rt_font_text_width(m, g_titleNotice[i]);
+        const char *line = rt_lang_text(g_titleNotice[i]);
+        s32 w = rt_font_text_width(m, line);
 
         x = (SCREEN_W - (int)w) / 2;
         rt_font_text_draw(m, dst, stride, SCREEN_W, SCREEN_H, x,
-                          top + i * TITLE_NOTICE_LINE_STEP, g_titleNotice[i],
+                          top + i * TITLE_NOTICE_LINE_STEP, line,
                           TITLE_BUTTON_PEN_TEXT);
     }
 }

@@ -558,9 +558,25 @@ static const u8 *glyph_for_char(int ch)
     return p != 0 ? g_fontGlyphs[p - g_fontIndex] : g_fontGlyphs[0];
 }
 
+/* --- German umlauts on a font that has none ------------------------------------------------
+ * lang.c hands the engine codes 0x80..0x85 for Ä Ö Ü ä ö ü; the disk font carries ASCII only, so
+ * each is drawn as its base letter plus a diaeresis. The dots fit inside the letter's own cell
+ * when it leaves the top rows free (the lower case sits on rows 2..6 of the 10-row cell), and go
+ * one row above the cell for a capital - every glyph of the game's font leaves the bottom three
+ * rows of its cell empty, which is what keeps that row clear of the line above. */
+#define UMLAUT_FIRST 0x80
+#define UMLAUT_LAST  0x85
+
+static int umlaut_base(int ch)
+{
+    static const char base[] = "AOUaou";
+
+    return (ch >= UMLAUT_FIRST && ch <= UMLAUT_LAST) ? (int)(u8)base[ch - UMLAUT_FIRST] : ch;
+}
+
 static const u8 *glyph_of(rt_machine *m, u32 text, u32 index)
 {
-    return glyph_for_char((int)rt_read8(&m->mem, text + index));
+    return glyph_for_char(umlaut_base((int)rt_read8(&m->mem, text + index)));
 }
 
 void rt_gfx_move(rt_machine *m, u32 rp, s32 x, s32 y)
@@ -630,14 +646,44 @@ static void glyph_layout_of(rt_machine *m, u32 font, int ch, int baseline, glyph
                  ((space != 0 && i >= 0) ? (int)rt_read16(&m->mem, space + (u32)j * 2u) : xSize);
 }
 
+/* First row the glyph actually uses, so the diaeresis knows whether it fits inside the cell. */
+static int glyph_first_row(rt_machine *m, const glyph_layout *g)
+{
+    int row, col;
+
+    if (g->data == 0 || g->modulo <= 0 || g->w <= 0) return 2;
+    for (row = 0; row < g->h; row++)
+        for (col = 0; col < g->w; col++)
+        {
+            u32 bit = g->bits + (u32)col;
+            u8 byte = (u8)rt_read8(&m->mem, g->data + (u32)row * (u32)g->modulo + (bit >> 3));
+
+            if (((byte >> (7 - (bit & 7u))) & 1) != 0) return row;
+        }
+    return 2;
+}
+
+/* The diaeresis in a planar BitMap: two dots, two rows high, at the glyph's left edge and two
+ * pixels in. `x` is the glyph's own left edge, its kern already applied. */
+static void plot_umlaut(rt_machine *m, u32 bm, const glyph_layout *g, s32 x, u8 fg)
+{
+    int row = g->top + (glyph_first_row(m, g) >= 2 ? 0 : -2);
+    s32 col = x + (g->w >= 3 ? 2 : 0);
+
+    plot(m, bm, (int)x, row, fg);
+    plot(m, bm, (int)x, row + 1, fg);
+    plot(m, bm, (int)col, row, fg);
+    plot(m, bm, (int)col, row + 1, fg);
+}
+
 /* Draws one character of the port's font and returns its advance. */
 static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baseline, u8 fg, u8 bg,
                      u8 mode)
 {
     glyph_layout g;
-    int row, col;
+    int row, col, base = umlaut_base(ch);
 
-    glyph_layout_of(m, font, ch, (int)baseline, &g);
+    glyph_layout_of(m, font, base, (int)baseline, &g);
     x += g.kern;                /* the kern shifts the glyph, then CharSpace advances past it */
     if (g.data != 0 && g.modulo > 0 && g.w > 0)
     {
@@ -658,6 +704,7 @@ static s32 put_glyph(rt_machine *m, u32 bm, u32 font, int ch, s32 x, s32 baselin
                 }
             }
     }
+    if (ch != base) plot_umlaut(m, bm, &g, x, fg);
     return (s32)g.advance;
 }
 
@@ -713,7 +760,7 @@ s32 rt_gfx_text_length(rt_machine *m, u32 rp, u32 text, u32 count)
     kern = rt_read32(&m->mem, font + EMU_TF_CHAR_KERN);
     for (i = 0; i < count; i++)
     {
-        int ch = (int)rt_read8(&m->mem, text + i);
+        int ch = umlaut_base((int)rt_read8(&m->mem, text + i));
         int j = (ch >= lo && ch <= hi) ? ch - lo : 0;
         n += (space != 0 && ch >= lo && ch <= hi)
                  ? (s32)rt_read16(&m->mem, space + (u32)j * 2u) : (s32)xSize;
@@ -749,7 +796,7 @@ s32 rt_font_text_width(rt_machine *m, const char *text)
     {
         glyph_layout g;
 
-        glyph_layout_of(m, font, (u8)*text, 0, &g);
+        glyph_layout_of(m, font, umlaut_base((u8)*text), 0, &g);
         n += g.advance;
     }
     return n;
@@ -765,6 +812,7 @@ s32 rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
     for (; *text != 0; text++)
     {
         int ch = (u8)*text;
+        int base_ch = umlaut_base(ch);
 
         if (font != 0)
         {
@@ -772,7 +820,7 @@ s32 rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
             int base = (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
             int row, col;
 
-            glyph_layout_of(m, font, ch, top + base, &g);
+            glyph_layout_of(m, font, base_ch, top + base, &g);
             if (g.data != 0 && g.modulo > 0 && g.w > 0)
                 for (row = 0; row < g.h; row++)
                     for (col = 0; col < g.w; col++)
@@ -789,11 +837,27 @@ s32 rt_font_text_draw(rt_machine *m, u8 *dst, u32 stride, int w, int h,
                                 dst[(u32)py * stride + (u32)px] = pen;
                         }
                     }
+            if (ch != base_ch)
+            {
+                int row = g.top + (glyph_first_row(m, &g) >= 2 ? 0 : -2);
+                int px = (int)(x + g.kern), px2 = px + (g.w >= 3 ? 2 : 0), r;
+
+                for (r = 0; r < 2; r++)
+                {
+                    int py = row + r;
+
+                    if (py >= 0 && py < h)
+                    {
+                        if (px >= 0 && px < w) dst[(u32)py * stride + (u32)px] = pen;
+                        if (px2 >= 0 && px2 < w) dst[(u32)py * stride + (u32)px2] = pen;
+                    }
+                }
+            }
             x += g.advance;
         }
         else
         {   /* no font open: the stand-in keeps the geometry, not the typeface */
-            const u8 *g = glyph_for_char(ch);
+            const u8 *g = glyph_for_char(base_ch);
             int row, col;
 
             for (row = 0; row < FONT_H; row++)

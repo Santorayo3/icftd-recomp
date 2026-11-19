@@ -85,6 +85,8 @@
 #include "save_ui.h"
 #include "programs.h"
 #include "seams.h"
+#include "lang_hook.h"
+#include "../runtime/lang.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
 #define DOS_IMAGE_ANT  "ANTSHEL.IMG"
@@ -1106,7 +1108,7 @@ void host_loading_hold(rt_machine *m)
     if (!g_portArm) return;
     g_loadHold = LOAD_HOLD_FRAMES;
     g_loadHoldSeen = 0;
-    rt_osd_text(m, "Loading", 2);
+    rt_osd_text(m, rt_lang_text("Loading"), 2);
 }
 
 /* Runs at the frame boundary, before the vblank whose present composes the overlay. */
@@ -1143,8 +1145,8 @@ static void loading_frame(rt_machine *m)
     /* A slot message has the corner while it is up; the load line takes it back when that
      * expires. Re-arming every frame keeps it up for as long as the load runs. */
     if (m->gfx.osdText[0] == 0 || (s32)(m->gfx.osdTextUntil - m->frame) <= 0 ||
-        strcmp(m->gfx.osdText, "Loading") == 0)
-        rt_osd_text(m, "Loading", 2);
+        strcmp(m->gfx.osdText, rt_lang_text("Loading")) == 0)
+        rt_osd_text(m, rt_lang_text("Loading"), 2);
 }
 
 /* The per-screen seams this front end installs. All are played-game features: the cheat does
@@ -1153,6 +1155,7 @@ static void loading_frame(rt_machine *m)
  * once while g_ptrKnown is clear. */
 static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
+    host_lang_entry(c, m, pc);            /* [GAME] language: the German string, if there is one */
     /* The map's script: the pointer seam, and the screen Ctrl+T's clock freeze belongs to. */
     if (host_time_freeze_map_pc(pc)) { map_pointer(m); return; }
     if (host_cheat_entry(m, pc)) return;
@@ -1276,8 +1279,8 @@ static void dos_input(rt_machine *m)
             char msg[40];
             if (slot == 0) slot = m->saveSlot;
             m->saveSlot = slot;
-            sprintf(msg, "Save Slot - %d%s", m->saveSlot,
-                    rt_save_slot_empty(m, m->saveSlot) ? " (Empty)" : "");
+            sprintf(msg, rt_lang_text("Save Slot - %d%s"), m->saveSlot,
+                    rt_save_slot_empty(m, m->saveSlot) ? rt_lang_text(" (Empty)") : "");
             rt_osd_text(m, msg, EMU_OSD_FRAMES);
         }
     }
@@ -1567,6 +1570,10 @@ int main(int argc, char **argv)
         image = argv[i];
     }
     if (dataDir == 0) dataDir = plat_exe_dir();
+    /* The settings next to the executable - a fresh copy gets the whole file written - and the
+     * language they select, before the first message and before anything boots. */
+    rt_config_ensure();
+    host_lang_load();
     if (diskDir == 0)
     {
         sprintf(diskPath, "%s\\disks", plat_exe_dir());
@@ -1587,7 +1594,7 @@ int main(int argc, char **argv)
         char msg[600];
         if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg, (u32)sizeof msg) != RT_ASSETS_OK)
         {
-            printf("icftd: %s\n", msg);
+            printf("icftd: %s\n", rt_lang_text(msg));
             return 1;
         }
         return 0;
@@ -1619,7 +1626,7 @@ int main(int argc, char **argv)
             if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg,
                                  (u32)sizeof msg) != RT_ASSETS_OK)
             {
-                printf("icftd: %s\n", msg);
+                printf("icftd: %s\n", rt_lang_text(msg));
                 return 1;
             }
         }
@@ -1643,8 +1650,8 @@ int main(int argc, char **argv)
     printf("icftd: %lu KB conventional memory, %lu KB free with the EXE loaded\n",
            (unsigned long)plat_base_total_kb(), (unsigned long)plat_free_base_kb());
 
-    /* Settings next to the executable; a fresh copy gets the whole file written. */
-    rt_config_ensure();
+    /* The settings were read at the top of main, before the first message, so [GAME] language is
+     * already in effect; the catalog goes into this machine's RAM once it exists. */
 
     if (!rt_init(&m)) { printf("icftd: not enough memory\n"); return 1; }
     if (!rt_load_image(&m, EMU_IMAGE_BASE, image))
@@ -1653,6 +1660,7 @@ int main(int argc, char **argv)
         rt_shutdown(&m);
         return 1;
     }
+    host_lang_open(&m);                    /* [GAME] language=de: the catalog into this machine */
     m.dataDir = dataDir;
     m.saveName = rc_active->saveName;
     m.saveBytes = rc_active->saveBytes;
@@ -1694,7 +1702,8 @@ int main(int argc, char **argv)
     {
         rt_audio_open(&m, DOS_AUD_RATE);
         if (!m.audio.device)
-            rt_osd_text(&m, "BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)", EMU_OSD_FRAMES * 8);
+            rt_osd_text(&m, rt_lang_text("BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)"),
+                        EMU_OSD_FRAMES * 8);
     }
     m.on_frame = dos_input;
     m.on_present = dos_present;
@@ -1720,7 +1729,7 @@ int main(int argc, char **argv)
      * measurement. The cheat follows the same rule with its own scripted form. */
     g_portArm = ((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
                 g_mousePath != 0;
-    if (g_portArm || g_cheatFrame != 0)
+    if (g_portArm || g_cheatFrame != 0 || host_lang_on())
         rc_entryHook = dos_entry;
 
     g_cpu = &c;
@@ -1850,6 +1859,7 @@ int main(int argc, char **argv)
             m.saveBytes = rc_active->saveBytes;
             m.tree = g_program == HOST_PROGRAM_ANT ? "ant" : "disk";
             host_saves(&m);
+            host_lang_open(&m);
             m.panelFlag = RC_ADDR(PANEL_FLAG);
             m.panelCols = RC_ADDR(PANEL_COLS);
             m.saveSlot = keepSlot;

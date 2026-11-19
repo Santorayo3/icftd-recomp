@@ -1,0 +1,44 @@
+/* The language icftd.ini selects, wired into a running game (src\runtime\lang.c has the catalog).
+ * Two things live here that the runtime cannot own: the ini lookup, and the function-entry hook
+ * that hands the engine the German string instead of the English one. Both front ends call this
+ * file, so the Windows and the DOS build translate with the same rule.
+ *
+ * The hook is possible because every one of the engine's text routines takes the string as its
+ * first argument on the stack, and the translated dispatcher enters every function through
+ * rc_entryHook. Replacing the argument in the callee's frame - not the caller's copy - keeps the
+ * substitution to the one call: a routine that hands its string on passes the German one, and a
+ * routine that never touched it still has the English one.
+ */
+#ifndef ICFTD_HOST_LANG_HOOK_H
+#define ICFTD_HOST_LANG_HOOK_H
+
+#include "types.h"
+#include "../recomp/cpu.h"
+#include "machine.h"
+
+/* Reads [GAME] language from icftd.ini and selects it. Call once the settings file is there, i.e.
+ * before the first message the player may see and before the program boots. */
+void host_lang_load(void);
+
+/* Enables (or, with en, skips) the translation for this machine: copies the catalog into the
+ * machine's RAM. Call after rt_init/rt_load_image and before oracle_boot - once per machine, so
+ * the Escape restart and a switch between the two builds open their own copy. */
+void host_lang_open(rt_machine *m);
+
+/* rc_entryHook: 1 when German is selected, i.e. when the hook has work to do. */
+int host_lang_on(void);
+
+/* The hook itself: swaps a text routine's first argument for the German string when the English
+ * one has a catalog entry. Call from the front end's rc_entryHook before anything else it does. */
+void host_lang_entry(cpu_t *c, rt_machine *m, u32 pc);
+
+/* --langdump <file>: writes every distinct string a run hands to those same text routines, one
+ * `<English><TAB>` row per string, ready for a translator to fill in (tools\lang-export.ps1). It
+ * works with the language set either way - it records the English side, before any substitution.
+ * Call once at start-up; the file is closed at exit. */
+void host_lang_dump(const char *path);
+
+/* 1 when --langdump is running, so the front end installs the hook even in an English run. */
+int host_lang_dump_on(void);
+
+#endif /* ICFTD_HOST_LANG_HOOK_H */

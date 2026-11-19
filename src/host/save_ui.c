@@ -19,6 +19,7 @@
 #include "save_ui.h"
 #include "display.h"
 #include "title_button.h"
+#include "../runtime/lang.h"
 #include "portrait_box_art.h"
 
 /* The portrait box is the whole popup; its mustard interior starts at x 6, y 11 and ends at x 80,
@@ -151,13 +152,13 @@ void save_ui_draw(rt_machine *m, const save_ui *ui, rt_surface *s)
     save_ui_origin(w, h, &x0, &y0);
     save_ui_box(dst, stride, w, h, x0, y0);
     cx = x0 + (SAVE_UI_LEFT + SAVE_UI_RIGHT) / 2;
-    save_ui_text(m, dst, stride, w, h, cx, y0 + SAVE_UI_TITLE_Y, "Save Game",
+    save_ui_text(m, dst, stride, w, h, cx, y0 + SAVE_UI_TITLE_Y, rt_lang_text("Save Game"),
                  TITLE_BUTTON_PEN_TEXT);
     for (i = 0; i < SAVE_UI_SLOTS; i++)
     {
         u8 pen;
 
-        sprintf(label, "Slot %d", i + 1);
+        sprintf(label, rt_lang_text("Slot %d"), i + 1);
         if (i == ui->hover) pen = TITLE_BUTTON_PEN_SLOT_HOVER;
         else if (ui->empty[i]) pen = TITLE_BUTTON_PEN_SLOT_EMPTY;
         else pen = TITLE_BUTTON_PEN_TEXT;

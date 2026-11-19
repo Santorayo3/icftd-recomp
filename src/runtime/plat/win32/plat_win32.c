@@ -859,7 +859,12 @@ const char *plat_default_ini(void)
            "[AUDIO]\r\n"
            "; Volume 0..10, 0 = off, 10 = full.\r\n"
            "sound=10\r\n"
-           "music=10\r\n";
+           "music=10\r\n"
+           "\r\n"
+           "[GAME]\r\n"
+           "; The language of the game's own text: en = the original's English (the default),\r\n"
+           "; de = German. The port's own screens (title, settings, save slots) follow it too.\r\n"
+           "language=en\r\n";
 }
 
 u32 plat_fullscreen(void)

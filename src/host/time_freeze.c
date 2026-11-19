@@ -47,6 +47,7 @@
 #include "display.h"
 #include "time_freeze.h"
 #include "seams.h"
+#include "../runtime/lang.h"
 
 /* The clock words and the map's script are rows of the seam table (src\host\seams.c): the 1989
  * game's addresses and the add-on's, chosen at run time. RC_ADDR adds the build's load address. */
@@ -164,7 +165,7 @@ static void host_time_freeze_toggle(rt_machine *m)
     else if (rt_read16(&m->mem, RC_ADDR(CLOCK_GATE)) != 0)
         rt_write16(&m->mem, RC_ADDR(CLOCK_GATE), 0);
 
-    rt_osd_text(m, s_frozen ? "Time frozen" : "Time unfrozen", EMU_OSD_FRAMES);
+    rt_osd_text(m, rt_lang_text(s_frozen ? "Time frozen" : "Time unfrozen"), EMU_OSD_FRAMES);
     printf("recomp: time %s at frame %lu, OSD \"%s\"\n", s_frozen ? "frozen" : "unfrozen",
            (unsigned long)m->frame, s_frozen ? "Time frozen" : "Time unfrozen");
 }
