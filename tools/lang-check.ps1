@@ -184,48 +184,55 @@ try {
     }
 
     # --- 6. a translation file overrides the built-in text, and adds story text ----------------
-    # `lang\<code>.txt` is how a translator's work reaches the game (tools\lang-export.ps1 writes
-    # it): one `<English><TAB><German>` row each, keyed by the exact English text. The English side
-    # below is one of the load screen's lines - already translated by the catalog - and a whole
-    # narration record from desert.dat, which the catalog has never seen.
     $story = ''
-    $export = Join-Path $Work 'export.txt'
+    $storyId = ''
+    $export = Join-Path $Work 'export.csv'
     if (Test-Path $Exe) {
-        # The exporter is what a translator starts from: running it here also checks that the file
-        # it writes is a translation file the game can read.
+        # The exporter writes the source text, `<id>;<English>`: running it here also checks that
+        # the file it writes is one the game's id keying can use.
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\lang-export.ps1') `
-            -SkipRun -Out $export -Work (Join-Path $Work 'export') | Out-Null
+            -SkipRun -Source $export -Scratch (Join-Path $Work 'export') | Out-Null
     }
     if (-not (Test-Path $export)) {
         Fail 'tools\lang-export.ps1 wrote no file'
     } else {
-        # The first field of a CSV record: quoted (with "" for a quote) when it holds the
-        # separator, plain otherwise. Reading it back here also checks the exporter's quoting.
-        function FirstField([string]$record) {
-            if ($record.StartsWith('"')) {
-                $sb = New-Object System.Text.StringBuilder
-                for ($k = 1; $k -lt $record.Length; $k++) {
-                    if ($record[$k] -eq '"') {
-                        if ($k + 1 -lt $record.Length -and $record[$k + 1] -eq '"') { [void]$sb.Append('"'); $k++; continue }
-                        break
+        # The fields of a CSV record, quotes removed ("" is a quote inside a quoted field).
+        # Reading them back here also checks the exporter's quoting.
+        function Fields([string]$record) {
+            $fields = New-Object System.Collections.ArrayList
+            $sb = New-Object System.Text.StringBuilder
+            $i = 0
+            while ($i -le $record.Length) {
+                $quoted = $false
+                [void]$sb.Clear()
+                if ($i -lt $record.Length -and $record[$i] -eq '"') { $quoted = $true; $i++ }
+                while ($i -lt $record.Length) {
+                    $ch = $record[$i]
+                    if ($quoted) {
+                        if ($ch -eq '"') {
+                            if ($i + 1 -lt $record.Length -and $record[$i + 1] -eq '"') { [void]$sb.Append('"'); $i += 2; continue }
+                            $i++; $quoted = $false; continue
+                        }
+                        [void]$sb.Append($ch); $i++
                     }
-                    [void]$sb.Append($record[$k])
+                    elseif ($ch -eq ';') { break }
+                    else { [void]$sb.Append($ch); $i++ }
                 }
-                return $sb.ToString()
+                [void]$fields.Add($sb.ToString())
+                if ($i -lt $record.Length -and $record[$i] -eq ';') { $i++ } else { break }
             }
-            $at = $record.IndexOf(';')
-            if ($at -lt 0) { return $record }
-            return $record.Substring(0, $at)
+            return $fields
         }
         $rows = [System.IO.File]::ReadAllLines($export)
         $best = ''
         foreach ($row in $rows) {
             if ($row.StartsWith('#')) { continue }
-            $key = FirstField $row
+            $f = Fields $row
+            if ($f.Count -lt 2) { continue }
             # The intro's own narration page: one long record that the tap script is certain to
             # reach, and long enough for the engine to split it into pages.
-            if ($key.StartsWith('I had been living in a small desert town')) { $story = $key; break }
-            if ($key.Length -gt $best.Length -and $key -match '^[A-Z]') { $best = $key }
+            if ($f[1].StartsWith('I had been living in a small desert town')) { $story = $f[1]; $storyId = $f[0]; break }
+            if ($f[1].Length -gt $best.Length -and $f[1] -match '^[A-Z]') { $best = $f[1] }
         }
         if ($story -eq '') { $story = $best }
     }
@@ -239,26 +246,49 @@ try {
         $savedLang = if (Test-Path $langFile) { [System.IO.File]::ReadAllBytes($langFile) } else { $null }
         try {
             Set-Language 'de'
+            # The id a shipped record names its text by (lang.c, lang_hash64): FNV-1a over the
+            # bytes of the English text. If this value ever stops matching, every translation file
+            # in the repository stops working - so it is computed here, independently.
+            if (-not ('LangId' -as [type])) {
+                Add-Type -TypeDefinition @'
+public static class LangId {
+    public static ulong Hash(byte[] b) {
+        ulong h = 14695981039346656037UL;
+        foreach (byte c in b) { h ^= c; h *= 1099511628211UL; }
+        return h;
+    }
+}
+'@
+            }
+            $id = '{0:X16}' -f [LangId]::Hash([System.Text.Encoding]::UTF8.GetBytes($story))
+            if ($storyId -ne '' -and $storyId -ne $id) {
+                Fail ("the exporter's id ($storyId) and the game's own ($id) disagree")
+            }
             # Both fields quoted and their quotes doubled, which is what a spreadsheet writes and
-            # what the loader reads back: a key that holds the separator must survive.
+            # what the loader reads back: a key that holds the separator must survive. One record
+            # here is keyed by the English text, the other by its id in the three-column shape a
+            # translator works in - its middle column is a decoy that must never be drawn.
             function Q([string]$t) { return '"' + $t.Replace('"', '""') + '"' }
             $records = "# lang-check`r`n" +
                        (Q 'Lizard Breath has been awaiting your return.') + ';' +
                        (Q 'AUS DER DATEI, Lizard Breath.') + "`r`n" +
-                       (Q $story) + ';' + (Q ('GESCHICHTE AUS DER DATEI.' + $story)) + "`r`n"
+                       $id + ';' + (Q 'DECOY - the English column is never drawn') + ';' +
+                       (Q ('GESCHICHTE AUS DER DATEI.' + $story)) + "`r`n"
             [System.IO.File]::WriteAllText((Join-Path $root $langFile), $records,
                                            (New-Object System.Text.UTF8Encoding($false)))
             $file = Run 'file' 60000000 @('--input', (Join-Path $Work 'advance.txt'), '--textlog')
             if ($file -notmatch 'AUS DER DATEI, Lizard Breath\.') {
-                Fail 'the translation file did not override the built-in German of the load screen'
+                Fail 'the translation file did not override the built-in German of the load screen (text key)'
             } elseif ($file -match 'Lizard Breath hat auf dich gewartet\.') {
                 Fail 'the built-in German was still drawn although the file translates that line'
             } elseif ($file -notmatch 'GESCHICHTE AUS DER DATEI') {
-                Fail 'a story record from the translation file was not drawn'
+                Fail 'a story record keyed by its id was not drawn'
+            } elseif ($file -match 'DECOY') {
+                Fail 'the middle field of a three-field record was drawn - it must be ignored'
             } elseif ($file -notmatch 'AUS DER DATEI, Lizard Breath[\s\S]*T\.r \.ffnen') {
                 Fail 'the run did not reach the room menu after the translated narration'
             } else {
-                Ok 'a translation file (CSV, semicolon) translates the interface and the story text'
+                Ok 'a translation file translates the interface and the story, by text key and by id'
             }
         }
         finally {

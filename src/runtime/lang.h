@@ -28,8 +28,10 @@
  * original's English. Case insensitive. 1 when German is selected afterwards.
  *
  * German merges two sources: the catalog in lang.c and the translator's file `lang\de.csv` (a CSV
- * with a semicolon separator, `<English>;<German>`), whose records win over catalog entries with
- * the same English text. The file is read here, once, so a new translation needs no rebuild. */
+ * with a semicolon separator, `<id>;<German>`), whose records win over catalog entries with the
+ * same text. The id is the FNV-1a hash of the English, sixteen hex digits - so a shipped
+ * translation never has to repeat the original's words (docs\port-features.md, "The translation
+ * file"). The file is read here, once, so a new translation needs no rebuild. */
 u32 rt_lang_set(const char *code);
 
 /* 1 when a language other than the original's is selected. */

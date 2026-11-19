@@ -37,6 +37,23 @@ foreach ($d in 'export', 'disks', 'saves') {
 }
 Copy-Item -LiteralPath $exe -Destination (Join-Path $Out $name)
 
+# The translations travel next to the executable, where the game looks for them first
+# (lang.c, lang_read_file). `en.csv` is the source text - the game's own script - and `*.work.csv`
+# is the translator's file: neither is a translation and neither may be shipped.
+$langDir = Join-Path $root 'lang'
+$langFiles = @()
+if (Test-Path $langDir) {
+    $langFiles = @(Get-ChildItem -LiteralPath $langDir -Filter '*.csv' -File |
+                   Where-Object { $_.Name -ne 'en.csv' -and $_.Name -notlike '*.work.csv' })
+}
+if ($langFiles.Count -gt 0) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $Out 'lang') | Out-Null
+    foreach ($f in $langFiles) {
+        Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $Out ('lang\' + $f.Name))
+    }
+    Write-Output ("win32-pack: {0} translation file(s) in lang\" -f $langFiles.Count)
+}
+
 $zip = Join-Path (Split-Path -Parent $Out) 'icftd-win32.zip'
 if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
 # Compress-Archive drops empty directories, and `export\`, `disks\` and `saves\` are exactly that -
@@ -45,6 +62,13 @@ try { Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop 
 $archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
 try {
     foreach ($d in 'export', 'disks', 'saves') { [void]$archive.CreateEntry("$d/") }
+    if ($langFiles.Count -gt 0) {
+        [void]$archive.CreateEntry('lang/')
+        foreach ($f in $langFiles) {
+            [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, (Join-Path $Out ('lang\' + $f.Name)), ('lang/' + $f.Name), 'Optimal')
+        }
+    }
     [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
         $archive, (Join-Path $Out $name), $name, 'Optimal')
 }

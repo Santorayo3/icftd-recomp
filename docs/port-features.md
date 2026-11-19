@@ -1203,46 +1203,78 @@ screen needs the intro played through; the script taps fire every 60 frames.
 The catalog in `lang.c` carries the interface, the menus and the messages. The game's own story —
 the rooms' narration, what the people say, the telephone dialogue — is far too much to belong in a
 source file, and it is a translator's work, not the port's. It arrives as a **translation file** the
-game reads at start-up: a CSV with a semicolon separator, so a spreadsheet shows it as two columns.
+game reads at start-up: a CSV with a semicolon separator, so a spreadsheet shows it as columns.
 
 | | |
 |---|---|
 | where | `lang\<code>.csv` next to the executable, then up to two folders above it (the development tree's `bin\win32` → repository root), then `lang\<code>.csv` in the working directory |
-| format | one record per line, two fields: `<English>;<German>`; a field that holds the separator or a line break is quoted (`"..."`, `""` for a quote) — what a spreadsheet writes by itself |
+| format | one record per line: `<id>;<German>`; a field that holds the separator or a line break is quoted (`"..."`, `""` for a quote) — what a spreadsheet writes by itself |
+| the key | the id of the English text: sixteen hex digits, its FNV-1a hash (`lang_hash64`), **not** the text itself. A record whose first field is the English text is still accepted (the older form) and is what the translator's file uses |
+| three fields | `<id>;<English>;<German>` — the translator's work file; the middle field is never looked up |
 | comments | a record whose first field starts with `#` (a one-field record is skipped as well) |
 | encoding | UTF-8 (a byte order mark is fine) or ANSI/Latin-1, which is what a plain spreadsheet export writes; UTF-16 is refused with a message |
 | empty German field | a placeholder: the record is skipped and the game keeps its own text (the catalog's German, else the English) |
-| the English field | must stay byte for byte as it is — it is the key |
 
-A record overrides a catalog entry with the same English field, and the last record with a given
-English field wins, so a translator can correct the interface too. The text is converted and copied
-into the machine's RAM like the catalog (`rt_lang_open`), and a text longer than a story copy
-(> 1 KB) stays English rather than being cut. Two dialogs keep a wrong file from looking like a
-broken translation: the path and size of the file that was used are printed at start-up, and a file
-that yields no translation at all reports the separator as the likely reason.
+The last record with a given key wins, so a translator can override a catalog entry as well. The
+text is converted and copied into the machine's RAM like the catalog (`rt_lang_open`), and a text
+longer than a story copy (> 1 KB) stays English rather than being cut. Two dialogs keep a wrong file
+from looking like a broken translation: the path and size of the file that was used are printed at
+start-up, and a file that yields no translation at all reports the separator as the likely reason.
 
-**`tools\lang-export.ps1` writes the file to start from**, every English string the game can draw,
-one empty German field each:
+### Delivering a translation without carrying the original's script
+
+The English column *is* the game's script, decoded from `desert.dat`/`PHONE.DAT` — so a translation
+file that repeats it cannot be redistributed for the same reason the game data cannot (`.gitignore`,
+"nothing that is game artwork, that contains it, or that was decoded from it"). Keying by an id
+removes that: a hash is a fact about the text, not the text. Hence three files, and only the third
+belongs in the repository:
+
+| file | content | committed |
+|---|---|---|
+| `lang\en.csv` | `<id>;<English>` — every text the game can draw | no |
+| `lang\de.work.csv` | `<id>;<English>;<German>` — the translator's file | no |
+| `lang\de.csv` | `<id>;<German>` — the translation | yes |
+
+```
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1            # -> lang\en.csv
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Work      # -> lang\de.work.csv
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Pack      # -> lang\de.csv
+```
+
+`-Work` merges `en.csv` with whatever `de.csv` already holds, so no translated record is ever lost;
+`-Pack` writes the German side only. The ids are stable while the English text is, so a translation
+file outlives a regeneration of the source.
+
+**What this does and does not settle.** It settles the *reproduction of the original*: the shipped
+file contains no game text, and the ids are not protected expression. Two rights then meet in the
+translation itself: the translator's — a translation is a protected work (§3 UrhG), and whether it
+came to you is what your contract says, since in Germany the rights have to be granted explicitly
+(§31 UrhG) — and the original's, because a translation is also a derivative of the game's script and
+publishing it needs the rights holder's consent (§23 UrhG). Owning the translation settles the first,
+not the second. What the port ships in the binary is the interface German only: short functional
+labels, prompts and messages. Whoever publishes a translated story, in this repository or in a
+release, decides that last question; keeping it out of the repo and offering it as a separate file a
+player drops into `lang\` is the cautious route. (Not legal advice — ask the rights holder or a
+lawyer.)
+
+### The source text
+
+**`tools\lang-export.ps1` writes it**, every English string the game can draw:
 
 * a scripted run with `--langdump`, which records every string the engine hands to a text routine —
   the load screen, the intro's narration pages, the room menus, the travel lines. Those live in
   memory only (the intro's bundle is compressed), so nothing else finds them. The run stays English
-  while it dumps, whatever `[GAME] language` says, so a row is always the original's text;
+  while it dumps, whatever `[GAME] language` says, so a record is always the original's text;
 * `desert.dat`, the rooms' script bank: its records are `<00> <length> <text>` (and
   `<00 1A> <u32> <u16 length> <text>` for the long narration pages), and the engine hands the text
   after the `^`-markers to the layout routines, so that is the record;
 * `PHONE.DAT`, whose lines are `<speaker>:<text>` — the speaker picks a portrait and is never drawn,
   the text after the colon is the record.
 
-```
-powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1
-powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Out bin\win32\lang\de.csv
-```
-
 The engine re-wraps and re-centres German with its own font, so a translation that is much longer
-than the English line will not fit the same box; the file's header says so. Times and the messages
-the program formats itself (`June 1, 1951 - 09:32 a.m.`, `ETA: 00:05`) are not in the file: the
-catalog builds those from their pattern (`rt_lang_is_message`).
+than the English line will not fit the same box. Times and the messages the program formats itself
+(`June 1, 1951 - 09:32 a.m.`, `ETA: 00:05`) are not in the file: the catalog builds those from their
+pattern (`rt_lang_is_message`).
 
 ## The dev loop
 

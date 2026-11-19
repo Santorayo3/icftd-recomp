@@ -159,8 +159,10 @@ screen the game has (the settings view's toggle shows it there and then), and it
 German (the port's screens and messages too; `en`, the default, is the original's English), see
 docs\port-features.md, "The language". The interface and the menus are translated in the build; the
 game's story — what the rooms narrate and what the people say on the telephone — comes from a
-translation file, `lang\de.csv` next to the executable, which `tools\lang-export.ps1` writes as
-`<English>;<German>` records for a translator to fill in. Two cheats: left Ctrl+W ends a minigame in that scene's own
+translation file, `lang\de.csv` next to the executable, which `tools\lang-export.ps1` writes in three
+steps: the game's own text (`lang\en.csv`, not committed), the translator's three-column working file,
+and the finished translation keyed by an id instead of by the English — so the shipped file carries
+none of the original's script (see `lang\README.md`). Two cheats: left Ctrl+W ends a minigame in that scene's own
 success state, and left Ctrl+T on the situation map freezes the game's clock (`Time frozen`, then
 `Time unfrozen` again), holding it through every screen until the game is restarted or a new game is
 started from the title.
@@ -273,8 +275,8 @@ docs/                  architecture, plan, program model
 | `tools\mksettingsart.ps1` | PNG → `src\host\settings_art.h`, the minus and plus buttons and the fullscreen toggle the title's settings view draws |
 | `tools\title-check.ps1` | the title's digit keys start the minigames and W/C/T the three endings (scene data, rasters, and the return to the title), the two menu layouts, and the shared save slots: one row per save file, "(A)" for the add-on's, no cross-loading, and paging when there are more files than rows |
 | `tools\settings-check.ps1` | the title's settings menu: the Settings button opens it, the fullscreen toggle and the two volumes change the machine and are written back to icftd.ini, Back restores the menu, and Alt+Enter (posted to the live window) switches the window from the view and leaves the toggle showing the state it took |
-| `tools\lang-check.ps1` | `[GAME] language`: en draws the original's line and de the German one from the same machine, the RAM differs only in the catalog's own region, the machine state is record-for-record identical up to the first German line, a room's action list is German, a translation file translates the interface and a whole story record, and a file without the key runs in English |
-| `tools\lang-export.ps1` | writes the translation file a translator starts from — every text the game can draw, as a `;`-separated CSV — from a scripted run's `--langdump` plus the prose in `desert.dat` and `PHONE.DAT` (`docs\port-features.md`, "The translation file") |
+| `tools\lang-check.ps1` | `[GAME] language`: en draws the original's line and de the German one from the same machine, the RAM differs only in the catalog's own region, the machine state is record-for-record identical up to the first German line, a room's action list is German, the `--langdump` text is the English whatever the setting says, and a translation file translates the interface and a whole story record both by English key and by id (its middle column ignored) while a file without the key runs in English |
+| `tools\lang-export.ps1` | writes the three translation files — `lang\en.csv` (`<id>;<English>`, the game's own text, not committed), `-Work` the translator's `<id>;<English>;<German>`, `-Pack` the committable `<id>;<German>` — from a scripted run's `--langdump` plus the prose in `desert.dat` and `PHONE.DAT` (`docs\port-features.md`, "The translation file", `lang\README.md`) |
 | `tools\quit-check.ps1` | Quit Game's farewell: the click replaces the menu with the two requested lines on black, centred, held for ten seconds (500 frames), then the application closes; a measurement run is untouched |
 | `tools\mouse-check.ps1` | the mouse-feature seams: the map cursor follows the pointer, scrolls at the window's edge, yields to the stick, and a click is /FIRE (frame-for-frame identical to the key); a pointer run still sees the original's machine state up to the map |
 | `tools\pointer-check.ps1` | the room pointer's seams: a text menu line under the pointer selects the same entry and action the stick selects, and a pointer that never reaches a line leaves the run byte-identical |

@@ -198,18 +198,25 @@ static const lang_pair g_catalog[] =
 #define LANG_COUNT ((int)(sizeof g_catalog / sizeof g_catalog[0]))
 
 /* The catalog in force is the built-in table above plus whatever the translation file adds
- * (lang\<code>.txt next to the executable): a row of the file overrides a built-in one, so a
- * translation can be corrected without a rebuild, and a row whose German side is empty is simply a
- * placeholder for the translator and changes nothing. */
+ * (lang\<code>.csv next to the executable): a row of the file overrides a built-in one, so a
+ * translation can be corrected without a rebuild, and a row whose German field is empty is simply a
+ * placeholder for the translator and changes nothing.
+ *
+ * A row may name its English text two ways: verbatim (what a translator works with) or by its
+ * 64-bit FNV-1a id, sixteen hex digits. The second form is how a finished translation can be
+ * shipped **without carrying the original's text** - see the export tool and docs\port-features.md,
+ * "Delivering a translation". */
 #define LANG_MAX_ENTRIES 4096              /* built-ins plus the file's rows               */
 #define LANG_FILE_MAX    (512u * 1024u)    /* the largest translation file read            */
 #define LANG_PATH_MAX    320               /* <exe dir>\lang\<code>.csv                    */
 #define LANG_SEP         ';'               /* the CSV's field separator                    */
+#define LANG_ID_LEN      16                /* hex digits of an id-keyed row                */
 
 typedef struct lang_entry
 {
-    const char *en;                        /* the English text, as the game has it         */
+    const char *en;                        /* the English text, as the game has it (or 0)  */
     const char *de;                        /* German, in the font's codes (a converted copy) */
+    u64 id;                                /* FNV-1a of `en`, when `en` is not here        */
 } lang_entry;
 
 static int g_on;                          /* a language other than English is selected    */
@@ -298,12 +305,45 @@ static u32 lang_convert(const char *src, char *dst, u32 max)
 
 /* --- selecting a language ------------------------------------------------------------------ */
 
-static u32 lang_hash(const char *s)
+/* FNV-1a over the text's bytes, 64 bits. A row of the translation file may name its text by this
+ * value instead of by the text itself, which is what lets a finished translation be shipped
+ * without a copy of the original's script: the id is a fact about the text, not the text. */
+static u64 lang_hash64(const char *s)
 {
-    u32 h = 2166136261u;
+    u64 h = 14695981039346656037ull;
 
-    for (; *s != 0; s++) { h ^= (u8)*s; h *= 16777619u; }
+    for (; *s != 0; s++) { h ^= (u64)(u8)*s; h *= 1099511628211ull; }
     return h;
+}
+
+/* The value both keying forms are filed under: a 32-bit fold of the id. A collision here is only a
+ * false candidate - the text is compared again, and an id row against the full 64 bits. */
+static u32 lang_fold(u64 h) { return (u32)h ^ (u32)(h >> 32); }
+
+/* The id a key names, 0 when it is not sixteen hex digits (i.e. it is the English text itself). */
+static u64 lang_key_id(const char *key)
+{
+    u64 v = 0;
+    int i;
+
+    for (i = 0; i < LANG_ID_LEN; i++)
+    {
+        char c = key[i];
+        int d;
+
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return 0;
+        v = (v << 4) | (u64)d;
+    }
+    return key[LANG_ID_LEN] == 0 ? v : 0;
+}
+
+/* The entry's own key value, for the index and for the "is this the same text" test. */
+static u64 lang_entry_hash(const lang_entry *e)
+{
+    return e->en != 0 ? lang_hash64(e->en) : e->id;
 }
 
 /* Frees everything a language selection owns. */
@@ -435,25 +475,46 @@ static char *lang_field(char **pp, int *more)
     return start;
 }
 
-/* Is this text already in g_ent? (The file overrides a built-in row with the same English side.) */
+/* Is this text already in g_ent? It is found either by its own text or by an id-keyed row. */
 static int lang_find(const char *en)
 {
-    u32 h = lang_hash(en);
+    u64 h = lang_hash64(en);
+    u32 fold = lang_fold(h);
     int k;
 
     if (g_slots == 0) return -1;
-    k = (int)(h & (u32)(g_slots - 1));
+    k = (int)(fold & (u32)(g_slots - 1));
     while (g_slot[k] >= 0)
     {
-        if (g_entHash[g_slot[k]] == h && strcmp(g_ent[g_slot[k]].en, en) == 0) return g_slot[k];
+        int e = g_slot[k];
+
+        if (g_entHash[e] == fold)
+        {
+            if (g_ent[e].en != 0)
+            {
+                if (strcmp(g_ent[e].en, en) == 0) return e;
+            }
+            else if (g_ent[e].id == h) return e;
+        }
         k = (k + 1) & (g_slots - 1);
     }
     return -1;
 }
 
+/* Do these two entries name the same text? (A text-keyed row and an id-keyed one can.) */
+static int lang_same(int a, int b)
+{
+    u64 ha = lang_entry_hash(&g_ent[a]);
+    u64 hb = lang_entry_hash(&g_ent[b]);
+
+    if (ha != hb) return 0;
+    if (g_ent[a].en != 0 && g_ent[b].en != 0) return strcmp(g_ent[a].en, g_ent[b].en) == 0;
+    return 1;
+}
+
 /* Allocates the table for g_entCount entries (twice as many slots as entries, rounded up to a
- * power of two) and files every entry into it. A later entry with the same English side replaces
- * the earlier one, which is how a translation file overrides a built-in row. */
+ * power of two) and files every entry into it. A later entry with the same text replaces the
+ * earlier one, which is how a translation file overrides a built-in row. */
 static int lang_index(void)
 {
     int i, slots = 2;
@@ -469,12 +530,11 @@ static int lang_index(void)
     for (i = 0; i < slots; i++) g_slot[i] = -1;
     for (i = 0; i < g_entCount; i++)
     {
-        u32 h = lang_hash(g_ent[i].en);
-        int k = (int)(h & (u32)(slots - 1));
+        u32 fold = lang_fold(lang_entry_hash(&g_ent[i]));
+        int k = (int)(fold & (u32)(slots - 1));
 
-        g_entHash[i] = h;
-        while (g_slot[k] >= 0 && !(g_entHash[g_slot[k]] == h && strcmp(g_ent[g_slot[k]].en, g_ent[i].en) == 0))
-            k = (k + 1) & (slots - 1);
+        g_entHash[i] = fold;
+        while (g_slot[k] >= 0 && !lang_same(g_slot[k], i)) k = (k + 1) & (slots - 1);
         g_slot[k] = i;
     }
     return 1;
@@ -515,6 +575,7 @@ u32 rt_lang_set(const char *code)
     for (i = 0; i < LANG_COUNT; i++)
     {
         g_ent[i].en = g_catalog[i].en;
+        g_ent[i].id = 0;
         g_ent[i].de = g_pool + at;
         at += lang_convert(g_catalog[i].de, g_pool + at, poolSize - at) + 1u;
     }
@@ -527,18 +588,25 @@ u32 rt_lang_set(const char *code)
         while (*p != 0 && g_entCount < LANG_MAX_ENTRIES)
         {
             int more;
-            char *en = lang_field(&p, &more);
-            char *de = more ? lang_field(&p, &more) : 0;
+            char *key = lang_field(&p, &more);
+            char *second = more ? lang_field(&p, &more) : 0;
+            char *third = more ? lang_field(&p, &more) : 0;
+            /* Two fields are <key>;<German>. Three are the translator's file, <id>;<English>;
+             * <German> - the middle one is for the translator's eyes and is never looked up. */
+            char *de = third != 0 ? third : second;
+            u64 id;
 
-            while (more) lang_field(&p, &more);      /* a record with more than two fields */
+            while (more) lang_field(&p, &more);      /* a record with more fields than that */
 
-            /* A comment record has one field (or starts with #), and an empty German side is the
+            /* A comment record has one field (or starts with #), and an empty German field is the
              * placeholder the exporter leaves for a translator who has not got there yet. */
-            if (en[0] == 0 || en[0] == '#') continue;
+            if (key[0] == 0 || key[0] == '#') continue;
             if (de == 0 || de[0] == 0) continue;
-            g_ent[g_entCount].en = en;
             g_ent[g_entCount].de = g_pool + at;
             at += lang_convert(de, g_pool + at, poolSize > at ? poolSize - at : 0) + 1u;
+            id = lang_key_id(key);
+            if (id != 0) { g_ent[g_entCount].en = 0; g_ent[g_entCount].id = id; }
+            else { g_ent[g_entCount].en = key; g_ent[g_entCount].id = 0; }
             g_entCount++;
             g_fromFile++;
         }

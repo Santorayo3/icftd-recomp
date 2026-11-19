@@ -75,8 +75,11 @@ third_party/musashi/m68kmake.exe
 # copied into our own sources with attribution.
 third_party/reference/
 
-# The generated translation file (tools\lang-export.ps1) - it holds the game's own script.
-/lang/*.csv
+# The generated translation files: en.csv is the game's own script, de.work.csv has the English
+# column in it, and an older tab-separated file is not read any more. The translation itself
+# (lang\de.csv, keyed by id, German only) IS committed - see lang/README.md.
 /lang/*.txt
+/lang/*.work.csv
+/lang/en.csv
 !/lang/README.md
 

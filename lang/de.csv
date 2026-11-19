@@ -1,0 +1,983 @@
+﻿# Source text of It Came from the Desert, as <id>;<English>. NOT committed: this is
+# the game's own script. tools\lang-export.ps1 -Work builds the translator's file
+# from it, -Pack writes the translation that belongs in the repository.
+#
+# The id is an FNV-1a hash of the English text (sixteen hex digits); lang.c computes
+# the same value, so a translation file never repeats the original's words.
+
+# --- the interface, the menus and the messages (13 record(s)) ---
+C25CF40D2F5011F8;Eidechsenatem wartet auf deine Rückkehr.
+3562FA7726349E59;Wenn du einen Spielstand laden möchtest, wähle „JA“.
+51D46BE2E9AC867C;Wenn du ein neues Spiel beginnen möchtest, wähle „NEIN“.
+CBB57A1A17975F70;JA
+09203907B5B5367A;NEIN
+621A83C988156AA6;Karte öffnen
+1033A7CFDFE940B4;Tür öffnen
+503CBCCD6A5CDEA8;Schlafen
+917DA5384492CAE7;Basis
+F60C529D36636813;Melville-Gedächtniskrankenhaus
+0AA5643B0491E280;Dort kommst du leider nur über die Erzaufbereitungsanlage hin.
+775AEA451D70F76C;Minenstollen
+CE8A05D21B925330;Mine 2
+
+# --- the story: the rooms, the people and the narration (798 record(s)) ---
+8835A6A1FBD2FA40;Mine M-4
+2A2F3CAC83DDF006;Erzaufbereitungsanlage
+393785F96045D561;Mine M-5
+1E0448BBDE1D3DEF;Mine M-3
+69EAA58F942A8596;Mine M-2
+33CC67BD103E2141;Das war der Anfang vom Ende. Wir planten, uns ein letztes Mal in der Stadt zu verteidigen.
+12BBE42C7B0E0E26;Sie sind da...!!!
+1DCCDE0683AAE0B1;Letzte Runde, Leute, sie sind da...
+4F4777FB5C05DCC8;Tja, Doc, d-d-das war's. Falls wir uns nicht wiedersehen: Es war mir eine Ehre, an deiner S-S-Seite zu kämpfen.
+64216EBED37F2C6C;Die Lage ist kritisch. Alles, was wir noch haben, steht dir zur Verfügung.
+B122FBF19E2129F6;Das Labor war verlassen. Draußen nahe dem Parkplatz hatte ich frische Ameisenspuren entdeckt und das Schlimmste befürchtet.
+F2B0C2230BF64ED5;Greg, hast du gehört, dass man die ganze Neptune-Hall-Bande tot auf der Straße zum Labor gefunden hat? Alle außer Billy Bob. Er ist verschwunden. Ich schätze, sie haben eine ihrer vielen Hinterhalte zu viel gelegt. Ob wir die Nächsten sind?
+1073862FB22EEBC5;Noch einen für den Heimweg, Doc? Den wirst du brauchen. Es war schön, so einen feinen Kerl wie dich in der Stadt zu haben.
+F88672006BB06EC8;Der Sender bleibt bis auf Weiteres geschlossen.
+2F98E9A753D14CF0;Ich bin bereit, Doc. Diese Station übernehmen sie nur über meine l-l-Leiche. Du kannst gern meine neueste Ladung Treibstoff für deinen Flammenwerfer haben.
+2A65566780AE8325;Wir bereiten uns auf den letzten Widerstand vor. Vielleicht gewinnen wir nicht, aber sie werden merken, dass sie gekämpft haben.
+B8E57637850B353F;Soll ich noch etwas in den Artikel aufnehmen? Vielleicht ist das deine letzte Gelegenheit.
+FAD1F00A7DDFA10F;Er ist gestern los. Will versuchen, zu Fuß rauszukommen. Hoffentlich finden sie seine Knochen, von der Sonne gebleicht.
+EA924DC07EE834D0;Die Erzaufbereitungsanlage war verlassen, aber überall waren noch Ameisenspuren.
+C1088F62A1635C3A;Ameisen? Ach was... nur ganz normale. Was ist das für ein Geräusch...!
+0359CAE97375D6A1;C'est fini! Wir sind erledigt! Keines der Flugzeuge kann mehr fliegen...
+1EE5502D78808D9E;Wir haben genug Treibstoff, um weiterzumachen. Sag nur das Wort, und wir sind, wie sagt man, oben in zee Luft!
+96EBC0CB95AA4EDB;Sie sind gekommen...
+25BAA246360DAD4E;Das Labor ist weg und... meine Güte, du hast unerwarteten Besuch bekommen...!
+2D4F9D082FB4DEDD;Wir machen uns aus dem Staub, und das gerade noch rechtzeitig...!
+0494C37D47770984;Überall Ameisen. Wir bleiben so lange wie möglich auf Sendung, aber komm zurück und hol mich, ja?
+DCDD6D9CCA206A46;Ich habe den Zweiten Weltkrieg, Kneipenschlägereien und drei Ehen überlebt, nur um von einer Riesenameise zertreten zu werden. Da kommt man schon ins Grübeln...
+D7D72346A378BFC7;Die Station bleibt bis auf Weiteres geschlossen.
+CA1834189A1FD6E9;Weggehen? Das würde ich um nichts in der Welt verpassen. Das ist Pulitzer-Preis-Material.
+776B74F4F7D2B325;Hör mal, Doc. Sehe ich aus wie ein Vollidiot? Dieses ganze Ameisengerede ist doch völliger Schwachsinn! Hier gibt's im Umkreis von tausend Meilen keine Ameise, die größer ist als ein Bienenknie...
+593F3F8DFF61F0E3;Wir konnten sie im Tunnel nicht aufhalten. Es sind einfach zu viele...
+F4F335582778CE2C;Die Ameisen suchten Deckung, der Weg war frei.
+D1AE79A38CE6B83F;Der Kraterkegel war vorerst frei, doch als ich losgehen wollte, bemerkte ich frische Ameisenspuren in der Vulkanasche. Ich fragte mich, ob ich mir die Zeit nehmen sollte, für Dr. Wells einen Abdruck davon zu machen.
+CD7EA9334C8408F3;Zut alors! Sie sind am Rand des Flugfelds. Wir müssen sie aufhalten, bevor sie die Flugzeuge zerstören...!
+5ECC128BC267E01D;Sie kommen morgen hierher. Ich spüre es.
+F034EA5108194907;Sie sind am Flughafen und an der Erzaufbereitungsanlage. War wohl zu schön, um wahr zu sein.
+38AEC181C41F65CB;Das Labor bleibt bis auf Weiteres geschlossen.
+ABDE2B604DD9EFC1;Greg, ich halte das Labor so lange wie möglich offen. Wenn sie am Flughafen sind, könnten wir die Nächsten sein.
+7162C925EE43BAF4;Sie sind wieder da... am Flughafen, an der Erzaufbereitungsanlage und auf der nördlichen Farm. Du bist doch nicht weit weg, Greg?
+9DF3F6FF319CD981;Trinkt aus, Leute, es ist später, als ihr denkt...!
+8F9B7749B3C9742E;Der Sender war geschlossen, bis Elmer wieder auf den Beinen war. Solange Elmer außer Gefecht war, bekam ich keinen Treibstoff für meinen Flammenwerfer.
+7EBCE72D6A258DDB;Die kriegen mich nicht aus meiner S-S-Station. Nein, Sir! Hier ist noch mehr Treibstoff für deinen F-F-Flammenwerfer.
+D14C2B652EF05D58;Du hast es erraten. Er hat uns sitzen lassen. Ich glaube, Señor „Hasenherz“ schreibt seine Story aus Las Vegas.
+1BCCF4F6045603A2;Sie griffen blitzschnell an und zogen nach Osten weiter. Überall Spuren.
+EC40B35DABD9650A;Gipsabdruck anfertigen
+785E464694238A8A;Im Moment ist wieder alles ruhig. Nachts haben sie sich von den Minen zurückgezogen. Alle sind weiterhin in Alarmbereitschaft. Sie sind irgendwo in der Gegend.
+F30C60ED52620249;Als ich den Kraterrand überquerte, hörte ich Ida meinen Namen rufen...
+DB73BA3684297306;Doc... Doc... runter! Sie bewegen sich zum Südrand. Ich hatte recht. Ihr Nest muss irgendwo hier sein.
+54A5A2EF0A375E8A;Ich wusste, dass ich müde war, aber diese Vision von Ida hätte mich direkt in die Klapsmühle gebracht. Falls ich noch Zweifel daran hatte, wohin die Kreaturen verschwunden waren, bekam ich plötzlich Antwort auf meine Frage........
+6E1CCB7CE01AF8BF;Gott sei Dank. Ein Wunder! Wir waren erledigt. Sie hatten uns... und dann zogen sie plötzlich ab! Gut, dass ich meine Glückssocken anhatte... und ich ziehe sie nicht aus, bis das hier vorbei ist!
+1958EC15A621E6F1;Notiz: Ich hatte eine Vision vom Ameisennest. Es liegt irgendwo östlich des südwestlichen Vulkankegels. Triff mich dort, wenn du kannst.
+6ADCA464FBF8F264;Nichts Neues. Das Telefon klingelt nicht mehr. Vielleicht ist das ein gutes Zeichen, was meinst du?
+707BFA3F67032C3C;Labor bis auf Weiteres geschlossen.
+DDDB74A74D015AAD;Greg, ich habe die Angriffswege der Ameisen analysiert und glaube, ein Muster erkannt zu haben. Sie ziehen immer von ihrem letzten Angriff aus nach Norden. Dann müsste das Nest südlich der Neptune Hall liegen. Wenn ich recht habe, können wir beim nächsten Mal auf sie warten.
+C2F457263695DB70;Neptunius Veni, Neptunius Vidi, Neptunius Vici!
+C90C2D356B045FC1;Es ist wieder ruhig. Das Warten ist das Schlimmste. Greg, wenn das vorbei ist, lass uns weggehen und nie wiederkommen... irgendwohin, wo es kühl ist, ans Meer... versprich es mir...
+6AB40514F6817825;Wir haben ordentlich Prügel bezogen. Diese Ameisen sind schlau... und groß. Nächstes Mal müssen wir uns organisieren und schwere Waffen holen. Unsere kleinen Erbsenschleudern taugen überhaupt nichts!
+DAA95038A29FFC9F;Auf einem Zettel stand, dass die Station geschlossen sei, bis Elmer sich vom Ameisenangriff erholt hätte. Hätte ich ihn doch nur gerettet, als ich die Gelegenheit hatte. Ihn noch mehr Treibstoff für meinen Flammenwerfer herstellen zu lassen, kam nicht infrage. Ich musste mit dem auskommen, was ich hatte.
+631F6294D5B01430;Hast du die Neuigkeiten gehört, Doc? Sie haben gefunden, was von Ice und den Hellcats übrig ist – unter einer Ameise zerquetscht! Sie fallen eine ganze Weile aus. Hier ist meine neueste Ladung Treibstoff für deinen F-F-Flammenwerfer.
+472BB60C0A1172EB;Er ist unterwegs und recherchiert.
+8A996C47A19CFB3C;Vielleicht sind sie weg. Genau! Wir haben sie vertrieben. Ich erkläre morgen zum Ameisen-Evakuierungstag... mit Festwagen und einer Ameisenkönigin! Was für ein Knaller!
+FDA62EED8E96DF5A;Dieser Spinner ändert nie seine Meinung.
+2476FD3501617A50;Glaubst du, sie sind weg, Doc?
+7B8F487E5973F110;Ich wünschte, es wäre wahr, aber ich wusste, dass es nicht so war.
+13215A25ADFE918F;Hier ist nichts los, und genau so mag ich es. Im Süden scheint es ziemlich heftig zuzugehen.
+9E51791E6FFD85A0;Hey, Doc, diese Spuren kommen aus Richtung Mine M-1... und führen wohl zur Farm westlich der Stadt!
+FB1552EAC9AEC524;Als Nächstes kommen sie hierher... vielleicht Hunderte, die überall herumschwärmen...!
+F04390EE7C8D9659;Hysterie machte sich breit. Wir mussten einen Weg finden, diese Dinger aufzuhalten.
+E584040A75E361A6;Alle sind bei M-2 und versuchen, die Ameisen aufzuhalten.
+33A57E1E3564B57B;Letzte Nacht waren sie hier. Sie sind direkt an meinem Fenster vorbeigezogen... riesige, gruselige Krabbelviecher, die dieses GRAUENHAFTE GERÄUSCH machten...!
+4EB7EF71158509AF;Die Angst vor den Ameisen breitete sich aus. Es würde nicht mehr lange dauern, bis die Stadt in Panik verfiel.
+FEA0E672557EF6AB;Abdruck der Spur anfertigen
+6D5419BA8665AB36;Überall waren Ameisenspuren. Ich folgte ihnen bis zum Rand des Kraters, dann verlor ich sie. Sie scheinen nach Osten in Richtung des Gebiets um M-1 zu führen.
+F5EF9D6BABBB87E2;Doc, einer meiner Piloten hat heute früh fourmi, wie sagt man, Ameisen gesehen, die sich auf das Waffenlager zubewegten. Ich versuche schon, jemanden ans Telefon zu bekommen, aber es klingelt und klingelt...
+D713B9C23C188C95;Sie sind vor etwa einer Stunde aufgetaucht. Wenn der verdammte Bürgermeister Beweise braucht, schicke ich ihm eins von den Viechern BAR-BE-KÜ!
+6F58E730C7856F8E;IN DECKUNG!!
+7956038DE45CC33E;Es gibt eine Gruppe von Menschen, die glauben, die Ameisen seien gekommen, um ihnen zu helfen. Ein Planet... Neptun! Sagt dir das etwas?
+AEAD1EA578A7E619;Geez hat eine Nachricht hinterlassen. Ich soll ihn auf der Farm südlich der Stadt treffen.
+05598C249FA66C2B;Im Labor trauerte man um Dr. Wells. Sein Tod auf der Farm südlich der Stadt war ein schwerer Rückschlag für unsere Bemühungen, die Ameisen aufzuhalten.
+7D18C93899CE64A0;Ich kann dir nie genug dafür danken, dass du mein Leben gerettet hast. Jetzt finden wir einen Weg, diese Dinger auszurotten.
+027DA4582C6CCACE;Sie haben die Farm westlich der Stadt angegriffen und bedrohen das Waffenlager. Wann ruft der Bürgermeister endlich die Nationalgarde – wenn die Stadt schon in Schutt und Asche liegt?!
+20CD8F2C8CFCAA7E;Sie haben die Farm westlich der Stadt angegriffen und bewegen sich auf das Waffenlager zu. Ich halte dich auf dem Laufenden.
+BBE8F073C5E1870E;Alle sind zur Farm westlich der Stadt gegangen, um zu helfen. Ich wollte warten, bis jemand sie organisiert, aber du kennst doch die Stammgäste bei O'Riordan: Sie wollten einfach irgendetwas erschießen...!
+EBC7DB0B12D0114F;Ich kann dir nie vergelten, dass du mich vor der Ameise gerettet hast. Es wird Zeit, dass ich meine Ausbildung bei der Nationalgarde einsetze. Ich braue noch eine Ladung Treibstoff für deinen Flammenwerfer.
+988DD93CA3B54A16;Der Bürgermeister hat endlich den Gouverneur angerufen. Das Problem: Es dauert 24 Stunden, bis ein Befehl durchgeht. Hoffentlich ist es dann nicht zu spät.
+E69122EB4027FBD3;Sogar der Bürgermeister hat es endlich begriffen... wir werden angegriffen. Alle unsere Ressourcen stehen dir zur Verfügung. Auf der Lagekarte findest du den aktuellen Stand, wenn du nachsehen willst.
+950FFE1781E66D6D;Einer der Farmer hat mir eine Zeichnung von einer Ameise gemacht. Wir kommen landesweit in die Nachrichten. Von Bert Lamont, Starreporter!
+CDB265FF808678A9;Ich weiß, ich weiß. Ich habe Bescheid gesagt. Wir tun alles, was wir können.
+CC07900D28CDB307;Der Bürgermeister kümmert sich mehr um sein verdammtes Eidechsenfest als um die Stadt... Wir müssen zusammenhalten und diese Dinger aufhalten... Lizzie und ich nehmen die Kinder und versuchen abzuhauen... Du schaffst es nicht, Harlan... Die erwischen dich bestimmt...
+14E257D682B497F7;Die Stadt kriegen sie nur über unsere Leichen... Ja... Na gut... PACKEN WIR SIE, JUNGS...!
+F6C1F0EA11F39F2A;6-PZ
+40E559DF1EA1848A;Greg, hilf mir! ES KOMMT HIERHER...!
+87807C92E295429B;Der Vorarbeiter hörte einen Radiobericht über sein Funkgerät. „M-2... bitte melden...“
+9B8DDD33EB450F34;M-1 und M-2 haben Notrufe abgesetzt, bevor ihre Funkgeräte verstummten. Die Übertragungen waren verstümmelt, aber ich glaube, sie sagten... AMEISEN! Wir fahren hinauf. Kommst du mit?
+FA9C867171BF3348;Ich sah, wie Elmer von einem dieser mutierten Wesen verfolgt wurde, und fragte mich, ob ich zu spät kam...
+66E43CB030FE82B8;Nö, ruhig wie in einer Kirche. Was zum....
+495A8DC64124BDA3;Je regrette, Doc, alle meine Flugzeuge... sie sind in der Luft. Regierungsauftrag. Morgen wird eins frei.
+57FDE7ECEEADCF52;Je regrette, Doc, die letzten Tage war es so ruhig, dass ich die Flugzeuge für einen Vermessungsauftrag zurückgeschickt habe. Man muss ja seinen Lebensunterhalt verdienen, nicht? Ich versuche, eins zurückzurufen, in Ordnung?
+BDCF4FB2764014C3;Du kommst gerade recht. Heute Morgen hatte ich eine Vision. Ameisen... überall riesige Ameisen. Große Gefahr. Wir müssen die anderen warnen...
+5D92AC7909E6C737;Meine Güte, Doc, wo warst du? Das Telefon hat ununterbrochen geklingelt! Du hattest recht. Überall sind Riesenameisen. Dusty und Dr. Wells haben beide angerufen.
+5932401C7F4638D7;Nach den Spuren, die ich gefunden habe, würde ich sagen, dass sie ganz sicher irgendwo bei Mine M-1 sind.
+84D89614F97F18CF;Notiz: Greg, ich konnte nicht warten. Ich bin auf der Farm südlich der Stadt und untersuche die Berichte über Ameisen. Triff mich dort, wenn du kannst.
+49225E3C77165BF5;Greg, überall gehen Berichte über riesige Ameisen ein. Alle haben Angst! Ich versuche, den Bürgermeister zu erreichen, aber er ist nicht im Büro. Jemand muss den allgemeinen Alarm auslösen, sonst werden wir überrannt!
+0CCD613C75ED9B91;Du warst zwar ein ziemlicher Mistkerl, aber das hier ist wichtiger. Riesige Ameisen wurden nahe der Farm südlich der Stadt gesichtet. Beide Minen sind verloren, und wer weiß, wo sie als Nächstes zuschlagen. Wir brauchen einen allgemeinen Alarm, aber der Bürgermeister ist außer Stadt.
+C53C43D8DBA51C54;Sie sind mit voller Wucht zurück. Es gibt bestätigte Berichte über Ameisen im Steinbruch und bei Mine M-2. Du musst etwas unternehmen, Greg!
+B2B8DAF6773A4CB5;Holen wir unsere Knarren und gehen Ameisen jagen! Vielleicht stimmt es, dass wir keine Chance haben, aber wir nehmen ganz sicher ein paar von den Mistviechern mit! ERINNERT EUCH AN DAS ALAMO! JAAAAAWOLL!
+E378C77B83E80C86;Eine Nachricht von Elmer: „Bin im südwestlichen Vulkankegel wandern. Morgen zurück.“
+9004C3BF9A91E26C;Die Hölle ist los! Riesige Ameisen wurden auf der Farm südlich der Stadt und im Steinbruch gesichtet. Zwei meiner Hilfssheriffs sind bereits tot, drei weitere werden vermisst... und ich finde den Bürgermeister nicht!
+CE86C9E462BBDFB2;Die Hölle ist los! Überall sind Riesenameisen.
+754CEB303185E47A;Ich wollte ihn bitten, den Minenarbeitern zu helfen, war mir aber nicht sicher, wie er reagieren würde.
+04E8F4E7AA10272C;Ihn fragen
+67F6C7888FAA7584;Ich erzählte ihm, was die Minenarbeiter vorhatten, und bat ihn, mir Hilfssheriffs zur Unterstützung hinaufzuschicken. Ich sagte, ich hätte eine Ahnung, woher die Ameisen kommen.
+3BD97FC371B9AA9B;Hast du Beweise?
+306B78ED9DAA76C0;Ich stelle dir 15 Hilfssheriffs zur Verfügung. Halte mich auf dem Laufenden.
+B16E1B889F667BF5;Tut mir leid, ohne eindeutige Beweise muss ich auf den Bürgermeister warten.
+5F803EEDF78F0575;Sie sind in großer Zahl bei den Minen. Wir versuchen, Truppen dorthin zu bringen.
+87B5CA73C834F61F;Das ist die größte Story des Jahrzehnts! Ich brauche nur ein Foto, dann bin ich auf der Titelseite jeder Zeitung der Welt. Ich, Bert Lamont!
+E82E7F04CF6AE224;Wir versuchen, ihn ausfindig zu machen. Frag später noch mal nach...
+C61023C7655B7DF1;Klar, wir alle wollen etwas tun... Aber was?... Keiner sagt uns, was wir tun sollen... Wir lassen uns das nicht gefallen... Lasst uns diese verdammten Viecher erledigen... Frag den Doc, er weiß, wo sie sind!
+9094C332819870B8;Ich sagte ihnen, dass ich glaubte, zu wissen, woher die Ameisen kommen. Sie wollten Beweise.
+D240F239DCA72081;Unglaublich... Das reicht mir... Dann muss es stimmen... Zeig uns einfach, wo wir hinmüssen und was wir tun sollen...
+B100C7E0E92E02AE;Du bist ein Betrüger... Alles Quatsch... Da draußen gibt's nichts außer riesigen Kakteen!... Gehen wir nach Hause!
+B3A612EBEDF90E67;Diese Stadt ist der Wahnsinn. Hier ist was los! Überall Ameisen so groß wie Lastwagen! Nick, Eddie und ich werden ein paar abfackeln, einfach zum Spaß. Bleib uns aus dem Weg, Doc. Sonst wirst du wieder verletzt. Los, Leute!
+21BEE7C310395A73;Nichts bewegte sich außer dem Wind, doch mir stellten sich die Nackenhaare auf. Vielleicht wurde ich langsam nervös...
+22F2BE821968B3ED;Mine M-1
+700B4D2D4EAE7C8B;Ich weiß, was du sagen willst: Ich bin verrückt! Alle halten mich für verrückt... aber ich weiß, was ich gesehen habe! Riesenkäfer, so groß wie Wohnwagen. Sahen irgendwie aus wie... AMEISEN! Draußen auf dem Bergrücken dort hinten... Aber ich bin nicht verrückt... nein, bestimmt nicht...
+A9AB232D9089B4BD;Wir versuchen, den normalen Betrieb wieder aufzunehmen. Beide Wege zu den Minen sind frei.
+F58ACDCB00593896;Im Moment ist alles ruhig. Beide Wege sind frei, und die Minen auch.
+592189E902E118BA;Louie war wegen irgendetwas ganz aufgeregt.
+FD1158C8EB06EA90;Doc... Wir haben eines dieser neuen Tonaufnahmegeräte im Flugzeug eingebaut. Die Regierungsleute merken nie, dass wir es benutzen. Vielleicht hilft es, ja?
+668D9BCAC1AA9514;Einkaufen. Morgen zurück.
+F18E8CE7F1F54DCD;Es war toll, Greg. Wir hatten eine schöne Zeit und so, aber ich muss zurück an die Küste und mich der Realität stellen. Apropos Musik, wie ging das Lied noch? „One for my baby, and one more for the road...“ Na, wie wär's, Baby...?
+6A9DBE532577BDBE;Als ihre samtweichen Lippen meine Wange streiften, glitten meine Hände über ihren straffen Körper, streichelten... erkundeten... während riesige Ameisen nach Belieben durch die Straßen zogen...
+93E01E6350395CA4;Ihren Vorschlag annehmen
+850894CCDA01B1F5;Ihren Vorschlag ablehnen
+2F9366193348FA27;Einige Stunden später hörte ich Biff hereinkommen.
+F024427FB687B0CC;Na, wer hat denn da gerade den Vogel abgeschossen? Wo ist Jackie?
+96AD7A1902DE9BC1;Jackie lächelte süß, und ich wusste, dass sie mich verstanden hatte. Sie schritt zur Tür hinaus, ihre Knie bewegten sich hübsch unter Rüschen und Spitze... dann drehte sie sich um, fast schmollend...
+D47B4E6B225E64BA;Das hätte Spaß gemacht. Leb wohl, Liebster.
+D2DBF342349D4B6E;Sie warf mir einen Kuss zu und verschwand aus meinem Leben...
+DE0A97F4B10B91CA;Es war die letzten Tage so ruhig hier. Glaubst du, sie sind woanders hingezogen?
+C1A0A7732AF4E44B;Greg, es tut mir schrecklich leid wegen Jackie. Du hast aber richtig entschieden, sie aus Lizard Breath herauszubringen. Die Ärzte in der Großstadt wissen, wie sie ihre Verletzungen behandeln müssen. So ein reizendes Mädchen!
+AB54018EB34E77B6;In beidem haben Sie recht, Doktor. Jedenfalls war eine Ablenkung wie Jackie bei allem, was los war, das Letzte, was ich brauchte.
+715FF307A05E1399;Dieses Wetter ist unglaublich, oder? Für die Berge sagen wir Sturzflutwarnungen voraus.
+728C1FA9A103B69A;Ich wusste gar nicht, was für ein hinterhältiger Mistkerl du bist! Raus hier!
+761E1A55362594F6;Das mit Jackie tut mir wirklich leid, Greg. Komisch, das ist das erste Mal, dass ich ihren Namen sage. Wenn ich etwas tun kann, sag Bescheid.
+186D3614B8DBC2FF;Wir haben Berichte aus Gegenden erhalten, die so weit auseinanderliegen wie Mine M-3 und der nördliche Vulkankegel. Ich glaube, alle sind etwas nervös.
+6CA61BD45C380799;Also, der Begriff Meteorologie leitet sich vom Wort Meteor ab. Das erklärt, warum unser seltsames Wetter zeitlich mit dem... äh... Besuch dieses Meteors auf der Erde zusammenfiel...
+CBBE6C64E04F6AA8;Das heißt OKKULTATION, du Schwachkopf...! Was soll's...
+074CFF89458F5F89;Es tut uns wirklich leid wegen Jackie, Doc. Diese Hellcats gehören aufgehängt.
+7D9DEC713FDF527A;Komm schon, Doc, rück mit der Sprache raus. Das ist ein Scherz, oder? Ameisen so groß wie Häuser... komm schon...!
+E931EA08E6756325;Ungewöhnliches W-W-Wetter für diese Jahreszeit, Doc. In letzter Zeit passieren hier wirklich viele ungewöhnliche Dinge. Vielleicht wäre uns allen wohler, wenn die S-S-Straße wieder offen wäre.
+81C9743E3E816935;Das mit J-J-Jackie tut mir leid, Doc. Sie war eine der wenigen, die mich anständig behandelt haben. Diese H-H-Hellcats gehören windelweich geprügelt.
+47C1DE6AF4DA5C82;Mensch, Doc, v-v-vielleicht sind die Ameisen in eine andere Richtung gezogen. Ich glaube nicht, was die Leute über dich sagen. Du würdest doch nie so einen S-S-Scherz machen... oder? Der Flammenwerfer ist bereit, falls du ihn b-b-brauchst.
+76818F7408234446;Schon der zweite ruhige Tag in Folge. Daran könnte ich mich gewöhnen. Wenn nur die Straße wieder offen wäre...
+2F243F8A7B82FB8A;Tut mir leid wegen deiner Freundin. Ich würde diese Hellcats gern für immer einsperren, aber Aussage steht gegen Aussage. Ohne Zeugen kann das Gesetz nichts tun. Es war richtig, Louie sie ins Krankenhaus der Großstadt fliegen zu lassen.
+70716856C04FAEB6;Es ist immer noch ruhig. Langsam frage ich mich, ob wir uns das alles nur eingebildet haben...
+2889472C96F7A553;Bert streift immer noch irgendwo herum. Wer weiß, wo der Kerl steckt.
+35CDBA70C4D13C3D;Bert ist weg. Er sagte, dieser Ameisenquatsch sei nur ein Werbegag von dir gewesen. Stimmt's, Doc?........
+9DC6529B508751D6;Der Bürgermeister ist auf einem seiner Festumzüge. Morgen ist er zurück.
+AB1E6CBB58A3248B;Ich hoffe, du hast mich nicht zum Narren gehalten, Junge. Es sind keine Ameisen aufgetaucht, und die Leute werden langsam misstrauisch.
+FBEEF4DC9BAD7550;Ice und seine Bande von Untermenschen hingen einfach nur herum...
+807A8B41D04779D1;Hey, Doc, Nick, Eddie und ich waren, äh, erschüttert, als wir von der Handlungsunfähigkeit deiner Freundin erfahren haben! Wir Hellcats sind nämlich sensible Kerle! Aber nicht so sensibel wie deine Flamme in den nächsten paar Monaten... HA HA HA!
+84D1DC82330BFAE4;Zwei Gefühle tobten in mir: das Mitleid und der Ekel angesichts dieses brutalen, ignoranten Wilden... und mein eigener animalischer Drang, mich plötzlich und mit markerschütternder Grausamkeit an diesem verschlagenen kleinen Dreckskerl zu rächen!
+72C95899EC842AA8;Messerstecherei
+5CA17A7EC0BA0F16;Ice lag stöhnend vor Schmerzen auf dem Boden. Ich empfand nichts.
+64797A65A3A61913;Krankenhaus
+E84F7599EE2A73EA;Das war's, Spargelarm. Ich wusste, dass du kneifen würdest. Wir sehen uns wieder...
+4284CD0D39604C5F;Du gehst uns auf die Nerven, Doc, und vielleicht müssen wir... korrigierend eingreifen! Den Ausdruck habe ich von meinem Bewährungshelfer gelernt... korrigierendes Eingreifen... Ich glaube, Lernen ist eine lebenslange Sache, findest du nicht auch, Doc?
+9067F9CFC03AE816;Der Ort sah erstaunlich normal aus, wenn man bedenkt, dass hier eine Schlacht stattgefunden hatte.
+4B55F22B0266E65E;Gipsabdruck anfertigen
+A5D97CF2AE0FD56E;Seit 24 Stunden ist alles ruhig. Sogar das hohe Pfeifen ist verschwunden.
+8FCFB73783A1D133;Der Farmer sagte mir, ich solle mir die Spuren ansehen, die die Ameisen hinterlassen hatten.
+FC3B019AB6A2E1DF;Oh Greg, du hast mich gefunden! Ich hätte nie gedacht, dein Gesicht wiederzusehen. Bring mich nach Hause. Ich muss dir etwas über meinen Vater erzählen.
+9B38F67F9F96BADF;Ich dankte dem Farmer dafür, dass er Jackie geholfen hatte. Dann fragte er mich, ob ich sehen wollte, wie eine Spur einer Riesenameise aussieht. Jackie hatte es eilig, aber vielleicht würde ein Gipsabdruck den Bürgermeister eher zum Handeln bewegen...
+DD1D3E1DA7297EB3;Sie müssen mir helfen, mein Herr. Wenn mein Vater mich erwischt, bringt er mich um wegen dem, was ich weiß.
+F69E5DD384150151;Mein Kopf raste. Was hatte Billy Bob vor? Ich beschloss, seine Tochter zu mir nach Hause zu bringen und sie zu verstecken.
+DA08DA1C57033888;Ach, hier ist nicht viel los. Mit der Ernte liegen wir genau im Zeitplan.
+2AF6F5391867D7D9;HINWEIS: Anlage wegen Gedenkfeier geschlossen. Morgen wieder geöffnet.
+8E7D125C67880479;Wir haben keine Zeit, die Toten zu begraben. Sie sind immer noch bei M-1, und wir müssen sie aufhalten!
+7F320AEB2D0C7115;"Ich folgte ein paar Stunden lang einer Spur. Sie führte zum Bergrücken, wo ich auf eine große Ameisenspur stieß. Sie war nicht frisch; der Wind hatte die Ränder abgetragen. Es wurde dunkel, und ich dachte darüber nach, einen Abdruck für Dr. Wells anzufertigen."
+74D762AAABC8CDEB;Spurenabdruck anfertigen
+82D4CF7E4FE74DCD;Greg... Ich bin so froh, dass du mich abholst! Ich dachte, ich wäre erledigt. Bring mich nach Hause. Ich muss dir erzählen, was mein Vater plant.
+28C9EDB0267B5382;Mein Herr... ich bin in Schwierigkeiten. Sie müssen mir helfen. Wenn mein Vater mich erwischt... bringt er mich um. Ich weiß zu viel.
+99BB9F5A8C589679;Billy Bobs Tochter zitterte. Ich sagte ihr, sie könne bei mir bleiben, bis ich die Sache geregelt hatte.
+3D363A98D52E5FDA;Na, wieder da. Hast du einen Alarmbefehl vom Bürgermeister mitgebracht? Nein... natürlich nicht! Du IDIOT!
+12158295C4B48B80;Ich steckte wieder in Schwierigkeiten. Zwei riesige Militärpolizisten kamen von hinten auf mich zu.
+22D457D653653328;Männer... das nennt man wohl einen FEHLGESCHLAGENEN KOMMUNIKATIONSVERSUCH! Werft ihn raus!
+14269AD9B73FD3A1;Ich kann die Bilder in meinem Kopf nicht scharfstellen. Alles ist von Bert Lamonts hässlichem Gesicht erfüllt. Vielleicht weiß ich morgen mehr.
+174AADE0CD9A1802;Ich machte mir Sorgen, weil Jackie verschwunden war. Ich fragte Ida, ob sie etwas auf ihrer kosmischen Schau hatte.
+9597A52D5102196D;Ich sehe sie neben... äh... einem Weidezaun oder einer hohen Felswand stehen. Das Bild ist nicht sehr deutlich. Tut mir leid, mehr kann ich dir nicht sagen.
+9DF3CB2A85A64CBC;Ich gehe schlafen, aber zuerst muss ich dir erzählen, was mein Vater und seine Spinner vorhaben. Sie waren auf einer ihrer sogenannten Patrouillen, als sie auf eine Kolonne Ameisen stießen... Ameisen so groß wie Umzugswagen! Ich habe solche... Angst, Greg... so...
+E0D91E221473A792;Jackie war erschöpft und begann zu lallen. Ich hatte noch einiges zu tun, und sie sollte sich im Bett ausruhen.
+29B0D4845DBEB5CB;Gespräch fortsetzen
+B31487ED9395AEE5;Ich ließ Jackie einen Schluck extrastarken Kaffee trinken, dann erzählte sie weiter...
+4E329F4087A18FE8;Ich war gerade hereingekommen, als das Telefon klingelte. Dr. Wells war dran. Er klang ganz aufgeregt. Die Spur, die Geez verfolgt hatte, stammte von einer Ernteameise, so groß wie ein Haus! Ich MÜSSE unbedingt mit dem Bürgermeister sprechen.
+03737F1D682DD072;Ich hörte, wie Biff durch die Tür hereinstürmte. Er rief etwas von Billy Bobs Tochter...
+87E6F9DE515FB719;Mit Biff sprechen
+D4DB16E5D53B0C29;Jackie, äh... Miss Monroe ist aus der Neptune Hall weggelaufen. Billy Bob sucht sie, und dieser Schmierfink Bert vom Star auch!
+CB6C80ACC7E96E0E;Ich wusste, dass wir sie finden mussten. Irgendetwas stimmte nicht. Ich bat Biff, die Nordseite des Tals abzusuchen, und übernahm den Süden. Irgendjemand musste sie gesehen haben.
+6A455A8EC7AA4FFE;Ich kam gerade herein, als das Telefon klingelte...
+6D684DB93BD6321D;Greg, es ist bestätigt. Die Spur, die Geez gefunden hat, stammt von der Ernteameisenart Pogonomyrmex Rugosus. Ihr Nest wird schwer zu finden sein. Der Eingang wird nur sichtbar, wenn die Ameisen ein- und ausgehen.
+D1492EE4AF81AD5D;Greg, die Zeichnung der Spur, die Geez am Vulkan gefunden hat, wurde als die einer Ernteameise identifiziert... Pogonomyrmex Rugosus... so groß wie ein Gebäude! JEMAND MUSS ZUM BÜRGERMEISTER!
+A06338150211FC7D;Greg, ich habe bestätigt, dass die Spur, die Geez gefunden hat, zu einer Ernteameise gehört. Pogonomyrmex Rugosus. Ihr Nest wird schwer zu finden sein. Es zeigt sich nur, wenn die Ameisen ein- oder ausgehen.
+027A6F1B16A8AD6D;Du hast also noch nicht genug bekommen, was? Na egal. Meine verdammte Tochter ist letzte Nacht abgeh... äh... weggelaufen. Sie kommt nicht weit. Die Wüste ist nichts für ein verwöhntes Stadtkind.
+3233EEF1F5063DA8;Du hattest also Glück, ich bin ausgerutscht! Das passiert mir nicht noch mal! Vielleicht kannst du mit dem Messer umgehen, na und? Nächste Woche hilft dir das auch nichts. Du wirst zerquetscht... wie ein KÄFER! HA HA HA!
+33D99A44A8A3AAC2;Heute war es ungewöhnlich ruhig. Nach all den schrecklichen Ereignissen ist das eine nette Abwechslung. Hoffentlich ist es nicht die Ruhe vor dem Sturm.
+B1113420EDEB2A0F;Wenn Dusty lächelte, erfüllte es den ganzen Raum. Sobald die Sache mit dem Meteor vorbei war, nahm ich mir vor, mehr Zeit mit ihr zu verbringen.
+6A6DF551B7605FB4;Du scheinst es nicht zu kapieren, du WURM! Lies mir von den Lippen ab. Geh deine Hormone woanders spazieren führen. Ich bin sicher, das rothaarige Schnuckelchen freut sich über deine Aufmerksamkeit.
+CD4F4D116B962D60;Mensch, Greg, es war so ruhig. Vielleicht ist das Schlimmste vorbei.
+6A93262412F7A50F;Dieses Gerede über menschenfressende Monster! Ich glaube, die ganze Stadt ist einer Massenhysterie zum Opfer gefallen!
+E89D9342BC7B7CC5;Ich glaube, meine Tante Drusilla hatte mal Hysterie. Jetzt geht es ihr aber wieder gut.
+41FD6F2A6B2923A0;Siehst du, was ich meine? Echte Intellektuelle in dieser Stadt.
+6BD17C0A691F8185;Heute ist es ziemlich ruhig, Doc. Nichts zu sehen, was größer wäre als eine Kakerlake, und die habe ich ordentlich zertreten!
+FF9E1451952F8680;Doc, gut, dass du gekommen bist. Diese Hellcat-R-R-Rowdys waren hier und redeten von einer Rothaarigen, die bei der Farm im Süden per Anhalter mitgenommen wurde. Mir gefiel nicht, wie sie darüber sprachen.
+5754E516C9B57B92;Nun, Doc, es s-s-scheint sich alles beruhigt zu haben. Diese letzte Woche war aufregender als die H-H-Honeymooners.
+3015A524A9AB2BA7;Kaum zu glauben, Doc: A-A-Ameisen so groß wie Tanklaster. Wenn es so weit ist, brauchst du den Flammenwerfer, den ich hinten h-h-habe. Er hat nicht mehr viel Treibstoff, aber ich bestelle Nachschub.
+B504E51535F79270;Ausnahmsweise ist alles ruhig. Wir untersuchen weiterhin die Neptune Society. Billy Bob macht in letzter Zeit ziemlich wilde Aussagen. Das größte Problem ist momentan die gesperrte Straße. Es könnte Tage dauern, bis sie wieder frei ist, sagen sie...
+A0C1B58E9EAA4FE3;Nirgends eine Spur von ihnen. Du kannst auf der Lagekarte nachsehen, wenn du möchtest.
+55594D97CEDE57FB;Bert ist irgendwo in der Stadt. Er versucht, Billy Bobs Tochter aufzuspüren. Offenbar ist sie letzte Nacht weggelaufen.
+A43236F3F91E2A83;Bert läuft irgendwo in der Stadt herum.
+9179C74DBEC0F220;Schön, dich zu sehen, Doc. Ich hörte, du hattest eine kleine Begegnung mit Billy Bob Neptune. Dem möchte ich nicht in einer dunklen Gasse begegnen. Wir sehen uns auf dem Fest.
+60701C2C429B5D96;Hör zu, Doc, hast du irgendetwas, das gegen diese Viecher hilft? Was, wenn wir sie nicht aufhalten können? Was dann? Glaubst du, ich will hier draußen STERBEN... in diesem stinkenden kleinen Wüstenloch?! Du musst etwas tun... irgendetwas...!
+F60532F8167DEE97;Ein Besuch beim Bürgermeister stärkte immer mein Selbstvertrauen. Was für ein Wurm...
+64A6108F85C0E16B;Hey, du. Ich suche deine Freundin. Ein echtes Prachtstück. Sie ist wohl letzte Nacht aus der Neptune Hall weggelaufen. Das wäre ein toller Skandalartikel für die Klatschpresse! Hey, ich bin wie jeder andere und versuche, ein paar Kröten zu verdienen!
+0A3E0E6EE06B5006;Da ist das Geräusch wieder. Seit zwei Tagen hören wir es...
+6DA9C34BBC78DCA7;Aufnahme machen
+77794975564E2844;Sie sind zurück...
+B9A97FA4BFCDDE37;Tunnel
+2A95589FC42439D1;Hast du es nicht gehört? All die Lichter und verrückten Geräusche... das waren nur diese Hot-Rod-Rowdys, die alle erschrecken wollten! Hat auch ziemlich gut geklappt!
+581CDDBC4881FBB6;Nicht mehr viel übrig. Ich will gar nicht darüber nachdenken, was das angerichtet hat, Doc. Weißt du, was diese Flüssigkeit ist?
+C33A7DA5396C5AB3;Ich wollte unbedingt zurück in die Stadt.
+BB3CF989E1E80AA3;Diese verdammten Ameisen! Das waren gute Männer, die keine Chance hatten.
+6A3A53A22CCEB3AC;Sag nur das Wort, Doc, und wir bringen dich überallhin, wo diese Ameisen sind...
+189F03A1691E8753;Vergiss die Genehmigung. Doc, du hast deinen Standpunkt klargemacht. Meine Männer stehen dir jederzeit zur Verfügung!
+D743DEC75941B188;Ich kam herein und erwischte Bert Lamont im Gespräch mit Ida. Da sie mich nicht bemerkten, beschloss ich, zuzuhören...
+47FB8F4FC37D045E;Die Leute werden misstrauisch. Sie haben die Hellcats dabei erwischt, wie sie nördlich der Pipeline dieses Kreaturenzeug vergruben. Falls jemand fragt, wir haben nie miteinander gesprochen. Hier ist dein Geld.
+F2137BDB3A5CC6FE;Bert schlich durch die Seitentür hinaus. Ich fragte mich, ob ich Ida wegen der Lügen zur Rede stellen sollte, die sie verbreitet hatte.
+0C4E86CBE060A64D;Mit Ida sprechen
+E92025B4696D2719;Ida wurde kreidebleich, als ich den Raum betrat. Ich sagte ihr, dass ich alles gehört hatte.
+0974142E98C49E9A;Doc, ich brauchte das Geld und dachte nicht, dass es jemandem schaden würde. Aber weißt du, was mir wirklich Angst macht? Ich spüre, dass da draußen etwas ist... ehrlich. Der Vulkankegel im Südwesten... ich kann es nicht genau erkennen. Ich versuche weiter, mehr herauszufinden.
+6C5DF080FAF1D0A0;Doc, ich weiß, dass ich nicht ehrlich zu dir war, aber ich glaube, ich kann dir mit den Ameisen helfen. Ich sehe immer wieder einen Vulkankegel im Süden. Vielleicht bedeutet das etwas.
+EE606BFE22CEFB58;Ich war froh, dass Biff den Tag über weg war. So konnte ich versuchen, mir ein Bild davon zu machen, was vor sich ging... falls überhaupt etwas passierte. Genau da klopfte es an der Tür...
+3935FF4C65C37831;Tür öffnen
+76007DDED32C2EB9;Hallo, Doc. Das ganze Getue um Mine M-1 hat meine Neugier geweckt. Ich gehe dort hinauf. Falls ich etwas finde, lege ich eine Markierung auf den Boden. Louies Charterflugzeuge sollten sie sehen.
+19B31418C0C55137;Als ich nach Hause kam, wartete Geez auf mich.
+B59E7065F4C0B073;Verdammt noch mal! Wir müssen dieses Ameisennest blitzschnell finden und die Mistviecher ausrotten, sonst... sind sie bald überall! Ich vermute, sie sind südlich der Stadt.
+8DB73C61406D18C9;Mein Vater wusste es... frag mich nicht, woher... er sagte, sie würden kommen. Ich verschwinde von hier. Ich kann nicht einmal kleine Ameisen beim Picknick ausstehen... igitt! Wir hatten eine schöne Zeit, oder? Das hier ist größer als wir beide... wir sehen uns, Süßer...!
+E47CD20AEF28C398;Sie kommen, und du kannst nichts dagegen tun!
+71920AA1B19A4DE7;Die Person im Leichenschauhaus stellte sich als Jackies Freund heraus... der aus ihrem Auto verschwunden war.
+BF613F2457E41E7D;Dieser Schmierlappen war mir unsympathisch. Ich bestand darauf, nach Jackie zu sehen. Billy Bob zog daraufhin ein Messer...
+FD0CF385070D5261;Fliehen
+6FF56FF75229392B;Du elender...
+7D9041D7F8045E5B;... feiger, rückgratloser Kommunist. Ihr Collegejungs seid alle gleich. Kein Mumm.
+02AC11A512195C16;Dieser Mann war ein Irrer. Ich hoffte, Jackie wusste, was sie tat.
+D9C3678766AD17DA;Ich ging zu Boden wie ein Sack Ziegel. Als ich das Bewusstsein verlor, hörte ich Billy Bob lachen.
+143084418031B964;Hast du das Neueste gehört? Die Eisenbahnbrücke ist auf die Straße gestürzt. Niemand weiß, wann sie wieder frei ist. Aus der Stadt kommt man nicht heraus.
+2C303BD86165304B;Ich habe Wichtigeres zu tun, als mit dir zu reden. Verschwinde! Geh doch deine rothaarige Freundin nerven.
+65EA834FC64583C2;Ich bin bereit, die Vergangenheit ruhen zu lassen, jetzt wo die Rothaarige weg ist. Ich halte dich auf dem Laufenden, was wir herausfinden.
+7EF8CC5531B04ECE;Der Tote in der Neptune Hall war ein Freund von Billy Bobs Tochter, dem Starlet. Das wird ja besser als das Magazin True Detective!
+7CBA9EB44CFF1B8C;Ja, aber wer ist der Nächste? Vielleicht einer von uns hier in der Bar! Wir sollten eine Bürgerwehr aufstellen und die Neptune Hall niederbrennen! Jagt sie alle aus der Stadt!
+21387E726D0CD44A;Warum holen wir nicht alle unsere Knarren und gehen ein paar Ameisen erlegen?
+B42309684333F5C7;Darum, weil du als Mittagessen enden würdest. Lass lieber die Jungs von der Nationalgarde das erledigen.
+531D9B98B729EDFC;Elmer war wegen irgendetwas ganz aufgeregt.
+D97A477B70217463;Doc, die Hellcats sind auf der S-S-Straße westlich der Stadt. Sie hätten mich und meinen A-A-Abschleppwagen fast von der Straße gedrängt. Wenn du dorthin fährst... sei vorsichtig.
+A929C25419378641;Im Moment habe ich Verkehrsprobleme. Die Eisenbahnbrücke über der Straße ist eingestürzt. Wir sind eine Weile von der Außenwelt abgeschnitten.
+4AB15916435D73D6;Ich weiß nicht, was du dem Bürgermeister gesagt hast, Doc, aber du wirst wohl ein oder zwei Tage hierbleiben...
+8B347E8EA6E6C455;Hier das Neueste: Der Bürgermeister hat dich zum Einsatzleiter gemacht. Was sollen wir tun?
+250D7462898FD894;Schade, dass du kein Foto von der Ameise hast. Ich hätte es auf jede Titelseite des Landes gebracht. Damit hätte ich auch Geld verdient.
+7685C4A600E2544C;Erlass ablehnen
+09474F27B66E9F33;Ich traute meinen Ohren nicht. Ich sagte, ich würde mich über ihn hinwegsetzen.
+7E2DB179C7E7C8D0;Du gehst nirgendwohin außer ins Gefängnis. Ich lasse nicht zu, dass du eine Panik auslöst.
+F7BC0E24180ED937;Polizeiwache
+ADAC1911F3AF5032;Wir hören schon den ganzen Morgen dieses unheimliche Geräusch! Einer der Jungs hat es mit so einem Aufnahmegerät aufgezeichnet. Du kannst das Band zur Zentrale bringen, wenn du willst.
+0204B26FEB041B8A;Band mitnehmen
+191682EE2580850D;Ich dachte, ich träumte, doch der Schatten, den ich draußen vor meinem Fenster sah, war eher ein Albtraum...
+436C236C31DDDB36;Etwas ist in eines unserer Getreidelager eingedrungen und hat alles aufgefressen. Die Tür wurde aus den Angeln gerissen.
+B167C26E3A60BA09;Direkt vor M-2 gab es einen großen Erdrutsch auf den Gleisen. Ich habe eine Mannschaft dort.
+684AD7357141D13F;Das Funkgerät knackte, dann hörte man die Stimme des Vorarbeiters: „Wir kommen gerade durch den Erdrutsch. Großer Gott... ES IST...“ Die Nachricht endete mit einem überirdischen Schrei, der von dem inzwischen allzu vertrauten hohen Kreischen übertönt wurde...
+A8C90304A92AE485;Macht den zweiten Zug bereit. Wir fahren hinauf. Kommst du mit?
+392ECB1781B1267A;Nein, hier war alles so ruhig wie immer. Wenn diese Rowdys in ihren Hot Rods nur aufhören würden, auf meiner Pipeline-Straße Huhn zu spielen, wäre mein Tag gerettet.
+26B67E1B121122B6;Als ich schon aufgeben wollte, etwas Brauchbares zu finden, stieß ich auf eine riesige Spur. Vielleicht könnte Dr. Wells jetzt etwas damit anfangen.
+2C45609AFF630050;Wir haben diese seltsame Flüssigkeit oben am Bergrücken gefunden. Wir dachten, du könntest uns sagen, was es ist. Ich habe etwas ans Bein bekommen, und es brennt schon den ganzen Tag.
+4F91F1F69EA629C0;Flüssigkeitsprobe nehmen
+61485E92E4D00F86;In der Gegend um Pumpenhaus drei herrscht große Gefahr. Ich sehe Hitze aus dem Boden aufsteigen. Sie macht die Menschen krank.
+0CD04A47812CDE03;Ich hatte gerade mit der Arbeit begonnen, als Biff hereinkam und mir ausrichtete, dass die Arbeiter im Steinbruch angerufen hatten und mir etwas zeigen wollten.
+19CA2FA96106A9E2;Ein Arbeiter aus dem Steinbruch hat angerufen. Sie wollen dir etwas zeigen. Morgen bin ich weg. Bis dann.
+67CB519ACA09BF24;Jackie
+1D5CAA8D6754C26E;Mir ist langweilig. Bring mich doch zur Neptune Hall. Es wird Zeit für einen Besuch.
+81ECF2D4386B8E84;Weiter
+CDCE4498B4918CE8;Biff ließ dir ausrichten, dass der Arbeiter aus dem Steinbruch angerufen hat und dir etwas zeigen möchte.
+FF7E7F29CF732803;Notiz: Dr. Wells ist dienstlich unterwegs. Er ist morgen zurück.
+D3BDCE6F5C712336;Billy Bob riss die Augen auf, als er Jackie sah. Er versuchte, seine Überraschung zu verbergen, doch sie stand ihm ins Gesicht geschrieben.
+10B3BBE856CBE38C;Könnten Sie morgen wiederkommen? Wir sind sehr beschäftigt, und ich... ich...
+81C88C83AD9FB6BB;Ich war verblüfft, als Jackie sagte: „Dad...!“
+A2A356AB871465E1;Ah, ja... na gut... dann komm rein.
+AA25E86D2A3E33C9;Es gefiel mir nicht, sie allein zu lassen, aber im Moment schien es das Richtige zu sein.
+5CEBDD0D92260614;Letzte Nacht hat etwas unseren Werkzeugschuppen zertrümmert und eine seltsame Flüssigkeit auf den Trümmern hinterlassen. Wenn du eine Probe nehmen willst, nur zu, aber beeil dich.
+D566C3C8C8E9652B;Dusty hatte einen wilden Blick in den Augen...
+80F74CAC7D437BDD;Greg, in der Neptune Hall wurde eine stark verweste Frauenleiche gefunden. Ich wusste, dass diese Leute auf krankes Zeug stehen, aber das...
+CBA8CAB8C5DA21AB;Verschwinde und lass mich in Ruhe! Die Frau, die bei dir wohnt, ist Stadtgespräch.
+48C135628633AB55;Hier die Neuigkeiten: In der Neptune Hall wurde eine Frauenleiche gefunden. Was habe ich gesagt? Hm? Ich wusste doch, dass diese Spinner dort etwas im Schilde führen. Ich wusste, dass so etwas passieren würde!
+E3BB1AA6E7E4627F;Alle reden über die L-L-Leiche, die sie in der N-Neptune Hall gefunden haben. Schade, dass es nicht Ice und seine K-K-Kumpane waren. Ich habe sie vorhin auf der Straße zum Steinbruch gesehen.
+5DF364AFF3E2C2BF;Kann jetzt nicht reden, Doc. Ich untersuche einen Mord in der Neptune Hall.
+63E00DC5C8A69895;Bert ist nicht hier. Er ist auf dem Weg zur Neptune Hall.
+59DE884F2A25174A;Die Sekretärin des Bürgermeisters rief aus seinem Büro nach mir.
+3DFE7A46A90454A3;Der Bürgermeister ist nicht da. Er ist auf einem Festbesuch. Er verpasst immer alles. Ein Mord in dieser Stadt... kannst du das glauben?
+CD6A877B8619D1E0;Sieht es so aus, als hätte ich Zeit für 20 Fragen, Mac? Bei M-1 ist die Hölle los!
+1C12EA38AD4BD062;Was auch immer es war, es ist hier durchgerast wie ein Buschfeuer! Neben der Scheune hat es riesige Spuren hinterlassen.
+BF992E031CD28CA7;Nein, ich kann nicht genau sagen warum. Es ist nur eine Ahnung... irgendetwas sagt mir, dass der Ärger bei M-1 kein Bergbauunfall ist.
+A3058E476E035EEE;Als ich über den alten Vulkankegel ging, stieß ich plötzlich auf eine riesige Spur im weichen Staub. So etwas hatte ich noch nie gesehen.
+9A22E5BF9B6749F2;Ah, mon ami! Ich hörte, du hältst seit dem Meteoriteneinschlag Ausschau nach allem Ungewöhnlichen. Nun, einer meiner Piloten sah etwas Großes nördlich der Pipeline. Als er noch einmal herumflog... puff! Es war verschwunden.
+CE84BAEB2DB74A1D;Ich trank gerade meinen Morgenkaffee, als Biff hereinkam und mich daran erinnerte, dass ich die Proben von Geez, die er vor drei Tagen gebracht hatte, noch nicht untersucht hatte.
+3B5AF5BAB8A2464C;Proben untersuchen
+EDB0D99D8C27A80E;Proben ans Labor schicken
+87DBAA58AFF0309E;Ich trank gerade meinen Morgenkaffee, als Biff die Laboranalyse der Proben brachte, die Geez mir gegeben hatte.
+E39FFD113D04DA75;Ich begann gerade, die Ergebnisse durchzusehen, als Jackie hereinkam...
+9A7D4EB14026DFE5;Ergebnisse ansehen
+86A75B9BF42BDDA6;Mit Jackie sprechen
+21C7A4289F892022;Mensch, Doc! Eine dieser Proben leuchtet seltsam...
+D4705119421B5701;Gib mir die rote
+3EE63418461A1D4F;Probe messen
+53C61F085969F9D9;Der Geigerzähler spinnt. Ich muss die Proben ans Labor schicken.
+FE564F8FE0C6A03D;Mit Jackie sprechen
+C49A55164CD0BD38;Die Ergebnisse der Laboranalyse sind da.
+916466BF5D86E79A;Als ich die Laborergebnisse aufheben wollte, kam Jackie ins Zimmer.
+A22D0ABE04F0362F;Ausnahmsweise war es im Haus ruhig.
+C71752069FC0823A;Ich hörte Jackie hinter mir hereinkommen.
+56F631B6087EEC7A;Na, da bist du ja, Fremder! Ich sitze hier und schmachte nach dir. Schick doch Biffy auf einen Botengang und lass mich dir richtig dafür danken, dass ich hier wohnen darf. Ein bisschen Nachmittagsvergnügen ist genau das, was du brauchst.
+FC7583F24D20D78E;Jackies Angebot annehmen
+B3F1A37300A6A0E9;Ablehnen
+8CF885A7FCAA09A0;Ihr sanfter Atem wurde tiefer, als sie sich in einem langsamen, heißen Tanz an mich schmiegte. Es war wie ein Traum...
+031BC5D1BADE093E;Du bist so verklemmt! Hör zu, ich langweile mich in diesem Rattenloch, das du Haus nennst. Ich kenne hier niemanden, meine Freundin wird noch vermisst, und du rennst wegen irgendeinem Stück Weltraumgestein durch diese gottverdammte Wüste. Ich fahre per Anhalter in die Stadt!!
+5D9FA65F276E983C;Ich lasse den Abdruck untersuchen, den Geez vorbeigebracht hat. Er passt zu keiner unserer üblichen Proben. In ein paar Tagen weiß ich mehr.
+DE280259D85D2C05;Greg, der Reporter, den wir zu M-1 geschickt haben, wird vermisst. Seit gestern hat er sich nicht mehr gemeldet. Was ist los?
+312CAE924CE32F62;Die Frau ist seit Tagen bei dir. Ich schätze, du hast dich entschieden. Jetzt verschwinde und lass mich in Ruhe.
+B6A91D0EA26F4746;Als ich hereinkam, hörte ich einen der Rancher zum Barkeeper sagen...
+ABDEDE23CDC47019;Bert Lamont glaubt, mein Land nördlich der Pipeline sei durch den Meteoriten verstrahlt worden.
+F8739B45E206BA95;Bert erzählt Unsinn. Vielleicht will er dein Land und versucht, dich einzuschüchtern, damit du es billiger verkaufst. Das hat er schon einmal getan.
+7216DE2C57FB01DE;Band mitnehmen
+F04D9C2AF02201A8;Für eine Story unterwegs.
+D0F910A65F87A128;Auf einem Festbesuch.
+3661B0961317E408;Keine Spur von einem Bergarbeiter. Plötzlich hörte ich hinter mir ein hohes Geräusch. Als ich mich umdrehte, um nachzusehen, gefror mir das Blut in den Adern...
+25E2191CF66378AB;Sieht aus, als wären das Bärenspuren, die der Wind größer gemacht hat. Hier oben weiß man nie.
+4717A580E437A3C8;Letzte Nacht gab es westlich von uns einen schrecklichen Lärm. So ein hohes, heulendes Geräusch. Vielleicht machen sie etwas an der Pipeline.
+3BE0EA96B0036699;Das ist vielleicht verrückt: ein ganzes Silo voller Getreide, und heute Morgen... komplett leer! Irgendetwas hat es einfach ausgesaugt...
+D70EA9DE35E13042;Der Farmer sah hinter mich und wurde blass. Ein stummer Schrei wollte seinen Lippen entkommen. Ich drehte mich um, um zu sehen, was...
+90272771D25FD256;Na, ich fress einen Besen, wenn du heute nicht schon der Dritte bist, der mich das fragt. Seit der Sternschnuppe sind wohl alle nervös. Hier ist alles normal.
+F9B7D99D35F53CE3;Bei M-1 gab es offenbar Ärger. Die Züge fahren aber noch.
+0CD335230CD1A8A2;Nein, nichts Ungewöhnliches. Ich habe nur das Auto des Zeitungsreporters neben dem Hot Rod der Hellcats gesehen. Ich fragte mich, was sie auf der Pipeline-Straße wollten.
+576A6A2733CDF5F2;Die beiden sahen aus, als könnten sie Laurel-und-Hardy-Nummern aufführen. Ich wollte gerade etwas fragen, als der Kräftige zu sprechen begann...
+1A3235D6A8EAF6AD;Du bist nicht noch ein Reporter, oder? Bert habe ich schon alles erzählt.
+08E3C3AA99349248;Ruhe, Wilbur.
+66961FFA3A3F434A;Mein Herr... Wilbur ist gerade etwas angespannt. Wir wollten in die Stadt fahren, also müssen wir dich bitten zu gehen.
+2672563BD3798D10;Um ein Telefonat bitten
+7CD3704843EDE532;Wilbur kam auf mich zu, als ich aus meinem Truck stieg...
+8DE777C67CDC11C4;Die Telefone sind gesperrt, Kumpel. Hau ab...
+CB3548F4B41E2B66;Gut, dass du gekommen bist. Ich hatte eine neue Vision von großer Dunkelheit nördlich der Pipeline. Ich bin mir noch nicht sicher, was das bedeutet.
+540B21D77A757795;Es klopfte an der Tür.
+EA669CE42F86BFF9;Das Haus war still.
+0FBF6DC6A1966408;Weiter
+6F790BC33192C46A;Ben war ein guter Nachbar. Was auch immer er gefunden hatte, es hatte ihn ziemlich erschüttert. Ich versprach, es Dr. Wells zur Untersuchung zu bringen.
+B48537D8597A1055;Der Nachbar scheint nett zu sein. Könnte das Ding, das er dir gebracht hat, etwas mit Suzies Verschwinden zu tun haben?
+72D72F018556FF26;Ich hörte ihr überhaupt nicht zu, sondern beobachtete nur ihre sanften, schmollenden Lippen, die mir Worte über den Raum hinweg zuküssten... sicher, Jackie, ganz wie du meinst...
+EF07D9CF50592136;Ein ruhiger Nachmittag ganz für mich.
+4BF5F63DA50C8275;Jackie schlief im Hinterzimmer. Die Strapazen der letzten Tage hatten sie endlich eingeholt. Ich wusste, dass ich sie so bald wie möglich in die Stadt bringen sollte, aber trotz Dustys Meinung über sie brachte ich es nicht über mich, sie gehen zu lassen.
+ECF1E0DD787C9385;Ich kam mit einer Gruppe Leute herein.
+40A8FEACE3252DC3;Ich weiß nicht, aus welchem Quacksalberwagen dieser Typ gerade gestiegen ist, aber schon sein Händedruck ließ mich duschen wollen.
+9EC9681AC8C72E0D;Wie Sie sehen, ist Miss Monroe bei uns, aber sie durchläuft gerade... äh... die Einführung in unsere Gemeinschaft. Ich fürchte, sie kann nicht mit Ihnen sprechen oder irgendwohin gehen. Meine Männer bringen Sie hinaus...
+3868A6E935E09A22;Etwas stimmte nicht. Jackie lächelte schwach, aber es war nicht echt. Einige von Billy Bobs Schlägern kamen hinter mir auf, und ich beschloss, dass es Zeit war zu gehen.
+8A1A2263AAB82A74;Wenn Sie nichts mit uns zu besprechen haben, Doktor, verschwinden Sie.
+6C2A0686711A9C4C;Etwas stimmte nicht. Die Frau lächelte schwach, aber es war nicht echt. Einige von Billy Bobs Schlägern kamen hinter mir auf, und ich beschloss, dass es Zeit war zu gehen.
+DA8FB3651BA862AF;Greg, hast du von dem Ärger bei M-1 gehört? Sie wissen nicht genau, was passiert ist. Wir versuchen, einen Reporter dorthin zu schicken, bisher ohne Erfolg. Versprich mir, vorsichtig zu sein, falls du hinfährst.
+19C6F1DF211702CD;Hör zu, Kumpel, ich bin stinksauer. Die ganze Stadt redet über dich und diese... Tussi! Jetzt höre ich, dass sie bei dir wohnt. Entweder du wirfst diese Schlampe raus, oder du hast mich zum letzten Mal besucht.
+B096FA6C10B998E8;In der Bar wurde über die Ereignisse des Tages geredet.
+FF2FB1C540189998;Die Geister der Indianer sind also wieder da. Kawabunga!
+A086A094DFF11E14;Das sind die neuesten Nachrichten aus Pumpenhaus drei.
+7EA939C3BCB806B3;Sieht aus, als hätten die Nachtschichtarbeiter wieder ordentlich getankt.
+C5D2865F8CB2E69C;Also, wenn du mich fragst, klingt der Unfall in Mine M-1 viel ernster...
+1A143C2647BA1983;Als ich zum Tanken vorfuhr, war Elmer ganz aufgeregt...
+04B1806B1EC5E27A;Doc, gerade waren ein paar B-B-Bergarbeiter aus der Erzmine hier. Sie sagen, die N-N-Nachrichten seien schlecht. Wenn ich nur wüsste, was los ist.
+897C3C100D871DEA;Ich kann dir nur sagen, dass wir die Berichte über Lichter entlang der Pipeline untersuchen und den Bergarbeitern in der Erzaufbereitungsanlage bei Bedarf Unterstützung schicken.
+F58E54B06FB5597D;Hey, Doc, was geht? Ich habe meine Notizen über die beiden aus dem Steinbruch durchgesehen. Keine besonders große Story.
+B2DA6C07706C7EFB;Ich fürchtete, ihm zustimmen zu müssen. Insgeheim hoffte ich, dass sich das ganze Gerede über den Meteor legen würde, damit ich wieder arbeiten könnte.
+96D117BD70AAD9C3;Bert schien reden zu wollen, also ließ ich ihn.
+597525BBDFD78587;Du hast im Steinbruch noch nicht genug bekommen, was? Verschwinde, bevor ich dich noch ein paar Tage ins Krankenhaus zurückbefördere!
+EAC5A996D11B7F9B;Ich war nicht besonders rachsüchtig, aber dieser Kerl bettelte darum, einen Denkzettel verpasst zu bekommen.
+9D7A64CBDF1BDB8B;Als ich eintrat, hatte Bert einen Ausdruck der Angst in seinen Augen ...
+EFCF86248D57E6B0;Okay, du hast da draußen im Steinbruch Glück gehabt, aber ich bin noch nicht fertig mit dir, Idiot! Verschwinden Sie jetzt, bevor ich den Sheriff rufe.
+89911524CF95DF85;Ja, ja, ich habe alle Gerüchte gehört. Es handelt sich lediglich um idiotischen Aberglauben. Lizard Breath ist eine normale Familiengemeinschaft mit einer reichen und vielversprechenden Zukunft. Dieses Gerede kann nur Ärger verursachen.
+FF3DC7640D9A27A4;Meine Güte, begrüßte mich auf der Straße
+8D82536AC4E8BA2E;Die Hellcats, was für ein Haufen regressiver Soziopathen ...
+66C8AD79F159BECB;Der Bergmann sah sichtlich erschüttert aus.
+778AFBD7AB8B6C39;Ich habe gerade den Holzstand östlich des Schachteingangs überprüft, als ich sah ... Ah, Sie werden mir nicht glauben.
+8A41BAFFB2A425B9;Plötzlich wurden die Augen der Bergleute so groß wie Untertassen. Ich hörte einen hohen Ton hinter mir. Als ich mich umdrehte, um nachzuschauen, huschte ein Schatten über den Boden und ich...
+2AF43EA3CD135458;Etwas Seltsames? Nein, wir liegen genau im Zeitplan. Nachdem Sie es jedoch erwähnt haben, hörte die Nachtcrew im Süden einige seltsame Geräusche. Wahrscheinlich Kojoten...
+DDB617FAD031CD4C;Wir finden seit etwa einer Woche seltsame Spuren. Sie tauchten unmittelbar nach dem Meteoritenabsturz auf. Ich würde sie dir zeigen, aber der Regen hat sie letzte Nacht ausgewaschen.
+C8E60C8B85FB8A2F;Neulich Nacht ist ein Erzwagen umgekippt. Zählt das?
+EF435DD58876B849;Wir versuchen einfach, uns von gestern zu erholen. Entschuldigen Sie, wenn ich etwas verwirrt wirke.
+3B489AB022C3C955;Wir haben einige widersprüchliche Berichte von M-2 und M-5 erhalten. Die Kommunikation von M-1 ist ebenfalls unterbrochen. Wir haben Züge, die sowohl in den Süden als auch in den Osten fahren. Du kannst gerne mitkommen.
+6F17D2664C652ABF;Du schon wieder. Haben Sie schon kleine grüne Männchen gefunden? Du hast zwei Sekunden Zeit, mir zu sagen, warum ich dich nicht in einen Schacht fallen lassen sollte.
+88B16E1286DC4D6F;Ich gehe einer Ahnung nach
+DCC72C6D36563FA9;Ich bin Wissenschaftler
+67A3EFFB86AA3052;Ich habe eine Ahnung, dass du am Boden eines Minenschachts als Wurmfutter dienen wirst, wenn du nicht rauskommst und draußen bleibst!
+E74D238EA42755EC;Warum hast du das nicht gleich gesagt? Ich dachte, du wärst nur ein Penner, der Ärger machen will! Heute Morgen fahren Züge sowohl nach Süden als auch nach Osten. Ich habe einige Berichte aus beiden Richtungen erhalten. Du kannst gerne mitmachen.
+544EA58EF6CE8176;M-2 MEIN
+33A088BC7B79AECF;M-3 MINE
+3E320017C22640AD;Seltsam? Nun, seit sie den alten Indianerfriedhof ausgegraben haben, gab es eine Reihe von Dingen, die... ungeklärt blieben. Gestern Abend bellten Hunde etwas an.
+E26625D076125FD9;Als ich aus meinem Truck stieg, hörte ich ein seltsames hohes Geräusch. Es dauerte keinen Moment, bis ich erkannte, was die Ursache war …
+634176088A0E1697;Hey Mac, das ist ein privates Interview, BUTT OUT!
+8EFD2E0005A66E52;Was habt ihr Jungs gesehen?...
+39D24B872C99B2D8;Waal, es war so ein feuriges Ding und es kam über den Himmel wie...WHUOOOOSH...!
+11E043AE1E8E3B38;Nein, es war eher so...EEEAAAAHHHHBLAAAM! Nun, der BLAM-Teil war, als es auf dem Boden aufschlug.
+103D64C85945DF1F;Dieses Interview führte schnell zu nichts.
+74D989429DDF59D7;Interview fortsetzen
+579735762F25FB8A;Großartig, Leute ... wo ist es hingekommen?
+74F90001E4DB0A00;Waal, es traf den Süden ... oder vielleicht den Osten. Übrigens, Sir ... haben Sie die Kernbohrungen erhalten, die ich Ihnen geschickt habe?
+301F25347DCAA78F;Welche Kernbohrungen?
+C61C52B007AAF95D;Fragen Sie nach der Box im Büro
+822FC04F0BEA4C91;Fragen Sie nach seltsamen Vorkommnissen
+2596A169D2CBB534;Wer ist gestorben und hat Sie zum Starreporter gemacht? Hintern raus, Herr Zauberer!
+19EA27314FC2C363;Ich warf ihm einen umwerfenden Blick zu und Bert zückte ein Springmesser ...
+717FDAEE19F9EEF0;Nur dieses seltsame Leuchten am Himmel, manchmal spät in der Nacht.
+FB3B99D595DFECDE;Lass mich nachdenken...einige Steine fehlen im Steinbruch, HA HA!
+BB972A6A55990D2C;Ihr seid hoffnungslos! Ich hätte diesen STUMP da drüben interviewen sollen!
+CA5538B292B41DDC;Endlich konnte ich Bert überwältigen und er sackte zu Boden. Es war nur eine Fleischwunde, aber sie reichte aus, um ihm den Kampf zu nehmen. Wilbur und Buck hoben ihn hoch und legten ihn in ihren Pickup. Ich schlug ihm vor, sich den Schnitt ansehen zu lassen.
+924A0430E926A5D6;Bert entkam meiner Wache für einen schnellen Stoß und ich ging zu Boden. Ich hörte ihn lachen, als ich ohnmächtig wurde ...
+163F05E662784DF4;Als sich meine Augen an die Dunkelheit gewöhnten, saß Bert, der Reporter vom Star, rechts von mir.  Er und Ida waren in einem hitzigen Gespräch, als sie mich plötzlich bemerkten ...
+91717098C7A922C1;Doktor, Sie müssen morgen wiederkommen. Mr. Lamont und ich führen eine private Beratung.
+B12C55222CCE7D3D;Bei einer dringend benötigten Tasse Kaffee plante ich meine Aktivitäten für den Tag.
+95955296AA6F642F;Als ich über meinen nächsten Schritt nachdachte, hörte ich ein schwaches Klopfen an der Tür ...
+180DC0E69C89B6D9;Dem Himmel sei Dank ist jemand hier ... mein Auto wurde von der Straße abgekommen und meine Freundin ... sie ist verschwunden! Du musst mir helfen...
+A969EC63E10DAF5E;Sie war wunderschön und irgendwie vertraut ...
+E59BEB7D36B2CD7C;Bitten Sie sie herein
+28FF076D661E937C;Sag ihr, sie soll sich verlaufen
+69A1683421357519;Bieten Sie Hilfe an
+2ABF538CB173B296;Bieten Sie an, jemanden anzurufen
+BA1256FB5ED72CF6;Fragen Sie sie, was passiert ist
+D4CD53078DFC902D;Ich hatte keine Zeit für Wohltätigkeitsveranstaltungen.
+EB27E87CA243446F;In meinem Wohnzimmer stand eine attraktive Rothaarige. Biff stand mit einem abwesenden Gesichtsausdruck an der Seite.
+9D98B0DF7F03BF01;Mein Auto wurde von der Straße abgekommen und meine Freundin ist verschwunden. Biff war ein echter Hingucker und hat mich reingelassen. Du musst mir helfen!
+7E6F281AAE079B5B;Sie war wunderschön und irgendwie vertraut. Biff war verliebt.
+B255DE6BF3491732;Bieten Sie an, jemanden anzurufen
+9827C2E4CF8DBF2A;Wie schnell können wir wieder zu meinem Auto gehen? Meine Freundin wandert vielleicht in der Wüste umher ...
+2EC69F6C0EDCD962;Eine Frau, die es zu eilig hat, bedeutet normalerweise Ärger, aber ... vielleicht war ich im Alter zu zynisch geworden.
+A4F82210BF14B092;Lass uns gehen
+7F6824D55D50AE8F;Bringen Sie Sie zur Polizei
+6331356223DD6EE9;Schlagen Sie vor, dass sie jemanden anruft
+80A6B1B2E7355FC7;Verlassen Sie den Unfallort
+4F5EEB60B1198EAE;Untersuchen Sie weiter
+B3C25B7899CA55E5;Jackie beschimpfte mich, weil ich einen kilometerbreiten gelben Streifen hatte, und verlangte dann, dass sie in der Neptune Hall abgesetzt würde.
+9738DE51CC41DB69;Keine gute Idee.
+D6354925B74D8740;Lass sie bleiben.
+A409AEF571094A74;Sie versprach, dass ich nie erfahren würde, dass sie in der Nähe war, aber irgendwie bezweifelte ich das. Dann war da dieses seltsame Geräusch...
+E39978ACC0AB8F52;Sie sagte, sie hätte es verstanden und bat mich, sie in Neptune Hall abzusetzen. Ich wollte sie gerade fragen, warum sie so auf eine Müllkippe gehen wollte, als ich ein seltsames Geräusch hörte ...
+83ECEC2CCB70928C;Jackie machte sich bereits auf den Weg in die Wüste, als ich rechts von mir etwas hörte. Als ich mich umdrehte, um zu sehen, was es war, gefror mir das Blut ...
+8DD411E5BC4D6F68;Nein, nicht... ich meine... ich kenne hier niemanden.
+67CA330583B97975;Wunderschön und geheimnisvoll. Sie wurde von einem dunklen Geheimnis heimgesucht ... und sie schlug die Augen wie eine Frau, für die die Wahrheit nicht mehr als eine grobe Zumutung war.
+36033E96A8880668;Ich setze dich ab
+9B997E347D6D42A1;Spielen Sie direkt mit mir
+E999E5983F5FA61B;Keine Behörden. In der Stadt gibt es einen Ort namens Neptune Hall. Dort bin ich in Sicherheit.
+264778611F89E903;Wovor hast du Angst?
+D83F9D268D7416D1;Lass Biff sie mitnehmen
+C8ED736163800C33;Rufen Sie die Behörden an
+9195549CC55CB0A4;Rufen Sie die Behörden an
+7A1AC6FC69E5C05B;Bring sie zu ihrem Auto
+397AD5958FAB6EFF;Ich hatte gerade angefangen, die Polizeistation anzurufen, als ich hörte, wie sich die Haustür öffnete. Ich drehte mich um und Jackie war weg.
+3D081AE84DE76B6B;Solide, Doktor. Ich werde sie überall hin mitnehmen, wo sie hin will. Übrigens bin ich auf dem Weg hierher an Ice Morgan und dem Rest seiner fetten Hellcat-Kumpels vorbeigekommen. Sie suchten nach Ärger in diesem Abschaumeimer, den sie „Low Rod“ nennen.
+452791F44E49F9B3;Ich hatte mir gesagt, dass ich es geschafft habe, schöne Frauen in Not zu retten ... aber was soll ein Mann tun?
+302A139AC1288961;Geh mit ihr zum Auto
+B0CD8116E1DCA5C7;Bieten Sie an, die Behörden anzurufen
+8B81DAABB56B592A;Beruhige sie
+DFBB6776987204AB;Nein, hier ist nichts Ungewöhnliches passiert. Wir liegen im Zeitplan und nichts wird uns in die Quere kommen!
+A3708A42CC8F43B2;Mirabile visu puella muy bonita...
+207DDA54E6CA5321;Billy Bob hielt mitten im Satz inne und starrte Jackie an, als hätte er einen Geist gesehen. Als sie fragte, ob sie der alten Zeiten zuliebe ein paar Tage bleiben dürfe, warf Billy Bob einen Moment lang einen harten Blick zu, dann lächelte er so, als ob er eine Million Dollar verdient hätte, und stimmte zu.
+1501B6510D27E7EE;Als ich eintrat, wurde ich von Billy Bob begrüßt. Neben Billy Bob stand Jackie.
+217A1F9F826C2793;Als ich eintrat, wurde ich von Billy Bob begrüßt. Neben Billy Bob stand eine der schönsten Frauen, die ich je gesehen hatte. Biff hatte keine Fischgeschichten erzählt.
+12B25885E0DF36BF;Wir haben einige beunruhigende Berichte aus der Umgebung von Pumpenhaus drei erhalten. Es scheint, dass die Arbeiter da draußen nachts seltsame Lichter sehen. Glauben Sie, dass es etwas mit diesem Meteor zu tun haben könnte?
+9386B40F41D7EE6C;Ich habe gehört, dass es bei Ihnen zu Hause einen Notfall gab. Ein Rothaariger. Ich muss wieder auf Sendung gehen. Ich rede später mit dir, Buster!
+1DD3840A96F803AB;Als ich eintrat, hörte ich einen Mann an der Bar zum Barkeeper sagen...
+8D8C7373F93C8874;Sie wissen, was sie sagen.
+D30AF8EEF0F22370;Was?
+511557E0CBAE749E;Es ist ein Zeichen des Himmels, dass bald etwas Wunderbares geschehen wird!
+253B369DE461B76A;Ja? Es wäre ein Wunder, wenn du einmal deine Fettfalle schließen würdest, Elroy!
+7115F5A7F9D10B21;Hören Sie weiter zu
+7A4F747108A22D32;Warte, nein, ich habe es auf dem TEE-V gesehen. Immer wenn ein Meteor einschlägt, bedeutet das, dass etwas HUMUNGUS passieren wird. Als Julius Cäsar geboren wurde, kam es zum Beispiel zu einem großen Meteoriteneinschlag!
+B254517A65DF981A;Nun, ich schaue mir lieber Julius LaRosa in der Arthur-Godfrey-Serie „Elroy“ an, macht es Ihnen etwas aus? Hören Sie, das ist alles ein Haufen Echsenmung... Ich nehme an, Sie werden mir sagen, dass diese Dinger draußen rund um Pumpenhaus drei mit dem Meteor in Verbindung stehen!
+C9609E50D80EC0B9;Welche Dinge?
+6EBA0526D492EB8F;Egal.
+87B683325B60BA57;Elmer hatte einen besorgten Gesichtsausdruck.
+B44D8EC94756F680;Diese H-H-Hell Cats sind wieder am Werk, Doc. Sie machen Ärger in dem Ding, das sie Auto nennen. Habe sie auf dem Weg zum O-O-Erzwerk gesehen. Wenn Sie so ausgehen, seien Sie vorsichtig.
+9692D124C9883B52;Ich fragte den Sergeant, ob es Berichte über seltsame Vorkommnisse gegeben habe. Vermisste Personen, ungeklärte Spuren usw....
+AB9C7B947C92E0DE;Seltsam? Nun, es ist immer seltsam, wenn es so heiß wird. Es gab einige Berichte über unerklärliche Lichtausfälle rund um Pumpenhaus drei.
+7EA14B92C6EDF473;Berts Sekretärin rief mich aus dem Hinterzimmer an.
+2DB9979D4ADCED98;Bert ist nicht hier. Bin heute Morgen zum Steinbruch gefahren. Ich werde ihm sagen, dass du vorbeigekommen bist.
+634549E274191AAC;Herr Doktor, was für eine Überraschung. Wie laufen die Studien mit diesem kleinen alten Meteoriten?
+1DF459C474A97C53;Bürgermeister Festus Bartlett war einer von denen, die immer für ein Amt kandidierten.
+F55EA127341EF5F0;Ich hoffe, wir können dieses verrückte Gerede über den Meteoriten beruhigen, bevor unsere Festivalgäste nächste Woche eintreffen. Der diesjährige Festzug ist für uns alle sehr wichtig. Machen Sie uns für die zukünftige Entwicklung bekannt. Ich weiß, dass du deinen Teil dazu beitragen wirst.
+984DC00167E1BCB0;Ich sah einen Wächter der Pipeline auf mich zukommen und fragte ihn nach den Berichten über seltsame Vorgänge rund um Pumpenhaus drei.
+0139466081D9B731;Das ist schwer zu sagen. In der Wüste passieren viele seltsame Dinge. So etwas habe ich allerdings noch nie gehört. Eine Art hohes Jammern. Das sind sicher keine Kojoten.
+D11E021D794955B5;Der Bürgermeister sah mich und ging in meine Richtung.
+DBDCFC54A16F09F2;Als ich aus dem Zug stieg, wurde ich vom Minenvorarbeiter begrüßt.
+282993562817EBBE;Ich wurde am Zug vom M-3-Vorarbeiter empfangen.
+5255831DA1F33E88;Ich habe noch einiges zu erledigen, also möchte ich es kurz und bündig machen. Wir liegen im Zeitplan, keine Probleme, trotz Meteoriteneinschlag. Ich werde Henry informieren, wenn sich etwas ändert. Vielleicht haben Sie auf der ganzen Linie mehr Glück.
+3DFB7BF014372083;Ich begann das Gefühl zu haben, dass ich eine Reise verschwendet hatte.
+48201E5E4A1EE1C9;Hallo Doc, Henry sagte, Sie könnten hierher kommen. Fühlen Sie sich wie zu Hause.
+C26DE8E535C9A61F;Ein freundliches Gesicht. Ich fragte den Vorarbeiter, ob ihm seit dem Meteoreinschlag seltsame Messwerte an seiner Ausrüstung aufgefallen seien.
+C1EADC954C913999;Das kann ich nicht sagen. Ich werde aber ein Auge darauf haben.
+DAD75BB41BA5BBD8;Als ich aus meinem Lastwagen stieg, traf mich ein Landarbeiter.
+098847D9EF615859;Bleib dran, Kumpel! Habe ich euch Gummibärchen nicht gesagt, dass ihr nicht mehr hierher kommen sollt?
+F4E87FF675744E3A;Ich erklärte, wer ich war und sein Gesichtsausdruck wurde weicher.
+D70A06137F3DD8D1;Ein jung aussehender Landarbeiter versperrte mir den Weg.
+869CAEDEE8A1F659;Ich habe von Ihnen gehört ... Sie sind dieser Besserwisser, der in den Angelegenheiten anderer Leute herumschnüffelt! Ich nehme an, Sie kamen wegen der Kuh mit dem fehlenden Kopf.
+62373EB8FBA41795;Ich erklärte, dass ich an der Meteorstelle recherchiere und nach ungewöhnlichen Vorkommnissen in der Nähe des Einschlagsgebiets suche.
+2CE04FA04696D14C;Ungewöhnlich? Die meisten Kühe haben einen Nudelhirnkopf. Dieses wurde sauber abgesägt. Kein Blut, keine Eingeweide, nichts. Wenn du mich fragst...
+638E48C9CB3ED3A9;Der Bauer hielt mitten im Satz inne. Seine Augen waren auf etwas hinter mir gerichtet ...
+6CB51FE739A5B964;Ich habe darum gebeten, den Minenaufseher zu sehen ...
+12DFEEA26D76061A;Ich bin der Typ.
+A08AB3F929B9AF20;Er schien es eilig zu haben, also sagte ich ihm, dass ich mit der Minenbahn zum südwestlichen Vulkankegel fahren wollte, genau dort, wo der Meteor eingeschlagen hatte.
+CCDD8BFB609B90E0;Das ist kein Vergnügungspark, Kumpel. Was ist Ihr Interesse an diesem Bereich?
+018669360E53191F;Antwort-Supervisor
+8BC0C1D79E9CC1BF;Unerklärliche Phänomene
+26F4FFADC4DE692D;Nun, hey, ich habe allen Respekt der Welt vor euch Wissenschaftlern! Ich habe meinem Kind sogar einen echten Chemiebaukasten von Gilbert gekauft, damit er Stinkbomben und so etwas bauen kann! Wir haben Züge in beide Richtungen, die in ... FÜNF MINUTEN abfahren!
+2F2D52DE4743ED34;Der Pumpenhaustechniker begrüßte mich, als ich aus meinem LKW stieg.
+A5622D978A39AA83;Ich habe die letzte halbe Stunde deinen Staub auf der Straße beobachtet. Ich dachte, du wärst vielleicht wieder einer dieser Hot-Rod-Kids. Was kann ich für Sie tun?
+900271788AF2E167;Ich habe meinen Besuch erklärt.
+BAC86A820C70E0DD;Hier draußen passiert nie etwas. Ich lese viel. Jack London, Hemingway, Melville ... echte Abenteuergeschichten, eine Art Männergeschichte. Das ist die einzige Action, die ich jemals erleben werde ... zwischen zwei Buchcovern!
+792B2A7E3FC6F87E;Ein freundlich aussehender Arbeiter kam mir entgegen.
+C3B97F96A28C81C1;Willkommen bei Pumpstation drei. Das Zentrum des Universums.
+6EC855F859281586;Dieser Job musste einer der isoliertesten in der Stadt sein. Gut, dass diese Pumpenhaus-Typen Drillinge waren. Zumindest konnten sie so telepathisch miteinander kommunizieren. Nach ein paar müßigem Geplauder erzählte ich dem Wächter, wonach ich suchte.
+62CC80D98B09DE14;Ich werde die Augen offen halten, Doc. Diese Hot-Rod-Truppe hat in letzter Zeit die Straße rauf und runter bombardiert ... und natürlich hatten wir die üblichen Lover's-Lane-Leute, aber Sie werden der Erste sein, der von einer Mars-Invasion erfährt.
+AB0673F8E4450E48;Zwei Steinbrucharbeiter schlenderten herbei, als ich aus meinem Lastwagen stieg.
+957E9CB044484B77;Schauen Sie, was wir hier haben ... einen College-Jungen. Hey Lehrer, möchtest du ein paar Steine kaufen? Ha ha ha!
+AF48D8C0CA71B0EE;Kümmern Sie sich nicht um ihn, Herr. Buck hier mag niemanden. Was kann ich für Sie tun?
+A69DF77086E9616A;Ich erklärte, dass ich den Meteor erforsche.
+FAE1C4417AF520AD;Sag ihm nichts, Wilbur, denk dran, was Bert uns versprochen hat.
+AB0E7FF5411C5EDE;Das stimmt, Buck.  Herr ... Bert Lamont vom Star kommt morgen zu einem Interview mit uns. Es geht um das, was wir gesehen haben, als der Meteor einschlug. Er sagte uns, wir sollten mit niemand anderem reden.
+5201865BC15D0AEE;Ja ... er wird unser Bild in die Zeitung bringen und alles! Direkt neben der kopflosen Kuh, die sie drüben auf JDs Farm gefunden haben.
+5B9FF8494D3A7C88;Ich dankte ihnen für ihre Zeit und ging weiter.
+D79F43CE2727C5AF;Die Luft war schwer von alten Zigeunergewürzen und Weihrauch ... oder vielleicht war es auch nur Insektenspray ...
+A460F351B7B93833;Sag nichts, denk... Ich weiß, dass du gekommen bist. Sie sind beunruhigt über das Kommen des Meteors.
+2D293F88B2D958FF;In meinem Nacken standen mir die Haare zu Berge. Normalerweise ein Zeichen dafür, dass es Zeit war zu gehen.
+C08C30DC0AA4F916;Reden Sie weiter
+0AB43692E3D429F0;Sie haben das Recht, nervös zu sein. Etwas Dunkles zeichnet sich am Horizont ab. Ich sehe ... große LÖCHER im Boden. Das Bild verblasst....
+B7E1D1CEE99383B1;Mehr kann ich dazu nicht sagen.
+452C42C8A2BD9F43;Die alte Frau hat mir eine Gänsehaut bereitet. Als ich mich umdrehte, um zu gehen, nahm ich mir vor, ein Auge auf sie zu haben.
+6C026B1480B9CCC4;Ich lebte seit etwa einem Monat in einer kleinen Wüstenstadt. Ich bin Geologe und in meinem Spiel landen die interessantesten Steine immer an den uninteressantesten Orten. Willkommen bei Lizard Breath U.S.A., einem weiteren Tumblewee-Truck-Rastplatz, wo die Witze schlimmer sind als der Kaffee und jeder Tag so ziemlich wie jeder andere war. Zumindest bis der Meteoroid Stohlheinz A221357 vom Himmel fiel und praktisch auf Wiley Jeeters halbgeheimem Destillierapparat außerhalb der Stadt landete. Wiley ging es gut und das Geschäft in O'Riordan's Bar nahm deutlich zu, sodass die Einheimischen es insgesamt als einen Nettogewinn betrachteten. Ich war auf der Suche nach Steinen und dachte darüber nach, wie gut es sich anfühlte, wieder zu Hause zu sein, als es an der Tür klopfte ...
+73BAD0B74407F6A6;Hier sind die Proben, nach denen Sie gesucht haben, Doc.
+B247CAC7C0BE92E3;Ich werde dir mal einen Blick darauf werfen, wo sie herkommen, falls du Lust hast, es zu wissen ...
+C0A13C8C06D4447A;In dem Monat, in dem Geez für mich gearbeitet hatte, hatte ich seinen Esel noch nie so aufgeregt gesehen.  Als ich gerade danach fragen wollte, hörte ich Biff durch die Hintertür kommen ...
+D9A5A4881B88A7B8;Fragen Sie meine Güte nach dem Esel
+46EC3700AAD693C7;Finden Sie die Quelle der Proben
+4C02ED7D52116B42;Gehen Sie zu einem anderen Ort
+09361BA7D2102A20;Biff
+AE3F2EEE13C7E4C4;Ich sehe, dass Sie beschäftigt sind, Doc. Ich bin bei O'Riordan, wenn Sie mich brauchen.
+C72AEEA813178756;Seit dieser verdammte Meteoriteneinschlag wird sie sich nicht mehr dem Vulkan im Süden nähern. Stur wie ein Maultier...nichts für ungut, Liebling...
+AE8668D01509E754;Jeepers, das ist gruselig, Doc! Eine dieser Proben hat einen seltsamen Glanz!
+E6F55B7DDB7AA20D;Gehen Sie zur Karte
+3E24132B3EE4248C;Ich bin bei O'Riordan's, wenn du mich brauchst.
+3865C0CCF2BA9364;NOMAP
+EB16D6D8A0F20CD7;Galdahnit! Es war genau hier... nein, hier... oder war es hier drüben? Dagnappit, mein Gehirn ist völlig durcheinander ... der alte Funk n' Wagnalls ist nicht mehr das, was er einmal war. Ich brauche eine flüssige Erfrischung...
+1B0CC81CBF1513AA;Gehen Sie zu „Karte nach unten“.
+6C25C259DB5BDC8F;Gehen Sie zu NOMAP
+C082D61C1D9F76DB;Spieler antwortet telefonisch
+26E0CF007D4956A2;Habe einen Anrufbeantworter von Biff
+848BAD7EFD0A9C2A;Ich sehe, dass Sie beschäftigt sind, Doc. Ich schaue später noch einmal vorbei.
+881E76B0BA6B580B;Bert am Telefon
+0E4E75907F2DD396;Doktor, das ist Bert Lamont vom Star.  Ich schreibe einen Artikel über den Meteor, der letzte Woche einschlug, und soweit ich gehört habe, sind Sie der Mann, der Bescheid weiß. Was sagst du dazu, dass du heute in meinem Büro vorbeikommst und wir uns die Zeit nehmen?
+F69193083B5E8591;Ja, das werde ich
+B4817667CC210218;Nein, ich kann nicht
+B1A7658A7C01AC09;Großartig, ich freue mich darauf, Sie kennenzulernen.
+6FB485C5B5DD1B24;NULL
+B3057220FCCA058A;Sprich mit Biff
+5D3D5C8B40792D99;Du bist also zu wichtig, um dich mit einem Schinken- und Eierkoch von einem zweitklassigen Nachrichtenblatt zu treffen, oder?  Ich schätze, ich muss mir den ganzen wissenschaftlichen Hokuspokus einfach selbst ausdenken!  Und ich werde Ihnen noch etwas sagen, MR. ZAUBERER...MR. UNIVAC...niemand wird den Unterschied bemerken!
+169462E8D2FCE6F4;War das der Blubberpus-Reporter vom Star? Was für ein Grusel!
+D8EEA63BD4CCC178;An Biffs Tonfall konnte ich erkennen, dass dieser Reporter nicht zu seinen Lieblingsmenschen gehörte.
+35A1C7AFD75A7705;Sprich mehr mit Biff
+490BE900E7F8EC3A;Er ist ein echter Operator, okay!  Der alte Mann meiner Freundin sagt, er hätte mehr zwielichtige Geschäfte als Kaktusstacheln. Ich habe gehört, dass er auch einmal einen Mann erstochen hat!  Oh ja, Dr. Wells vom Universitätslabor möchte, dass Sie ihn anrufen oder vorbeikommen.
+BE9012910279F350;Biff hielt mich auf, als ich zur Tür hinausging.
+F2ECFA210379BAF4;Bert Lamont, dieser schleimige Reporter beim Star, hat angerufen. Er möchte, dass du vorbeikommst, wenn du kannst. Etwas mit dem Meteor ... ach ja, und Dr. Wells wollte, dass Sie im Universitätslabor vorbeischauen.
+B5E5EE5BB9B2E486;Was ist los, Doc? Soll ich die Strahlung messen oder ins Labor schicken?
+0EF51FAAEC19A03F;Senden Sie Proben an das Regierungslabor
+56C9517D11B0029F;Auf Strahlung prüfen
+A5127101F9DC6D40;Die Ergebnisse werden Ihnen innerhalb von zwei Tagen per Post zugesandt.
+4C0A0A7B20607108;Wow...diese Proben sind heiß! Wo hat der alte Mann sie gefunden?
+DB17496607037874;Meine Güte, war wahrscheinlich im O'Riordans Pub. Ich fragte mich, ob ich ihm nachgehen oder zu Hause bleiben und etwas arbeiten sollte.
+5483084320A5C905;Holen Sie sich das ... Ich habe gehört, wie einige Leute in der Stadt behaupteten, sie hätten seltsame Geräusche draußen an der Pipeline gehört. Sie fürchteten sich vor Angst! Und jemand anderes hat drüben auf JDs Farm eine kopflose Kuh gefunden. Vielleicht ist der WOLFMANN auf der Jagd...AHHOOOOO...!
+26AA6020198D60B2;Biff war kein Kind, das dieser Beule in der Nacht normalerweise Aufmerksamkeit schenkte. Ich fand es interessant, dass diese kleinen Dramen in der Stadt seine Aufmerksamkeit erregt hatten.
+096FDD755B961AAB;Die Ergebnisse werden in zwei Tagen vorliegen.
+4BF74D5BC5F587EC;In der Halle roch es wie in einer Absteige. Ich hatte ein schlechtes Gefühl bei diesem Ort. Billy Bob Morse murmelte irgendeine verrückte Beschwörungsformel, als er vortrat, um meine Hand zu ergreifen. Ich verspürte den unkontrollierbaren Drang, meine Hand zurückzuziehen ...
+10160C14663EA46C;Dieser Schleimball wird wahrscheinlich eines Tages im Fernsehen landen ...
+B999FBC90FDCE356;Sie können Ihren Ludd's-Katalog „Waffen per Post“ erhalten, indem Sie einen an sich selbst adressierten Umschlag an folgende Adresse senden: Box 4165, Leith River, Nevada.
+89BD03735CD78A6F;Jedes Mal, wenn ich Dusty sah, sah sie schöner aus.  Ich fragte mich, ob wir eine Chance auf etwas mehr als nur Freundschaft hätten ...
+D7D69248C3653612;Hey Fremder.  Was für eine Überraschung.  Ich gehe um 6:00 Uhr los.  Rufen Sie mich an, wenn Sie sich von Ihrem Meteor befreien können. Im Moment versuche ich etwas über diese kopflose Kuh herauszufinden, die sie drüben auf JDs Farm gefunden haben.
+36F8DDFD239BC048;Hinweis: Ich bin drüben an der Bar.  Komm zu mir... Dusty
+A4F4BACC771422A2;In der Bar ging es um die kopflose Kuh, die sie auf JDs Farm gefunden hatten. Jeder hatte eine Meinung darüber, wer verantwortlich war.
+44468CEE093C7FE6;Für mich war es keine Überraschung, dass meine Güte in der Bar war.
+147436B57D53D0B6;Woher haben Sie Proben?
+D45F76A07CA27BA6;Ich ging hinein, aber die Bar war bis auf die Stammgäste leer.
+CCDC700EF78C6FE2;Dusty war hier, Doc... aber sie hatte das Warten satt und ging nach Hause.
+0D38A8DB681A1A43;Ich habe den ganzen Tag versucht, mich zu erinnern. Es war genau hier... nein, verdammt noch mal, es war hier... oder war es hier drüben?  Mein Gehirn schießt völlig aus dem Häuschen, Doc. Vielleicht hilft eine flüssige Erfrischung.
+35A8BF00DC791684;Kaufen Sie Geez Drink
+FE8048C542F3F2F6;Ich habe mir etwas Limonade gekauft. Er warf mir einen seiner komischen Blicke zu und sprach dann plötzlich ...
+66D90B59326C9591;Moment mal!  Es fällt mir wieder ein ... es war irgendwo südwestlich des alten Steinbruchs!
+FAE99E728C05623F;Hallo Doc...
+61F0AD935272FE1E;Ich kannte Elmer noch nicht so lange, aber ich merkte, dass etwas nicht stimmte ...
+537B8772805634F9;Biff hatte etwas über diesen Haufen erwähnt. Sie hatten vor ein paar Wochen ein paar von der Straße abgekommen. Nette Kinder...
+B9C4CEF0E15EFD76;Angesichts all der seltsamen Gerüchte, die in der Stadt kursieren, dachte ich, ich frage den Sergeant, ob daran etwas dran ist ...
+5106168BD82A668E;Verdammt, Norma! Wenn Sie die Testbox verloren haben, landen Sie auf der Straße!
+F9827DD0FDCFE51C;Bert schrie seine Sekretärin an, die ins Hinterzimmer ging. Ohne den Schritt zu verlangsamen, rief sie über ihre Schulter zurück.
+CA894FD80C78A00A;Norma
+08E8851434F4F40C;Es liegt direkt vor dir, BLOCKHEAD!
+77876E067EF05754;Wie zum Teufel sollte ich es dort sehen?
+72C663D2ABB56D9B;Wer bist du?
+29E65D450A8DCF88;Rufen Sie an
+FF49F8316FD126F1;Ich bin auf deine Einladung gekommen
+803F68A5A6056321;Bert schrie seine Sekretärin an, die ins Hinterzimmer ging. Ohne den Schritt zu verlangsamen, rief sie über ihre Schulter.
+B55DCE220FD4B8D4;Wie zum Teufel sollte ich es dort sehen?
+0BCA25EDCC086A9A;Wer zum Teufel bist du? Ich bin hier eine große Sache, ich kann meine Zeit nicht mit einem Idioten wie dir verschwenden! Hau ab!
+810AA9EF2B498138;Wie sieht das aus, eine Tankstelle? Unten an der Straße gibt es ein Münztelefon.
+E9173A97C3AD3E59;Du bist zu spät! Dies ist das letzte Mal, dass ich Ihren PUS BRAIN-Lieferservice nutze. Diese Analysebox muss sofort zum staatlichen Bergbauamt!
+41F26024ABF1C7CD;Ich war versucht, die Schachtel zu nehmen und sie ihm in den Hals zu stopfen. Ich sagte ihm, wer ich war.
+BBE625153E2B1B5D;Ich bin Dr. Bradley
+94DCDBC6A86163B3;Bradley? Ah...Dr. Bradley! Nun, was war es, dass ich... Oh ja, ich möchte, dass du mich morgen im Steinbruch triffst. Ich interviewe einige Augenzeugen des Meteorabsturzes.
+91530DAAFBD13802;Ja, ich kann mitkommen
+90C950AFFB959C36;Nein, ich kann nicht gehen
+C16431CB3C9D76C8;Super, ich werde morgen früh um zehn Uhr im Steinbruch sein.
+3B151901DB13AD7C;Der Assistent des Bürgermeisters rief mich aus seinem Büro an.
+38F0946F42A2FD24;Der Bürgermeister ist wegen einer Vergnügungsreise nicht in der Stadt. Er wird morgen zurück sein.
+D16400176F551B73;Ein Bauer war auf der Straße. Ich fragte ihn, wie es seinen Ernten ginge.
+38E085A340DE72F0;Das Wetter war für diese Jahreszeit wirklich ungewöhnlich. Es ist schwer zu sagen, wie sich dies auf die Ernte auswirken wird.
+A2F2ED095589F33E;Kein besonders gesprächiger Typ.
+FC20591AD91F8B00;Mein Nachbar war in der Stadt.
+D3A52F29D5574343;Hey Doc, wie geht's? Ich bin in der Stadt, um Vorräte für einen kleinen Campingausflug in der Nähe des Südwestvulkans zu besorgen. Seltsam mit der kopflosen Kuh, die sie auf JDs Farm gefunden haben. Ich hoffe, es rennen keine Verrückten durch die Wüste. Wir reden mit dir, wenn ich zurückkomme.
+92DFD9D13AC2252F;Die Hellcats waren an ihrem üblichen Treffpunkt. Ihre laute, trashige Musik machte mich verrückt ...
+C604C35AD333CEC9;Hey Doc, haben Sie in letzter Zeit irgendwelche 15-Meter-Frauen gesehen? Haha!  Nick, Eddie und ich holen dich später ab, Daddy-o. Sei cool...
+5381942456251E8E;Ich konnte das Geräusch von schwerem Gerät unter der Erde hören und da keine Arbeiter in Sicht waren, beschloss ich, weiterzumachen.
+809BD595FA2AB6FF;Die Gegend war frei. Die Ameisen machten sich auf den Weg zu den Hügeln.
+E5EE6ACA0838E137;Ich hörte das Geräusch von Presslufthämmern unter der Erde und erkannte, dass es noch eine Weile bis zum Schichtwechsel dauern würde. Ich beschloss, weiterzumachen.
+FC7D6FADA6CA9F9C;Alle waren im Untergrund am Werk.
+67FDE9600C1A4311;Die Bergleute waren unter Tage fleißig im Einsatz. Ich beschloss, weiterzumachen.
+55F8EC57F850198F;Mir wurde klar, dass es noch eine Weile bis zum Schichtwechsel dauern würde, und ich beschloss, weiterzumachen.
+380150801F18CA69;Die Landarbeiter hatten für heute ihre Arbeit aufgegeben.
+CEFC724A14E8C9AD;Es war spät und niemand war da.
+94E21BD0724DD4B2;Die Felder lagen noch immer im Dunkeln. Ich sollte wie alle anderen im Bett liegen.
+8E92A47E0947921C;Der Mais beugte sich im Wind, als ich nach jemandem suchte, mit dem ich reden konnte. Ich rief, aber niemand antwortete, also ging ich weiter.
+95B28FD4F2D1BB13;Die Bauern hatten Feierabend gemacht.
+435679057C425E63;Die Felder waren noch dunkel. Zeit, im Bett zu sein.
+49A83699F2F62B31;Der Staub wirbelte in der Erde auf, als ich nach jemandem rief. Als niemand antwortete, beschloss ich, weiterzumachen.
+DEE77072C4C75DAB;Die Felder standen still. Niemand war in der Nähe.
+2D8EAA7D02D2FEBA;Es war noch Nacht. Alle lagen dort im Bett, wo ich hätte sein sollen.
+4E5FDA2E9C21B68F;Für den Tag hatten alle Feierabend.
+7E9DFE487A0FDF55;Es kam mir alles wie aus einem Albtraum vor. Die Kreatur lag zerknittert vor mir, zwei Tonnen Tod und Zerstörung, die mich auf ihrer Mittagskarte hatten.  Ich wollte es jemandem erzählen, aber bis ich mehr Beweise hatte, beschloss ich, das Gesehene für mich zu behalten.
+0BAAF05DF25D5CEC;Der erste ging wie ein Sack Kartoffeln zu Boden, aber es gab keine Zeit zum Feiern ... seine Kumpels kamen auf ihn zu, um ihn zu töten ...!
+4276B1C9148B136E;Zuerst hörte ich das verräterische hohe Jammern und wusste, dass die Kreaturen draußen waren.
+8BB934D2EA89A53C;Der Ort war geschlossen.
+4C1E2BC35D9DC352;Alle waren oben in den Minen.
+3583F5B5E0F6F1A4;Die Anlage war geschlossen und niemand war in der Nähe.
+31642A5C105F84DD;Der Ort wurde für die Nacht verschlossen.
+18B4C21443EE7743;Der Ort war für die Nacht verschlossen.
+8D92393953540558;Wenn der Wächter in der Nähe war, war von ihm nichts zu sehen.
+BA2F8E1D7BCE01E8;Der Wächter muss etwas an der Pipeline überprüft haben. Seine Hütte war verschlossen.
+B180F1919A4AA126;Der Nachtwächter muss die Pipeline überprüft haben, denn seine Hütte war verschlossen.
+63583C129FBE46CA;Es war noch dunkel und der Wächter war nicht da. Ich sollte im Bett sein.
+C46C6A94B4B1F1FE;Die Hütte des Wächters war verschlossen. Ich beschloss, nicht zu warten, bis er zurückkam.
+0714A7104AD4B653;Draußen war es immer noch dunkel. Eigentlich sollte ich zu Hause im Bett liegen, aber aus irgendeinem Grund wandere ich in der Wüste umher und schaue mir verlassene Pipeline-Hütten an.
+C3280067CD628AC6;Der Wächter war draußen und überprüfte die Pipeline. Seine Hütte war verschlossen. Ich beschloss, weiterzumachen.
+051398477FCD9578;Ich rief, aber das Einzige, was ich hörte, war das Echo meiner Stimme.
+809BB6BACFAEAD86;Der Kegel war ein majestätischer Anblick, aber ich hatte Besseres zu tun, als mit der Natur zu kommunizieren.
+BFB4D46326645D03;Hier war es noch dunkel und ich wanderte schlaflos in der Wüste umher. Wenn ich nicht aufpasste, würde es mich einholen.
+6A61A47DF5FD1E71;Ich habe in meinem Leben einige ziemlich dumme Dinge getan, aber mitten in der Nacht zu einem Vulkankegel zu fahren, wenn ich im Bett sein konnte, gehörte zu den Top Ten.
+1CB90CFBFBF479E0;Nichts als leere Landschaft soweit das Auge reichte.
+4C74D0C484BEFFDA;Es war noch dunkel. Was ich hier eigentlich herausfinden wollte, entgeht mir.
+04F7F9C9522735B9;Warum ich nach Einbruch der Dunkelheit zu einem leeren Vulkanfeld fuhr, werde ich nie erfahren.
+5A12A27FF4A5018A;Nichts bewegte sich. Kein Grashalm, kein Käfer auf einem Felsen oder ein Hase. Steintot. Ich saß einen Moment da und drehte dann meinen Truck zurück in Richtung Stadt.
+93CB499C184C88CB;Es war noch dunkel und die Geheimnisse des Kegels entzogen sich mir. Ich war müde und sollte im Bett sein.
+EDF4DE87D23702A9;Ich weiß nicht, was ich erwartet hatte, aber die lange Fahrt hatte mich nur müde gemacht.
+AB8A9F4ADE68CC00;Die Arbeitszeit war bereits vorbei und niemand war zu sehen.
+C8A643EF9B299CF6;Es war dunkel und im Steinbruch bewegte sich nichts.
+0AC9999F0A4E6420;Im Moment waren die Steinbrucharbeiter nirgends zu sehen.
+49ECEBBBE47AC486;Louie La Rue betrieb ein Charterunternehmen. Wenn man die Kisten auf dem Spielfeld betrachtet, ist es ein Wunder, dass jemals jemand vom Boden aufgestanden ist.
+97A95C73ED4A09EA;Meester Doc, heute ist der Tag für den Flug meines Lebens, wie Sie sagen, den Flug Ihres Lebens! Und das für nur fünfzehn Dollar pro Stunde. Was Sie denken?
+0E3078AE9B3F76E8;Sie ist vollgetankt und flugbereit, Doc!
+401D7D6365C0D908;Es war schon dunkel und Hilbers Field war verlassen.
+D3AB5D7F6C0828B9;WER GEHT DORTHIN?! Dies ist ein Sperrgebiet. Streng tabu. Ziehen Sie Ihren Hintern hier raus, aufs Doppelte, Herr!
+01A191A6E9D6B573;Ich beschloss, nicht zu streiten und ging weiter.
+567382158B7E0309;Wir haben offenbar einen Kommunikationsfehler, Herr! Gebt es ihm, Jungs.
+2A60492E8BC6981E;Ich drehte mich gerade noch rechtzeitig um, um zu sehen, wie drei riesige Abgeordnete ihre Keulen an meinem Kopf schwangen.
+0742F1D20D7C2D1F;Ich konnte in der Nähe einen Wachhund knurren hören und beschloss, dass es Zeit war zu gehen.
+F5CA264C75E9803C;Dank dir haben wir sie vertrieben. Lasst uns ein paar Insekten in den Hintern treten ...
+0C3DC7856DF6F3B5;Wir haben unser Bestes gegeben, aber es waren zu viele. Wir müssen sie mit dem, was noch übrig ist, aufhalten.
+3A9D8C8A4DF3805A;Ida hatte eine Notiz hinterlassen: „Heute aus meinem Körper. Morgen wieder zurück.“
+445583ECB1498F6C;Es war gut, in ein ruhiges Haus nach Hause zu kommen.
+FEF8E7073B166F32;Als Mac mich sah, wurde sein Gesicht ganz rot ...
+E002E256A764E661;Ich bin fertig mit Höflichkeit. Ich habe Ihnen gesagt, Sie sollen uns nicht belästigen, Doc, es sei denn, Sie haben uns etwas zu zeigen. Jungs...zeigt ihn raus!
+762152B71BE23C31;Ich spürte, wie ich hochgehoben und durch die Luft in einen Bottich mit nassem Beton geschleudert wurde. Ich wurde ohnmächtig.......
+4E8A1D11DF718A2F;Ich habe Mac die Beweise gezeigt, die ich hatte.
+4554375A94A6EF64;Doc, diese Beweise, die Sie gesammelt haben, sehen echt aus, aber es ist der Bürgermeister, den Sie überzeugen müssen. Wenn Sie ihn dazu bringen, einen Alarm auszurufen, werden ich und meine Jungs direkt hinter Ihnen sein.
+9CD11B9C2322A1A4;Mac und sein Team arbeiteten außerhalb des Geländes oder waren nach Hause gegangen.
+C05AA4498BAE4DAD;Dr. H.G. Wells...der große Mann selbst! Von einem brillanten Theoretiker wie Dr. Wells könnte ich viel lernen ...
+5DDE2748D5E6583E;Dieser Saal ist für alle, die nicht dem Orden angehören, geschlossen.
+6AD6F172C43842D8;Dusty war auf Sendung und konnte nicht mit mir reden.
+3453EFC94F1851FE;Der Sender lief auf Autoplay. Es war niemand in der Nähe.
+E40EC8FC77187518;In der Bar war es im Moment ruhig.
+AE5BA7E693B517F6;Mein Schädel pochte und ich versuchte, mich darauf zu konzentrieren, wo ich war. Als meine Sicht klar wurde, kam eine Krankenschwester in Sicht. Ich konnte nicht umhin, ihre Lieblichkeit zu bemerken, während sie sprach.
+C121B8A5B8DCC37C;Sie haben Glück, dass sie Sie gefunden haben, Doc. Womit auch immer Sie sich beschäftigt haben, es hat gewonnen. Du wirst mindestens zwei Tage bei uns sein!
+BBC7AD99310B5CF0;Ich murmelte etwas über die Ameise, mit der ich mich angelegt hatte.
+B28B1DD62BFB83B6;Ehrlich gesagt, Doc... ich interessiere mich nicht wirklich für Hochwissenschaften, aber wenn es um Insekten geht, über die Sie Bescheid wissen möchten... ist Dr. Wells vom Universitätslabor der richtige Ansprechpartner.
+B04A732DF4619800;Das scheint nicht fair zu sein, Doc. Sie sind so viel größer als du. Sie sollten sich jemanden aussuchen, der ihrer Größe entspricht. Sie werden ein paar Tage bei uns sein, also entspannen Sie sich einfach.
+6EB170614C3C7621;Lehnen Sie sich zurück. Kaum die Zeit, während der Arbeit zu schlafen. Diese Mutanten mussten gestoppt werden.
+AC5103D7068632ED;Alles tat weh, als ich zu mir kam.  Ich vergaß für einen Moment den Schmerz, als vom Fußende des Bettes eine Vision der Schönheit zu mir sprach ...
+680F008D4B5CD24C;Sie sind ein gutes Beispiel für einen gebildeten Mann, Doc. In so einen Messerkampf verwickelt zu werden! Du hast eine schlimme Schnittwunde am Unterarm. Du wirst ungefähr einen Tag bei uns sein.
+0E5586365893A197;Ich habe keine Zeit dafür. Es ist nur eine Fleischwunde, um Himmels willen. Nun, was soll das heißen... ans Telefon gehen oder losfahren?
+399841473A309117;Mein Kopf schrie wie eine Frühwarnsirene. Als ich mich umsah, sprach eine Krankenschwester am Fußende des Bettes.
+C9D192CFC138D0AE;Sie sollten es besser wissen, als auf dem Militärstützpunkt herumzuschnüffeln. Dieser Oberfeldwebel ist ein echter Fall. Du hast eine Beule am Kopf, aber das ist alles. Am Ende des Tages wirst du hier raus sein.
+BFD7C04603B8B325;Dieser Sergeant meinte es ernst. Ich schätze, ich könnte ans Telefon gehen oder vielleicht einen Weg hier raus finden.
+40679564F25510BE;Als ich zu mir kam, hatte ich den Geruch von Rauch in der Nase. Schwester Judy war ein willkommener Anblick am Fußende des Bettes ...
+7BC2791A75F0C1DB;Doktor, Sie sollten wirklich erwachsen werden und aufhören, mit dem Feuer zu spielen! Sie haben leichte Rauchschäden in Ihrer Lunge, aber nichts Ernstes. Du solltest in etwa einem Tag hier weg sein.
+7239D9A73E9A7988;Einen Tag oder so. Ich musste hier raus...
+3A4C0B80429C7CBC;Rufen Sie an
+BB6F3E9A139B47CF;Ich konnte immer noch den Geruch des ausgelaufenen Flugbenzins von dem Absturz riechen, als ich ebenfalls kam. Die Krankenschwester sprach vom Fußende des Bettes aus mit mir.
+B2AEF928EDF9BF45;Doktor, Sie haben Glück, am Leben zu sein. Man sagt, dass jede Landung, der man entkommen kann, gut ist, aber ich würde Ihr Glück nicht aufs Spiel setzen. Wir werden Sie etwa einen Tag lang beobachten. Entspannen Sie sich einfach.
+411989E08F43184E;Entspannen! Ich musste hier raus. Ich kann nicht sagen, was passieren könnte, während ich in einem Krankenhausbett dahinsiechte.
+F5BC600BA0E4B4E4;Als ich aufwachte, fühlte sich mein Körper an, als wäre er von einem Zug erfasst worden ...
+60527CDE9D14F07D;Doc, Sie müssen in der Nähe von Beton vorsichtiger sein. Du warst fast dauerhaft in deinen Gewohnheiten verankert, bevor der Presslufthammer die Norm sprengte! Keine gebrochenen Knochen, aber du hast ein paar tiefe blaue Flecken. Du wirst ungefähr einen Tag hier sein.
+574FC4257BB5B414;Ein Tag. Ich habe keine Zeit dafür. Ich muss hier raus...
+2830C9350F4D93BA;Als ich aufwachte, fühlte sich mein Körper an, als wäre er von einem Zug erfasst worden.
+2D010E0702B7D887;Sieht aus, als wären Sie gerade am Steuer eingeschlafen, Doc!  Sie brauchen Ihre sieben Stunden Ruhe, genau wie der Rest von uns. Machen Sie sich keine Sorgen, wir werden Sie morgen hier rausholen.
+6B8901881CB6F8A5;Die Pfleger warfen mich zurück ins Bett und fesselten mich. Ich schätze, ich blieb, ob es mir gefiel oder nicht.
+B9850234748EA6BC;Als ich aufwachte, sah ich, dass Schwester Judy mich vom Fußende meines Bettes aus beobachtete.
+5FF59C99112D8B09;Sie haben dich in der Wüste liegend gefunden, Doc. Da draußen sollte man vorsichtiger sein. Du hast einen üblen Sonnenbrand, aber hoffentlich sind wir morgen hier raus.
+122A87A1F95DB5A3;Einen ganzen Tag. Ich kann nicht so viel Zeit verschwenden. Ich muss hier raus...
+EB9FFACFF0D197B9;Doc, Sie sind ins Schussfeld gerannt. Obwohl es sich hauptsächlich um Pulververbrennungen handelt, werden Sie etwa einen Tag hier bleiben.
+7AB161D444498556;Ich hatte keine fünf Minuten. Ich musste fliehen... jetzt!
+A65F1C3693809319;Sie haben dich aus dem zerstörten Tank gezogen und hierher gebracht. Lehnen Sie sich zurück und ruhen Sie sich aus. Du solltest morgen hier raus sein.
+3ABEE30974A50C19;Tut mir leid, Judy, ich muss mich wieder dem Kampf widmen.
+33386C09CFA36087;Ich weiß, dass auf den Straßen ein Kampf tobt, aber man muss gesund sein, bevor man neue Verantwortung übernimmt ...
+3CBBCBE060FF4B94;Schwester Judy war zusammengebrochen. Ich musste hier raus.
+63E13E0EB56B2288;Der Bahnhof war geöffnet, aber Elmer war nicht da. Muss wohl einen Auftrag erledigen oder so. Ich beschloss, nicht auf ihn zu warten.
+0E7D706DFB33F091;Der Sergeant war nicht am Dienstschalter. Ich beschloss, nicht auf seine Rückkehr zu warten.
+F1D58E80F2242C6F;Ich zeigte dem Sheriff die Beweise, die ich über die Kreaturen gesammelt hatte.
+9E790DFF0641355C;Sehen Sie, Doc. Selbst wenn ich dachte, dass diese Beweise etwas bedeuten, ist der Bürgermeister der Einzige, der die Truppen rufen kann.
+31AF0780E2DC13D4;Wir stehen für Ihre Bestellungen bereit. Lasst uns diese Mutanten braten.
+DFAA2D1136D3B25B;Bert war nicht an seinem Schreibtisch und ich beschloss, nicht zu warten, bis er zurückkam.
+EC4C9C200DA2213C;Das Büro des Bürgermeisters war leer und sein Assistent schien nicht da zu sein. Ich beschloss, weiterzumachen.
+4ACA76F92794C70B;Was soll das ganze Gerede um Beweise? Haben Sie irgendetwas, das die Existenz Ihrer Kreaturen beweisen könnte?
+E17E79860754F44D;Flüssigkeitsbeständig
+422A50B669CF8B6C;Ich zeigte ihm die Flüssigkeitsanalyse von Dr. Wells.
+7C369E49F6453E4D;Ich kann nie verstehen, wovon zum Teufel Dr. Wells spricht. Lassen Sie diese Ergebnisse am besten noch einmal von einer seriösen Person überprüfen.
+9AE756468E431592;Spursicher
+510859D9FC57DA4C;Ich zeigte ihm die Analyse der Spur, die ich gefunden hatte.
+C975EA21441147C6;Was ist das? Einige Kinder in der dritten Klasse hätten das schaffen können! Ihr Wissenschaftler seid so bereit, alles zu glauben.
+EAD52EBE173032AA;schalldicht
+897B82AB0F11B834;Ich ließ ihn die Tonaufnahme hören, die ich gemacht hatte.
+495AD6E5CAC76447;Was ist das für ein Schläger? Es klingt wie eine Platte von Spike Jones! Wirklich, Doktor, Soundstreiche sind einer der ältesten Gags im Buch.
+D6BF8254CD781ED8;gewebefest
+C0C054A477C83904;Ich ließ ihn die Analyse der Gewebeproben sehen, die ich gesammelt hatte.
+E3AD6772FB65105C;Doktor, Sie müssen etwas verstehen. Die Berichte von Dr. Wells sind das Papier nicht wert, auf dem sie gedruckt sind! Er ist ein intellektueller Spinner! Ich bin mir sicher, dass es für diesen Gewebemüll, den Sie Beweise nennen, eine logische Erklärung gibt.
+DC7628AF4665BB6B;genug Beweise?
+7E7BB82AFF74F864;Doktor, ich bin ein vernünftiger Mann, aber ... ich habe auch ein ziemliches Temperament, wenn Leute meine Zeit verschwenden. Jetzt hau ab und lass mich diese Stadt regieren!
+9E69D11C463E2B55;Ich habe ihm die Ergebnisse des Labors gezeigt.
+74BAF2BBE0C3069A;Dieser lilienleberige Blödmann! Er rennt in die Berge. Nun, zumindest kann ich die Hilfe bekommen, die ich brauche, um diese Dinge zu stoppen. Ich hoffe, es reicht...
+F32F14C50524832B;Selbst tagsüber passierte in dieser einen Echsenstadt nicht viel.
+AF4136E2EC0CD278;Es muss ein neuer Film im Autokino sein.
+48AF563A2FCC431C;Es war noch dunkel und ich sollte zu Hause im Bett liegen.
+466DB5E8091EDA1D;In dieser langweiligen Stadt weht nicht einmal ein freundlicher Steppenläufer über die Straße.
+6BCF58017C70A7E2;Gegen Einbruch der Dunkelheit lichtet sich dieser Ort erst richtig.
+5DAF4ED31F058AF9;Die Stadt war noch dunkel und ich sollte im Bett liegen.
+F89F3CD1FAFC2142;Die Straßen waren leer.
+FAB76511A5AE8D0E;Niemand könnte diesen Ort mit der Hauptverkehrszeit in L.A. verwechseln.
+8FA71B47493DA9C6;Heute Abend muss es ein Bingospiel sein.
+E90B708BC3BCCAC2;Es war noch dunkel und die Stadt war ruhig.
+95FBD9EEB5320985;Auf einem Fetzen Papier, der über die Straße wehte, stand: „Ich liebe dich, Stacy!“.
+E20D6996F5E09EA2;Lizard Breath war im Moment ruhig.
+9790C15106A7B172;Man könnte in dieser Stadt eine Kanone abfeuern und keine Reaktion bekommen.
+62A0047232E9A348;Jeder muss auf einer Tupperware-Party sein oder so.
+5C3052F65F11280D;Es war noch dunkel und die Stadt war leer.
+1B0077D891945C10;Niemand war auf der Straße.
+7AA3D40987F34A24;Die Hell Cats waren irgendwo unterwegs. Rocket Ranger schien ein ziemlich guter Film zu sein ...
+348A4D0F3294894D;Du hattest also den Mut, „Sägeknochen“ zu zeigen. Jungs, gebt mir etwas Platz. Ich werde aus diesem Kerl Schweizer Käse machen.
+9CCB84CD3AFC5E4D;Ice zog sein Springmesser. Ich wusste, dass es zu weit gegangen war, um nachzugeben.
+744357D3ACC0E973;Das Labor war leer, also beschloss ich, weiterzumachen.
+149372E17E6343FB;Herr Doktor, es ist wirklich eine Freude, Sie kennenzulernen.
+ADE07BDD07E166C2;Ich erzählte ihm, dass ich eine Ameise gesehen habe, die so groß wie ein Haus war.
+A5C61B23A2B143E0;Ich freue mich, dass Sie vorbeigekommen sind, Doktor. Bei all den Gerüchten über Kreaturen und was auch immer ist es ein Glück, dass wir einen guten Mann für den Fall haben.
+B8F57FDAF063CF30;Ich zeigte Dr. Wells die Beweise für die Kreatur, die ich mitgebracht hatte ...
+D14189F1D5D1331C;Jetzt kommen wir irgendwohin.  Lass das bei mir.  Ich sollte die Testergebnisse bis morgen haben.
+03B63C3248DDC5AC;Greg, ich habe mir die Ergebnisse der Tests angesehen, die wir an dem von Ihnen gesammelten Gewebe durchgeführt haben. Sitzt du? Es stammt von einer Ernteameise, Pogonomyrmex Rugosus. Eine enorme. Ich habe kein gutes Gefühl dabei. Sie müssen mit dem Bürgermeister sprechen.
+A815CA0A4437140E;Das von Ihnen gesammelte Gewebe stimmt mit den anderen Beweisen überein. Auf jeden Fall von einer Ernteameise.
+0CB500A0F351AD88;Die von Ihnen mitgebrachte Aufnahme entspricht, wenn sie über ein spezielles Hochgeschwindigkeits-Wiedergabegerät abgespielt wird, den Stimmparametern des Harvesters. Normalerweise können Menschen keine Ameisengeräusche hören, aber wenn sie dieses Ausmaß erreichen, wird alles möglich.
+F00B839B2502C240;Es stellte sich heraus, dass es sich bei der Flüssigkeit um Ameisensäure in einer hochkonzentrierten Lösung handelte. Das ist das Lebensblut einer Ameise ... jeder Größe.
+4944845B9682E342;Die Spur passt zum Mähdrescherprofil. Man sieht, wie groß es ist.
+0B291C9DA2D7BFAE;Gute Arbeit, Greg! Schauen Sie morgen noch einmal vorbei. Ich sollte die Ergebnisse haben.
+C3FD398260396B34;Greg, bei so großen Ameisen sind die Antennen der einzige Ort, an dem sie durch Pistolenschüsse anfällig sind. Es ist die Art und Weise, wie sie ihre Umgebung wahrnehmen. Wenn Sie beide Antennen abschießen können, verlieren sie den Kontakt zu den anderen und sterben.
+861E77D28995F722;Ah ja. Was kann ich Ihnen sagen ... nun, hier ist etwas. Ihr Nest wird schwer zu finden sein. Der Eingang öffnet sich nur, wenn eine Ameise rein oder raus geht. Am besten folgen Sie einem Lebewesen zurück zum Nest und schauen, wo sich die Tür öffnet.
+6E2881F95AE0B4F6;Ich schleppte mich in das Labor des Professors und erzählte ihm von der Riesenameise. Er zog die Augenbrauen hoch und bekam dann diesen besorgten Ausdruck auf seinem Gesicht.
+72C46078422A83DC;Wenn das, was Sie sagen, wahr ist, werden Sie den Körperpanzer auf keinen Fall mit Kugeln aus normalen Seitenwaffen durchschlagen. Die einzige Stelle an seinem Körper, an der es verwundbar wäre, wären seine Fühler, und selbst dann ...
+7C014A11006BA049;Seine Stimme verstummte nachdenklich und ich beschloss, ihn über das nachdenken zu lassen, was ich ihm gesagt hatte.
+
+# --- the telephone dialogue (160 record(s)) ---
+848B34F8AA9DA46D;Mal sehen, ob Louie da ist, mein Lieber ...
+F2DBCBFD8D563FB7;Ja, Sir, Herr Doc. Es steht ein Flugzeug zum Chartern zur Verfügung.
+6F37907B2A6BF5C1;Du rufst dein eigenes Haus an, nicht wahr? Wird jemand da sein?
+DD1C65149B096153;Meine Güte, wir haben noch ein paar Proben vorbeigebracht. Ich werde sie zu den anderen legen. Er verhält sich wirklich seltsam.
+04780AD73E682EF1;Der Arzt kann nicht ans Telefon kommen. Er fragte, ob Sie vorbeikommen würden, wenn es Ihnen passt.
+ACBC199212D62FED;Machst du Witze. Das Labor ist geschlossen. Gehen Sie nach Hause, Doktor. Sie brauchen Ihre Schönheitsruhe.
+BCF2EA312E86A9C0;Doc Wells hat versucht, Sie zu erreichen. Machen Sie weiter, Dr. Wells.
+1F7A5BA5E7894218;Greg, ich habe die Ergebnisse der Beweise, die Sie mir gegeben haben. Du solltest besser sofort hierher kommen. Ich möchte nicht am Telefon darüber reden.
+11324022A7F40056;Hey Doc, willst du Dusty? Sie führt gerade einen weiteren Anruf durch. Ich habe gehört, dass letzte Nacht in den Minen einige seltsame Dinge passiert sind. Oh ... sie ist weg, Doc.  Fortfahren.
+21A90D9C88297645;Hey Fremder.  Ich bin um sechs nicht mehr auf Sendung. Wie wäre es, wenn wir uns bei O'Riordan treffen würden? Ich muss Ihnen seltsamen Klatsch erzählen.
+1E2FA6E17C48C7BF;Doc, sie ist drüben bei O'Riordan's.
+0A24C7680FBCD08E;Ich rufe jetzt die Polizei an. Fortfahren.
+045F8E316B2A2355;Nein Doktor, mir liegen keine Berichte über etwas Ungewöhnliches vor.
+5B78A2CA65C70606;Du willst also den Holzapfel. Was für ein schwieriger Mann.
+2004820E1213B3E9;Doktor, das ist Bert Lamont vom Star. Ich schreibe einen Artikel über den Meteorabsturz letzte Woche. Könnten Sie zu einem Vorstellungsgespräch vorbeikommen?
+0C9BA386F7F84EE7;Mit der Leitung zur Wetterstation stimmt etwas nicht. Universitätslaboranten sagen, dass es heiß werden wird. Seit der Meteoreinschlag in der Stadt läuft eine Menge lustiger Dinge ...
+0FA2242D0C59D22C;Zer iss immer ein Flugzeug für Sie verfügbar, Doc.
+035E8646A080826F;Anschließen......
+E3E466ECD1C1C8B5;Doc, diese rothaarige Sexbombe ist gerade an der Tür angekommen. Sie ist wirklich, wissen Sie, va-va-voom! Sie hatte einen Autounfall oder so etwas. Du musst sofort hierher kommen!
+623F0474BBDDD9B0;Greg, ich bin mitten in etwas. Ich muss dich zurückrufen.
+689C11C147CB7358;Ich habe gehört, dass es bei Ihnen zu Hause einen Notfall gibt. Ein Rothaariger. Denken Sie nur an das Pfadfindergesetz. Kaufen Sie keine Kekse von Personen über 12 Jahren.
+650B07C644E24315;Hey Doc, machen Sie keine Hausbesuche mehr? Sie wissen, dass in zwei Wochen das große Leguanfest des Bürgermeisters stattfindet. Lass uns zum großen Tanz gehen.
+68E7863A15FE2C17;Sieht so aus, als wäre Pumpenhaus drei ein Hot Spot. Es ist alles, worüber alle reden.
+43F77C817BAD2638;Wir untersuchen, ob bei Pumpenhaus drei Lichter ausgefallen sind. Höchstwahrscheinlich Kinder mit Taschenlampen.
+114EA611C18EC192;Sieht so aus, als wäre er heute nicht im Büro, Doktor. Ich weiß nicht, warum du überhaupt mit ihm reden willst.
+FC003381F593D943;Verbinden...
+BD6725892632F8FE;Oui, oui Doc, wir haben ein Flugzeug zum Chartern verfügbar.
+812FD24AD7031098;Hey, Doc, was ist mit diesem Pipeline-Zeug? Hier ist Biff.
+8AAA27D340600D04;Ben Johnson kam vorbei. Er hat dir etwas mitgebracht, das wirklich übel riecht. Ich habe es auf die hintere Veranda gestellt.
+98C9C8A93E49270D;Ich habe von diesem heißen Ticket gehört, das bei Ihnen bleibt, Doc... bei Ihnen zu Hause gibt es keine Antwort.
+4E620E70E5F08A40;Greg, schön von dir zu hören. Wenn Sie etwas Interessantes finden, bringen Sie es mit, ich schaue es mir an.
+30A1D5D10AFF7CEF;Ich bin mir nicht sicher, ob du mit Dusty reden willst ... okay, es ist deine Beerdigung ...
+08A6844C84C5F459;Du zweifache Laus! Ein Heel wie du hat es nicht verdient, aber ich gebe dir noch eine Chance...entweder du wirst diese Schlampe bei dir zu Hause los oder du kannst mich küssen, Kumpel!
+79829C0FFA73A55E;Hier ist Dusty....
+B0BBCA2B4AFE369D;Oh, Greg, sind die Nachrichten aus den Minen nicht schrecklich? Wir versuchen, jemanden dorthin zu holen, um herauszufinden, was los ist. Muss rennen....
+3A287519AAD62BD4;Diese Jungs hatten einen anstrengenden Vormittag...
+22FFB790AD992046;Ich kann Ihnen nur sagen, dass wir uns diese Pipeline-Geschichten ansehen.
+A9264C3E85182C3F;Hast du nicht genug von mir bekommen, Superman? Vielleicht war der Steinbruch voller Kryptonit, war das das Problem? Ha ha ha!
+4BEB44D0132A1672;Okay, vielleicht bin ich da hinten im Steinbruch ausgerutscht ... lasst uns daraus keinen Bundesfall machen! Du hast mich noch nicht zum letzten Mal gesehen ...
+AF47BFBDA6985221;Ich werde sehen, ob Bert da ist...
+1B9C4C55BBB79765;Ich verlagere meine Geschichte über den Meteor auf dieses Pipeline-Zeug. Der Bürgermeister möchte, dass ich wegen des Festivals die Autorin töte. Kannst du das glauben?
+3D2EE8C85947AAAD;Ich werde sehen, ob Bert da ist.
+E2F18DE17828FECD;Ich steige aus der Meteorgeschichte aus. Die Kerle im Steinbruch waren völlig durchgeknallt.
+4A03F27B83DEB633;Ich werde sehen, ob Louie zunimmt.
+E825EDD2280A56CC;Hallo, Doc? Ich dachte, Sie könnten an einer Sichtung interessiert sein, die einer meiner Piloten gemacht hat. Er sagte, er habe etwas gesehen, das sich nördlich der Zee-Pipeline bewegte. Als er wieder zu sich kam, POOF! Eet war weg. Habt ihr irgendwelche Ideen?
+C9EF6C3E9091D0EF;Hier ist Biffaroo...
+017430C3DD01A0C7;Jeepers, ich hasse es, wenn sie mich so nennt! Hier ist alles ruhig.
+EF2B6E76FE7F64A9;Klingelt.....
+18184C7FB1FD5AA4;Doc, die Testergebnisse dieser Proben sind zurück. Ich lege sie auf deinen Schreibtisch.
+C5BAE68281429D54;Ah, Doc ... ich glaube, Jackie ist läufig oder so. Du solltest besser schnell nach Hause kommen und sie abkühlen. Mir gefallen die Blicke, die sie mir zuwirft, nicht ...
+B5994C4A7F63CF84;Dieser Biff ist jetzt fast die ganze Zeit bei dir zu Hause, nicht wahr? Wann hat er jemals Zeit, seine Hausaufgaben zu machen? Hier ist jetzt der All American Boy ...
+D9E870A3F91AC9CE;Doc, vergessen Sie nicht, dass diese Proben, meine Güte, hier abgegeben wurden. Vielleicht möchten Sie nach Hause kommen und sie sich ansehen.
+82CFC5FFDF28ACA0;Äh, Jackie sagt, ich soll dir sagen, dass sie gelangweilt ist und dass sie dir die Wiege raubt, wenn du nicht nach Hause kommst, aber gut. Hier gibt es keine Wiegen, Doc...
+9FCA2E6441206C82;Sie sollten auf Dr. Wells hören. Er weiß alles über diese Gegend.
+2C7CDD2F8D58676A;Ja, Doktor. Ich habe das Trackcasting, das Geez abgegeben hat, zur Analyse geschickt.  Auf den ersten Blick sieht es aus wie eine Art Insektenspur, nur tausendfach vergrößert! Wenn Sie noch etwas finden, bringen Sie es vorbei.
+D3D54DD2F4A69D4F;Ich kenne jemanden, der nicht sehr glücklich mit dir ist. Wenn Sie mich fragen, machen Sie einen großen Fehler ...
+9EEC23A98DBB6916;Ich habe dir gesagt, dass sie oder ich es waren, Greg. Jetzt lass mich in Ruhe!
+91BB36736635CCFD;Dusty ist so ein nettes Mädchen, Doc. Ihr zwei solltet heiraten. Hier ist sie...
+5D41C6CEDDC8030D;Greg, der Reporter, den wir geschickt haben, um über die Unruhen in der M-1-Mine zu berichten, ist verschwunden. Niemand hat ihn gesehen, seit er vor zwei Tagen in den Erzzug gestiegen ist. Was ist los?
+85842BD01B4BED17;Haben Sie gehört, was sie auf der Autobahn herausgefunden haben? Oh, hier ist der Sergeant.
+C8146032A1F6EE87;Doc, wir haben draußen auf der Autobahn ein Autowrack gefunden. Eines dieser Aufnahmegeräte war darin. Auf dem Band ist ein seltsames Geräusch zu hören, und ich würde gerne Ihre Meinung dazu hören, was es sein könnte. Kannst du vorbeikommen?
+EEB3639CE0BC177B;Ich glaube, Bert ist draußen, aber lass mich nachsehen.
+45C6CB2A7DD98B8B;Der Blow-Hard ist auf eine Geschichte aus.
+A99B4E2E2B0736A1;Ich hole Louie für dich. Haben Sie von der Leiche gehört, die sie in Neptune Hall gefunden haben?
+7D7425AF2B495971;Oui Doc, es steht Ihnen ein EEZ-Flugzeug zur Verfügung, wenn Sie es brauchen...
+62F4DC3A8CBA30C0;Zu Hause anrufen? Die ganze Action findet in der Neptune Hall statt. Hier ist Biffy Boy.
+2829A19A01CFC548;Warum nennt sie mich so? Die Leute vom Steinbruch haben angerufen. Sie wollen dir etwas zeigen.
+81156E815CB43047;Jackie sagt auch, ich soll dir sagen, dass sie gelangweilt ist. Sie will Aufmerksamkeit, oder sie geht in ihrem roten Kleid in die Stadt. Jeepers, Doc, dafür könnte sie verhaftet werden ...!
+899EC5AB11C06779;Dr. Wells ist bis morgen frei.
+7C49F399A4F41DCE;Tut mir leid, Doc, Dusty sagt, sie würde nicht mit Ihnen reden.
+14349490CF242A04;Hier ist Dusty...
+DCF7307629B9046B;Greg, sie haben die Leiche einer Frau drüben in Neptune Hall gefunden!
+60650F1C1CB03CC1;Ihre Nummer ist besetzt. Das ist so, seit die Mordgeschichte bekannt wurde.
+39B61C286BEF6397;Er ist auf dem Weg nach Neptune Hall.
+35CEDBD1D1EF6197;Louie hat Flugzeuge zur Verfügung, falls Sie deswegen anrufen, Doc. Möglicherweise benötigen Sie sie. Der Bock ist letzte Nacht auf die Autobahn gefallen. Wir sind für eine Weile abgeschnitten.
+6E617366F2543712;Doc, es ist niemand zu Hause. Ist Biff nicht zum Haus seiner Familie gegangen?
+47689F16BBD24CDC;Bringen Sie alles mit, was Sie haben, Greg.
+2E9FF584221408AC;Ich habe die Ergebnisse dieser Tests.
+A08958172625211E;Ziemlich seltsame Gerüchte kursieren im Umlauf. Kommen Sie vorbei, wenn Sie etwas finden.
+235D5E8BB28CAE1F;Doc, sie wird nicht mit Ihnen reden.
+2923D5AD50379832;Ich werde sehen, ob sie mit dir reden wird.
+F4960E925376AFCB;Greg, der Bock ist auf die Autobahn gefallen. Wir sind von der Außenwelt abgeschnitten. Das gefällt mir überhaupt nicht.
+BC7EB11DA4E55234;Wir haben eine eindeutige Identifizierung der Jane Doe, die wir in Neptune Hall gefunden haben. Wenn Sie mehr wissen wollen, müssen Sie vorbeikommen.
+0C539663DB500BFF;Bert sagt, er sei zu beschäftigt, um mit dir zu reden. Er arbeitet an der Neptune Hall-Geschichte. Er liebt es, dass Billy Bob darin mitmischt!
+1C20D08B3C923D7C;Ich werde sehen, ob Louie schon zurück ist.
+6D675893E9B348B6;Ich freue mich, dass Sie angerufen haben, Doc. Ich habe einen weiteren Bericht von einem meiner Piloten erhalten. Er sah, wie sich etwas Großes durch die Schatten des Meeresvulkans nach Norden bewegte. Ich halte Sie gerne auf dem Laufenden. Au revoir!
+4E7F19B5596CED9B;Jackie ist letzte Nacht aus Neptune Hall weggelaufen. Niemand weiß, wo sie ist.
+3484D2785D814047;Hier passiert nicht viel, Doc.
+96F9A519B3B84190;Oh Doc, Dr. Wells hat versucht, Sie zu erreichen. Fortfahren.
+7DF0D784FCFB84C1;Greg, ich habe die Ergebnisse des Trackcastings, die Gez mir gebracht hat.  Du solltest besser hierher kommen. Du wirst es nicht glauben.
+DC53BA99CD0EF8EC;Doc, sie legt auf, wenn ich sage, dass Sie es sind. Versuchen Sie es mit Blumen. Das erwischt sie immer.
+4E33D50C1C775846;Heute ist alles ruhig. Es ist eine schöne Abwechslung. Wenn Sie mit Ihrer Arbeit fertig sind, kommen Sie vorbei. Wie wäre es mit dieser Erkältung, hm...?
+553D948A24E76EDA;Ich klingele....
+AE14DF0760038911;Heute ist alles ruhig, Doc. Wir halten nur den Atem an und versuchen, die Autobahn freizubekommen.
+9EBAD457EE02FF43;Ich glaube, Bert ist draußen, aber lass mich nachsehen. Ja. Er ist irgendwo in der Stadt unterwegs und streift umher.
+31BADDCA60865E90;Oui Doktor, wir haben Flugzeuge zum Chartern verfügbar. Nur hier raus mit zee voie publique, wie Sie sagen, Autobahn gesperrt.
+4DA95C9869F99BE9;Greg, Schatz. Warum kommst du nicht gleich nach Hause? Ich möchte mit dir reden.
+161C41C79524D131;Niemand ist zu Hause, Doc.
+9000E099676AEF29;Das mit Jackie tut mir so leid, Greg. Sie war zur falschen Zeit am falschen Ort. Diese Großstadtärzte werden sie im Handumdrehen heilen.
+B57970689A9D05C0;Dr. Wells muss sich für eine Weile zurückgezogen haben. Ich hinterlasse Ihnen eine Nachricht.
+0E15F26680E28EB3;Greg,....das mit deinem Freund tut mir leid. Niemand hat verdient, was ihr passiert ist. Wenn ich irgendetwas tun kann, kommen Sie vorbei.
+D86630369FE297FF;Doc, sie legt einfach auf, wenn sie weiß, dass Sie es sind.
+589C1C81B8200686;Doc, sie ist sehr beschäftigt und hat gefragt, ob sie Sie zurückrufen kann.
+47AE116168ED4B40;Doc, ich möchte diese Hellcats auf die schlimmste Art und Weise verfolgen, aber ohne einen Zeugen kann ich nichts tun. Wenn Jackie nach ihrer Genesung beschließt, zu Lizard Breath zurückzukehren, lassen Sie es mich wissen. Ich werde sie im Auge behalten.
+B99D1A6A81FFA9A4;Es ist ruhig. Zu leise...
+63FB299912772BB7;Bert ist immer noch nicht im Büro, Doc. Es ist erstaunlich, dass der Mann einen Job hat.
+F540FEF5AE31BA1D;Klingeln....
+3CD89BFF1CA03B48;Alo, Doc. Nein, alle meine Flugzeuge sind derzeit alle im Charter. Irgendeine große Regierungsaufgabe oben im Norden. Ich sollte morgen eines davon zurückhaben. Dann fragen Sie mich.
+458A54EA3A139E6B;Ich kenne einige Leute, die nach dir gesucht haben. Hier ist dein treuer Tonto.....
+F37658299A0B164C;Meine Güte, das Telefon klingelt wie aus dem Nichts! Es gibt überall Berichte über riesige Ameisen! Dr. Wells muss mit Ihnen reden ... und auch mit Dusty.
+9BFB94651F28349A;Er hat nach dir gesucht, ist aber draußen auf dem Feld und versucht, diesen Ameisengerüchten auf die Spur zu kommen. Er sagte, er würde wahrscheinlich auf der Farm südlich der Stadt sein.
+0FEBC1CE81D77397;Ich habe geschworen, nie wieder mit dir zu reden, aber das ist zu wichtig! Wir erhalten Berichte über riesige Ameisen, die Bauernhöfe im Süden angreifen. Ich habe Angst...!
+080E74D267EE4957;Greg, wir haben aus dem ganzen Tal Berichte erhalten, dass riesige Ameisen ihr Unwesen treiben. Ich kann nicht reden, es ist im Moment zu verrückt... komm vorbei.
+1DEB17067074329A;Sie sind im Moment furchtbar beschäftigt...
+B766FE02B9B7BFA2;Doc, ich habe nicht die Zeit, alles zu erklären, aber es scheint, als hätten wir riesige Ameisen, die Bauernhöfe südlich der Stadt angreifen. Ich habe bereits zwei Männer verloren. Das ist alles, was ich Ihnen am Telefon sagen kann.
+E00CB4D4EE658AE1;Er ist immer noch draußen, Doc. Höchstwahrscheinlich irgendwo in der Stadt.
+AB9E798BF0592E72;Doc, eines meiner Flugzeuge hat Ameisen entdeckt, die sich auf das Zee-Waffendepot zubewegten. Wenn wir sie verlieren, stecken wir in großen Schwierigkeiten!
+63634C6A28AE5D95;Meine Güte hat nach dir gesucht.
+AEAD1EA578A7E619;Meine Güte hinterließ eine Nachricht, dass wir ihn auf der Farm südlich der Stadt treffen sollten.
+EA1D70EBB187D0D8;Das Labor ist heute aus Trauer geschlossen.
+EE2CE14CDEC43E07;Ich habe einige Ideen, wie man die Ameisen stoppen kann. Kommen Sie vorbei und wir reden darüber.
+9542B87DF3B8FEE9;Ich bin froh, dass ihr euch versöhnt habt.
+423CE0A5F052AD17;Greg, sie haben die Farm westlich der Stadt angegriffen und bedrohen das Waffendepot. Der Bürgermeister hat natürlich nichts unternommen.
+6700B439C7281803;Doc, ich kann es nicht alles am Telefon erklären. Du musst reinkommen.
+846120FE9945CF41;Der Bürgermeister versucht endlich, Hilfe zu bekommen. Ich hoffe, es ist nicht zu spät...
+89CFB8739627AAEB;Einer der Bauern hat mir eine Zeichnung einer Ameise angefertigt. Lizard Breath wird auf der ganzen Welt für Schlagzeilen sorgen ... byline:Bert Lamont, Star Reporter!
+48F4B9B351FF9A02;Sie sagen das Wort Doc, und s'envoler, wir fliegen!
+34B45472E4A9F041;Es ist zu ruhig, Doc. Es gefällt mir nicht.
+7B242422B59CFA36;Hier gibt es nichts Neues, Doc. Niemand hat angerufen.
+7B4B3DD358EA50E0;Das Labor ist geschlossen, bis der neue Mann hierher kommen kann.
+066D9D70D831E32E;Greg, du musst sofort hierher kommen. Ich glaube, ich habe etwas herausgefunden.
+02E04C673F36B3B4;Dieses Warten ist das Schlimmste. Ich wünschte, sie würden es hinter sich bringen.
+4501A260B34A8402;Fühlt sich an wie die Ruhe vor dem Sturm. Ich gebe euch Bescheid, wenn es etwas Neues gibt.
+1760DD20E6448D54;Er ist draußen und spricht mit den Opfern.
+A07C1F2B705F39AF;Irgendwas stimmt mit der Leitung nicht...
+64453FB85B306E82;Doc, sind Sie das? Sie sind hier... sie sind...
+132ADA82446089CC;Die Leitung war tot.
+E32EA460DAF08EA7;Meine Güte, was für eine abscheuliche Entwicklung das war ... Ich packe alles ein, was Sie verlangt haben. Wie nah sind sie?
+C872C36F9AC9211C;Der Ersatz für Dr. Wells ist noch nicht eingetroffen. Das Labor ist geschlossen.
+629964A4201BCDE2;Ich werde sehen, ob er noch da ist....
+8B2E6909CB302C2C;Greg, ich bleibe so lange ich kann, aber wir haben alles Personal, das nicht benötigt wird, in die Stadt gebracht. Wenn sie auftauchen, wird der Rest von uns hier verschwinden ...
+1361D0887E04AD2D;Sie sind zurück. Diesmal sind es der Flughafen und die nördlichen Bauernhöfe. Du kommst, um mich zu holen, nicht wahr?
+964A01CE1A2EBD72;Doc, Sie müssen ins Hauptquartier kommen. Wir haben wieder überall Ameisen.
+BF0275B5CE12BC8C;Niemand hat Bert gesehen, Doc. Es gibt Gerüchte, dass er die Stadt verlassen hat.
+91A8E8B974C3E78F;C'est fini. Nichts mehr zum Fliegen übrig, mein Freund!
+AAC2987F6031DAB1;Ich kann immer noch ein Flugzeug in die Luft bringen. Sie sagen ein Wort, Doc.
+9969EF3223DE6E45;Ich weiß nicht, ob er noch da ist....
+368CF994D4EDF771;Ich fahre in die Stadt. Jeepers Creepers, da sind überall Ameisen!
+7B96FB45727A5364;Ich weiß, dass du ihn vermisst, aber Dr. Wells ist weg und kommt nie wieder zurück.
+8061BF9E8455A34C;Sie sind pünktlich angekommen. Wenn Sie das Labor retten wollen, sollten Sie schnell kommen!
+28AC0FED0D8115E4;Das Letzte, was ich hörte, war, dass sie in ihre Richtung gingen.
+090DFD9C20E7E3BE;Noch keine Ameisen, aber es ist nur eine Frage der Zeit. Komm und hol mich, bevor sie hier sind!
+B2F2CE40B6723F26;Sie sind damit beschäftigt, den letzten Stand in der Stadt zu organisieren.
+7ACFE190614CB9E3;Nein, ich bleibe bis zum Ende. Das ist die Geschichte, die ich erzählen werde.
+925084280117CCB0;Louie ist in der Stadt.
+F273BE86771F8175;Biff ist zum letzten Gefecht in der Stadt.
+46CA9C441E96AC23;Alle sind weg, Doc.
+C178FAEDD0A1D38D;Greg, hast du gehört? Die Ameisen haben den Neptunhaufen herausgeholt. Der Gerechtigkeit wird Genüge getan.
+1AEFBCCAF064C6C5;Wir bereiten uns auf den letzten Angriff vor.
+813A37002B550E10;Irgendwelche letzten Worte, Doc? Jetzt ist es an der Zeit!
