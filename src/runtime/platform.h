@@ -125,6 +125,18 @@ u32  plat_set_framebuffer_size(u32 w, u32 h);
 /* rgb holds count*3 bytes, each 0..255, for palette entries first..first+count-1. */
 void plat_set_palette(u32 first, u32 count, const u8 *rgb);
 
+/* The port's overlay has its own table, apart from the picture's (docs\display-rate.md, phase 3):
+ * the overlay's pens are its own indices, and a presenter that builds a true-colour picture resolves
+ * them through *this* table instead of the picture's, so an overlay pen no longer takes a picture
+ * entry - the arrow and the picker stop painting the scene's pixels in their place. A platform that
+ * draws the overlay into the picture itself (DOS) may treat it exactly like plat_set_palette. rgb
+ * covers first..first+count-1, as there. */
+void plat_set_overlay_palette(u32 first, u32 count, const u8 *rgb);
+
+/* The presenter actually running, for --displaystat: "dx9" for the flip-model layer, "gdi" for the
+ * window-DC fallback (which stays the reference path), "vga" where the platform has neither. */
+const char *plat_display_backend(void);
+
 /* --- audio ---------------------------------------------------------------- */
 /* A stereo, signed 16-bit PCM output at rate Hz. Returns 1 when a device is playing; 0 is not an
  * error - the machine keeps its own audio state and simply renders nothing. */
@@ -163,6 +175,43 @@ u32  plat_pump(input_state *in);
 
 /* Blocks until the next 50 Hz game tick (the Amiga frame rate). */
 void plat_frame_sync(void);
+
+/* --- display rate -------------------------------------------------------------------------
+ * The machine's frame stays the 20 ms it is (docs\display-rate.md): what these calls add is the
+ * *delivery* of that picture - and of the port's own overlay - at the panel's refresh rate, from
+ * whatever the host last handed to plat_present. */
+
+/* Monotonic microseconds. QPC on Win32; the PIT-derived clock on DOS. */
+u64  plat_now_us(void);
+
+/* The panel's refresh rate, 0 when it cannot be known (DOS mode 13h, a remote session). A rate of
+ * 0 means "deliver once per present", which is what the port always did. */
+u32  plat_display_hz(void);
+
+/* How the port's overlay is drawn at display rate: the front end registers one function, and the
+ * platform calls it for every display frame it delivers, into an 8-bit chunky surface of the
+ * picture's size. The front end also calls the same function itself for a headless --shot/--dump,
+ * so both paths show the same overlay. */
+typedef void (*plat_overlay_fn)(u8 *dst, u32 stride, int w, int h);
+void plat_set_overlay(plat_overlay_fn fn);
+
+/* 1 when the platform is drawing the overlay itself, so the runtime must not also compose it into
+ * the picture (it would then be delivered twice, and its pixels would sit in the picture layer). */
+u32  plat_overlay_armed(void);
+
+/* One display frame's worth of service: drain messages, and deliver at most once per refresh.
+ * Never blocks - a display tick may not delay the machine's 20 ms deadline, so it presents or it
+ * skips. plat_frame_sync calls it inside its wait loop, so every existing caller inherits it. */
+void plat_display_service(void);
+
+/* The pointer's position in framebuffer coordinates as the platform's last message drain saw it;
+ * 1 when there is one. The port's overlay moves the drawn arrow with it at display rate, while the
+ * seams that write guest state keep reading plat_pump at the frame boundary. */
+u32  plat_pointer_position(s16 *x, s16 *y);
+
+/* --displaystat: what the display service delivered - display frames, overlay redraws - and the
+ * rate it paced them at (0 when there is no panel rate). */
+void plat_display_stats(u32 *frames, u32 *overlays, u32 *hz);
 
 /* Frame rate for plat_frame_sync, default 50 Hz. A slower rate is a debugging aid: the same
  * animation content, shown for longer. */

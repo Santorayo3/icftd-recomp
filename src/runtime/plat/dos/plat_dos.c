@@ -1606,6 +1606,64 @@ u32 plat_ticks_ms(void)
     return g_ms;
 }
 
+/* --- display rate ---------------------------------------------------------------------------
+ * Mode 13h has no refresh of its own beyond the VGA retrace, and the port's overlay is composed
+ * into the picture the front end hands over in one copy: docs\display-rate.md leaves the DOS build
+ * on that single copy on purpose (its phase 2, item 6), so the service is a no-op here and the
+ * panel's rate is reported as unknown. */
+u64 plat_now_us(void)
+{
+    return (u64)plat_ticks_ms() * 1000u;
+}
+
+u32 plat_display_hz(void)
+{
+    return 0;
+}
+
+void plat_set_overlay(plat_overlay_fn fn)
+{
+    (void)fn;
+}
+
+u32 plat_overlay_armed(void)
+{
+    return 0;
+}
+
+void plat_display_service(void)
+{
+}
+
+void plat_display_stats(u32 *frames, u32 *overlays, u32 *hz)
+{
+    if (frames != 0) *frames = 0;
+    if (overlays != 0) *overlays = 0;
+    if (hz != 0) *hz = 0;
+}
+
+/* The overlay is composed into the picture itself here (plat_overlay_armed answers 0), so its pens
+ * are the picture's pens: one table serves both, exactly as it did before the split. */
+void plat_set_overlay_palette(u32 first, u32 count, const u8 *rgb)
+{
+    plat_set_palette(first, count, rgb);
+}
+
+/* The VGA's own copy of the picture is the presenter: there is no window and no fallback to name. */
+const char *plat_display_backend(void)
+{
+    return "vga";
+}
+
+/* The pointer's position in framebuffer pixels, as the last poll saw it. */
+u32 plat_pointer_position(s16 *x, s16 *y)
+{
+    if (g_mouse != 1) return 0;
+    if (x != 0) *x = g_mouseX;
+    if (y != 0) *y = g_mouseY;
+    return 1;
+}
+
 /* The same monotonic clock pit_update() accumulates from, handed to the front end's --perf
  * breakdown; a call here keeps the clock current for the accumulators too. A sample never moves the
  * clock backwards: a reading that would is retried and then dropped, and the next one measures the

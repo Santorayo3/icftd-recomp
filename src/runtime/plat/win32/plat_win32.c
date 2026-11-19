@@ -1,5 +1,7 @@
-/* Win32 platform layer: one 8-bit DIB section the size of the picture the core presents, one
- * logical palette, BitBlt to the window, 50 Hz pacing, keyboard and mouse.
+/* Win32 platform layer: an 8-bit picture DIB the size of the picture the core presents, an 8-bit
+ * overlay layer beside it, and a presenter that either hands both to a D3D9Ex swapchain as true
+ * colour or - when there is no device, and always for WM_PRINTCLIENT/--shot - composes them into the
+ * client with GDI.
  *
  * The window has a resizable frame. The game's screen - 320x200 - scales with the client's *height*
  * (one scale for both axes when windowed, the 4:3 an Amiga monitor shows on when fullscreen), so a
@@ -7,8 +9,16 @@
  * client narrower than the screen's shape shows the bars above and below instead of cropping it.
  * The picture is fitted into the screen's rectangle at the screen's own pixel shape (see
  * picture_rect), so a scene with its own, larger screen - the chicken race's 368x216 window - is the
- * same shape as the rest of the game instead of a shape of its own. Both go through one 32-bit
- * frame the picture is stretched into, blitted to the window in one BitBlt.
+ * same shape as the rest of the game instead of a shape of its own.
+ *
+ * Two presenters, one picture (docs\display-rate.md, phases 2 and 3):
+ *   - D3D9Ex: the picture and the overlay are resolved through two 256-entry index->RGB tables into
+ *     an X8R8G8B8 texture, which is drawn as one quad over the client - the palette is data, not
+ *     device state, so no RealizePalette is on the path and the overlay's pens stop sharing the
+ *     picture's table.
+ *   - GDI: the 8-bit display DIB through the window DC, the path every earlier build used. It stays
+ *     the fallback when the device cannot be created, and the reference WM_PRINTCLIENT answers
+ *     with, which is how tools\window-check.ps1 and PrintWindow read the client.
  *
  * Built with: wcl386 -bt=nt -5s -ox -i=..\core ..\core\main.c ..\core\gfx.c plat_win32.c
  */
@@ -17,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <d3d9.h>
 #include "types.h"
 #include "platform.h"
 #include "border.h"
@@ -36,12 +47,33 @@ static u32          *g_frame_bits;
 static int           g_frame_w, g_frame_h;
 static HPALETTE      g_pal;
 static int           g_fb_w = SCREEN_W, g_fb_h = SCREEN_H;  /* the DIB, i.e. this frame's picture */
+/* The display surface (docs\display-rate.md): the picture the last plat_present handed over, with
+ * the port's overlay drawn on top of it for this display frame. plat_present fills it; the display
+ * service refills it at the panel's rate, so the arrow and the OSD move without the game's 20 ms
+ * frame having to move with them. */
+static HDC           g_disp_dc;
+static HBITMAP       g_disp_dib;
+static u8           *g_disp_bits;
+static u32           g_disp_stride;
+static int           g_disp_w, g_disp_h;
+static plat_overlay_fn g_overlay;     /* the front end's overlay, drawn per display frame */
+static int           g_disp_fresh;    /* g_bits holds a picture the display surface has not got */
+static volatile LONG g_disp_frames;   /* display frames delivered (the presenter's thread bumps it) */
+static u32           g_overlay_draws; /* ... and overlay redraws inside them */
+static u32           g_disp_hz;       /* the panel's refresh rate, 0 = unknown */
+static u32           g_disp_period_us;/* microseconds per display frame, 0 = no display clock */
+static u64           g_next_disp_us;  /* plat_now_us() of the next display frame's delivery */
 static int           g_quit;
 static u32           g_fullscreen;
 static u32           g_start_ms;
 static u32           g_frame_ms = 20;    /* 50 Hz, the Amiga frame rate */
 static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
+/* A key that went down and up again between two plat_pump calls leaves g_keys unchanged, so the
+ * per-pump edge diff alone loses the tap (Escape, F1..F5, Alt+Enter, the title's digits). The
+ * window procedure latches the press here - at whatever instant the message arrives, which is the
+ * display-rate drain - and plat_pump reports it once and clears it. */
+static u8            g_pressLatch[KEY_COUNT];
 static u8            g_dirHeld[4];        /* per direction: bit 0 the arrow key, bit 1 W/A/S/D */
 static s16           g_mouse_x, g_mouse_y;
 static u8            g_mouse_buttons;
@@ -54,6 +86,29 @@ static int           g_cursorHidden;     /* ShowCursor(TRUE) calls owed to the d
 static int           g_inSizeMove;       /* a size/move loop owns the pointer while it runs */
 static int           g_hasFocus;         /* the window owns the pointer while it has the focus */
 static u32           g_win_w, g_win_h;   /* windowed client size to come back to (0 = the picture) */
+/* The overlay's own layer: the same size as the picture, one byte of palette index per pixel, 0 for
+ * "nothing drawn here". The platform draws the port's overlay into it for every display frame and
+ * then resolves it through its own table, so an overlay pen never stands for a picture pixel - that
+ * is what lets the true-colour presenter keep 224..255 for the arrow, the OSD and the picker while
+ * the scene keeps them for itself (docs\display-rate.md, phase 3). */
+static u8           *g_ovl_bits;
+static u32           g_ovl_stride;
+static int           g_ovl_w, g_ovl_h;
+/* What the device last received, per entry: plat_set_palette is called every composed frame (and
+ * the overlay's range every display frame), and a table the device already holds needs neither a
+ * SetPaletteEntries nor a RealizePalette. */
+static u8            g_pal_sent[PAL_ENTRIES * 3];
+static u8            g_pal_known[PAL_ENTRIES];
+/* The two tables as the true-colour presenter wants them: the bytes each range was handed, and the
+ * index -> 0x00RRGGBB words they resolve to. Kept apart because the overlay's pens and the picture's
+ * overlap in index space and must not in colour. */
+static u8            g_pic_pal[PAL_ENTRIES * 3];
+static u8            g_ovl_pal[PAL_ENTRIES * 3];
+static u32           g_pic_lut[PAL_ENTRIES];
+static u32           g_ovl_lut[PAL_ENTRIES];
+/* 1 when the display's DC is a palette device, the only case a logical palette has to be realized
+ * in; a true-colour desktop resolves a DIB through its own colour table and needs nothing. */
+static int           g_dc8bit;
 
 /* The frame period is counted on the performance counter: the millisecond timer's 15.6 ms
  * granularity cannot express the Amiga's 20 ms frame. */
@@ -61,8 +116,26 @@ static __int64       g_qpcFreq;          /* QueryPerformanceFrequency, 0 = not a
 static __int64       g_nextFrame;        /* QPC tick of the next frame boundary */
 static __int64       g_frame_ticks;      /* QPC ticks per frame */
 
+/* --- the true-colour presenter (docs\display-rate.md, phase 3) -------------------------------
+ * 0 = the presenter's thread has not answered yet, 1 = live, -1 = unavailable, and the GDI path
+ * presents for the rest of the run. The device, the textures and the border art it owns are made
+ * on its own thread (see "the true-colour presenter" below); this flag is what the machine's
+ * thread reads to decide who presents a frame. */
+static int                g_d3d;
+
 static void present_dc(HDC dc);
+static void deliver(void);                /* one frame to the panel, by whichever presenter is live */
 static void journal_discard(void);        /* plat_shutdown: this run ended by itself */
+static int  make_disp(int w, int h);      /* the display surface (plat_present/plat_display_service) */
+static void free_disp(void);
+static void compose_disp(void);           /* picture + the port's overlay, into that surface */
+static void overlay_layer_draw(void);     /* ... or into the overlay layer, for the true-colour path */
+static void d3d_composite(u32 *dst, u32 pitch); /* the two layers through their tables */
+static void display_start(void);          /* the presenter's thread, and its hand-off */
+static void display_stop(void);
+static void plat_pump_display(void);      /* the message drain the display service runs */
+static void mouse_to_fb(s16 *x, s16 *y);  /* client point -> framebuffer pixel */
+static void display_clock_recalc(void);   /* the panel's rate -> the display clock */
 
 static __int64 qpc_now(void)
 {
@@ -187,6 +260,9 @@ static void dir_key(int dir, int wasd, int down)
     if (down) g_dirHeld[dir] |= bit;
     else      g_dirHeld[dir] &= (u8)~bit;
     g_keys[KEY_UP + dir] = (u8)(g_dirHeld[dir] != 0);
+    /* The press edge is latched here, not diffed at the pump: a tap that goes down and up again
+     * before the boundary leaves g_keys as it was (see g_pressLatch). */
+    if (down) g_pressLatch[KEY_UP + dir] = 1;
 }
 
 /* The windowed frame: a caption, a close box, and the resizable border the picture is scaled
@@ -250,7 +326,8 @@ static void window_client_size(int *w, int *h)
  * 6.6% taller than the screen, over the border art. It is scaled down to fit the screen instead, so
  * every scene has the screen's pixel shape and the border stays where the other scenes leave it; no
  * column or row of the picture is dropped. */
-static void picture_rect(int cw, int ch, int *px, int *py, int *pw, int *ph)
+static void picture_rect_for(int cw, int ch, int fbw, int fbh,
+                             int *px, int *py, int *pw, int *ph)
 {
     int fx, fy, fw, fh;                  /* the 320x200 screen's rectangle */
     int w, h;                            /* the picture, at that screen's pixel size */
@@ -264,8 +341,8 @@ static void picture_rect(int cw, int ch, int *px, int *py, int *pw, int *ph)
     }
     fx = (cw - fw) / 2;
     fy = (ch - fh) / 2;
-    w = fw * g_fb_w / SCREEN_W;
-    h = fh * g_fb_h / SCREEN_H;
+    w = fw * fbw / SCREEN_W;
+    h = fh * fbh / SCREEN_H;
     if (w <= 0) w = 1;
     if (h <= 0) h = 1;
     if (w > fw || h > fh) {
@@ -282,6 +359,12 @@ static void picture_rect(int cw, int ch, int *px, int *py, int *pw, int *ph)
     *ph = h;
 }
 
+/* The same for the picture the platform holds now. */
+static void picture_rect(int cw, int ch, int *px, int *py, int *pw, int *ph)
+{
+    picture_rect_for(cw, ch, g_fb_w, g_fb_h, px, py, pw, ph);
+}
+
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -291,6 +374,15 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_ERASEBKGND:
         return 1;
+    /* The palette is device state, and another application can take it away: plat_set_palette
+     * skips the upload when the device already holds the bytes it was handed, so a stolen palette
+     * has to say so here or the picture keeps the wrong colours until the table changes. */
+    case WM_PALETTECHANGED:
+        if ((HWND)wp != g_hwnd) memset(g_pal_known, 0, sizeof g_pal_known);
+        return 0;
+    case WM_QUERYNEWPALETTE:
+        memset(g_pal_known, 0, sizeof g_pal_known);
+        return TRUE;
     /* A window with a resizable frame: the client changed, so the picture is composed again at the
      * new size and the window repainted there and then - the game's own loop is inside Windows'
      * sizing loop meanwhile, and a frame nobody composed would leave the old picture in the new
@@ -334,9 +426,10 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC dc = BeginPaint(h, &ps);
-
-        present_dc(dc);
+        BeginPaint(h, &ps);
+        /* Whatever invalidated the client gets the frame the live presenter would show - the
+         * swapchain's picture when the device is up, the composed DIB when it is not. */
+        deliver();
         EndPaint(h, &ps);
         return 0;
     }
@@ -390,7 +483,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
      * it) is a beep. It is the port's own window-mode switch, read as an edge out of input_state
      * (KEY_FULLSCREEN) by whichever front-end loop is running, so it is answered here instead. */
     case WM_SYSKEYDOWN:
-        if (wp == VK_RETURN && ((lp >> 29) & 1)) { g_keys[KEY_FULLSCREEN] = 1; return 0; }
+        if (wp == VK_RETURN && ((lp >> 29) & 1)) { g_keys[KEY_FULLSCREEN] = 1; g_pressLatch[KEY_FULLSCREEN] = 1; return 0; }
         break;
     case WM_SYSKEYUP:
         if (wp == VK_RETURN) { g_keys[KEY_FULLSCREEN] = 0; return 0; }
@@ -398,7 +491,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SYSCHAR:
         if (wp == VK_RETURN) return 0;
         break;
-    case WM_KEYDOWN:
+    case WM_KEYDOWN: {
+        u8 was[KEY_COUNT];
+        int i;
+
+        memcpy(was, g_keys, sizeof was);
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 1;
         if (wp == VK_UP)     dir_key(0, 0, 1);
         if (wp == VK_DOWN)   dir_key(1, 0, 1);
@@ -422,7 +519,12 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         /* Left Control only: the extended bit (lParam bit 24) is set for the right-hand one. */
         if ((wp == VK_CONTROL || wp == VK_LCONTROL) && ((lp >> 24) & 1) == 0)
             g_keys[KEY_CTRL] = 1;
+        /* Every key that went down is latched, whichever of the lines above mapped it: the tap
+         * that is released again before the next plat_pump would otherwise leave no edge. */
+        for (i = 0; i < KEY_COUNT; i++)
+            if (g_keys[i] != 0 && was[i] == 0) g_pressLatch[i] = 1;
         return 0;
+    }
     case WM_KEYUP:
         if (wp == VK_ESCAPE) g_keys[KEY_ESCAPE] = 0;
         if (wp == VK_UP)     dir_key(0, 0, 0);
@@ -595,7 +697,22 @@ u32 plat_init(const char *title)
     g_start_ms = 0;
     if (!make_window(title)) return 0;
     if (!make_dib(g_fb_w, g_fb_h)) return 0;
+    make_disp(g_fb_w, g_fb_h);           /* the picture + overlay surface the panel sees */
     if (!make_palette()) return 0;
+    /* Whether a logical palette has to be realized at all: only a palette device needs it, and this
+     * is the one place the question can be asked (the answer does not change while the run lasts). */
+    {
+        HDC dc = GetDC(g_hwnd);
+        if (dc != 0) {
+            g_dc8bit = GetDeviceCaps(dc, BITSPIXEL) <= 8;
+            ReleaseDC(g_hwnd, dc);
+        }
+    }
+    /* Whether the picture reaches the panel through a true-colour swapchain or a window DC. Either
+     * answer is correct: the GDI path is the reference the true-colour one has to agree with. The
+     * border art is decoded here, on this thread, because the presenter's own thread paints it. */
+    border_prepare();
+    display_start();
     /* Whether the window really has the focus (GetFocus answers for our own thread); WM_SETFOCUS and
      * WM_KILLFOCUS keep it current after that. */
     g_hasFocus = GetFocus() == g_hwnd;
@@ -605,6 +722,11 @@ u32 plat_init(const char *title)
     if (!QueryPerformanceFrequency((LARGE_INTEGER *)&g_qpcFreq)) g_qpcFreq = 0;
     frame_ticks_recalc();
     g_nextFrame = qpc_now();
+    /* The display clock (docs\display-rate.md): the panel's own rate, and the palette the device
+     * holds - which nothing has been handed yet. */
+    display_clock_recalc();
+    memset(g_pal_known, 0, sizeof g_pal_known);
+    g_disp_fresh = 1;
     g_start_ms = GetTickCount();
     return 1;
 }
@@ -643,6 +765,7 @@ static void apply_window_mode(void)
     }
     /* The picture's rectangle and the pointer both depend on the mode. */
     g_pic_w = g_pic_h = 0;
+    display_clock_recalc();              /* fullscreen may run at another refresh rate */
     plat_present();                      /* this frame, in the new mode, at once */
     cursor_update();
 }
@@ -738,6 +861,8 @@ void plat_shutdown(void)
 {
     plat_audio_close();
     cursor_release();
+    display_stop();
+    free_disp();
     if (g_frame_dib) DeleteObject(g_frame_dib);
     if (g_frame_dc) DeleteDC(g_frame_dc);
     g_frame_dib = 0;
@@ -772,6 +897,9 @@ u32 plat_set_framebuffer_size(u32 w, u32 h)
     if (nw <= 0 || nh <= 0 || nw > 1024 || nh > 1024) return 0;
     if (nw != g_fb_w || nh != g_fb_h) {
         if (!make_dib(nw, nh)) return 0;
+        /* The display surface follows the picture: it is what the overlay is drawn on and what
+         * reaches the window. A failed one leaves the picture itself as the source. */
+        make_disp(nw, nh);
         g_pic_w = g_pic_h = 0;               /* the picture's rectangle is this frame's */
         cursor_refresh();
     }
@@ -829,15 +957,123 @@ static int make_frame(int w, int h)
     return 1;
 }
 
-/* One frame into dc: the 8-bit picture as it is where it covers the client exactly (the 320x200
+/* --- the display surface --------------------------------------------------------------------
+ * docs\display-rate.md, phase 2: the machine composes 20 ms frames and plat_present hands each one
+ * over; what reaches the panel is *that* picture with the port's own overlay (the arrow, the OSD,
+ * the picker) drawn on top, at the panel's rate. Three surfaces make the split visible:
+ *
+ *   g_bits   the picture the core composed                  - plat_present hands it over
+ *   g_disp   that picture plus this frame's overlay, 8-bit  - built per delivery, blitted by GDI
+ *   g_ovl    this frame's overlay alone, 0 = nothing drawn  - built per delivery, resolved by D3D
+ *
+ * The overlay is redrawn for every delivery because it moves between two composed frames (a mouse
+ * reports at 125-1000 Hz); the picture itself is copied only when a new one arrived, which is what
+ * keeps a 50 Hz picture from costing a full copy 60 times a second - the true-colour path reads it
+ * straight from g_bits and needs no copy at all. Exactly one of the two overlay targets is drawn
+ * per delivery: the presenter that is live owns it.
+ */
+static void free_disp(void)
+{
+    if (g_disp_dib) DeleteObject(g_disp_dib);
+    if (g_disp_dc) DeleteDC(g_disp_dc);
+    g_disp_dib = 0;
+    g_disp_dc = 0;
+    g_disp_bits = 0;
+    g_disp_stride = 0;
+    g_disp_w = 0;
+    g_disp_h = 0;
+    if (g_ovl_bits != 0) free(g_ovl_bits);
+    g_ovl_bits = 0;
+    g_ovl_stride = 0;
+    g_ovl_w = 0;
+    g_ovl_h = 0;
+}
+
+static int make_disp(int w, int h)
+{
+    BITMAPINFO bi;
+    HDC screen;
+    void *bits = 0;
+
+    free_disp();
+    memset(&bi, 0, sizeof bi);
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;                  /* top-down rows */
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 8;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    screen = GetDC(g_hwnd);
+    g_disp_dc = CreateCompatibleDC(screen);
+    ReleaseDC(g_hwnd, screen);
+    if (!g_disp_dc) { free_disp(); return 0; }
+    g_disp_dib = CreateDIBSection(g_disp_dc, &bi, DIB_RGB_COLORS, &bits, 0, 0);
+    if (!g_disp_dib) { free_disp(); return 0; }
+    SelectObject(g_disp_dc, g_disp_dib);
+    g_disp_bits = (u8 *)bits;
+    g_disp_stride = (u32)((w + 3) & ~3);
+    g_disp_w = w;
+    g_disp_h = h;
+    /* The overlay's layer follows the picture, which is the coordinate space the overlay draws in. */
+    g_ovl_stride = g_disp_stride;
+    g_ovl_w = w;
+    g_ovl_h = h;
+    g_ovl_bits = (u8 *)malloc((size_t)g_ovl_stride * (size_t)h);
+    if (g_ovl_bits == 0) { free_disp(); return 0; }
+    memset(g_ovl_bits, 0, (size_t)g_ovl_stride * (size_t)h);
+    /* A new DIB section starts with an empty colour table, so the palette has to be handed to it
+     * again before the first blit through it. */
+    memset(g_pal_known, 0, sizeof g_pal_known);
+    return 1;
+}
+
+/* The overlay's layer, cleared and redrawn for one delivery: this is the port's own content at the
+ * panel's rate, and nothing else touches these pixels. */
+static void overlay_layer_draw(void)
+{
+    if (g_ovl_bits == 0 || g_ovl_w <= 0 || g_ovl_h <= 0) return;
+    memset(g_ovl_bits, 0, (size_t)g_ovl_stride * (size_t)g_ovl_h);
+    if (g_overlay != 0) {
+        g_overlay(g_ovl_bits, g_ovl_stride, g_ovl_w, g_ovl_h);
+        g_overlay_draws++;
+    }
+}
+
+/* The picture the core last composed is in g_bits (g_disp_fresh says it has not been copied into
+ * the display surface yet). The overlay is drawn on top of it every time: that is the whole point
+ * of the split - its position is this delivery's, not the composed frame's. */
+static void compose_disp(void)
+{
+    int y;
+
+    if (g_disp_bits == 0 || g_bits == 0 || g_disp_w <= 0 || g_disp_h <= 0) return;
+    if (g_disp_fresh) {
+        u32 src = (u32)((g_disp_w + 3) & ~3);
+
+        for (y = 0; y < g_disp_h; y++)
+            memcpy(g_disp_bits + (u32)y * g_disp_stride, g_bits + (u32)y * src,
+                   (size_t)g_disp_w);
+        g_disp_fresh = 0;
+    }
+    if (g_overlay != 0) {
+        g_overlay(g_disp_bits, g_disp_stride, g_disp_w, g_disp_h);
+        g_overlay_draws++;
+    }
+}
+
+/* One frame into dc: the display surface as it is where it covers the client exactly (the 320x200
  * window, no bars, and the palette goes to the window as before), and the composed frame - border
  * art under the scaled picture - everywhere else. */
 static void present_dc(HDC dc)
 {
     RECT cr;
     int cw, ch, px, py, pw, ph;
+    HDC src;
 
     if (dc == 0 || g_hwnd == 0 || g_bits == 0 || g_memdc == 0) return;
+    compose_disp();
+    src = g_disp_dc != 0 ? g_disp_dc : g_memdc;   /* no display surface: the picture itself */
     if (!GetClientRect(g_hwnd, &cr)) return;
     cw = cr.right - cr.left;
     ch = cr.bottom - cr.top;
@@ -847,9 +1083,11 @@ static void present_dc(HDC dc)
     if (!g_fullscreen && cw == g_fb_w && ch == g_fb_h &&
         g_fb_w == SCREEN_W && g_fb_h == SCREEN_H) {
         g_pic_w = g_pic_h = 0;                   /* the client is the picture: nothing to map */
-        SelectPalette(dc, g_pal, FALSE);
-        RealizePalette(dc);
-        BitBlt(dc, 0, 0, g_fb_w, g_fb_h, g_memdc, 0, 0, SRCCOPY);
+        if (g_dc8bit) {
+            SelectPalette(dc, g_pal, FALSE);
+            RealizePalette(dc);
+        }
+        BitBlt(dc, 0, 0, g_fb_w, g_fb_h, src, 0, 0, SRCCOPY);
         return;
     }
     picture_rect(cw, ch, &px, &py, &pw, &ph);
@@ -864,30 +1102,512 @@ static void present_dc(HDC dc)
         } else border_paint(g_frame_bits, cw, ch);
     }
     SetStretchBltMode(g_frame_dc, COLORONCOLOR);
-    StretchBlt(g_frame_dc, g_pic_x, g_pic_y, g_pic_w, g_pic_h, g_memdc, 0, 0, g_fb_w, g_fb_h, SRCCOPY);
+    StretchBlt(g_frame_dc, g_pic_x, g_pic_y, g_pic_w, g_pic_h, src, 0, 0, g_fb_w, g_fb_h, SRCCOPY);
     BitBlt(dc, 0, 0, cw, ch, g_frame_dc, 0, 0, SRCCOPY);
 }
 
-void plat_present(void)
+/* --- the true-colour presenter (docs\display-rate.md, phase 3) ---------------------------------
+ * The 8-bit picture (g_bits) and the overlay layer (g_ovl) are resolved through two index->RGB
+ * tables into an X8R8G8B8 image, and that image goes out as a texture drawn into a D3D9Ex swapchain
+ * over the client - the border art as a second quad under it when the picture does not fill the
+ * client.
+ *
+ * What this buys, none of which the window-DC path can: the palette is *data*, so nothing is
+ * realized on the device per frame; the picture does not go through a window DC; and the overlay has
+ * a table of its own, so its pens 224..255 no longer stand for the scene's 224..255. Both quads are
+ * point-sampled, which is the nearest-neighbour scaling COLORONCOLOR gave the GDI path, and both are
+ * placed with the same picture_rect() the GDI path uses, so the picture lands on exactly the same
+ * pixels either way.
+ *
+ * The swapchain is the discard one, not D3DSWAPEFFECT_FLIPEX. A flip-model swapchain leaves the
+ * window without the redirection surface PrintWindow reads, so the client area cannot be captured
+ * any more - measured: PrintWindow(PW_CLIENTONLY) answers with an empty bitmap - and the port would
+ * lose the seam that proves the presented picture is the composed one (tools\window-check.ps1,
+ * title-check.ps1 and quit-check.ps1 all read the client that way). The rest of the flip model's
+ * substance is here regardless: true colour from a texture, no palette state, its own overlay table.
+ *
+ * Presenting happens on its own thread. A D3D9 Present waits for the compositor - measured 5 to
+ * 16 ms of wall time per call on this machine - and on the machine's thread that eats the 20 ms an
+ * emulated frame has: with the present there, the machine ran at 25.6 frames/s against the GDI
+ * path's 50.0. The machine thread therefore only builds the composite into a shared buffer and wakes
+ * the presenter, which presents the newest one as fast as the compositor takes them, i.e. at the
+ * panel's rate. Every D3D call is made on that thread, never on the machine's.
+ *
+ * No DirectX library is linked: the entry point is looked up in d3d9.dll, so a missing one, a refused
+ * device or a lost one simply leaves the run on the GDI path for good. */
+
+#define D3D_FACTORY_VERSION 32                 /* D3D_SDK_VERSION, which this header does not carry */
+#define D3D_FVF_2D         (D3DFVF_XYZRHW | D3DFVF_TEX1)
+
+typedef struct { float x, y, z, rhw, u, v; } d3d_vert;
+typedef HRESULT (WINAPI *d3d_factory_fn)(UINT, IDirect3D9Ex **);
+
+/* The presenter's side: touched by the display thread only. */
+static IDirect3D9Ex      *g_d3dFactory;
+static IDirect3DDevice9Ex *g_d3dDev;
+static HMODULE            g_d3dLib;
+static int                g_d3dW, g_d3dH;      /* the client the swapchain was made for */
+static int                g_d3dLost;           /* Present asked for the device to be re-made */
+static IDirect3DTexture9 *g_d3dPic;            /* the picture + overlay, X8R8G8B8 */
+static int                g_d3dPicW, g_d3dPicH;
+static IDirect3DTexture9 *g_d3dBorder;         /* the border art at the client's size */
+static int                g_d3dBorderW, g_d3dBorderH;
+static u32               *g_d3dBorderBits;     /* ... and its pixels, the presenter's own */
+static int                g_d3dBorderBitsW, g_d3dBorderBitsH;
+static int                g_d3dBorderDirty = 1;/* the texture has not got the art yet */
+
+/* The hand-off between the two threads: the machine builds a frame into g_dispShared under the
+ * lock and bumps g_dispGen; the presenter copies it out and presents it. */
+static HANDLE             g_dispThread;
+static HANDLE             g_dispWake;
+static CRITICAL_SECTION   g_dispLock;
+static volatile LONG      g_dispStop;
+static int                g_dispThreadOn;
+static u32               *g_dispShared;
+static u32               *g_dispStage;         /* the presenter's own copy */
+static int                g_dispStageW, g_dispStageH;
+static int                g_dispPicW, g_dispPicH;
+static u32                g_dispGen, g_dispSeen;
+
+/* The palette is handed over as bytes; the texture wants a word per index. */
+static u32 pal_word(const u8 *rgb)
+{
+    return ((u32)rgb[0] << 16) | ((u32)rgb[1] << 8) | (u32)rgb[2];
+}
+
+static void d3d_free_pic(void)
+{
+    if (g_d3dPic) { IDirect3DTexture9_Release(g_d3dPic); g_d3dPic = 0; }
+    g_d3dPicW = g_d3dPicH = 0;
+}
+
+static void d3d_free_border(void)
+{
+    if (g_d3dBorder) { IDirect3DTexture9_Release(g_d3dBorder); g_d3dBorder = 0; }
+    g_d3dBorderW = g_d3dBorderH = 0;
+    g_d3dBorderDirty = 1;
+}
+
+/* The device went away (a lost one, a refused texture): everything default-pool is released, the
+ * factory stays for a later attempt, and the machine's own thread is told to present with GDI. */
+static void d3d_device_lost(void)
+{
+    d3d_free_pic();
+    d3d_free_border();
+    if (g_d3dDev) { IDirect3DDevice9Ex_Release(g_d3dDev); g_d3dDev = 0; }
+    g_d3dW = g_d3dH = 0;
+    g_d3dLost = 0;
+    g_d3d = -1;
+    /* The GDI path's device table has not been maintained while the swapchain presented: the next
+     * plat_set_palette has to send it again. */
+    memset(g_pal_known, 0, sizeof g_pal_known);
+}
+
+/* The end of the presenter: the thread releases what is left and leaves the run on the GDI path. */
+static void d3d_close(void)
+{
+    d3d_device_lost();
+    if (g_d3dFactory) { IDirect3D9Ex_Release(g_d3dFactory); g_d3dFactory = 0; }
+    if (g_d3dLib) { FreeLibrary(g_d3dLib); g_d3dLib = 0; }
+}
+
+/* The fixed render state of the two quads. Set once per device, because a new device starts with
+ * D3D's own defaults and nothing here is per frame. */
+static void d3d_state(void)
+{
+    IDirect3DDevice9Ex_SetFVF(g_d3dDev, D3D_FVF_2D);
+    IDirect3DDevice9Ex_SetRenderState(g_d3dDev, D3DRS_ZENABLE, D3DZB_FALSE);
+    IDirect3DDevice9Ex_SetRenderState(g_d3dDev, D3DRS_CULLMODE, D3DCULL_NONE);
+    IDirect3DDevice9Ex_SetRenderState(g_d3dDev, D3DRS_LIGHTING, FALSE);
+    IDirect3DDevice9Ex_SetRenderState(g_d3dDev, D3DRS_ALPHABLENDENABLE, FALSE);
+    IDirect3DDevice9Ex_SetTextureStageState(g_d3dDev, 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    IDirect3DDevice9Ex_SetTextureStageState(g_d3dDev, 0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    IDirect3DDevice9Ex_SetTextureStageState(g_d3dDev, 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    IDirect3DDevice9Ex_SetSamplerState(g_d3dDev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9Ex_SetSamplerState(g_d3dDev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9Ex_SetSamplerState(g_d3dDev, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    IDirect3DDevice9Ex_SetSamplerState(g_d3dDev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    IDirect3DDevice9Ex_SetSamplerState(g_d3dDev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+}
+
+/* A device over the client's own size, with the desktop's back buffer format. Software vertex
+ * processing is the fallback for a HAL that refuses the hardware one (a remote session, a driver
+ * that only does the fixed pipeline in software). */
+static int d3d_make_device(int cw, int ch)
+{
+    D3DPRESENT_PARAMETERS pp;
+    DWORD behaviour[2];
+    D3DFORMAT format[2];
+    HRESULT hr;
+    int b, f;
+
+    if (g_d3dFactory == 0 || g_hwnd == 0) return 0;
+    behaviour[0] = D3DCREATE_FPU_PRESERVE | D3DCREATE_HARDWARE_VERTEXPROCESSING;
+    behaviour[1] = D3DCREATE_FPU_PRESERVE | D3DCREATE_SOFTWARE_VERTEXPROCESSING;
+    format[0] = D3DFMT_X8R8G8B8;
+    format[1] = D3DFMT_UNKNOWN;
+
+    memset(&pp, 0, sizeof pp);
+    pp.BackBufferWidth = (UINT)cw;
+    pp.BackBufferHeight = (UINT)ch;
+    pp.BackBufferCount = 1;
+    pp.MultiSampleType = D3DMULTISAMPLE_NONE;
+    pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    pp.hDeviceWindow = g_hwnd;
+    pp.Windowed = TRUE;                        /* borderless fullscreen is a window too */
+    pp.EnableAutoDepthStencil = FALSE;
+    pp.FullScreen_RefreshRateInHz = 0;
+    /* The presenter's thread paces itself on what the compositor takes, so the swapchain itself
+     * never waits for a refresh. */
+    pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+
+    for (f = 0; f < 2; f++)
+        for (b = 0; b < 2; b++) {
+            pp.BackBufferFormat = format[f];
+            hr = IDirect3D9Ex_CreateDeviceEx(g_d3dFactory, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+                                             g_hwnd, behaviour[b], &pp, 0, &g_d3dDev);
+            if (hr >= 0) {
+                g_d3dW = cw;
+                g_d3dH = ch;
+                g_d3dLost = 0;
+                d3d_state();
+                return 1;
+            }
+        }
+    return 0;
+}
+
+/* A device is re-made rather than reset when the client changes or the old one was lost, because
+ * the swapchain belongs to one client size. */
+static int d3d_sync(int cw, int ch)
+{
+    if (g_d3dDev != 0 && g_d3dW == cw && g_d3dH == ch && !g_d3dLost) return 1;
+    d3d_free_pic();
+    d3d_free_border();
+    if (g_d3dDev) { IDirect3DDevice9Ex_Release(g_d3dDev); g_d3dDev = 0; }
+    return d3d_make_device(cw, ch);
+}
+
+/* The presenter's first act: the factory, then a device for the window as it is now. Answers 1 for a
+ * device, 0 for "not now" (a client of no size yet) and -1 for "there is no Direct3D here". */
+static int d3d_open(void)
+{
+    d3d_factory_fn create;
+    RECT cr;
+    int cw, ch;
+
+    if (g_d3dFactory == 0) {
+        if (g_d3dLib == 0) {
+            g_d3dLib = LoadLibraryA("d3d9.dll");
+            if (g_d3dLib == 0) return -1;
+            create = (d3d_factory_fn)GetProcAddress(g_d3dLib, "Direct3DCreate9Ex");
+            if (create == 0) return -1;
+            if (create(D3D_FACTORY_VERSION, &g_d3dFactory) < 0 || g_d3dFactory == 0) return -1;
+        }
+    }
+    if (g_hwnd == 0 || !GetClientRect(g_hwnd, &cr)) return 0;
+    cw = cr.right - cr.left;
+    ch = cr.bottom - cr.top;
+    if (cw <= 0 || ch <= 0) return 0;
+    return d3d_sync(cw, ch) ? 1 : -1;
+}
+
+/* One texture over one client rectangle, point-sampled. The half-pixel offsets are what make a texel
+ * land on a pixel rather than between two: XYZRHW positions are pixel *corners*, and the picture's
+ * rectangle is expressed in pixel centres (picture_rect). */
+static void d3d_draw_quad(IDirect3DTexture9 *tex, int x, int y, int w, int h)
+{
+    d3d_vert v[4];
+    float fx = (float)x - 0.5f, fy = (float)y - 0.5f;
+    float fx2 = (float)(x + w) - 0.5f, fy2 = (float)(y + h) - 0.5f;
+
+    if (tex == 0) return;
+    v[0].x = fx;  v[0].y = fy;  v[0].z = 0.0f; v[0].rhw = 1.0f; v[0].u = 0.0f; v[0].v = 0.0f;
+    v[1].x = fx2; v[1].y = fy;  v[1].z = 0.0f; v[1].rhw = 1.0f; v[1].u = 1.0f; v[1].v = 0.0f;
+    v[2].x = fx;  v[2].y = fy2; v[2].z = 0.0f; v[2].rhw = 1.0f; v[2].u = 0.0f; v[2].v = 1.0f;
+    v[3].x = fx2; v[3].y = fy2; v[3].z = 0.0f; v[3].rhw = 1.0f; v[3].u = 1.0f; v[3].v = 1.0f;
+    IDirect3DDevice9Ex_SetTexture(g_d3dDev, 0, (IDirect3DBaseTexture9 *)tex);
+    IDirect3DDevice9Ex_DrawPrimitiveUP(g_d3dDev, D3DPT_TRIANGLESTRIP, 2, v, sizeof v[0]);
+}
+
+/* The client-size border art as a texture: border_paint's own point-sampled stretch, uploaded again
+ * only when the client changes. It is a default-pool texture because a D3D9Ex device does not manage
+ * its resources (D3DPOOL_MANAGED is refused with D3DERR_INVALIDCALL), so its content lives as long
+ * as it is not lost. */
+static int d3d_border_texture(int cw, int ch)
+{
+    D3DLOCKED_RECT lr;
+    HRESULT hr;
+    int y;
+
+    if (g_d3dBorderBits == 0 || g_d3dBorderBitsW != cw || g_d3dBorderBitsH != ch) {
+        u32 *bits = (u32 *)realloc(g_d3dBorderBits, (size_t)cw * (size_t)ch * 4);
+
+        if (bits == 0) return 0;
+        g_d3dBorderBits = bits;
+        g_d3dBorderBitsW = cw;
+        g_d3dBorderBitsH = ch;
+        border_paint(g_d3dBorderBits, cw, ch);
+        d3d_free_border();
+    }
+    if (g_d3dBorder == 0) {
+        if (IDirect3DDevice9Ex_CreateTexture(g_d3dDev, (UINT)cw, (UINT)ch, 1, D3DUSAGE_DYNAMIC,
+                                             D3DFMT_X8R8G8B8, D3DPOOL_DEFAULT,
+                                             &g_d3dBorder, 0) < 0) {
+            d3d_free_border();
+            return 0;
+        }
+        g_d3dBorderW = cw;
+        g_d3dBorderH = ch;
+        g_d3dBorderDirty = 1;
+    }
+    if (!g_d3dBorderDirty) return 1;
+    if (IDirect3DTexture9_LockRect(g_d3dBorder, 0, &lr, 0, D3DLOCK_DISCARD) < 0) return 0;
+    for (y = 0; y < ch; y++)
+        memcpy((u8 *)lr.pBits + (size_t)y * (u32)lr.Pitch,
+               g_d3dBorderBits + (size_t)y * (size_t)cw, (size_t)cw * 4);
+    IDirect3DTexture9_UnlockRect(g_d3dBorder, 0);
+    g_d3dBorderDirty = 0;
+    return 1;
+}
+
+/* A frame the device could not do. A transient failure (a mode change, a lost device) is retried on
+ * the next frame; a device that keeps failing is given up on, and the run stays on the GDI path. */
+static int g_d3dFails;
+
+static int d3d_fail(void)
+{
+    g_d3dLost = 1;                             /* re-made on the next frame */
+    if (++g_d3dFails > 20) d3d_device_lost();
+    return 0;
+}
+
+/* One frame to the panel, on the presenter's thread: the composite into a texture, that texture (and
+ * the border under it) into the swapchain, and Present. Blocking here is what the thread is for. */
+static int d3d_present(const u32 *bits, int w, int h)
+{
+    RECT cr;
+    int cw, ch, px, py, pw, ph;
+    D3DLOCKED_RECT lr;
+    HRESULT hr;
+    int y;
+
+    if (g_hwnd == 0 || bits == 0 || w <= 0 || h <= 0) return 0;
+    if (!GetClientRect(g_hwnd, &cr)) return 0;
+    cw = cr.right - cr.left;
+    ch = cr.bottom - cr.top;
+    if (cw <= 0 || ch <= 0) return 0;
+    if (!d3d_sync(cw, ch)) return d3d_fail();
+    if (g_d3dPic == 0 || g_d3dPicW != w || g_d3dPicH != h) {
+        d3d_free_pic();
+        if (IDirect3DDevice9Ex_CreateTexture(g_d3dDev, (UINT)w, (UINT)h, 1, D3DUSAGE_DYNAMIC,
+                                             D3DFMT_X8R8G8B8, D3DPOOL_DEFAULT,
+                                             &g_d3dPic, 0) < 0) {
+            d3d_free_pic();
+            return d3d_fail();
+        }
+        g_d3dPicW = w;
+        g_d3dPicH = h;
+    }
+    if (IDirect3DTexture9_LockRect(g_d3dPic, 0, &lr, 0, D3DLOCK_DISCARD) < 0) return d3d_fail();
+    for (y = 0; y < h; y++)
+        memcpy((u8 *)lr.pBits + (size_t)y * (u32)lr.Pitch, bits + (size_t)y * (size_t)w,
+               (size_t)w * 4);
+    IDirect3DTexture9_UnlockRect(g_d3dPic, 0);
+
+    picture_rect_for(cw, ch, w, h, &px, &py, &pw, &ph);
+    if (IDirect3DDevice9Ex_Clear(g_d3dDev, 0, 0, D3DCLEAR_TARGET, 0x00000000, 1.0f, 0) < 0)
+        return d3d_fail();
+    if (IDirect3DDevice9Ex_BeginScene(g_d3dDev) < 0) return 0;   /* the last frame is not presented */
+    if (px > 0 || py > 0 || px + pw < cw || py + ph < ch) {
+        if (d3d_border_texture(cw, ch))
+            d3d_draw_quad(g_d3dBorder, 0, 0, cw, ch);
+    }
+    d3d_draw_quad(g_d3dPic, px, py, pw, ph);
+    IDirect3DDevice9Ex_EndScene(g_d3dDev);
+
+    hr = IDirect3DDevice9Ex_Present(g_d3dDev, 0, 0, 0, 0);
+    if (hr < 0) return d3d_fail();             /* a lost device and a refused frame alike */
+    g_d3dFails = 0;
+    return 1;
+}
+
+/* The composite itself: the picture through its table, the overlay through its own where it drew. */
+static void d3d_composite(u32 *dst, u32 pitch)
+{
+    int x, y, w = g_fb_w, h = g_fb_h;
+    u32 src = (u32)((g_fb_w + 3) & ~3);
+
+    for (y = 0; y < h; y++) {
+        const u8 *pic = g_bits + (u32)y * src;
+        const u8 *ovl = g_ovl_bits != 0 ? g_ovl_bits + (u32)y * g_ovl_stride : 0;
+        u32 *row = dst + (u32)y * pitch;
+
+        if (ovl == 0) {
+            for (x = 0; x < w; x++) row[x] = g_pic_lut[pic[x]];
+        } else {
+            for (x = 0; x < w; x++)
+                row[x] = ovl[x] != 0 ? g_ovl_lut[ovl[x]] : g_pic_lut[pic[x]];
+        }
+    }
+}
+
+/* The machine's thread: this frame's overlay and picture into the shared buffer, then the
+ * presenter's wake-up. The overlay is drawn here because it reads machine state; it is a few tenths
+ * of a millisecond and never waits for the device. */
+static void display_publish(void)
+{
+    int w = g_fb_w, h = g_fb_h;
+    u32 *fresh = 0;
+
+    if (w <= 0 || h <= 0) return;
+    overlay_layer_draw();
+    if (g_dispShared == 0 || g_dispPicW != w || g_dispPicH != h) {
+        fresh = (u32 *)malloc((size_t)w * (size_t)h * 4);
+        if (fresh == 0) return;
+    }
+    EnterCriticalSection(&g_dispLock);
+    if (fresh != 0) {
+        if (g_dispShared != 0) free(g_dispShared);
+        g_dispShared = fresh;
+        g_dispPicW = w;
+        g_dispPicH = h;
+    }
+    d3d_composite(g_dispShared, (u32)w);
+    g_dispGen++;
+    LeaveCriticalSection(&g_dispLock);
+    SetEvent(g_dispWake);
+}
+
+/* The presenter's loop. It sleeps on the hand-off event, takes the newest composite, and presents it;
+ * a Present that waits for the compositor is how the loop finds the panel's own rate. */
+static DWORD WINAPI display_thread(LPVOID arg)
+{
+    int tries, opened = 0;
+
+    (void)arg;
+    /* A window that is not on screen yet (a client of no size) is worth waiting for; a machine with
+     * no Direct3D is not, and answers -1 at once. */
+    for (tries = 0; tries < 40; tries++) {
+        int r = d3d_open();
+
+        if (r > 0) { opened = 1; break; }
+        if (r < 0 || g_dispStop) break;
+        Sleep(50);
+    }
+    if (!opened) { d3d_close(); return 0; }
+    g_d3d = 1;
+    for (;;) {
+        if (WaitForSingleObject(g_dispWake, 250) == WAIT_FAILED) break;
+        if (g_dispStop) break;
+        for (;;) {
+            u32 gen;
+            int w, h;
+
+            EnterCriticalSection(&g_dispLock);
+            gen = g_dispGen;
+            if (gen == g_dispSeen || g_dispShared == 0) { LeaveCriticalSection(&g_dispLock); break; }
+            g_dispSeen = gen;
+            w = g_dispPicW;
+            h = g_dispPicH;
+            if (g_dispStage == 0 || w != g_dispStageW || h != g_dispStageH) {
+                u32 *nb = (u32 *)realloc(g_dispStage, (size_t)w * (size_t)h * 4);
+
+                if (nb == 0) { LeaveCriticalSection(&g_dispLock); break; }
+                g_dispStage = nb;
+                g_dispStageW = w;
+                g_dispStageH = h;
+            }
+            memcpy(g_dispStage, g_dispShared, (size_t)w * (size_t)h * 4);
+            LeaveCriticalSection(&g_dispLock);
+            if (d3d_present(g_dispStage, w, h)) InterlockedIncrement(&g_disp_frames);
+            else if (g_d3d != 1) break;
+        }
+        if (g_dispStop || g_d3d != 1) break;
+    }
+    d3d_close();
+    return 0;
+}
+
+/* One frame to the panel, by whichever presenter is live: the thread takes it, or - with no device,
+ * and until the thread's first frame - the window DC does. */
+static void deliver(void)
 {
     HDC dc;
 
     if (g_hwnd == 0 || g_bits == 0) return;
+    if (g_dispThreadOn && g_d3d == 1) { display_publish(); return; }
     dc = GetDC(g_hwnd);
     if (dc == 0) return;
     present_dc(dc);
     ReleaseDC(g_hwnd, dc);
 }
 
-void plat_set_palette(u32 first, u32 count, const u8 *rgb)
+void plat_present(void)
+{
+    if (g_hwnd == 0 || g_bits == 0) return;
+    g_disp_fresh = 1;                            /* the picture the core just handed over */
+    deliver();
+}
+
+/* The presenter's thread, started once the window exists: it owns the device, the textures and the
+ * border art, so every D3D call is made on the thread that made the device. A thread that cannot be
+ * started, or whose device cannot be created, leaves the run on the GDI path - the picture is the
+ * same either way, only the way it reaches the panel differs. */
+static void display_start(void)
+{
+    if (g_dispThreadOn) return;
+    InitializeCriticalSection(&g_dispLock);
+    g_dispWake = CreateEvent(0, FALSE, FALSE, 0);
+    if (g_dispWake == 0) { DeleteCriticalSection(&g_dispLock); return; }
+    g_dispStop = 0;
+    g_dispThread = CreateThread(0, 0, display_thread, 0, 0, 0);
+    if (g_dispThread == 0) {
+        CloseHandle(g_dispWake);
+        DeleteCriticalSection(&g_dispLock);
+        return;
+    }
+    g_dispThreadOn = 1;
+}
+
+static void display_stop(void)
+{
+    if (!g_dispThreadOn) return;
+    InterlockedExchange(&g_dispStop, 1);
+    SetEvent(g_dispWake);
+    WaitForSingleObject(g_dispThread, 5000);
+    CloseHandle(g_dispThread);
+    CloseHandle(g_dispWake);
+    DeleteCriticalSection(&g_dispLock);
+    g_dispThreadOn = 0;
+    g_dispThread = 0;
+    g_dispWake = 0;
+    if (g_dispShared != 0) free(g_dispShared);
+    if (g_dispStage != 0) free(g_dispStage);
+    g_dispShared = 0;
+    g_dispStage = 0;
+    g_dispPicW = g_dispPicH = 0;
+    g_dispStageW = g_dispStageH = 0;
+    g_dispGen = g_dispSeen = 0;
+}
+
+/* Sends a range of g_pal (and the DIB sections that blit through their own table) to the device,
+ * and only when it does not already hold those bytes. The logical palette is realized only on a
+ * palette device: a true-colour DC resolves a DIB section through its colour table, and RealizePalette
+ * there is the expensive half of a present that changes nothing. */
+static void palette_upload(u32 first, u32 count, const u8 *rgb)
 {
     u32 i;
     PALETTEENTRY pe[PAL_ENTRIES];
     RGBQUAD q[PAL_ENTRIES];
     HDC dc;
+    int changed = 0;
 
-    if (!g_pal || first >= PAL_ENTRIES) return;
-    if (first + count > PAL_ENTRIES) count = PAL_ENTRIES - first;
+    if (!g_pal) return;
+    for (i = 0; i < count; i++)
+        if (!g_pal_known[first + i] ||
+            memcmp(g_pal_sent + (first + i) * 3, rgb + i * 3, 3) != 0) { changed = 1; break; }
+    if (!changed) return;
     for (i = 0; i < count; i++) {
         pe[i].peRed = rgb[i * 3 + 0];
         pe[i].peGreen = rgb[i * 3 + 1];
@@ -902,10 +1622,146 @@ void plat_set_palette(u32 first, u32 count, const u8 *rgb)
     /* A DIB section is blitted through its own colour table, not through the
      * HPALETTE, so both have to be updated or the window shows greys. */
     if (g_memdc) SetDIBColorTable(g_memdc, first, count, q);
+    if (g_disp_dc) SetDIBColorTable(g_disp_dc, first, count, q);
+    for (i = 0; i < count; i++) {
+        memcpy(g_pal_sent + (first + i) * 3, rgb + i * 3, 3);
+        g_pal_known[first + i] = 1;
+    }
+    if (!g_dc8bit) return;
     dc = GetDC(g_hwnd);
-    SelectPalette(dc, g_pal, FALSE);
-    RealizePalette(dc);
-    ReleaseDC(g_hwnd, dc);
+    if (dc != 0) {
+        SelectPalette(dc, g_pal, FALSE);
+        RealizePalette(dc);
+        ReleaseDC(g_hwnd, dc);
+    }
+}
+
+/* The picture's table: what the true-colour presenter resolves picture pixels through, and what the
+ * window-DC path sends to its DIB (and to the device, on a palette display). */
+void plat_set_palette(u32 first, u32 count, const u8 *rgb)
+{
+    u32 i;
+
+    if (rgb == 0 || first >= PAL_ENTRIES) return;
+    if (first + count > PAL_ENTRIES) count = PAL_ENTRIES - first;
+    for (i = 0; i < count; i++) {
+        memcpy(g_pic_pal + (first + i) * 3, rgb + i * 3, 3);
+        g_pic_lut[first + i] = pal_word(rgb + i * 3);
+    }
+    palette_upload(first, count, rgb);
+}
+
+/* The overlay's table: its own, so its pens stop taking picture entries (display-rate.md, phase 3).
+ * The window-DC path still needs the bytes in the shared device table, because it blits one 8-bit
+ * surface in which both layers live; the true-colour path never reads that table for them. */
+void plat_set_overlay_palette(u32 first, u32 count, const u8 *rgb)
+{
+    u32 i;
+
+    if (rgb == 0 || first >= PAL_ENTRIES) return;
+    if (first + count > PAL_ENTRIES) count = PAL_ENTRIES - first;
+    for (i = 0; i < count; i++) {
+        memcpy(g_ovl_pal + (first + i) * 3, rgb + i * 3, 3);
+        g_ovl_lut[first + i] = pal_word(rgb + i * 3);
+    }
+    palette_upload(first, count, rgb);
+}
+
+const char *plat_display_backend(void)
+{
+    return g_d3d == 1 ? "dx9" : "gdi";
+}
+
+/* --- the display clock ---------------------------------------------------------------------
+ * plat_now_us and plat_display_hz are the host's clock; plat_display_service is the one call that
+ * spends it. Nothing here touches the machine's 20 ms frame: a display frame only decides whether
+ * the *last composed picture* (plus a fresh overlay) is handed to the window again. */
+
+u64 plat_now_us(void)
+{
+    if (g_qpcFreq > 0) return (u64)(qpc_now() * (__int64)1000000 / g_qpcFreq);
+    return (u64)GetTickCount() * 1000u;
+}
+
+/* The panel's own rate. EnumDisplaySettings answers what the display is programmed at (not what it
+ * can do); a rate the driver reports as "default" (0 or 1) tells us nothing and is answered as 0,
+ * which leaves the platform delivering once per present - the port's old behaviour. */
+static u32 query_display_hz(void)
+{
+    DEVMODE dm;
+    u32 hz;
+
+    memset(&dm, 0, sizeof dm);
+    dm.dmSize = sizeof dm;
+    if (!EnumDisplaySettings(0, ENUM_CURRENT_SETTINGS, &dm)) return 0;
+    hz = (u32)dm.dmDisplayFrequency;
+    if (hz <= 1) return 0;                       /* "hardware default" */
+    if (hz < 24 || hz > 240) return 0;           /* not a panel rate */
+    return hz;
+}
+
+static void display_clock_recalc(void)
+{
+    g_disp_hz = query_display_hz();
+    /* No performance counter means no clock fine enough to pace a panel with: 0 leaves the port
+     * delivering once per present, which is what it always did. */
+    g_disp_period_us = g_disp_hz != 0 && g_qpcFreq > 0 ? 1000000u / g_disp_hz : 0u;
+    g_next_disp_us = plat_now_us();
+}
+
+u32 plat_display_hz(void)
+{
+    return g_disp_hz;
+}
+
+void plat_set_overlay(plat_overlay_fn fn)
+{
+    g_overlay = fn;
+}
+
+u32 plat_overlay_armed(void)
+{
+    return (u32)(g_overlay != 0 && g_hwnd != 0 && g_disp_bits != 0);
+}
+
+void plat_display_stats(u32 *frames, u32 *overlays, u32 *hz)
+{
+    if (frames != 0) *frames = (u32)g_disp_frames;
+    if (overlays != 0) *overlays = g_overlay_draws;
+    if (hz != 0) *hz = g_disp_hz;
+}
+
+/* One display frame's worth of service. Never blocks: a display tick may not delay the machine's
+ * 20 ms deadline, so it delivers or it skips. The clock is read first and nothing else happens
+ * until a frame is due - the front end calls this once per translated function, so the cheap path
+ * has to be one counter read. The message drain belongs to the display frame, which is what makes a
+ * key or a pointer move arrive at the panel's rate: the drawn arrow takes its position from there,
+ * and a press released again before the next frame boundary is latched instead of lost. */
+void plat_display_service(void)
+{
+    u64 now;
+
+    if (g_hwnd == 0 || g_disp_period_us == 0 || g_ovl_bits == 0) return;
+    now = plat_now_us();
+    if (now < g_next_disp_us) return;
+    g_next_disp_us += (u64)g_disp_period_us;
+    /* Behind by more than a frame (a slow scene, a debugger break): deliver this one and re-anchor,
+     * rather than bursting through the frames that were missed. */
+    if (g_next_disp_us < now) g_next_disp_us = now + (u64)g_disp_period_us;
+    plat_pump_display();
+    deliver();
+    if (!(g_dispThreadOn && g_d3d == 1)) g_disp_frames++;    /* the presenter's thread counts its own */
+}
+
+/* The pointer's position in framebuffer pixels, as the last drain saw it. */
+u32 plat_pointer_position(s16 *x, s16 *y)
+{
+    s16 px = g_mouse_x, py = g_mouse_y;
+
+    mouse_to_fb(&px, &py);
+    if (x != 0) *x = px;
+    if (y != 0) *y = py;
+    return 1;
 }
 
 /* --- audio ----------------------------------------------------------------------------------
@@ -1339,9 +2195,10 @@ u32 plat_pump(input_state *in)
     }
     for (i = 0; i < KEY_COUNT; i++) {
         in->down[i] = g_keys[i];
-        g_pressed[i] = (u8)(g_keys[i] && !prev[i]);
+        g_pressed[i] = (u8)((g_keys[i] && !prev[i]) || g_pressLatch[i]);
         in->pressed[i] = g_pressed[i];
         prev[i] = g_keys[i];
+        g_pressLatch[i] = 0;             /* reported once, at this boundary */
     }
     in->mouse_x = g_mouse_x;
     in->mouse_y = g_mouse_y;
@@ -1354,6 +2211,22 @@ u32 plat_pump(input_state *in)
     in->mouse_moved = (u8)(g_mouse_motion != g_mouse_motion_seen);
     g_mouse_motion_seen = g_mouse_motion;
     return (u32)(!g_quit);
+}
+
+/* The display service's own drain: messages only, no input_state and no edge bookkeeping. Running
+ * the window procedure here is what makes a press and its release two events instead of one level
+ * that happens to be back where it started when the boundary reads it; the edges themselves stay
+ * in g_pressLatch/g_mouse_clicks for plat_pump to report, so every existing caller keeps its
+ * "one sample per frame" meaning and a --record made before this change replays identically. */
+static void plat_pump_display(void)
+{
+    MSG msg;
+
+    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) g_quit = 1;
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
 }
 
 void plat_set_frame_hz(u32 hz)
@@ -1378,6 +2251,10 @@ void plat_frame_sync(void)
         now = qpc_now();
         remain = g_nextFrame - now;
         if (remain <= 0) break;
+        /* The idle time before this frame's deadline is where a display frame is delivered: the
+         * panel's rate is faster than the machine's 50 Hz, so the arrow and the OSD move between
+         * two composed pictures. It never blocks and never moves the deadline above. */
+        plat_display_service();
         /* Sleep while there is more than a millisecond to go, then spin with Sleep(0) (yield to
          * whoever else wants the CPU): spinning the last millisecond keeps the cadence exact. */
         if (remain > g_qpcFreq / 1000) Sleep(1);

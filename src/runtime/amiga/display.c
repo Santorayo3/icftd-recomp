@@ -145,9 +145,9 @@ static void nib_tables(void)
 }
 
 
-/* A plot target that means "the chunky framebuffer" instead of a planar BitMap in emulated RAM:
- * the on-screen display draws through the same primitives the game's own text does. */
-#define EMU_BM_FRAMEBUFFER 0xFFFFFFF0u
+/* The port's own drawing no longer plots into the chunky buffer through plot(): it draws on an
+ * rt_surface (plot_surface, rt_overlay_draw), which is what lets the presentation put the overlay
+ * on the platform's display surface instead of into the composed picture. */
 
 static void osd_draw(rt_machine *m);
 
@@ -347,16 +347,6 @@ static void plot(rt_machine *m, u32 bm, int x, int y, u8 pen)
 {
     int bpr, depth, p;
 
-    if (bm == EMU_BM_FRAMEBUFFER)
-    {
-        /* Drawn straight into the chunky buffer: the plane comparison can no longer tell whether
-         * the buffer is current, so a later present must rebuild it. */
-        g_srcValid = 0;
-        row_src_invalidate();
-        if (gfx->fb != 0 && x >= 0 && y >= 0 && x < gfx->fbW && y < gfx->fbH)
-            gfx->fb[(u32)y * (u32)EMU_FB_MAX_W + (u32)x] = pen;
-        return;
-    }
     bpr = bm_bpr(m, bm);
     depth = bm_depth(m, bm);
     if (bm == 0 || bpr <= 0) return;
@@ -2423,9 +2413,11 @@ void rt_gfx_present(rt_machine *m, u32 view)
             gfx->pal[p * 3 + 2] = (u8)((v & 0xF) * 17);
         }
     }
-    /* OSD last: it sits on top of whatever the engine composed, and its palette entries are set
-     * after the game's own table was built. */
-    osd_draw(m);
+    /* The port's overlay last: it sits on top of whatever the engine composed, and its palette
+     * entries are set after the game's own table was built. With a window the platform draws it
+     * itself, per display frame, on its own display surface - so it is composed into the picture
+     * only where nothing else will draw it (a headless --shot/--dump, the DOS build). */
+    if (!plat_overlay_armed()) osd_draw(m);
     gfx->frames++;
     if (m->perfOn) m->perf.presents++;     /* --perf: a presentation call, which is not a frame */
     /* Trace the flip cadence: the emulated frame number each present belongs to is the only way to
@@ -2498,57 +2490,53 @@ void rt_crosshair_hidden(void)
     gfx->crsUp = 0;
 }
 
-static void osd_draw_text(rt_machine *m)
+/* The overlay's own pixel write: the clip plot() gives the framebuffer, onto whatever surface the
+ * caller is drawing on. */
+static void plot_surface(rt_surface *s, int x, int y, u8 pen)
 {
-    u32 font = m->osdFont;
-    int x = OSD_PAD, top = OSD_PAD, i;
-
-    for (i = 0; gfx->osdText[i] != 0; i++)
-    {
-        int ch = (int)(u8)gfx->osdText[i];
-
-        if (font != 0)
-        {
-            int base = top + (int)(s16)rt_read16(&m->mem, font + EMU_TF_BASELINE);
-            /* JAM1 (mode 0), not JAM2: the overlay sits on top of the game's picture, so only the
-             * glyph pixels are written. Passing 1 here painted pen 0 (black) around every letter. */
-            x += (int)put_glyph(m, EMU_BM_FRAMEBUFFER, font, ch, x, base, OSD_PEN_TEXT, 0, 0);
-        }
-        else
-        {   /* no disk font open: the built-in stand-in keeps the line readable */
-            const u8 *g = glyph_for_char(ch);
-            int row, col;
-            for (row = 0; row < FONT_H; row++)
-                for (col = 0; col < FONT_W; col++)
-                    if ((g[row] & (1u << (FONT_W - 1 - col))) != 0)
-                        plot(m, EMU_BM_FRAMEBUFFER, x + col, top + row, OSD_PEN_TEXT);
-            x += FONT_ADVANCE;
-        }
-    }
+    if (s->dst == 0 || x < 0 || y < 0 || x >= s->w || y >= s->h) return;
+    s->dst[(u32)y * s->stride + (u32)x] = pen;
 }
 
-static void osd_draw_icon(rt_machine *m)
+static void osd_draw_text(rt_machine *m, rt_surface *s)
 {
-    int x0 = gfx->fbW - OSD_ICON_W, row, col;
+    /* The game's disk font, JAM1: only the glyph pixels are written, because the overlay sits on
+     * top of the game's picture (JAM2 would paint pen 0 around every letter). */
+    rt_font_text_draw(m, s->dst, s->stride, s->w, s->h, OSD_PAD, OSD_PAD, gfx->osdText,
+                      OSD_PEN_TEXT);
+}
+
+static void osd_draw_icon(rt_machine *m, rt_surface *s)
+{
+    int x0 = s->w - OSD_ICON_W, row, col;
 
     if (x0 < 0) return;
     for (row = 0; row < OSD_ICON_H; row++)
         for (col = 0; col < OSD_ICON_W; col++)
         {
             u8 v = g_osdIcon[row * OSD_ICON_W + col];
-            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, x0 + col, row, (u8)(OSD_PEN_ICON + v - 1));
+            if (v != 0) plot_surface(s, x0 + col, row, (u8)(OSD_PEN_ICON + v - 1));
         }
 }
 
-void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y)
+/* The arrow's pixels, into any buffer the port owns: the presented picture, the title's screen,
+ * the save picker's popup. Drawing into the chunky of the *presented* picture makes the plane
+ * comparison meaningless, so a headless caller invalidates through rt_overlay_begin first; a
+ * windowed one draws on the platform's display surface and must not (that is what keeps the
+ * identity caches alive on a pointer screen).
+ *
+ * The arrow is kept whole: the tip is pulled in when it would put part of the mark past the
+ * surface's right or bottom edge. It is the only pointer the player sees (the system cursor is
+ * hidden), and a window wider than the picture has the border art right there - an arrow at the
+ * edge slid under the curtain and read as a lost pointer (reported on the title menu, where the
+ * pointer can be pushed into the bars beside the 320x200 picture). */
+static void pointer_blit(u8 *dst, u32 stride, int w, int h, int x, int y)
 {
     int row, col;
 
     if (dst == 0) return;
-    /* Drawing into the chunky buffer makes the plane comparison meaningless; a later present
-     * must rebuild it. */
-    g_srcValid = 0;
-    row_src_invalidate();
+    if (w > PTR_W && x > w - PTR_W) x = w - PTR_W;
+    if (h > PTR_H && y > h - PTR_H) y = h - PTR_H;
     for (row = 0; row < PTR_H; row++)
         for (col = 0; col < PTR_W; col++)
         {
@@ -2558,6 +2546,11 @@ void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y)
             if (v != 0 && px >= 0 && py >= 0 && px < w && py < h)
                 dst[(u32)py * stride + (u32)px] = (u8)(OSD_PEN_PTR + v - 1);
         }
+}
+
+void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y)
+{
+    pointer_blit(dst, stride, w, h, x, y);
 }
 
 const u8 *rt_pointer_palette(void)
@@ -2583,15 +2576,14 @@ void rt_overlay_palette(u32 first, u32 count, const u8 *rgb)
     for (i = 0; i < count * 3u; i++) gfx->pal[first * 3u + i] = rgb[i];
 }
 
-static void osd_draw_pointer(rt_machine *m)
+static void osd_draw_pointer(rt_surface *s)
 {
-    (void)m;
-    rt_pointer_draw(gfx->fb, EMU_FB_MAX_W, gfx->fbW, gfx->fbH, gfx->ptrX, gfx->ptrY);
+    pointer_blit(s->dst, s->stride, s->w, s->h, gfx->ptrX, gfx->ptrY);
 }
 
 /* The aiming crosshair: its centre pixel is the point it marks, so the picture is placed half its
  * size up and left of it. */
-static void osd_draw_crosshair(rt_machine *m)
+static void osd_draw_crosshair(rt_machine *m, rt_surface *s)
 {
     int x0 = gfx->crsX - CRS_W / 2, y0 = gfx->crsY - CRS_H / 2;
     int row, col;
@@ -2600,30 +2592,32 @@ static void osd_draw_crosshair(rt_machine *m)
         for (col = 0; col < CRS_W; col++)
         {
             u8 v = g_crosshair[row * CRS_W + col];
-            if (v != 0) plot(m, EMU_BM_FRAMEBUFFER, x0 + col, y0 + row,
-                             (u8)(OSD_PEN_CRS + v - 1));
+            if (v != 0) plot_surface(s, x0 + col, y0 + row, (u8)(OSD_PEN_CRS + v - 1));
         }
 }
 
-static void osd_draw(rt_machine *m)
+static int overlay_text_up(rt_machine *m)
 {
-    static int wasUp;
-    int textUp = gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
-    int iconUp = (s32)(gfx->osdIconUntil - m->frame) > 0;
-    int ptrUp = gfx->ptrUp != 0;
-    int crsUp = gfx->crsUp != 0;
+    return gfx->osdText[0] != 0 && (s32)(gfx->osdTextUntil - m->frame) > 0;
+}
+
+static int overlay_icon_up(rt_machine *m)
+{
+    return (s32)(gfx->osdIconUntil - m->frame) > 0;
+}
+
+static int overlay_up(rt_machine *m)
+{
+    return overlay_text_up(m) || overlay_icon_up(m) || gfx->ptrUp != 0 || gfx->crsUp != 0;
+}
+
+void rt_overlay_draw(rt_machine *m, rt_surface *s)
+{
     int i;
 
-    if (!textUp && !iconUp && !ptrUp && !crsUp)
-    {
-        /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
-         * to rebuild the picture to clear those pixels. */
-        if (wasUp) { g_srcValid = 0; row_src_invalidate(); wasUp = 0; }
-        return;
-    }
-    wasUp = 1;
-    g_srcValid = 0;                     /* the overlay's pixels are not in the planes */
-    row_src_invalidate();
+    if (gfx == 0 || s == 0 || s->dst == 0 || !overlay_up(m)) return;
+    /* The overlay's pens are set every time it is drawn: the game's own table may have rebuilt them
+     * since the last frame, and the platform uploads this range after the call. */
     osd_colour(OSD_PEN_TEXT, 0, 255, 0);
     for (i = 0; i < OSD_ICON_COLOURS; i++)
         osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],
@@ -2634,10 +2628,35 @@ static void osd_draw(rt_machine *m)
     for (i = 0; i < CRS_COLOURS; i++)
         osd_colour((u32)OSD_PEN_CRS + (u32)i, g_crosshairPal[i * 3], g_crosshairPal[i * 3 + 1],
                    g_crosshairPal[i * 3 + 2]);
-    if (textUp) osd_draw_text(m);
-    if (iconUp) osd_draw_icon(m);
-    if (ptrUp) osd_draw_pointer(m);
-    if (crsUp) osd_draw_crosshair(m);
+    if (overlay_text_up(m)) osd_draw_text(m, s);
+    if (overlay_icon_up(m)) osd_draw_icon(m, s);
+    if (gfx->ptrUp) osd_draw_pointer(s);
+    if (gfx->crsUp) osd_draw_crosshair(m, s);
+}
+
+/* The overlay into the chunky buffer itself: what the presentation draws while no platform draws
+ * it per display frame - a headless --shot/--dump run, and the DOS build. Those pixels are not in
+ * the planes, so the identity caches are invalidated here and only here. */
+static void osd_draw(rt_machine *m)
+{
+    static int wasUp;
+    rt_surface s;
+
+    if (!overlay_up(m))
+    {
+        /* The overlay has been drawn into the chunky buffer and is gone now: the next present has
+         * to rebuild the picture to clear those pixels. */
+        if (wasUp) { g_srcValid = 0; row_src_invalidate(); wasUp = 0; }
+        return;
+    }
+    wasUp = 1;
+    g_srcValid = 0;                     /* the overlay's pixels are not in the planes */
+    row_src_invalidate();
+    s.dst = gfx->fb;
+    s.stride = EMU_FB_MAX_W;
+    s.w = gfx->fbW;
+    s.h = gfx->fbH;
+    rt_overlay_draw(m, &s);
 }
 
 const u8 *rt_gfx_framebuffer(void) { return gfx != 0 ? gfx->fb : 0; }

@@ -53,3 +53,10 @@ void border_paint(u32 *dst, int w, int h)
             row[x] = src[(u32)x * BORDER_W / (u32)w];
     }
 }
+
+/* Decodes the art now, on the calling thread, so a later border_paint from another one (the
+ * presenter's own thread, docs\display-rate.md phase 3) only reads the decoded table. */
+void border_prepare(void)
+{
+    if (!g_borderReady) border_decode();
+}

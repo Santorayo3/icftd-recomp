@@ -17,6 +17,11 @@
 #      key is still held, and the player would stutter every time he switched keys.)
 #   3. Nothing else moves: opposing keys still report both directions (the host's own joystick
 #      word handles that case), and an arrow press does not set KEY_W.
+#   4. A tap inside one frame: a key that goes down and up again before the next boundary is one
+#      press, on every key the port maps (Escape, Enter, Space, F1..F5, the digit row, the
+#      directions, W/C/T and left Ctrl). The window procedure latches the edge where the message
+#      arrives - at display rate - and plat_pump reports it once and clears it, so a fast tap is
+#      neither lost nor reported twice (docs\display-rate.md, phase 4).
 #
 # The driver needs a window, so with no desktop the step is a SKIP (exit 0) rather than a failure.
 param(
@@ -31,7 +36,10 @@ $wcl = Join-Path $WatcomHome 'binnt64\wcl386.exe'
 if (-not (Test-Path $wcl)) { Write-Output "keys: SKIP (no $wcl)"; exit 0 }
 
 $env:WATCOM = $WatcomHome
-$env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt')) -join ';'
+# The DirectX headers ship inside Open Watcom (h\nt\directx): plat_win32.c's true-colour
+# presenter is built from them (docs\display-rate.md, phase 3).
+$env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt'),
+                 (Join-Path $WatcomHome 'h\nt\directx')) -join ';'
 $env:LIB = @((Join-Path $WatcomHome 'lib386'), (Join-Path $WatcomHome 'lib386\nt')) -join ';'
 $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')) -join ';'
 
@@ -169,6 +177,47 @@ int main(void)
     want("an arrow does not press W", g_in.down[KEY_UP] && !g_in.down[KEY_W],
          "KEY_W stays clear");
     keysend(WM_KEYUP, VK_UP);
+
+    /* 4. A tap inside one frame: down and up before the next boundary is still one press. Both
+     * messages are posted and only then pumped, which is exactly the state a key held for a few
+     * milliseconds leaves when the boundary reads it. */
+    {
+        static const struct { UINT vk; int key; const char *name; } taps[] = {
+            { VK_ESCAPE,  KEY_ESCAPE,  "Escape" },
+            { VK_RETURN,  KEY_ENTER,   "Enter" },
+            { VK_SPACE,   KEY_FIRE,    "Space" },
+            { VK_F1,      KEY_F1,      "F1" },
+            { VK_F2,      KEY_F2,      "F2" },
+            { VK_F3,      KEY_F3,      "F3" },
+            { VK_F4,      KEY_F4,      "F4" },
+            { VK_F5,      KEY_F5,      "F5" },
+            { '0',        KEY_0,       "0" },
+            { '3',        KEY_3,       "3" },
+            { '9',        KEY_9,       "9" },
+            { VK_UP,      KEY_UP,      "Up" },
+            { VK_LEFT,    KEY_LEFT,    "Left" },
+            { 'W',        KEY_W,       "W" },
+            { 'C',        KEY_C,       "C" },
+            { 'T',        KEY_T,       "T" },
+            { VK_CONTROL, KEY_CTRL,    "Left Ctrl" }
+        };
+        unsigned t;
+
+        for (t = 0; t < sizeof taps / sizeof taps[0]; t++) {
+            char what[96];
+
+            pump();                                  /* a clean boundary first */
+            PostMessage(g_hwnd, WM_KEYDOWN, (WPARAM)taps[t].vk, 0);
+            PostMessage(g_hwnd, WM_KEYUP, (WPARAM)taps[t].vk, 0);
+            pump();
+            sprintf(what, "%s tapped inside one frame", taps[t].name);
+            want(what, g_in.pressed[taps[t].key] && !g_in.down[taps[t].key],
+                 "one pressed edge, and not held");
+            pump();
+            sprintf(what, "%s tap reported once", taps[t].name);
+            want(what, !g_in.pressed[taps[t].key], "the next boundary has no edge");
+        }
+    }
 
     plat_shutdown();
     if (g_fail != 0) {

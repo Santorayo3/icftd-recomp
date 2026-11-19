@@ -122,6 +122,24 @@ void rt_gfx_screen_touched(rt_machine *m, int first, int last);
 void rt_gfx_srcdiff(int on);
 
 /* --- on-screen display --------------------------------------------------------------------- */
+/* A chunky 8-bit drawing target: the runtime's own framebuffer (EMU_FB_MAX_W bytes per row) or a
+ * platform display surface, which is what lets the port's overlay be drawn at display rate on top
+ * of a picture that was composed once. */
+typedef struct rt_surface
+{
+    u8  *dst;                   /* top row, one byte per pixel */
+    u32  stride;                /* bytes between rows */
+    int  w, h;                  /* the clip the drawing uses */
+} rt_surface;
+
+/* The port's whole overlay - the OSD line, the save icon, the pointer arrow and the aiming
+ * crosshair - onto any surface, in the order and with the pens the presentation draws it with.
+ * Sets the palette entries it uses in gfx->pal (rt_gfx_palette), so a caller that uploads the
+ * overlay's palette range afterwards hands the device the colours it just drew with. The arrow is
+ * drawn where rt_pointer_at last put it: a caller that wants it at display rate moves it there
+ * (rt_pointer_at) before calling this. */
+void rt_overlay_draw(rt_machine *m, rt_surface *s);
+
 /* The port's own overlay, drawn into the chunky framebuffer after the game's frame has been
  * composed: a line of text in the top left corner (the game's disk font) and the save icon in the
  * top right. Both stay up for `frames` 50 Hz ticks. */
@@ -137,8 +155,16 @@ void rt_pointer_at(s16 x, s16 y);
 void rt_pointer_hidden(void);
 
 /* The arrow itself, drawn into any chunky buffer (the title menu draws it while the game's own
- * presenter is not running). x/y are the tip, its top left pixel. */
+ * presenter is not running). x/y are the tip, its top left pixel; a tip that would put part of the
+ * arrow past the buffer's right or bottom edge is pulled in, because the arrow is the only pointer
+ * the player sees and a half one reads as a lost pointer (a wider window's border art sits just past
+ * the picture's edge, and an arrow at the edge slid under it). */
 enum { EMU_PEN_POINTER = 246, EMU_PEN_POINTER_COLOURS = 2 };   /* 246..247: outline, fill */
+/* The palette range the port's own surfaces draw in: the picker's art (224..232), the save icon
+ * (240..245), the arrow (246..247), the crosshair (248..254) and the OSD line (255). A presenter
+ * that draws the overlay itself, after the picture was uploaded, re-uploads this range - and only
+ * it - so the overlay's colours are device state for a moment rather than for every present. */
+#define EMU_OVERLAY_PEN_FIRST 224
 void rt_pointer_draw(u8 *dst, u32 stride, int w, int h, int x, int y);
 
 /* --- other port surfaces ------------------------------------------------------------------- */

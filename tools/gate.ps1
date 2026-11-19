@@ -95,6 +95,12 @@
     the one step (-Only) or the tier (-Full) the change touches. See docs\port-features.md, "The
     dev loop".
 
+    Cost. Most port steps are emulation: each replays a scene for 5-27 million instructions at
+    roughly 700 000 per second, so the port tier is about nine minutes and four steps - title menu,
+    pointer aim, title settings, presentation - are six of those; the remaining twelve are seconds
+    each. Every step announces itself on its way in and its result on its way out (the same line is
+    left in out\gate-progress.txt), so a long run no longer reads as a hang.
+
 .PARAMETER Full
     Add the port-feature steps (5-21) to the core steps.
 
@@ -128,6 +134,13 @@ function Step([string]$name, [scriptblock]$body) {
     $ok = $true
     $detail = ''
     $global:LASTEXITCODE = 0
+    # A port step is often a minute of emulation and the step's own output is buffered, so the run
+    # used to sit silent for the whole table and read as a hang. Announce the step before it starts
+    # and note the result the moment it lands; out\gate-progress.txt carries the same line for a run
+    # whose output nobody is watching.
+    $label = "gate: [$($script:results.Count + 1)/$($script:totalSteps)] $name"
+    Write-Host "$label ..."
+    try { [System.IO.File]::WriteAllText($script:progressPath, "$label ...`r`n") } catch { }
     # Native tools write warnings to stderr; with 'Stop' PowerShell would turn those into
     # exceptions, so the step body runs with 'Continue' and failures are judged by exit code.
     $prevEap = $ErrorActionPreference
@@ -149,7 +162,11 @@ function Step([string]$name, [scriptblock]$body) {
     }
     $sw.Stop()
     $script:results.Add([pscustomobject]@{ Step = $name; Result = $(if ($ok) { 'PASS' } else { 'FAIL' }); Detail = $detail; Seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1) })
-    if (-not $ok) { Write-Host ("FAIL {0} - {1}" -f $name, $detail) }
+    $line = "gate: [$($script:results.Count)/$($script:totalSteps)] $name -> " +
+            $(if ($ok) { 'PASS' } else { 'FAIL' }) + " ($([Math]::Round($sw.Elapsed.TotalSeconds, 1))s)"
+    if (-not $ok) { $line += " - $detail" }
+    Write-Host $line
+    try { [System.IO.File]::WriteAllText($script:progressPath, "$line`r`n") } catch { }
 }
 
 if (-not (Test-Path (Join-Path $root 'out'))) { New-Item -ItemType Directory -Path (Join-Path $root 'out') | Out-Null }
@@ -204,6 +221,8 @@ else {
 }
 if ($Quick) { $steps = @($steps | Where-Object { -not $_.Build }) }
 
+$script:totalSteps = $steps.Count
+$script:progressPath = Join-Path $root 'out\gate-progress.txt'
 foreach ($s in $steps) { Step $s.Name $s.Body }
 
 Write-Host ''

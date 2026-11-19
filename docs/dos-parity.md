@@ -485,8 +485,9 @@ Asked for: the title menu's buttons and the Quit Game notice's white text flicke
 of a compose is on the display while it is drawn: `title_draw` lays the art down first and the
 buttons last, so a frame caught in between shows the picture with no buttons at all, and
 `title_notice_draw` clears the screen black and then draws two lines, so a frame caught in between
-shows one line or none. The Win32 build never had this: it composes into a DIB and the window sees
-one `BitBlt` per frame (`plat_win32.c`, `make_frame`).
+shows one line or none. The Win32 build never had this: it composes into a DIB - or, since
+`docs\display-rate.md`'s phase 3, into a texture the presenter draws in one frame - and the window
+sees one complete frame per present (`plat_win32.c`).
 
 **The fix, in the present backend only** (port code: the original has no such surface). `g_screen`
 is the frame `plat_framebuffer()` hands out; `plat_present()` writes video memory exactly once, with

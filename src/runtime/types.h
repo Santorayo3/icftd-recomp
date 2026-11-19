@@ -13,6 +13,9 @@ typedef unsigned short u16;
 typedef signed short   s16;
 typedef unsigned long  u32;
 typedef signed long    s32;
+/* Microseconds on a monotonic clock (platform.h, plat_now_us). Watcom compiles it for both
+ * targets; keep arithmetic on it to add/subtract/compare, which both backends do natively. */
+typedef unsigned long long u64;
 
 #define SCREEN_W      320
 #define SCREEN_H      200

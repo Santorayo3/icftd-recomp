@@ -41,6 +41,21 @@
 #      out of the box before the press landed there, so the press became a click on the picture and
 #      the run kept playing. Only the pointer *over the picture* is the game's; over the frame it
 #      stays the desktop's.
+#  11. The port's own overlay keeps its own colours over a scene: the OSD line is #00FF00 in the
+#      window, not a colour of the palette the scene loaded. The platform draws the overlay at
+#      display rate and hands the device its palette range; a run that handed over the table's base
+#      instead of the range's first entry loaded the scene's pens 0..31 into 224..255, and both the
+#      OSD line and the arrow came out in the scene's colours - which is the bug this was written
+#      after.
+#  12. What the panel shows is the picture the presenter composed: --shot writes the raster the
+#      platform built for the frame (the picture with the port's overlay on it) and the capture reads
+#      the client the presented frame landed in, so on a still screen the two are the same picture,
+#      pixel for pixel. The run's --displaystat line names the presenter measured - the true-colour
+#      one, or the window-DC fallback where a machine has no Direct3D (docs\display-rate.md, phase 3).
+#  13. The pointer is kept whole: the arrow is the only pointer the player sees (the system cursor is
+#      hidden), so a tip past the picture's right edge must stop where the mark still fits instead of
+#      sliding under the border curtain. Two title screens that differ only in a scripted x past that
+#      limit show the same picture, and it is the one at the limit.
 #
 # The captures are PrintWindow(PW_CLIENTONLY), i.e. the platform's own WM_PRINTCLIENT answer: what
 # the window is drawing into its client, not whatever the desktop composited on top of it. The
@@ -741,6 +756,139 @@ try {
                     $shot3.Dispose()
                 }
                 if (-not (StopGame $game3)) { Fail 'the chicken run did not close' }
+            }
+
+            # 11. The port's own overlay keeps its own colours over a scene. --osd arms the line on
+            #     every present, the scene under it is the intro (--call enters it at frame 2500, so
+            #     the title does not take the screen), and the line must be #00FF00 in the window -
+            #     the palette the scene loaded reaches the device through plat_set_palette, and the
+            #     overlay's range has to be handed over from its own first entry or the scene's
+            #     pens 0..31 land in 224..255 and colour the OSD line and the arrow.
+            $log13 = Join-Path $Work 'overlay.log'
+            $proc13 = Start-Process -FilePath (Resolve-Path $Exe).Path -PassThru -RedirectStandardOutput $log13 `
+                -ArgumentList (@($Image, '9000000', '--data', $DataDir, '--window', '--osd', 'OSDTEST',
+                                 '--call', '0x1C19A:2500'))
+            $running.Add($proc13) | Out-Null
+            $h13 = [IntPtr]::Zero
+            for ($i = 0; $i -lt 100; $i++) {
+                Start-Sleep -Milliseconds 100
+                $h13 = [WindowCheck]::Find()
+                if ($h13 -ne [IntPtr]::Zero -and $i -ge 30) { break }     # ~3 s of composed frames
+                if ($proc13.HasExited) { break }
+            }
+            if ($h13 -eq [IntPtr]::Zero) {
+                Fail 'the overlay run did not open a window'
+            } else {
+                [WindowCheck]::ResizeClient($h13, 320, 200)     # 1:1, so the line is at 2,2
+                Start-Sleep -Milliseconds 500
+                $shot13 = [WindowCheck]::Capture($h13)
+                if ($shot13 -eq $null) {
+                    Fail 'the overlay run would not render its client area'
+                } else {
+                    $green = 0
+                    for ($y = 0; $y -lt [Math]::Min(12, $shot13.Height); $y++) {
+                        for ($x = 0; $x -lt [Math]::Min(140, $shot13.Width); $x++) {
+                            $c = $shot13.GetPixel($x, $y)
+                            if ($c.R -lt 40 -and $c.G -gt 200 -and $c.B -lt 40) { $green++ }
+                        }
+                    }
+                    if ($green -lt 20) {
+                        Fail ("the OSD line is {0} pixel(s) of #00FF00 in the window - the overlay's colours are taken from the scene's palette" -f $green)
+                    } else {
+                        Ok ("the OSD line keeps the port's own colour over a scene (#00FF00, {0} px)" -f $green)
+                    }
+                    $shot13.Dispose()
+                }
+                [void][WindowCheck]::Close($h13)
+                if (-not $proc13.WaitForExit(20000)) { try { $proc13.Kill() } catch { } }
+            }
+
+            # 12. What the panel shows is the picture the presenter composed. --shot writes the raster
+            #     the platform built for the frame (the picture with the port's overlay on it), and
+            #     PrintWindow reads the client the presented frame landed in; on a still screen - the
+            #     title they are both taken from - the two have to be the same picture, pixel for
+            #     pixel. This is docs\display-rate.md, phase 3's claim that the screen is produced
+            #     from the same gfx->fb/gfx->pal the 8-bit path composes (the run's own
+            #     --displaystat line then says which presenter was measured).
+            $shot12 = Join-Path $Work 'composed.bmp'
+            if (Test-Path $shot12) { Remove-Item $shot12 -Force }
+            $game12 = StartGame 'run12' @('--shot', $shot12, '--displaystat') 'title: menu'
+            if ($game12.hwnd -eq [IntPtr]::Zero) {
+                if (-not $game12.proc.HasExited) { try { $game12.proc.Kill() } catch { } }
+                Fail 'the presented-picture run did not open a window'
+            } else {
+                [WindowCheck]::ResizeClient($game12.hwnd, 320, 200)     # 1:1, so the client *is* the picture
+                Start-Sleep -Milliseconds 900
+                $cap12 = [WindowCheck]::Capture($game12.hwnd)
+                if (-not (StopGame $game12)) { Fail 'the presented-picture run did not close' }
+                if ($cap12 -eq $null) {
+                    Fail 'the presented-picture run would not render its client area'
+                } elseif (-not (Test-Path $shot12)) {
+                    Fail ("no composed raster was written ({0})" -f $shot12)
+                } else {
+                    $ref12 = $null
+                    try {
+                        $ref12 = [System.Drawing.Bitmap]::FromFile((Resolve-Path $shot12).Path)
+                        $w12 = [Math]::Min($ref12.Width, $cap12.Width)
+                        $h12 = [Math]::Min($ref12.Height, $cap12.Height)
+                        $diff12 = [WindowCheck]::Region($cap12, 0, 0, $ref12, 0, 0, $w12, $h12)
+                        $text12 = ''
+                        try { $text12 = Get-Content $game12.log -Raw -ErrorAction SilentlyContinue } catch { }
+                        $presenter = if ($text12 -match 'presenter (\w+)') { $Matches[1] } else { '?' }
+                        if ($ref12.Width -ne 320 -or $ref12.Height -ne 200 -or
+                            $cap12.Width -ne $ref12.Width -or $cap12.Height -ne $ref12.Height) {
+                            Fail ("the composed raster is {0}x{1} and the client {2}x{3} - they cannot be compared" -f
+                                  $ref12.Width, $ref12.Height, $cap12.Width, $cap12.Height)
+                        } elseif ($diff12 -ne 0) {
+                            Fail ("{0} pixel(s) of the {1} the window presents differ from the picture the presenter composed (presenter {2})" -f
+                                  $diff12, ($w12 * $h12), $presenter)
+                        } else {
+                            Ok ("what the panel shows is the composed picture, pixel for pixel ({0} px, presenter {1})" -f ($w12 * $h12), $presenter)
+                        }
+                    } catch {
+                        Fail ("the composed raster could not be read: {0}" -f $_)
+                    } finally {
+                        if ($ref12) { $ref12.Dispose() }
+                        if ($cap12) { $cap12.Dispose() }
+                    }
+                }
+            }
+
+            # 13. The pointer is kept whole. The arrow is the only pointer the player sees - the
+            #     window hides the system cursor - and the picture's right edge is where the border
+            #     art begins, so a tip pushed further right used to slide the mark under the curtain.
+            #     A title screen with the scripted pointer past that limit must be the same picture
+            #     as one whose tip sits exactly at it: the arrow stops at 303 (320 - the 17-pixel
+            #     sprite), whole, and moving further right changes nothing.
+            function TitlePointerShot([string]$name, [int]$x)
+            {
+                "0 $x 100 0`n" | Set-Content -Encoding ascii (Join-Path $Work 'pointer.txt')
+                $g = StartGame $name @() 'title: menu'
+                if ($g.hwnd -eq [IntPtr]::Zero) { return $null }
+                [WindowCheck]::ResizeClient($g.hwnd, 320, 200)
+                Start-Sleep -Milliseconds 800
+                $b = [WindowCheck]::Capture($g.hwnd)
+                [void](StopGame $g)
+                return $b
+            }
+            $atLimit = TitlePointerShot 'ptr-limit' 303
+            $pastLimit = TitlePointerShot 'ptr-past' 319
+            "0 100 120 0`n" | Set-Content -Encoding ascii (Join-Path $Work 'pointer.txt')
+            if ($atLimit -eq $null -or $pastLimit -eq $null) {
+                Fail 'the pointer runs would not render their client area'
+            } else {
+                $w13 = [Math]::Min($atLimit.Width, $pastLimit.Width)
+                $h13 = [Math]::Min($atLimit.Height, $pastLimit.Height)
+                $d13 = [WindowCheck]::Region($atLimit, 0, 0, $pastLimit, 0, 0, $w13, $h13)
+                if ($w13 -ne 320 -or $h13 -ne 200) {
+                    Fail ("the pointer screens are {0}x{1}, not the picture's 320x200" -f $w13, $h13)
+                } elseif ($d13 -ne 0) {
+                    Fail ("{0} pixel(s) differ between the pointer at x 303 and at x 319 - the arrow does not stop at the picture's edge" -f $d13)
+                } else {
+                    Ok 'the pointer stops where its arrow is still whole (x 319 draws what x 303 draws)'
+                }
+                $atLimit.Dispose()
+                $pastLimit.Dispose()
             }
         }
     }

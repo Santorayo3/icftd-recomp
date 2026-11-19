@@ -128,19 +128,19 @@ static void save_ui_text(rt_machine *m, u8 *dst, u32 stride, int w, int h, int c
     rt_font_text_draw(m, dst, stride, w, h, cx - tw / 2, top, text, pen);
 }
 
-void save_ui_draw(rt_machine *m, const save_ui *ui)
+void save_ui_draw(rt_machine *m, const save_ui *ui, rt_surface *s)
 {
     u8 *dst;
     char label[16];
     int i, x0, y0, cx;
     int w, h;
-    u32 stride = EMU_FB_MAX_W;
+    u32 stride;
 
-    if (ui == 0 || !ui->open) return;
-    dst = rt_overlay_begin();
-    if (dst == 0) return;
-    w = rt_gfx_width();
-    h = rt_gfx_height();
+    if (ui == 0 || !ui->open || s == 0 || s->dst == 0) return;
+    dst = s->dst;
+    stride = s->stride;
+    w = s->w;
+    h = s->h;
 
     rt_overlay_palette(SAVE_UI_PEN_ART, PORTRAIT_COLOURS, g_portraitBoxPal);
     rt_overlay_palette(TITLE_BUTTON_PEN_SLOT_EMPTY,

@@ -35,7 +35,10 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $out) | Out-Null
 
 $env:WATCOM = $WatcomHome
 $env:EDPATH = Join-Path $WatcomHome 'eddat'
-$env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt')) -join ';'
+# The DirectX headers ship inside Open Watcom (h\nt\directx): plat_win32.c's true-colour
+# presenter is built from them (docs\display-rate.md, phase 3).
+$env:INCLUDE = @((Join-Path $WatcomHome 'h'), (Join-Path $WatcomHome 'h\nt'),
+                 (Join-Path $WatcomHome 'h\nt\directx')) -join ';'
 $env:LIB = @((Join-Path $WatcomHome 'lib386'), (Join-Path $WatcomHome 'lib386\nt')) -join ';'
 $env:PATH = @((Join-Path $WatcomHome 'binnt64'), (Join-Path $WatcomHome 'binnt')) -join ';'
 

@@ -56,10 +56,18 @@ whole and puts the bars above and below instead of cropping it. Fullscreen keeps
 monitor shows the screen on. A picture larger than the screen - the chicken race's 368x216 window, a
 scene's own overscan - is fitted into the screen's rectangle at the screen's own pixel shape
 (`picture_rect`), so it is the same shape as the rest of the game and never grows over the border
-art; no column or row of it is dropped. Both go through one composed 32-bit frame blitted to the
-window in one BitBlt; the 320x200 window is the picture at 1:1 and blits the 8-bit DIB as it always
-did. The picture's rectangle is what the pointer is mapped back into (`mouse_to_fb`), so the game
-keeps reading framebuffer coordinates.
+art; no column or row of it is dropped. The picture's rectangle is what the pointer is mapped back
+into (`mouse_to_fb`), so the game keeps reading framebuffer coordinates.
+
+What reaches the window is a true-colour picture since docs\display-rate.md's phase 3: the 8-bit
+picture and the port's own overlay layer are resolved through two 256-entry index→RGB tables
+(the picture's and the overlay's, so the overlay's pens no longer take picture palette entries) and
+presented as point-sampled quads over `picture_rect()`'s rectangle, with the border art under them.
+That presenter runs on its own thread, because a `Present` waits for the compositor and the machine's
+20 ms frame may not wait with it. The window-DC path every earlier build used is still there as the
+fallback when no D3D9Ex device can be made, and as the reference `WM_PRINTCLIENT` answers with - the
+one `tools\window-check.ps1` reads, and which is why the swapchain is the discard one rather than
+the flip model.
 
 The window belongs to the player: nothing of the game resizes it (the chicken race's 368x216
 narration page used to), and a switch to fullscreen remembers the client size it has to come back

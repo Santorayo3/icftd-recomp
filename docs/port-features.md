@@ -9,6 +9,11 @@ but RULE 0 still governs everything the original *does* have, and a port feature
 This page is what a session reads *before* writing one: where a feature attaches, the trap that has
 cost the most time, how to reach each screen without playing to it, and the definition of done.
 
+The largest of them, and the one with a plan of its own, is **presentation and input at display
+rate**: the machine's 20 ms frame stays exactly as it is, and only the delivery of the composed
+picture (and the port's own layers) moves to the panel's refresh. See
+[display-rate.md](./display-rate.md).
+
 Everything below is measured, not remembered, unless it says otherwise.
 
 ## The five attachment points
@@ -147,6 +152,13 @@ The situation map shows its own cursor (game art). The port also shows a pointer
 screen, and hovering a line of a room's text menu selects it — "Go to Map", "Answer the Door", the
 evidence questions, … The arrow is the runtime overlay (`rt_pointer_at`, `display.c`), 17x18 with
 its tip at the top left (the map sprite's shape and size), so it costs no machine state at all.
+
+It is also the only pointer the player sees - the window hides the system cursor - so it is kept
+whole: a tip that would put part of the arrow past the picture's right or bottom edge is drawn at
+that edge instead (`pointer_blit`). Without that, a window wider than the 320x200 picture let the
+arrow slide under the border art beside it (reported on the title menu), and
+`tools\window-check.ps1` case 13 now holds it: a pointer scripted at x 319 must produce the same
+picture as one at x 303 (320 minus the sprite's 17 columns).
 
 Reaching it goes through `rc_entryHook` three times:
 

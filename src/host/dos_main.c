@@ -1349,8 +1349,24 @@ static void dos_present(rt_machine *m)
 
     if (fb == 0 || pal == 0) return;
     /* The save picker sits on top of the composed frame and under the pointer, so it also reaches
-     * --shot: the runtime framebuffer is what is copied into VGA here. */
-    save_ui_draw(m, &g_saveUi);
+     * --shot: the runtime framebuffer is what is copied into VGA here. The DOS build has no
+     * display clock (plat_display_hz is 0), so the port's overlay is composed into the picture
+     * just as it always was - docs\display-rate.md, phase 2 item 6 - and only the picker, which is
+     * this front end's own surface, invalidates the plane comparison. */
+    if (g_saveUi.open)
+    {
+        u8 *base = rt_overlay_begin();
+        rt_surface s;
+
+        if (base != 0)
+        {
+            s.dst = base;
+            s.stride = EMU_FB_MAX_W;
+            s.w = w;
+            s.h = h;
+            save_ui_draw(m, &g_saveUi, &s);
+        }
+    }
     if (g_shotPath != 0) shot_write(g_shotPath);
     stride = plat_set_framebuffer_size((u32)w, (u32)h);
     dst = plat_framebuffer();

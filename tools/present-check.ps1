@@ -121,20 +121,24 @@ foreach ($c in $cases) {
     } else {
         Write-Output ("present: {0,-7} ok   - coverage {1:N3}" -f $c.name, $cov)
     }
-    $bmp.Dispose()
+    # The flight's raster is one of the two frames the motion check compares, so it is kept.
+    if ($c.name -eq 'flight') { $flightShot = $bmp } else { $bmp.Dispose() }
 }
 
 # A running game's picture must change; a stale framebuffer is what a frozen display looks like.
-if (Test-Path 'out\flight-live.txt') {
-    $a = $null; $b = $null
+# The flight's raster above (26.5M instructions) is the second frame, so the check costs one replay
+# rather than two: the two rasters are 500k instructions apart.
+if ($flightShot -ne $null -and (Test-Path 'out\flight-live.txt')) {
+    $b = $null
     try {
-        $a = Shot 'out\flight-live.txt' 26000000 'move-a'
-        $b = Shot 'out\flight-live.txt' 26300000 'move-b'
-        $d = Differ $a $b
-        if ($d -lt 50) { Write-Output "present: motion  FAIL - two frames 300k instructions apart are identical ($d)"; $fail++ }
-        else { Write-Output "present: motion  ok   - $d pixel(s) differ between two frames" }
+        $b = Shot 'out\flight-live.txt' 26000000 'move'
+        $d = Differ $flightShot $b
+        if ($d -lt 50) { Write-Output "present: motion  FAIL - two frames 500k instructions apart are identical ($d)"; $fail++ }
+        else { Write-Output "present: motion  ok   - $d pixel(s) differ between two frames 500k instructions apart" }
     } catch { Write-Output "present: motion  FAIL - $_"; $fail++ }
-    finally { if ($a) { $a.Dispose() }; if ($b) { $b.Dispose() } }
+    finally { if ($b) { $b.Dispose() } }
+} elseif (-not (Test-Path 'out\flight-live.txt')) {
+    Write-Output 'present: motion  SKIP (no out\flight-live.txt)'
 }
 
 # A screen whose copper list windows fewer rows than the 200-row buffer must show the border below
@@ -386,5 +390,6 @@ if (Test-Path 'ref\inputs\under.txt') {
 }
 
 if ($fail -ne 0) { Write-Output "present: $fail check(s) failed"; exit 1 }
+if ($flightShot) { $flightShot.Dispose() }
 Write-Output 'present: all checks passed'
 exit 0

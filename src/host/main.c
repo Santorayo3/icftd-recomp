@@ -216,6 +216,13 @@ static void host_crash_note(rt_machine *m, cpu_t *c)
 static void crosshair_present(rt_machine *m);
 static void loading_frame(rt_machine *m);
 static int  aim_live(rt_machine *m);
+static void host_present(rt_machine *m);
+
+/* The machine whose frames host_present shows. The platform's display service calls the port's
+ * overlay (host_overlay_draw) with a surface and nothing else, so the front end keeps the machine
+ * here rather than threading it through a callback the platform has no use for. */
+static rt_machine *g_m;
+static int  s_ptrVisible;            /* the arrow is up on this screen (the 50 Hz decision) */
 
 /* The machine-side half of the audio fault log: one line when the engine frees its score. A
  * silence with no such line is the host device's; one right before it is the game's own scene
@@ -972,14 +979,15 @@ static void pointer_present(rt_machine *m)
 {
     int room, menu, map, phone, show;
 
-    if (!g_portArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
+    if (!g_portArm || !g_ptrKnown) { s_ptrVisible = 0; rt_pointer_hidden(); return; }
     /* The save picker is a pointer screen: its arrow is drawn over the popup by save_ui_draw. */
-    if (g_saveUi.open) { rt_pointer_at(g_ptrX, g_ptrY); return; }
+    if (g_saveUi.open) { s_ptrVisible = 1; rt_pointer_at(g_ptrX, g_ptrY); return; }
     room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
     map  = g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES;
     phone = g_phoneFrame != 0 && m->frame - g_phoneFrame <= MAP_IDLE_FRAMES;
     show = (room || menu) && !map && !phone && !aim_live(m);
+    s_ptrVisible = show;
     if (show) rt_pointer_at(g_ptrX, g_ptrY);
     else rt_pointer_hidden();
     if (g_hoverLog && show && s_ptrShown != 1)
@@ -1586,6 +1594,45 @@ static void shot_write(const char *path)
     fclose(f);
 }
 
+/* The port's overlay at display rate (docs\display-rate.md, phase 2): the OSD line, the save icon,
+ * the pointer arrow, the aiming crosshair and the save picker, onto whatever chunky surface the
+ * platform hands over. The platform calls this for every display frame it delivers; host_present
+ * calls it for a headless --shot/--dump, so both paths show the same overlay.
+ *
+ * The arrow's *drawn* position moves with the pointer here, at the panel's rate - a mouse reports
+ * at 125-1000 Hz and the screen would otherwise show 50 of those samples a second. What the arrow
+ * *means* (the menu line under it, the slot it would click) stays where the frame boundary put it,
+ * because that writes guest state and the guest samples it once per frame. While the picker is up
+ * its own arrow is drawn from its 50 Hz state, so the lead is suspended: two arrows a frame apart
+ * would be two arrows. */
+static void host_overlay_draw(u8 *dst, u32 stride, int w, int h)
+{
+    rt_surface s;
+    s16 px, py;
+
+    /* Only while the game's own picture is what the platform holds: the title and the farewell own
+     * the screen (and their own pointer), and m->on_present is 0 for exactly those frames. */
+    if (g_m == 0 || dst == 0 || g_m->on_present != host_present) return;
+    if (g_window && g_portArm && s_ptrVisible && !g_saveUi.open &&
+        plat_pointer_position(&px, &py))
+        rt_pointer_at(px, py);
+    s.dst = dst;
+    s.stride = stride;
+    s.w = w;
+    s.h = h;
+    rt_overlay_draw(g_m, &s);
+    save_ui_draw(g_m, &g_saveUi, &s);
+    /* The overlay's own pens (224..255) are the colours it has just drawn with. They go to the
+     * platform's *overlay* table, not the picture's: a presenter that builds a true-colour picture
+     * resolves each layer through its own table, so an overlay pen no longer paints picture pixels
+     * that share its index (docs\display-rate.md, phase 3). rgb is the *range's* first entry
+     * (platform.h), so the table is handed over from EMU_OVERLAY_PEN_FIRST - passing its base
+     * loaded the game's pens 0..31 into 224..255 instead, which is what painted the OSD line and
+     * the arrow in the scene's colours. */
+    plat_set_overlay_palette(EMU_OVERLAY_PEN_FIRST, PAL_ENTRIES - EMU_OVERLAY_PEN_FIRST,
+                             rt_gfx_palette() + EMU_OVERLAY_PEN_FIRST * 3);
+}
+
 static void host_present(rt_machine *m)
 {
     const u8 *fb = rt_gfx_framebuffer();
@@ -1594,6 +1641,8 @@ static void host_present(rt_machine *m)
     u8 *dst;
     u32 stride;
     int x, y, cw;
+    int capture = shotPath != 0 ||
+                  (dumpPrefix != 0 && dumpIndex < dumpCount && m->frame >= dumpFrom);
 
     /* --osd keeps a line (or "save" for the icon) up, so a headless --shot can be checked by
      * pixel instead of by eye. Armed here so it works without a window. */
@@ -1602,9 +1651,53 @@ static void host_present(rt_machine *m)
         if (strcmp(osdText, "save") == 0) rt_osd_icon(m, EMU_OSD_FRAMES);
         else rt_osd_text(m, osdText, EMU_OSD_FRAMES);
     }
-    /* The save picker sits on top of the composed frame and under the pointer, so it also reaches
-     * --shot and --dump. */
-    save_ui_draw(m, &g_saveUi);
+    if (g_window)
+    {
+        /* The picture is the screen the copper list programs - 320x200, or 368x216 while the
+         * chicken race's narration page is up, because that page lays its text out across the
+         * overscan. The platform takes it at that size, so every column and row reaches the
+         * screen; sampling it into the 320x200 mode instead dropped one column in eight, which
+         * garbled the letters. It is handed over *without* the port's overlay: the platform draws
+         * that per display frame, on top of this picture (docs\display-rate.md). */
+        stride = plat_set_framebuffer_size((u32)w, (u32)h);
+        dst = plat_framebuffer();
+        if (stride != 0)
+        {
+            for (y = 0; y < h; y++)
+                memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
+        }
+        else
+        {   /* The video mode cannot change (DOS: VGA mode 13h is 320x200): fit it into it. */
+            cw = w < SCREEN_W ? w : SCREEN_W;
+            for (y = 0; y < SCREEN_H; y++)
+            {
+                int sy = (h > SCREEN_H) ? (y * h) / SCREEN_H : y;
+                const u8 *row;
+                if (sy >= h) break;
+                row = fb + (u32)sy * EMU_FB_MAX_W;
+                if (w > SCREEN_W)
+                {
+                    for (x = 0; x < SCREEN_W; x++)
+                        dst[(u32)y * SCREEN_W + (u32)x] = row[(u32)(x * w) / SCREEN_W];
+                }
+                else
+                    memcpy(dst + (u32)y * SCREEN_W, row, (size_t)cw);
+            }
+        }
+        plat_set_palette(0, 256, pal);
+    }
+    /* The overlay is composed into the picture itself where that is the only place it is drawn -
+     * a headless run - and, with a window, only for a capture: --shot and --dump are one raster per
+     * composed frame and must contain what the screen showed, as they always have. Drawing into the
+     * picture invalidates the plane comparison, so the next present rebuilds those pixels; a
+     * headless run therefore only does it when the picker is up, because the OSD, the arrow and the
+     * crosshair were already composed by the runtime inside rt_gfx_present. */
+    if ((!g_window && g_saveUi.open) || (g_window && capture))
+    {
+        u8 *base = rt_overlay_begin();
+
+        if (base != 0) host_overlay_draw(base, EMU_FB_MAX_W, w, h);
+    }
     if (shotPath != 0) shot_write(shotPath);
     if (dumpPrefix != 0 && dumpIndex < dumpCount && m->frame >= dumpFrom)
     {
@@ -1615,38 +1708,7 @@ static void host_present(rt_machine *m)
         dumpIndex++;
         shot_write(path);
     }
-    if (!g_window) return;
-    /* The picture is the screen the copper list programs - 320x200, or 368x216 while the chicken
-     * race's narration page is up, because that page lays its text out across the overscan. The
-     * platform takes it at that size, so every column and row reaches the screen; sampling it into
-     * the 320x200 mode instead dropped one column in eight, which garbled the letters. */
-    stride = plat_set_framebuffer_size((u32)w, (u32)h);
-    dst = plat_framebuffer();
-    if (stride != 0)
-    {
-        for (y = 0; y < h; y++)
-            memcpy(dst + (u32)y * stride, fb + (u32)y * EMU_FB_MAX_W, (size_t)w);
-    }
-    else
-    {   /* The video mode cannot change (DOS: VGA mode 13h is 320x200): fit the picture into it. */
-        cw = w < SCREEN_W ? w : SCREEN_W;
-        for (y = 0; y < SCREEN_H; y++)
-        {
-            int sy = (h > SCREEN_H) ? (y * h) / SCREEN_H : y;
-            const u8 *row;
-            if (sy >= h) break;
-            row = fb + (u32)sy * EMU_FB_MAX_W;
-            if (w > SCREEN_W)
-            {
-                for (x = 0; x < SCREEN_W; x++)
-                    dst[(u32)y * SCREEN_W + (u32)x] = row[(u32)(x * w) / SCREEN_W];
-            }
-            else
-                memcpy(dst + (u32)y * SCREEN_W, row, (size_t)cw);
-        }
-    }
-    plat_set_palette(0, 256, pal);
-    plat_present();
+    if (g_window) plat_present();
     (void)m;
 }
 
@@ -1690,6 +1752,7 @@ int main(int argc, char **argv)
     int slotGiven = 0;
     int slotsDump = 0;
     int slotsCheck = 0;
+    int displayStat = 0;
     u32 slotsAt = 0;
     const char *busTablePath = 0;
     int titleKey = -1;                     /* --titlekey: take this menu choice on the title */
@@ -1709,6 +1772,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--ticklog") == 0) { tickLog = 1; continue; }
         if (strcmp(argv[i], "--slots") == 0) { slotsDump = 1; continue; }
         if (strcmp(argv[i], "--slots-check") == 0) { slotsCheck = 1; continue; }
+        /* --displaystat: one line at exit saying what the machine composed and what the panel was
+         * delivered (docs\display-rate.md, "A measurement for the claim itself"). */
+        if (strcmp(argv[i], "--displaystat") == 0) { displayStat = 1; continue; }
         if (strcmp(argv[i], "--slotsat") == 0 && i + 1 < argc) { slotsAt = (u32)strtoul(argv[++i], 0, 0); continue; }
         if (strcmp(argv[i], "--bustable") == 0 && i + 1 < argc) { busTablePath = argv[++i]; continue; }
         /* --refbus: charge the bus the first, division-per-clock way. The two walkers must agree
@@ -1939,6 +2005,7 @@ int main(int argc, char **argv)
     if (rc_stopAt <= 0 && !runForever) rc_stopAt = insns;
 
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
+    g_m = &m;
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
     m.dataDir = dataDir;
     m.saveName = rc_active->saveName;
@@ -1953,6 +2020,10 @@ int main(int argc, char **argv)
     m.panelCols = RC_ADDR(PANEL_COLS);
     m.progress = progress;
     m.progressFrom = progressFrom;
+    /* --displaystat reports the presenter's own counters, which live behind rt_machine::perfOn
+     * (they are what --perf reports on DOS); the timings are plat_pit_now() counts and are 0 on
+     * Win32, so only the counts are read. Nothing emulated changes: perfOn gates counting only. */
+    if (displayStat) m.perfOn = 1;
     m.blitLog = blitLog;
     m.blitLogFrame = blitLogFrame;
     m.blitBytePtr = blitBytePtr;
@@ -2021,6 +2092,9 @@ int main(int argc, char **argv)
             rt_shutdown(&m);
             return 1;
         }
+        /* The port's overlay is drawn by the platform, at the panel's rate, on top of the picture
+         * this front end hands over (docs\display-rate.md); this is the function it calls. */
+        plat_set_overlay(host_overlay_draw);
         {
             u32 cw = 0, ch = 0;
             if (plat_window_size(&cw, &ch))
@@ -2116,7 +2190,12 @@ int main(int argc, char **argv)
         while (m.insns < insns && !m.stop)
         {
             u32 pc;
-    
+
+            /* The panel's own clock, reached between two translated functions: this is what keeps
+             * the overlay moving (and the window drained) through a scene whose frame takes longer
+             * than 20 ms - the hospital's world update runs at ~12.5 Hz. Never blocks. */
+            if (g_window) plat_display_service();
+
             if (g_callPc != 0 && !g_called && m.frame >= g_callFrame)
             {
                 /* Enter one of the engine's own routines as if its caller had just called it: a frame
@@ -2207,6 +2286,7 @@ int main(int argc, char **argv)
             if (m.spriteLog != 0) { fclose((FILE *)m.spriteLog); m.spriteLog = 0; }
             rt_shutdown(&m);
             if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
+            g_m = &m;
             if (!rt_load_image(&m, base, image))
             {
                 printf("recomp: cannot load %s\n", image);
@@ -2224,6 +2304,7 @@ int main(int argc, char **argv)
             m.panelCols = RC_ADDR(PANEL_COLS);
             m.progress = progress;
             m.progressFrom = progressFrom;
+            if (displayStat) m.perfOn = 1;
             m.blitLog = blitLog;
             m.blitLogFrame = blitLogFrame;
             m.blitBytePtr = blitBytePtr;
@@ -2334,6 +2415,35 @@ int main(int argc, char **argv)
         if (g_window)
             printf("recomp: %lu frame(s) in %lu ms (%.1f frame/s)\n", (unsigned long)m.frame,
                    (unsigned long)ms, ms != 0 ? (double)m.frame * 1000.0 / (double)ms : 0.0);
+    }
+    if (displayStat)
+    {
+        /* The claim docs\display-rate.md makes is about delivery, never about content: the
+         * machine's composed frames stay at 50 Hz (the cycle model decides), and the display
+         * frames are what the panel got. A scene that needs more than one vblank per update
+         * delivers fewer display frames, because the host is inside the emulation meanwhile. */
+        u32 df = 0, ov = 0, hz = 0;
+        u32 ms = g_window ? plat_ticks_ms() : 0;
+
+        plat_display_stats(&df, &ov, &hz);
+        printf("recomp: displaystat machine %lu frame(s) (%lu composed) in %lu ms",
+               (unsigned long)m.frame, (unsigned long)rt_gfx_frames(), (unsigned long)ms);
+        if (ms != 0)
+            printf(" (%.1f/s machine, %.1f/s composed)", (double)m.frame * 1000.0 / (double)ms,
+                   (double)rt_gfx_frames() * 1000.0 / (double)ms);
+        printf("; display %lu frame(s)", (unsigned long)df);
+        if (ms != 0) printf(" (%.1f/s)", (double)df * 1000.0 / (double)ms);
+        printf(", %lu overlay redraw(s), panel %lu Hz", (unsigned long)ov, (unsigned long)hz);
+        /* Conversions per composed frame: the identity caches are what the overlay used to defeat
+         * on every pointer screen (docs\display-rate.md, phase 2's exit criteria). */
+        printf("; %lu conversion(s) in %lu present(s) (%.2f per present)",
+               (unsigned long)m.perf.convs, (unsigned long)m.perf.presents,
+               m.perf.presents != 0
+                   ? (double)m.perf.convs / (double)m.perf.presents : 0.0);
+        /* Which presenter delivered those frames: the flip-model layer ("dx9"), or the window-DC
+         * fallback that is also the reference for --shot (docs\display-rate.md, phase 3). */
+        printf("; presenter %s", plat_display_backend());
+        printf("\n");
     }
     state_close();
     if (ramStop != 0) state_ram_snapshot(&m, ramStop);

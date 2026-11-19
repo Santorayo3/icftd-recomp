@@ -4,6 +4,7 @@
 
 #include "types.h"
 #include "machine.h"
+#include "display.h"
 
 #define SAVE_UI_SLOTS 10
 
@@ -31,8 +32,10 @@ void save_ui_close(save_ui *ui);
 int save_ui_pointer(save_ui *ui, int present, int x, int y);
 
 /* Draws the portrait box, the ten slot lines, the Back button and the pointer arrow on top of the
- * composed picture, using the runtime's port-overlay palette (rt_overlay_begin). Does nothing when
- * the picker is closed. */
-void save_ui_draw(rt_machine *m, const save_ui *ui);
+ * composed picture, onto the chunky surface the caller is drawing the port's overlay on (the
+ * runtime's framebuffer for a headless --shot/--dump, the platform's display surface otherwise),
+ * using the runtime's port-overlay palette (rt_overlay_palette). Does nothing when the picker is
+ * closed. */
+void save_ui_draw(rt_machine *m, const save_ui *ui, rt_surface *s);
 
 #endif /* ICFTD_HOST_SAVE_UI_H */

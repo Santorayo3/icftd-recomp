@@ -9,4 +9,10 @@
  * that size, point-sampled. */
 void border_paint(u32 *dst, int w, int h);
 
+/* Decodes the art on the calling thread. border_paint decodes it lazily on first use, which is fine
+ * while one thread paints; the true-colour presenter paints on its own thread (docs\display-rate.md,
+ * phase 3), so the front end calls this once before that thread starts and every later paint only
+ * reads the table. */
+void border_prepare(void);
+
 #endif /* ICFTD_BORDER_H */
