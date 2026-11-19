@@ -176,14 +176,15 @@ foreach ($d in 'DISKS', 'SAVES') {
 Copy-Item -LiteralPath $exe -Destination (Join-Path $Out 'ICFTD.EXE')
 
 # The translations travel next to the executable, where the game looks for them first
-# (lang.c, lang_read_file). `en.csv` is the source text - the game's own script - and `*.work.csv`
-# is the translator's file: neither is a translation and neither may be shipped. DOS needs 8.3
-# names, and `de.csv` already is one.
+# (lang.c, lang_read_file). A language's file is named after a two-letter code (lang.c, lang_scan),
+# so only `??.csv` travel: `en.csv` is the source text - the game's own script - and `*.work.csv`
+# is the translator's file, and neither may be shipped. DOS needs 8.3 names, and `de.csv` already is
+# one.
 $langDir = Join-Path $root 'lang'
 $langFiles = @()
 if (Test-Path $langDir) {
     $langFiles = @(Get-ChildItem -LiteralPath $langDir -Filter '*.csv' -File |
-                   Where-Object { $_.Name -ne 'en.csv' -and $_.Name -notlike '*.work.csv' -and $_.Name.Length -le 12 })
+                   Where-Object { $_.BaseName -match '^[A-Za-z]{2}$' -and $_.BaseName -notmatch '^en$' })
 }
 if ($langFiles.Count -gt 0) {
     New-Item -ItemType Directory -Force -Path (Join-Path $Out 'LANG') | Out-Null

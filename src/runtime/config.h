@@ -39,6 +39,11 @@ int rt_config_int(const char *section, const char *key, int fallback, int lo, in
  * picks survives the next start. Returns 1 when the file holds the value afterwards. */
 u32 rt_config_save_int(const char *section, const char *key, int value);
 
+/* The same for a word value - the settings view's language switch writes "de" this way. A value
+ * that is empty, or longer than 60 characters, is refused: the file's writer keeps a line in a
+ * fixed buffer, and no setting of this build is longer than "de". */
+u32 rt_config_save_string(const char *section, const char *key, const char *value);
+
 void rt_config_free(void);
 
 #endif /* ICFTD_CONFIG_H */

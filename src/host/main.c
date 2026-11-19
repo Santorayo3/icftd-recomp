@@ -2185,19 +2185,27 @@ int main(int argc, char **argv)
      * asks for the title's own menu, so it arms the title even headless and with a capture - and
      * an input script is exactly how a scene reached that way is replayed. */
     host_title_key(titleKey);
-    host_title_arm((g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
-                    dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
-                   (titleKey >= 0 && statePrefix == 0 &&
-                    g_callPc == 0 && g_pokeCount == 0));
-    /* The pointer that drives the map cursor and the two aims, and the fight's aiming crosshair,
-     * are port features, so they follow the same rule: they run in a played game (and for a --mouse
-     * test run), never in a measurement, where the machine state has to be the original's. */
-    g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
-                dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
-    /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry hook
-     * even in a run that is otherwise a measurement, because that run asked for the cheat. A
-     * language needs it too: the translation is the hook's other job (src\host\lang_hook.c). */
-    if (g_portArm || g_cheatFrame != 0 || host_lang_on() || host_lang_dump_on()) rc_entryHook = host_entry;
+    {
+        int armTitle = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+                        dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) ||
+                       (titleKey >= 0 && statePrefix == 0 &&
+                        g_callPc == 0 && g_pokeCount == 0);
+
+        host_title_arm(armTitle);
+        /* The pointer that drives the map cursor and the two aims, and the fight's aiming
+         * crosshair, are port features, so they follow the same rule: they run in a played game
+         * (and for a --mouse test run), never in a measurement, where the machine state has to be
+         * the original's. */
+        g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
+                    dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
+        /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry
+         * hook even in a run that is otherwise a measurement, because that run asked for the cheat.
+         * A language needs it too: the translation is the hook's other job (src\host\lang_hook.c),
+         * and the settings view can select one at any time - a run that shows the title therefore
+         * keeps the hook installed even when it started in English. */
+        if (g_portArm || armTitle || g_cheatFrame != 0 || host_lang_on() || host_lang_dump_on())
+            rc_entryHook = host_entry;
+    }
     host_hospital_camera_log(g_cameraLog);
     host_save_button_log(g_saveLog);
 

@@ -1,16 +1,18 @@
-/* The game's own text in another language - icftd.ini [GAME] language.
+/* The game's own text in another language - the settings view's Language row, icftd.ini [GAME]
+ * language.
  *
  * A port feature: the original is English-only, so there is nothing to diff this against. What it
- * owes instead is that its claim is exact: with language=de (or fr, ...) every string the engine
- * draws is that language's, and with language=en (the default) not a byte of the machine's state or
- * of the picture changes.
+ * owes instead is that its claim is exact: with a language selected every string the engine draws
+ * is that language's, and with English (the default) not a byte of the machine's state or of the
+ * picture changes.
  *
  * Every translation is one file, `lang\<code>.csv` next to the executable: the interface, the
  * menus, the map's place names, the boot's messages and the port's own screens as well as the
- * game's story. Nothing is translated in the sources - lang.c holds the loader and the interface's
- * English vocabulary (rt_lang_key), so adding a language is a file, not a build. Each row is keyed
- * by the FNV-1a id of the English text, so a shipped translation never repeats the original's
- * words (docs\port-features.md, "The translation file").
+ * game's story. Nothing is translated in the sources - lang.c holds the loader, the interface's
+ * English vocabulary (rt_lang_key) and the rule for what a complete translation is, so adding a
+ * language is a file, not a build. Each row is keyed by the FNV-1a id of the English text, so a
+ * shipped translation never repeats the original's words (docs\port-features.md, "The translation
+ * file").
  *
  * The engine builds its screens from strings it passes to a handful of layout routines
  * (FUN_00004F0A wraps a block, FUN_00005012 a narration page, FUN_00004E2E centres one line, ...),
@@ -21,9 +23,10 @@
  * they always did: the layout was never told which language it is drawing.
  *
  * The catalog is read on the host and copied into the machine's own RAM when a run starts
- * (rt_lang_open), because the engine can only read strings that are in its address space. The copy
- * goes above the emulated stack, in memory the machine model never hands to the game, so the game's
- * own RAM is the one an English run has (docs\port-features.md, "The language").
+ * (rt_lang_open) and again whenever the settings view switches the language, because the engine can
+ * only read strings that are in its address space. The copy goes above the emulated stack, in memory
+ * the machine model never hands to the game, so the game's own RAM is the one an English run has
+ * (docs\port-features.md, "The language").
  */
 #ifndef ICFTD_LANG_H
 #define ICFTD_LANG_H
@@ -31,19 +34,35 @@
 #include "types.h"
 #include "machine.h"
 
-/* Selects the language an icftd.ini value names: "en" - and anything that is not a usable language
- * code - is the original's English, every other code reads `lang\<code>.csv`. Case insensitive.
- * 1 when a language is selected afterwards, i.e. the file was found and holds rows; 0 when the run
- * stays English (a missing file is reported, so it is a one-line diagnosis).
+/* Selects a language by its code: "en" - and anything that is not a usable language code - is the
+ * original's English, every other code reads `lang\<code>.csv`. Case insensitive; the settings
+ * view's switch and host_lang_switch come through here as well as the ini's value.
+ * 1 when a language is selected afterwards, i.e. the file was found, holds rows and is complete;
+ * 0 when the run stays English (a missing or incomplete file is reported, so it is a one-line
+ * diagnosis).
  *
  * The file is the only catalog there is: no translation is built into the binary. A row whose text
  * field is empty is a placeholder for the translator and changes nothing. */
 u32 rt_lang_set(const char *code);
 
+/* The languages the settings view may offer, browsed at start-up (rt_lang_scan): the original's
+ * English, always first and needing no file, then every `lang\<code>.csv` whose name is a
+ * two-letter code and whose rows cover *every* line the game needs - a complete translation, which
+ * is the only kind this build offers. "Complete" is measured against the interface's own
+ * vocabulary (rt_lang_key) plus, where the source text `lang\en.csv` is present, every id it
+ * lists; a file that misses one is named on the console and left out of the list.
+ *
+ * rt_lang_available_count is never 0 (English), so a caller can index the list without a special
+ * case. It scans first if that has not happened yet. */
+u32 rt_lang_scan(void);
+int rt_lang_available_count(void);
+const char *rt_lang_available(int i);
+int rt_lang_available_index(const char *code);
+
 /* 1 when a language other than the original's is selected. */
 u32 rt_lang_on(void);
 
-/* The code the run was started with, "en" when it stays English. */
+/* The code in force, "en" for the original's English. */
 const char *rt_lang_code(void);
 
 /* The interface's English text: the lines the engine and the port's own screens draw which do not

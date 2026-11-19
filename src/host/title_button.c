@@ -48,14 +48,17 @@
 
 /* The settings view uses the same column, inside the picture's panel (x 230..302, y 72..184). Each
  * option is a label line with its control under it, because the column is 73 px wide and
- * "Music Vol." plus "[-] 10 [+]" needs 102. Three rows, or two on a platform with no window mode
- * (the DOS build), which are centred in the space the three would take. */
+ * "Music Vol." plus "[-] 10 [+]" needs 102. Four rows (fullscreen, the two volumes, the language),
+ * or three on a platform with no window mode (the DOS build), centred in the space the four would
+ * take; Back sits 2 px above the panel's inner bottom, a little lower than in the slot list,
+ * because the fourth row needs the room. */
 #define TITLE_SETTINGS_CX         (TITLE_BUTTON_X + TITLE_BUTTON_W / 2)
-#define TITLE_SETTINGS_ROW_Y      74    /* the first label's top row */
-#define TITLE_SETTINGS_ROW_Y2     90    /* the first of two rows only */
-#define TITLE_SETTINGS_ROW_STEP   28    /* label 7 + gap 3 + control 14 + gap 4 */
-#define TITLE_SETTINGS_CONTROL_DY 10    /* the control's top row, from its label's */
-#define TITLE_SETTINGS_VALUE_W    12    /* the volume cell: "10" */
+#define TITLE_SETTINGS_ROW_Y      74    /* the first label's top row, four rows */
+#define TITLE_SETTINGS_ROW_Y2     85    /* three rows (no window mode) */
+#define TITLE_SETTINGS_ROW_STEP   24    /* label 7 + gap 1 + control 14 + gap 2 */
+#define TITLE_SETTINGS_CONTROL_DY 8     /* the control's top row, from its label's */
+#define TITLE_SETTINGS_BACK_Y     169   /* Back's top row in this view, 169..182 */
+#define TITLE_SETTINGS_VALUE_W    12    /* the volume cell: "10" - and two letters */
 #define TITLE_SETTINGS_VALUE_GAP  6
 #define TITLE_SETTINGS_STATE_W    16    /* the toggle's "On"/"Off" cell */
 #define TITLE_SETTINGS_TOGGLE_W   (TITLE_TOGGLE_W + TITLE_SETTINGS_VALUE_GAP + TITLE_SETTINGS_STATE_W)
@@ -342,15 +345,18 @@ const u8 *title_settings_palette(void)
     return g_titleSettingsPal;
 }
 
-/* The three rows' label tops. The fullscreen one is -1 on a platform with no window mode: the DOS
- * build then draws the two volume rows, moved down into the middle of the space they leave. */
-static void title_settings_rows(const title_settings *settings, int *fs, int *music, int *sound)
+/* The four rows' label tops. The fullscreen one is -1 on a platform with no window mode: the DOS
+ * build then draws the volume and language rows, moved down into the middle of the space they
+ * leave. */
+static void title_settings_rows(const title_settings *settings, int *fs, int *music, int *sound,
+                                int *lang)
 {
     int y = settings->fullscreen_on ? TITLE_SETTINGS_ROW_Y : TITLE_SETTINGS_ROW_Y2;
 
     *fs = settings->fullscreen_on ? y : -1;
     *music = settings->fullscreen_on ? y + TITLE_SETTINGS_ROW_STEP : y;
     *sound = *music + TITLE_SETTINGS_ROW_STEP;
+    *lang = *sound + TITLE_SETTINGS_ROW_STEP;
 }
 
 void title_settings_init(title_settings *settings, rt_machine *m, int fullscreen)
@@ -365,12 +371,16 @@ void title_settings_init(title_settings *settings, rt_machine *m, int fullscreen
                                : 0;
     settings->music = rt_config_int("AUDIO", "music", (int)(m->audio.musicGain / 10), 0, 10);
     settings->sound = rt_config_int("AUDIO", "sound", (int)(m->audio.soundGain / 10), 0, 10);
+    /* The language row: the codes the runtime found at start-up, and the one in force. */
+    settings->languages = rt_lang_available_count();
+    settings->language = rt_lang_available_index(rt_lang_code());
+    if (settings->language < 0) settings->language = 0;
     settings->hover = TITLE_SETTING_NONE;
 }
 
 int title_settings_pointer(title_settings *settings, int present, int x, int y)
 {
-    int fs, music, sound;
+    int fs, music, sound, lang;
 
     settings->pointer_on = present ? 1 : 0;
     settings->pointer_x = (s16)x;
@@ -379,7 +389,7 @@ int title_settings_pointer(title_settings *settings, int present, int x, int y)
     settings->back_hover = 0;
     if (!present) return TITLE_SETTING_NONE;
 
-    title_settings_rows(settings, &fs, &music, &sound);
+    title_settings_rows(settings, &fs, &music, &sound, &lang);
     if (fs >= 0 && x >= TITLE_SETTINGS_TOGGLE_X &&
         x < TITLE_SETTINGS_TOGGLE_X + TITLE_SETTINGS_TOGGLE_W &&
         y >= fs + TITLE_SETTINGS_CONTROL_DY &&
@@ -393,6 +403,9 @@ int title_settings_pointer(title_settings *settings, int present, int x, int y)
         else if (y >= sound + TITLE_SETTINGS_CONTROL_DY &&
                  y < sound + TITLE_SETTINGS_CONTROL_DY + TITLE_STEP_H)
             settings->hover = TITLE_SETTING_SOUND_DOWN;
+        else if (y >= lang + TITLE_SETTINGS_CONTROL_DY &&
+                 y < lang + TITLE_SETTINGS_CONTROL_DY + TITLE_STEP_H)
+            settings->hover = TITLE_SETTING_LANGUAGE_DOWN;
     }
     else if (x >= TITLE_SETTINGS_PLUS_X && x < TITLE_SETTINGS_PLUS_X + TITLE_STEP_W)
     {
@@ -402,9 +415,12 @@ int title_settings_pointer(title_settings *settings, int present, int x, int y)
         else if (y >= sound + TITLE_SETTINGS_CONTROL_DY &&
                  y < sound + TITLE_SETTINGS_CONTROL_DY + TITLE_STEP_H)
             settings->hover = TITLE_SETTING_SOUND_UP;
+        else if (y >= lang + TITLE_SETTINGS_CONTROL_DY &&
+                 y < lang + TITLE_SETTINGS_CONTROL_DY + TITLE_STEP_H)
+            settings->hover = TITLE_SETTING_LANGUAGE_UP;
     }
     if (x >= TITLE_BUTTON_X && x < TITLE_BUTTON_X + TITLE_BUTTON_W &&
-        y >= TITLE_BACK_Y && y < TITLE_BACK_Y + TITLE_BUTTON_H)
+        y >= TITLE_SETTINGS_BACK_Y && y < TITLE_SETTINGS_BACK_Y + TITLE_BUTTON_H)
         settings->back_hover = 1;
     return settings->hover;
 }
@@ -442,11 +458,10 @@ static void title_settings_label(rt_machine *m, u8 *dst, u32 stride, int w, int 
 }
 
 /* One volume row: the label, then minus, the value and plus on one line. */
-static void title_settings_volume(rt_machine *m, const title_settings *settings, u8 *dst,
-                                  u32 stride, int w, int h, int top, const char *label,
-                                  int value, int downHover, int upHover)
+static void title_settings_stepper(rt_machine *m, u8 *dst, u32 stride, int w, int h, int top,
+                                   const char *label, const char *value, int downHover,
+                                   int upHover)
 {
-    char text[8];
     s32 tw;
     int ctl = top + TITLE_SETTINGS_CONTROL_DY;
     int textY = ctl + (TITLE_STEP_H - rt_font_height(m)) / 2 + 1;
@@ -455,23 +470,33 @@ static void title_settings_volume(rt_machine *m, const title_settings *settings,
     title_settings_picture(dst, stride, w, h, TITLE_SETTINGS_VOLUME_X, ctl,
                            downHover ? g_titleMinusHover : g_titleMinusNormal,
                            TITLE_STEP_W, TITLE_STEP_H);
-    sprintf(text, "%d", value);
-    tw = rt_font_text_width(m, text);
+    tw = rt_font_text_width(m, value);
     rt_font_text_draw(m, dst, stride, w, h,
                       TITLE_SETTINGS_VALUE_X + ((int)TITLE_SETTINGS_VALUE_W - tw) / 2, textY,
-                      text, TITLE_BUTTON_PEN_TEXT);
+                      value, TITLE_BUTTON_PEN_TEXT);
     title_settings_picture(dst, stride, w, h, TITLE_SETTINGS_PLUS_X, ctl,
                            upHover ? g_titlePlusHover : g_titlePlusNormal,
                            TITLE_STEP_W, TITLE_STEP_H);
 }
 
+/* One number row: the label, then minus, "10" and plus on one line. */
+static void title_settings_volume(rt_machine *m, u8 *dst, u32 stride, int w, int h, int top,
+                                  const char *label, int value, int downHover, int upHover)
+{
+    char text[8];
+
+    sprintf(text, "%d", value);
+    title_settings_stepper(m, dst, stride, w, h, top, label, text, downHover, upHover);
+}
+
 void title_settings_draw(rt_machine *m, const title_settings *settings, u8 *dst, u32 stride,
                          int w, int h)
 {
-    int fs, music, sound;
+    int fs, music, sound, lang;
+    const char *code;
 
     if (dst == 0) return;
-    title_settings_rows(settings, &fs, &music, &sound);
+    title_settings_rows(settings, &fs, &music, &sound, &lang);
 
     if (fs >= 0)
     {
@@ -487,15 +512,22 @@ void title_settings_draw(rt_machine *m, const title_settings *settings, u8 *dst,
                           settings->fullscreen ? rt_lang_text("On") : rt_lang_text("Off"),
                           TITLE_BUTTON_PEN_TEXT);
     }
-    title_settings_volume(m, settings, dst, stride, w, h, music, rt_lang_text("Music Vol."),
+    title_settings_volume(m, dst, stride, w, h, music, rt_lang_text("Music Vol."),
                           settings->music,
                           settings->hover == TITLE_SETTING_MUSIC_DOWN,
                           settings->hover == TITLE_SETTING_MUSIC_UP);
-    title_settings_volume(m, settings, dst, stride, w, h, sound, rt_lang_text("Sound Vol."),
+    title_settings_volume(m, dst, stride, w, h, sound, rt_lang_text("Sound Vol."),
                           settings->sound,
                           settings->hover == TITLE_SETTING_SOUND_DOWN,
                           settings->hover == TITLE_SETTING_SOUND_UP);
-    title_button_draw_at(m, dst, stride, w, h, TITLE_BUTTON_X, TITLE_BACK_Y, "Back",
+    /* The language's middle is the two-letter name of the file the run is using - the player's own
+     * word for it, which is not translated: "en" is the original's English. */
+    code = rt_lang_available(settings->language);
+    title_settings_stepper(m, dst, stride, w, h, lang, rt_lang_text("Language"),
+                           code != 0 ? code : "en",
+                           settings->hover == TITLE_SETTING_LANGUAGE_DOWN,
+                           settings->hover == TITLE_SETTING_LANGUAGE_UP);
+    title_button_draw_at(m, dst, stride, w, h, TITLE_BUTTON_X, TITLE_SETTINGS_BACK_Y, "Back",
                          settings->back_hover);
     if (settings->pointer_on)
         rt_pointer_draw(dst, stride, w, h, settings->pointer_x, settings->pointer_y);

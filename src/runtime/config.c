@@ -260,9 +260,9 @@ static const char *line_ending(void)
     return "\r\n";
 }
 
-u32 rt_config_save_int(const char *section, const char *key, int value)
+/* One value, written back: `valueText` is the field as it goes into the file. */
+static u32 config_save_value(const char *section, const char *key, const char *valueText)
 {
-    char valueText[16];
     char path[CFG_PATH_MAX];
     const char *eol;
     char *out;
@@ -271,8 +271,7 @@ u32 rt_config_save_int(const char *section, const char *key, int value)
     plat_file *f;
     u32 len;
 
-    if (section == 0 || key == 0) return 0;
-    sprintf(valueText, "%d", value);
+    if (section == 0 || key == 0 || valueText == 0) return 0;
     /* Nothing loaded: a fresh copy writes its defaults first, then patches those. */
     if (g_raw == 0 && !rt_config_ensure()) return 0;
     if (g_raw == 0) return 0;
@@ -408,6 +407,22 @@ u32 rt_config_save_int(const char *section, const char *key, int value)
     printf("config: saved %s/%s=%s to %s\n", section, key, valueText, path);
     /* Re-read, so the value is the one in memory and in the file, not two copies. */
     return rt_config_load();
+}
+
+u32 rt_config_save_int(const char *section, const char *key, int value)
+{
+    char valueText[16];
+
+    if (section == 0 || key == 0) return 0;
+    sprintf(valueText, "%d", value);
+    return config_save_value(section, key, valueText);
+}
+
+u32 rt_config_save_string(const char *section, const char *key, const char *value)
+{
+    if (section == 0 || key == 0 || value == 0 || value[0] == 0) return 0;
+    if (strlen(value) > 60) return 0;
+    return config_save_value(section, key, value);
 }
 
 void rt_config_free(void)

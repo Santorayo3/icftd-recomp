@@ -11,10 +11,13 @@
 #   * a minus/plus click steps that volume by one, changes the mixer's gain **now** (the log line is
 #     the gain the machine is running with, not the number that was written) and rewrites its ini
 #     entry;
+#   * the language row steps through the codes the start-up scan found (English first, then every
+#     complete `lang\<code>.csv`), cyclically in both directions, changes the view's own words at
+#     once (the log line names the label the view now draws, read back from that language's file)
+#     and writes [GAME] language;
 #   * Back closes the view and puts the main menu back, and reopening Settings shows the new state;
 #   * the ini keeps everything the write does not own - the comments, the key order, and the key it
 #     did not touch (sound=7 stays 7 while music changes);
-#   * a measurement run (no --titlekey, so the title is never armed) logs none of it;
 #   * where a desktop can give the game a window, the toggle is measured as the window's own
 #     geometry: 320x200, then the whole screen after the click, then 320x200 after the second one
 #     (a headless machine SKIPs that part, like tools\keys-check.ps1).
@@ -86,14 +89,16 @@ sound=7
 music=10
 '@
 
-# Where the controls are (title_button.c): the column is x 230..302; the fullscreen row's toggle sits
-# under its label at y 84..97, the two volume rows' buttons at y 112..125 and 140..153, and Back where
-# Quit Game is (y 164..177).
+# Where the controls are (title_button.c): the column is x 230..302; the four rows' labels start at
+# y 74, 98, 122 and 146 with their control 8 rows below, so the toggle sits at y 82..95, the music
+# buttons at 106..119, sound's at 130..143 and the language's at 154..167, and Back is at y 169..182
+# (a little lower than in the slot list, where the fourth row has its room).
 #
 # The Settings button itself is where the menu's own layout puts it: without the add-on's disks at
 # y 127..140, with them at y 141..154 (five buttons, the four others moved down). The build logs the
 # rectangles it drew, so the click follows the layout instead of assuming one.
 $settingsButton = @(266, 133)
+$newGameButton  = @(266, 91)
 $probe = (& $Exe $Image 400000 --data $DataDir --titlekey 14 2>&1 | Out-String)
 $mm = [regex]::Match($probe, 'title: menu:.*?; Settings (\d+),(\d+) (\d+)x(\d+)')
 if ($mm.Success) {
@@ -108,11 +113,18 @@ if ($mm.Success) {
 } else {
     Write-Output 'settings: SKIP the layout probe gave no menu line'
 }
+$nm = [regex]::Match($probe, 'title: menu:.*?New Game (\d+),(\d+) (\d+)x(\d+)')
+if ($nm.Success) {
+    $newGameButton = @(([int]$nm.Groups[1].Value + [int]([int]$nm.Groups[3].Value / 2)),
+                       ([int]$nm.Groups[2].Value + [int]([int]$nm.Groups[4].Value / 2)))
+}
 $toggle         = @(256, 90)
-$musicDown      = @(246, 118)
-$musicUp        = @(284, 118)
-$soundDown      = @(246, 146)
-$back           = @(266, 170)
+$musicDown      = @(246, 112)
+$musicUp        = @(284, 112)
+$soundDown      = @(246, 136)
+$langDown       = @(246, 160)
+$langUp         = @(284, 160)
+$back           = @(266, 174)
 $quit           = @(266, 171)
 
 # One click is a button-down line and a button-up line a few frames later: the menu reads the press
@@ -204,6 +216,181 @@ try {
         Fail ("the write changed the number of keys: {0} -> {1}" -f $beforeKeys.Count, $afterKeys.Count)
     }
 
+    # 5b. The language row: the codes the run found at start-up (English first, then every complete
+    #     `lang\<code>.csv`), stepped through with the same minus/plus pictures the volumes have -
+    #     cyclically in both directions, in force at once (the line says which word the view draws)
+    #     and written back to icftd.ini like any other setting. The expected labels are read from
+    #     the language files themselves, so a translator's wording is never mistaken for a failure.
+    $offered = @()
+    $off = [regex]::Match($out, 'language\(s\) offered:([ a-z0-9-]*)')
+    if ($off.Success) { $offered = @($off.Groups[1].Value.Trim() -split '\s+' | Where-Object { $_ -ne '' }) }
+    if ($offered.Count -lt 2) {
+        Ok ("the run offers {0} language(s) - SKIP the language switch" -f $offered.Count)
+    } else {
+        if (-not ('LangId' -as [type])) {
+            Add-Type -TypeDefinition @'
+public static class LangId {
+    public static ulong Hash(byte[] b) {
+        ulong h = 14695981039346656037UL;
+        foreach (byte c in b) { h ^= c; h *= 1099511628211UL; }
+        return h;
+    }
+}
+'@
+        }
+        # A line of `lang\<code>.csv`, by the English text it translates: the file names each row by
+        # the FNV-1a id of that text, so the expected word is the file's own, never this script's.
+        function Translation([string]$code, [string]$english)
+        {
+            $file = Join-Path (Join-Path $root 'lang') ("$code.csv")
+            if (-not (Test-Path $file)) { return '' }
+            $id = '{0:X16}' -f [LangId]::Hash([System.Text.Encoding]::UTF8.GetBytes($english))
+            $row = Import-Csv -LiteralPath $file -Delimiter ';' -Header k, v -Encoding UTF8 |
+                   Where-Object { $_.k -eq $id } | Select-Object -First 1
+            if ($row -and $row.v) { return $row.v.Trim() }
+            return ''
+        }
+        function LanguageLabel([string]$code)
+        {
+            $text = Translation $code 'Language'
+            if ($text -ne '') { return $text }
+            return $null
+        }
+        # The file's text as the screen has it: lang.c converts it to the font's own codes (the six
+        # umlauts 0x80..0x85, "ss" for ß, the base letter for another accent) and --textlog writes a
+        # byte it cannot print as '.'. Same rule as tools\lang-check.ps1, so an assertion can name
+        # the file's own words.
+        function Drawn([string]$text)
+        {
+            $fold = 'AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTs' + 'aaaaaaaceeeeiiiidnooooo/ouuuuyty'
+            $sb = New-Object System.Text.StringBuilder
+            foreach ($ch in $text.ToCharArray()) {
+                $cp = [int]$ch
+                $code = @($cp)
+                if ($cp -eq 0x00C4) { $code = 0x80 }
+                elseif ($cp -eq 0x00D6) { $code = 0x81 }
+                elseif ($cp -eq 0x00DC) { $code = 0x82 }
+                elseif ($cp -eq 0x00E4) { $code = 0x83 }
+                elseif ($cp -eq 0x00F6) { $code = 0x84 }
+                elseif ($cp -eq 0x00FC) { $code = 0x85 }
+                elseif ($cp -eq 0x00DF) { $code = 0x73, 0x73 }
+                elseif ($cp -eq 0x2013 -or $cp -eq 0x2014) { $code = 0x2D }
+                elseif ($cp -eq 0x2018 -or $cp -eq 0x2019) { $code = 0x27 }
+                elseif ($cp -eq 0x201C -or $cp -eq 0x201D) { $code = 0x22 }
+                elseif ($cp -ge 0x00C0 -and $cp -le 0x00FF) { $code = [int][char]$fold[$cp - 0x00C0] }
+                elseif ($cp -ge 0x80) { $code = 0x3F }
+                foreach ($b in $code) {
+                    [void]$sb.Append($(if ($b -ge 32 -and $b -lt 127) { [char]$b } else { '.' }))
+                }
+            }
+            return $sb.ToString()
+        }
+        $enLabel = 'Language'
+
+        $n = $offered.Count
+        $script:frame = 40
+        $langLines = New-Object System.Collections.Generic.List[string]
+        function LangClick([int[]]$at)
+        {
+            $script:langLines.Add(("{0} {1} {2} 1" -f $script:frame, $at[0], $at[1]))
+            $script:langLines.Add(("{0} {1} {2} 0" -f ($script:frame + 4), $at[0], $at[1]))
+            $script:frame += 20
+        }
+        LangClick $settingsButton
+        for ($i = 0; $i -lt $n; $i++) { LangClick $langUp }   # all the way round: back to English
+        LangClick $langDown                                    # minus from English: the last one
+        LangClick $back
+        LangClick $settingsButton                              # reopened: must show the new state
+        LangClick $back
+        LangClick $quit
+        $langLines | Set-Content -Encoding ascii (Join-Path $Work 'clicks-lang.txt')
+
+        $startIni | Set-Content -Encoding ascii $ini           # no [GAME]: the run starts English
+        $out2 = (& $Exe $Image 3000000 --data $DataDir --titlekey 14 `
+                 --mouse (Join-Path $Work 'clicks-lang.txt') 2>&1 | Out-String)
+        Set-Content -Path (Join-Path $Work 'language.log') -Value $out2
+
+        if ($out2 -notmatch ('title: settings:.*language en \(1 of {0}\)' -f $n)) {
+            Fail 'the view did not open on English with the found languages listed'
+        } else { Ok ("the language row lists the {0} language(s) the start-up scan found" -f $n) }
+
+        $steps = @([regex]::Matches($out2, 'title: language ([a-z]{2}) \((\d+) of (\d+), frame') |
+                   ForEach-Object { '{0}/{1}' -f $_.Groups[1].Value, $_.Groups[2].Value })
+        $want = @()
+        for ($i = 1; $i -le $n; $i++) { $want += ('{0}/{1}' -f $offered[($i % $n)], (($i % $n) + 1)) }
+        $want += ('{0}/{1}' -f $offered[$n - 1], $n)
+        if (($steps -join ' ') -ne ($want -join ' ')) {
+            Fail ("the language steps were '{0}', expected '{1}' (cyclical in both directions)" -f
+                  ($steps -join ' '), ($want -join ' '))
+        } else { Ok 'plus and minus step the languages cyclically in both directions' }
+
+        # The step is immediate: the view's own label is the new language's word from that moment.
+        $labelsOk = $true
+        foreach ($code in @($offered | Select-Object -Skip 1)) {
+            $label = LanguageLabel $code
+            if ($label -eq $null) { continue }
+            if ($out2 -notmatch ('title: language {0} \(\d+ of \d+, frame \d+\) - the view now reads "{1}"' -f
+                                 $code, [regex]::Escape($label))) {
+                Fail ("switching to {0} did not change the view's own label to '{1}'" -f $code, $label)
+                $labelsOk = $false
+            }
+        }
+        if ($labelsOk -and $steps.Count -gt 0 -and
+            $out2 -notmatch ('title: language en \(\d+ of \d+, frame \d+\) - the view now reads "{0}"' -f
+                             [regex]::Escape($enLabel))) {
+            Fail 'switching back to en did not put the view''s own label back to English'
+            $labelsOk = $false
+        }
+        if ($labelsOk -and $steps.Count -gt 0) {
+            Ok 'the switch changes the view''s own words at once'
+        }
+        if ($out2 -notmatch ('title: settings:.*language {0} \({1} of {1}\)' -f $offered[$n - 1], $n)) {
+            Fail 'the reopened view does not show the language the last step selected'
+        } else { Ok 'the view reopens on the language that was selected' }
+        if ((Value $ini 'language') -ne $offered[$n - 1]) {
+            Fail ("[GAME] language is '{0}', not '{1}'" -f (Value $ini 'language'), $offered[$n - 1])
+        } else { Ok ("the language step wrote [GAME] language={0}" -f $offered[$n - 1]) }
+
+        # 5c. The game itself, not only the view: a New Game started after the switch draws the new
+        #     language's room menu (the intro's pages are tapped through, the same 60-frame cadence
+        #     tools\lang-check.ps1 uses), and not the English one. 12M instructions reach the room.
+        $roomEn = 'Make a Call'
+        $roomText = Translation $offered[1] $roomEn
+        if ($roomText -eq '') {
+            Ok ("{0} does not translate the room menu - SKIP the game-side check" -f $offered[1])
+        } else {
+            $taps = @('# settings-check: fire taps')
+            for ($f = 10; $f -le 20000; $f += 60) { $taps += "$f 1 0xFFFF"; $taps += "$($f + 6) 0 0xFFFF" }
+            Set-Content -Path (Join-Path $Work 'advance.txt') -Value $taps -Encoding ascii
+            $startIni | Set-Content -Encoding ascii $ini           # the run starts English
+            @"
+40 $($settingsButton[0]) $($settingsButton[1]) 1
+44 $($settingsButton[0]) $($settingsButton[1]) 0
+60 $($langUp[0]) $($langUp[1]) 1
+64 $($langUp[0]) $($langUp[1]) 0
+80 $($back[0]) $($back[1]) 1
+84 $($back[0]) $($back[1]) 0
+100 $($newGameButton[0]) $($newGameButton[1]) 1
+104 $($newGameButton[0]) $($newGameButton[1]) 0
+"@ | Set-Content -Encoding ascii (Join-Path $Work 'clicks-game.txt')
+            $game = (& $Exe $Image 12000000 --data $DataDir --titlekey 14 --textlog `
+                     --mouse (Join-Path $Work 'clicks-game.txt') `
+                     --input (Join-Path $Work 'advance.txt') 2>&1 | Out-String)
+            Set-Content -Path (Join-Path $Work 'language-game.log') -Value $game
+            if ($game -notmatch ('title: language {0} \(2 of \d+, frame 60\)' -f $offered[1])) {
+                Fail 'the run did not switch the language before starting the game'
+            } elseif ($game -notmatch [regex]::Escape('"' + (Drawn $roomText) + '"')) {
+                Fail ("the game started after the switch did not draw {0} ('{1}')" -f
+                      $offered[1], $roomText)
+            } elseif ($game -match [regex]::Escape('"' + $roomEn + '"')) {
+                Fail 'the game started after the switch still drew the English room menu'
+            } else {
+                Ok ("the game started after the switch draws {0} ('{1}')" -f $offered[1], $roomText)
+            }
+        }
+        $startIni | Set-Content -Encoding ascii $ini           # the rest of the check runs English
+    }
+
     # 6. A measurement run never shows the menu.
     $plain = (& $Exe $Image 2000000 --data $DataDir 2>&1 | Out-String)
     Set-Content -Path (Join-Path $Work 'measurement.log') -Value $plain
@@ -276,6 +463,10 @@ public class ICFTDWindow {
     if (-not $seen) {
         Ok 'the window geometry is not measured (no desktop gave the game a window) - SKIP'
     } else {
+        # The run ends with Quit Game's ten-second farewell, and its window is up until it closes:
+        # the next run must not start while it is there, or FindWindow hands back the old window and
+        # the key it posts lands in a game that is already saying goodbye.
+        [void]$proc.WaitForExit(30000)
         Write-Output ("settings: the window was {0} (screen is {1}x{2})" -f ($sizes -join ' -> '), $screenW, $screenH)
         $want = @('320x200', ("{0}x{1}" -f $screenW, $screenH), '320x200')
         $ok = $sizes.Count -ge 3 -and $sizes[0] -eq $want[0] `
@@ -370,5 +561,5 @@ finally {
 }
 
 if ($fail -ne 0) { Write-Output ("settings: {0} check(s) failed" -f $fail); exit 1 }
-Write-Output 'settings: the menu opens, its three controls take effect and are saved, Back restores the menu, and Alt+Enter switches the window from anywhere'
+Write-Output 'settings: the menu opens, its four controls (the toggle, two volumes, the language) take effect and are saved, Back restores the menu, and Alt+Enter switches the window from anywhere'
 exit 0

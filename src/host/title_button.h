@@ -104,19 +104,28 @@ typedef enum title_setting_hit
     TITLE_SETTING_MUSIC_DOWN,           /* the music's minus button */
     TITLE_SETTING_MUSIC_UP,
     TITLE_SETTING_SOUND_DOWN,
-    TITLE_SETTING_SOUND_UP
+    TITLE_SETTING_SOUND_UP,
+    TITLE_SETTING_LANGUAGE_DOWN,        /* the language's minus button */
+    TITLE_SETTING_LANGUAGE_UP
 } title_setting_hit;
 
 /* The settings view: the buttons are replaced by one row per option (its label in the game's
  * font, the control under it) and the Back button where Quit Game was. The view shows the settings
  * the game was started with (icftd.ini), and the caller applies what a click changes, so nothing
  * here touches the machine. `fullscreen_on` is 0 on a platform with no window mode of its own (the
- * DOS build), which draws the two volume rows only. */
+ * DOS build), which draws the volume and language rows only.
+ *
+ * The language row shows the two-letter code of the file the run is using ("en" for the original),
+ * between the same minus/plus buttons the volumes have. `language` indexes `languages` codes, which
+ * are the ones the runtime found at start-up (rt_lang_available - English first, then every
+ * complete `lang\<code>.csv`). The caller switches the run and keeps the index in step. */
 typedef struct title_settings
 {
     int fullscreen;                     /* the toggle's state: 1 = fullscreen */
     int fullscreen_on;                  /* this platform has a window mode to toggle */
     int music, sound;                   /* 0..10, the [AUDIO] volumes */
+    int language;                       /* the index of the code the run is using */
+    int languages;                      /* how many the runtime offers (at least English) */
     int hover;                          /* TITLE_SETTING_*, NONE for none */
     int back_hover;                     /* the pointer is over the Back button */
     int pointer_on;                     /* the platform reported a pointer this frame */
@@ -178,9 +187,9 @@ void title_settings_init(title_settings *settings, rt_machine *m, int fullscreen
  * when the pointer is over the Back button. */
 int title_settings_pointer(title_settings *settings, int present, int x, int y);
 
-/* Draws the labels, the toggle, the two minus/value/plus rows, the Back button and the arrow. The
- * caller installs title_settings_palette() at TITLE_SETTINGS_PEN_FIRST first, the way it installs
- * title_menu_palette() for the buttons. */
+/* Draws the labels, the toggle, the volume rows, the language row, the Back button and the arrow.
+ * The caller installs title_settings_palette() at TITLE_SETTINGS_PEN_FIRST first, the way it
+ * installs title_menu_palette() for the buttons. */
 void title_settings_draw(rt_machine *m, const title_settings *settings, u8 *dst, u32 stride,
                          int w, int h);
 

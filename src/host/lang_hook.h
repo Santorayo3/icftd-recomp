@@ -17,8 +17,16 @@
 #include "machine.h"
 
 /* Reads [GAME] language from icftd.ini and selects it. Call once the settings file is there, i.e.
- * before the first message the player may see and before the program boots. */
+ * before the first message the player may see and before the program boots. The language folders
+ * are browsed here as well (rt_lang_scan), so the settings view has its list from the start. */
 void host_lang_load(void);
+
+/* Switches the running machine to another language: selects the catalog, copies it into the
+ * machine's RAM (the game keeps running; nothing is re-booted) and writes [GAME] language back to
+ * icftd.ini, so the view, the game and the next start agree. `code` is one rt_lang_available
+ * names; a code this run does not offer changes nothing. Returns 1 when that language is in force
+ * afterwards. */
+int host_lang_switch(rt_machine *m, const char *code);
 
 /* Enables (or, with en, skips) the translation for this machine: copies the catalog into the
  * machine's RAM. Call after rt_init/rt_load_image and before oracle_boot - once per machine, so

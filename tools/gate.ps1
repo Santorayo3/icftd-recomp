@@ -31,8 +31,8 @@
                                 slots mark a save the add-on wrote "(A)" and load it in the build
                                 that wrote it; skipped without that binary)
       7. title settings        (tools\settings-check.ps1 - the Settings button opens the view, its
-                                toggle and two volumes change the machine and are written back to
-                                icftd.ini, and Back restores the menu)
+                                toggle, two volumes and language row change the machine and are
+                                written back to icftd.ini, Back restores the menu)
       8. map pointer           (tools\mouse-check.ps1 - the port's pointer control of the
                                 situation map's cursor; skipped without its recorded session)
       9. room pointer          (tools\pointer-check.ps1 - the pointer shown on a room screen, and
@@ -82,7 +82,9 @@
                                  differs only in the catalog's own region, the machine state is
                                  record-for-record identical up to the first translated line, a
                                  room's action list is translated too, and one file carries both the
-                                 interface and the story)
+                                 interface and the story; the settings view's language row - the
+                                 scan of lang\??.csv, its cyclical step, the immediate switch and
+                                 the game that follows it - is tools\settings-check.ps1's)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
     capture or reference-image test can prove a translated function. Steps 5-22 cover the port's

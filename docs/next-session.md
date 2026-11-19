@@ -17,6 +17,42 @@ loading line and the first start are in and measured) and the remaining task - t
 verification pass - are in [`dos-parity.md`](dos-parity.md). Read that before working on
 `dos_main.c`.
 
+## The player's own translations, picked in the settings (2026-11-19)
+
+Asked for: no pre-defined list of languages any more. At start-up the game browses `lang\`, takes
+every `<code>.csv` whose name is **two letters** and whose rows are **complete**, and offers those in
+a new settings row — the two-letter name between the existing minus/plus pictures, cyclically in both
+directions, `icftd.ini` `[GAME] language` written like every other setting — and a step changes the
+interface **at once**, so the player sees that it happened.
+
+**What changed.** `src\runtime\lang.c` grew the scan and the completeness rule (`rt_lang_scan`,
+`rt_lang_available*`): the folders are the ones `lang_read_file` already searched, an earlier
+folder's copy of a code decides (complete or not) exactly as the loader would read it, and "complete"
+is every line of the interface vocabulary (`g_interface`) — formats keeping their `%` marks — plus,
+when `lang\en.csv` is there, every id it lists. `rt_lang_set` refuses a file that is not in that
+list, so `[GAME] language` cannot select a half-translated one either; a nearer incomplete copy
+therefore leaves the run in English with a line naming the missing rows, which is the rule the
+loader already had (the loader prefers the nearest folder). `rt_config_save_string` is the config
+module's new word writer (the working copy of `rt_config_save_int`, which is now a thin wrapper).
+`host_lang_switch` (lang_hook.c) is the one path for a switch: catalog, the machine's copy
+(`rt_lang_open`) and the ini. `title_button.c` draws the fourth row
+(`TITLE_SETTINGS_ROW_STEP` 24, `CONTROL_DY` 8, Back at 169 — the four rows need the room; the DOS
+build's three rows start at 85), `title.c` steps the list and logs the label the view now draws, and
+both front ends now install `rc_entryHook` whenever the title can be used, because a language can be
+selected there after an English start. `lang\de.csv` gained the one new interface row ("Language" →
+"Sprache"), so the shipped translation stays complete. The two release pack scripts copy `??.csv`
+only, which is what the loader accepts.
+
+**Measured.** `tools\settings-check.ps1` (gate step 7): the row opens on `language en (1 of N)`,
+plus N times returns to `en`, minus wraps to the last code, each step logs the word the view draws
+(read back from that language's file) and `[GAME] language` holds the last code; the same clicks
+then take New Game, the run taps through the intro, and the room menu in the `--textlog` is the new
+language's (`Anrufen`, `Schlafen`) and not the English one — so the switch reaches the machine and
+not only the view. All checks pass. `tools\lang-check.ps1` passes unchanged (the completeness gate
+does not alter what a complete file draws). Its geometry step also had to stop posting Alt+Enter
+into the *previous* run's window (the farewell keeps it up for ten seconds; the check now waits for
+that process to exit — the failure was real, the target window was the wrong one).
+
 ## The translation is complete: 750 of 750 (2026-11-18)
 
 `recomp` now emits **every function of both builds** - 750 of 750 (121 362 of 121 362 bytes) plus

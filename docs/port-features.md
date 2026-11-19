@@ -569,13 +569,16 @@ checks the four states and that a one-byte placeholder is still empty, and
 ## The title's settings menu
 
 Settings is not a placeholder any more: a click replaces the buttons with the settings view, and
-Back puts them back. Three options, one row each — the label in the game's own disk font, the control
+Back puts them back. Four options, one row each — the label in the game's own disk font, the control
 under it (the column is 73 px wide and "Music Vol." plus "[-] 10 [+]" needs 102, so the row's label
 is on its own line while minus/value/plus stay on one):
 
 | row | control | what a click does |
 |---|---|---|
 | Fullscreen | the toggle, `assets\toggle_off.png` / `toggle_on.png`, with its state spelled out ("Off"/"On") beside it | flips the window mode through `plat_set_fullscreen`, so the live Win32 window is restyled there and then (`apply_window_mode`), and writes `[VIDEO] fullscreen` |
+| Music Vol. | minus, the value (0..10), plus — `assets\minus_*.png`, `assets\plus_*.png`, the hover state under the pointer | one step, clamped 0..10: `rt_audio_set_gain` changes the mixer **now**, so the map's score playing under the title is what the step is heard on, and `[AUDIO] music` is rewritten |
+| Sound Vol. | the same three controls | the same for the effect channels and `[AUDIO] sound` |
+| Language | the same three controls, the two-letter code of the file in the middle ("en" is the original) | one step through the languages the start-up scan found (below), cyclically in both directions: the catalog is re-read and copied into the machine's RAM through `host_lang_switch`, so the view's own labels and the game that starts after Back are already the new language, and `[GAME] language` is rewritten |
 
 One trap in that restyle, worth its line because it cost a session: **the visible bit lives in the
 window style**, so a `SetWindowLong(GWL_STYLE, …)` whose style lacks `WS_VISIBLE` *hides* the window
@@ -583,8 +586,6 @@ the game keeps drawing into — the picture disappears, the taskbar shows no gam
 like a crash ("the window just closes"). The new style carries `WS_VISIBLE`, `SWP_SHOWWINDOW` says it
 again, and the frame is composed once inside the switch so the new client rectangle never shows what
 the old mode left in it.
-| Music Vol. | minus, the value (0..10), plus — `assets\minus_*.png`, `assets\plus_*.png`, the hover state under the pointer | one step, clamped 0..10: `rt_audio_set_gain` changes the mixer **now**, so the map's score playing under the title is what the step is heard on, and `[AUDIO] music` is rewritten |
-| Sound Vol. | the same three controls | the same for the effect channels and `[AUDIO] sound` |
 
 Off the view, **Alt+Enter** is the same switch on every screen the game has - a scene, the map, the
 title - and it goes through the same helper as the toggle (`host_fullscreen_toggle`, `title.c`), so
@@ -612,10 +613,10 @@ Where it attaches:
   drives `title_settings_pointer` (hover and hit boxes) and `title_settings_click` (the machine
   changes) — nothing is derived from a `pc ==` test.
 * **Platform capability.** `plat_has_fullscreen` is what makes the DOS design right: the DOS build
-  returns 0, so its view draws the two volume rows only, moved down into the middle of the space the
-  three take, and it never offers a window mode it does not own. The DOS front end has the pointer
-  since 2026-11-16 (`plat_dos.c` reads INT 33h and `dos_main.c` drives the menu), so the view is
-  operable there too.
+  returns 0, so its view draws the volume and language rows only, moved down into the middle of the
+  space the four take, and it never offers a window mode it does not own. The DOS front end has the
+  pointer since 2026-11-16 (`plat_dos.c` reads INT 33h and `dos_main.c` drives the menu), so the view
+  is operable there too.
 * **Settings file.** `rt_config_save_int` patches the ini in place and re-reads it: the comment
   lines, the key order and every key the write does not own are written back unchanged, and a key a
   file lacks is added under its section. The view reads the file for what to show (`rt_config_bool`
@@ -639,7 +640,13 @@ gain in the same line (`90% gain`, `80% gain`, …, i.e. the change reached `rt_
 just the file); Back logs `title: back to the main menu`, reopening shows `music 9/10, sound 6/10,
 fullscreen off`, and the file afterwards holds `fullscreen=0`, `music=9`, `sound=6` with every
 comment of the original still in place. A run without `--titlekey` never arms the title and logs
-none of it.
+none of it. The language row is measured the same way and from the run's own scan: it opens on
+`language en (1 of N)`, plus N times comes back to `en` (cyclical), minus once wraps to the last
+code, each step logs the word the view now draws (read back from that language's file, so a
+translator's wording is never mistaken for a failure) and `[GAME] language` afterwards holds the
+code the last step selected. That the *game* follows is measured too: the same clicks then take
+New Game, the run taps through the intro, and the room's action list in the text log is the new
+language's (`Anrufen`, `Schlafen`) and not the English one.
 
 ## The title's Quit Game farewell
 
@@ -1139,18 +1146,36 @@ exactly that in DOSBox for both trees (163 files, both images, one name map), in
 start that extracts and then boots the same machine as the staged reference tree, the add-on's
 disks arriving on a later start, and one add-on image changing nothing.
 
-## The language: `icftd.ini` `[GAME] language`
+## The language: `lang\<code>.csv`, picked in the settings
 
 The original is English-only, so the German is a port feature with nothing to diff. What it owes
 is that its claim is exact, and that English is untouched.
 
-* **What it does.** `language=de` selects the translation file `lang\de.csv`; any other code names
-  its own file (`lang\fr.csv`, ...), and `en` (the default), a missing entry or a code with no file
-  is the original's English. **That file is the whole catalog**: the interface, the menus, the map's
-  place names, the boot's messages, the port's own screens and the game's story, each row keyed by
-  the FNV-1a id of the English text. Nothing is translated in `src\runtime\lang.c` any more — it
-  holds the loader and the interface's English vocabulary (`rt_lang_key`, printed by `--langkeys`
-  for the exporter), so adding a language is a file and not a build.
+* **The languages are found, not configured.** At start-up the game browses the folders a
+  translation is read from and keeps every file whose name is a two-letter code — `de.csv`,
+  `fr.csv`, … — and whose rows are **complete** (below). The title menu's settings view offers them
+  in a **Language** row: the two-letter name between the minus and plus pictures the volumes use,
+  stepped cyclically in both directions, and a step takes effect at once — the catalog is re-read and
+  copied into the machine's RAM (`host_lang_switch`), so the view's own labels and the game that
+  starts after Back are already the new language. The row writes `icftd.ini` `[GAME] language`, the
+  key it also reads at start-up; English — the original — is always the first entry and needs no
+  file. `language=de` in the file still selects a language without the menu, and any other code
+  names its own file.
+* **Only a complete translation is a language.** A file that misses a line would draw a mixture of
+  two languages, which reads as a broken translation rather than as an unfinished one. Complete
+  means: a non-empty translation for every line of the interface's own vocabulary (`lang.c`'s
+  `g_interface`: the engine's menus, the map's places, the boot's messages, the save/load screen,
+  the port's own screens, and the formats of the messages the program builds itself, with the same
+  `%` marks), plus — when `lang\en.csv` is there, which is the development tree but not a release —
+  every id it lists, i.e. the game's own script. A file that fails is left out of the row and named
+  on the console with the number of missing lines; a `[GAME] language` naming it keeps the run in
+  English. `lang\de.work.csv` is not a two-letter code, so a translator's work file is never taken
+  for a language.
+* **That file is the whole catalog**: the interface, the menus, the map's place names, the boot's
+  messages, the port's own screens and the game's story, each row keyed by the FNV-1a id of the
+  English text. Nothing is translated in `src\runtime\lang.c` any more — it holds the loader, the
+  interface's English vocabulary (`rt_lang_key`, printed by `--langkeys` for the exporter) and the
+  completeness rule, so adding a language is a file and not a build.
 * **Where the swap happens.** The engine builds every text screen from strings it hands to a
   handful of layout routines — `FUN_00004E2E` (one centred line), `FUN_00004F0A` (a wrapped
   block), `FUN_00005012`/`FUN_000050CA` (a narration page), `FUN_00004F5C` (the line count the box

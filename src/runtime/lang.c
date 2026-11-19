@@ -16,6 +16,7 @@
 #include "lang.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "platform.h"
@@ -188,6 +189,7 @@ static const char *const g_interface[] =
     "Off",
     "Music Vol.",
     "Sound Vol.",
+    "Language",
     "Back",
     "More",
     "Save Game",
@@ -232,6 +234,11 @@ static const char *const g_interface[] =
 #define LANG_ID_LEN      16                /* hex digits of an id-keyed row                */
 #define LANG_CODE_MAX    7                 /* the letters of a language code, "de" ...     */
 
+/* The languages the settings view offers: English plus the complete translations found at
+ * start-up. A handful is a lot - one file per language the game was translated into - so a fixed
+ * list is enough, and a folder with more is reported rather than silently cut short. */
+#define LANG_AVAILABLE_MAX 16
+
 typedef struct lang_entry
 {
     const char *en;                        /* the English text, as the game has it (or 0)  */
@@ -257,6 +264,12 @@ static int g_storyNext;
 static rt_machine *g_m;
 static int g_open;
 static int g_fromFile;                    /* rows that came from the file, for the report */
+static char g_avail[LANG_AVAILABLE_MAX][LANG_CODE_MAX + 1];  /* "en", then the found ones    */
+static int g_availCount;
+static int g_scanned;
+
+/* Browses the language folders once (below, "a complete translation"). */
+static u32 lang_scan(void);
 
 /* --- the catalog's text in the font's character set --------------------------------------- */
 
@@ -418,6 +431,58 @@ static void lang_free(void)
     g_open = 0;
 }
 
+/* The two-letter name a code is filed under: lower case, and no path punctuation. Returns its
+ * length; 0 when there is no usable code ("en" - and anything else - is the caller's decision). */
+static int lang_code_of(const char *code, char *out)
+{
+    int n;
+
+    if (code == 0) { out[0] = 0; return 0; }
+    for (n = 0; n < LANG_CODE_MAX && code[n] != 0; n++)
+    {
+        char c = code[n];
+
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if ((c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-') break;
+        out[n] = c;
+    }
+    out[n] = 0;
+    return n;
+}
+
+/* A translation file's text, NUL-terminated, in a fresh buffer the caller frees with plat_free; 0
+ * when the file is not there, is empty, is bigger than LANG_FILE_MAX or is UTF-16. A spreadsheet's
+ * "CSV UTF-8" starts with a byte order mark, which belongs to no record. */
+static char *lang_read_path(const char *path, u32 *size)
+{
+    plat_file *f;
+    char *text;
+    u32 n;
+
+    f = plat_open(path);
+    if (f == 0) return 0;
+    n = plat_size(f);
+    if (n == 0 || n >= LANG_FILE_MAX) { plat_close(f); return 0; }
+    text = (char *)plat_alloc(n + 1u);
+    if (text == 0) { plat_close(f); return 0; }
+    n = plat_read(f, 0, text, n);
+    plat_close(f);
+    text[n] = 0;
+    if (n >= 3 && (u8)text[0] == 0xEFu && (u8)text[1] == 0xBBu && (u8)text[2] == 0xBFu)
+    {
+        memmove(text, text + 3, n - 2u);             /* keeps the terminator at n - 3 */
+        n -= 3;
+    }
+    else if (n >= 2 && ((u8)text[0] == 0xFFu || (u8)text[0] == 0xFEu))
+    {
+        printf("language: %s is UTF-16 - save it as CSV UTF-8\n", path);
+        plat_free(text);
+        return 0;
+    }
+    if (size != 0) *size = n;
+    return text;
+}
+
 /* The translation file's text, or 0. It is a spreadsheet's CSV: `<English>;<text>` (or
  * `<id>;<text>`), one record per line, fields quoted the way CSV quotes them. Where it is looked
  * for, in this order:
@@ -434,8 +499,7 @@ static u32 lang_read_file(const char *code)
 {
     char path[LANG_PATH_MAX];
     const char *dir = plat_exe_dir();
-    plat_file *f;
-    u32 n;
+    u32 n = 0;
 
     sprintf(path, "%s\\lang\\%s.csv", dir != 0 ? dir : "", code);
     if (plat_path_kind(path) != PLAT_PATH_FILE && dir != 0 && dir[0] != 0)
@@ -459,29 +523,8 @@ static u32 lang_read_file(const char *code)
                    code);
         return 0;
     }
-    f = plat_open(path);
-    if (f == 0) return 0;
-    n = plat_size(f);
-    if (n == 0 || n >= LANG_FILE_MAX) { plat_close(f); return 0; }
-    g_owned = (char *)plat_alloc(n + 1u);
-    if (g_owned == 0) { plat_close(f); return 0; }
-    n = plat_read(f, 0, g_owned, n);
-    plat_close(f);
-    g_owned[n] = 0;
-    /* A spreadsheet's "CSV UTF-8" starts with a byte order mark; UTF-16 cannot be read at all
-     * (every field would look like garbage). */
-    if (n >= 3 && (u8)g_owned[0] == 0xEFu && (u8)g_owned[1] == 0xBBu && (u8)g_owned[2] == 0xBFu)
-    {
-        memmove(g_owned, g_owned + 3, n - 2u);       /* keeps the terminator at n - 3 */
-        n -= 3;
-    }
-    else if (n >= 2 && ((u8)g_owned[0] == 0xFFu || (u8)g_owned[0] == 0xFEu))
-    {
-        printf("language: %s is UTF-16 - save it as CSV UTF-8\n", path);
-        plat_free(g_owned);
-        g_owned = 0;
-        return 0;
-    }
+    g_owned = lang_read_path(path, &n);
+    if (g_owned == 0) return 0;
     printf("language: %s (%lu bytes)\n", path, (unsigned long)n);
     return n;
 }
@@ -596,26 +639,26 @@ static int lang_index(void)
 
 u32 rt_lang_set(const char *code)
 {
-    int n;
     char *p;
     u32 poolSize = 0, at = 0;
 
     /* The code is a language name, "de", "fr", ... - lower case, and no path punctuation: it
      * becomes part of the file name below ("en" - and anything that is not a usable code - is the
      * original's English). */
-    code = code != 0 ? code : "en";
-    for (n = 0; n < LANG_CODE_MAX && code[n] != 0; n++)
-    {
-        char c = code[n];
-        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
-        if ((c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-') break;
-        g_codeBuf[n] = c;
-    }
-    g_codeBuf[n] = 0;
+    lang_code_of(code, g_codeBuf);
 
     lang_free();
     g_code = g_codeBuf[0] != 0 ? g_codeBuf : "en";
     if (strcmp(g_code, "en") == 0) return 0;
+    /* Only a complete translation is a language: the settings view offers nothing else, and a file
+     * that misses a line would draw a mixture of two languages (see lang_scan). */
+    lang_scan();
+    if (rt_lang_available_index(g_code) < 0)
+    {
+        printf("language: %s is not a complete translation - the run stays English\n", g_code);
+        g_code = "en";
+        return 0;
+    }
 
     /* The file is read first: the rows are kept in file order, so a later row for the same text
      * replaces an earlier one - which is how a translator's correction wins over the row above
@@ -941,6 +984,346 @@ u32 rt_lang_pattern(rt_machine *m, const char *s)
 
     if (!lang_message(line, sizeof line, s)) return 0;
     return lang_scratch(m, line, (u32)strlen(line) + 1u);
+}
+
+/* --- a complete translation: what the settings view may offer -------------------------------
+ * The player's own translations live in the same folder as the shipped one and are found, not
+ * listed: at start-up the language folders are browsed and every `<code>.csv` with a two-letter
+ * code is measured against the lines the game needs. Only a complete one becomes a language the
+ * settings view offers and [GAME] language may name - a file that translates part of the game
+ * would draw a mixture of two languages, which looks like a broken translation rather than like
+ * an unfinished one.
+ *
+ * What "complete" means, exactly: every line of the interface's own vocabulary (g_interface - the
+ * menus, the map's places, the boot's messages, the port's screens and the formats) and, when the
+ * source text `lang\en.csv` is there, every id it lists (the game's own script, which only that
+ * file can enumerate). A format has to keep the English row's `%` marks, since the game fills the
+ * numbers in. The original's English is not a file: it is the first of the list, always. */
+
+#define LANG_SEEN_MAX 64
+#define LANG_FMT_MAX  16                        /* interface formats ("... %d ...")             */
+
+typedef struct lang_seen
+{
+    char code[LANG_SEEN_MAX][3];
+    int count;
+} lang_seen;
+
+static u64 *g_req;                              /* the ids a complete file has to carry, sorted */
+static int g_reqCount;
+static int g_reqCap;
+static u64 g_fmtId[LANG_FMT_MAX];               /* an interface format's id, and its % marks   */
+static int g_fmtSpecs[LANG_FMT_MAX];
+static int g_fmtCount;
+
+/* The value a record is filed under, whichever way it names its text: its id, or the id of the
+ * English text itself (the older form). */
+static u64 lang_row_key(const char *key)
+{
+    u64 id = lang_key_id(key);
+
+    return id != 0 ? id : lang_hash64(key);
+}
+
+static int lang_req_add(u64 id)
+{
+    if (g_reqCount == g_reqCap)
+    {
+        int cap = g_reqCap != 0 ? g_reqCap * 2 : 512;
+        u64 *grown = (u64 *)plat_alloc((u32)cap * sizeof(u64));
+
+        if (grown == 0) return 0;
+        if (g_req != 0)
+        {
+            memcpy(grown, g_req, (u32)g_reqCount * sizeof(u64));
+            plat_free(g_req);
+        }
+        g_req = grown;
+        g_reqCap = cap;
+    }
+    g_req[g_reqCount++] = id;
+    return 1;
+}
+
+static int lang_u64_cmp(const void *a, const void *b)
+{
+    u64 x = *(const u64 *)a, y = *(const u64 *)b;
+
+    return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/* The required id's index, -1 when no line needs it. */
+static int lang_req_find(u64 id)
+{
+    int lo = 0, hi = g_reqCount - 1;
+
+    while (lo <= hi)
+    {
+        int mid = lo + (hi - lo) / 2;
+
+        if (g_req[mid] == id) return mid;
+        if (g_req[mid] < id) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return -1;
+}
+
+/* The % marks an interface format takes, -1 when the id is not one of them. */
+static int lang_fmt_specs(u64 id)
+{
+    int f;
+
+    for (f = 0; f < g_fmtCount; f++)
+        if (g_fmtId[f] == id) return g_fmtSpecs[f];
+    return -1;
+}
+
+/* The i-th folder a translation is read from (0..3), in lang_read_file's order; 0 for a folder
+ * this platform has no name for. Called one at a time so a caller needs a single path buffer. */
+static int lang_dir(int i, char *path)
+{
+    const char *dir = plat_exe_dir();
+
+    if (i == 0)
+    {
+        sprintf(path, "%s\\lang", dir != 0 ? dir : "");
+        return 1;
+    }
+    if (i == 3)
+    {
+        strcpy(path, "lang");
+        return 1;
+    }
+    if (dir == 0 || dir[0] == 0) return 0;
+    sprintf(path, i == 1 ? "%s\\..\\lang" : "%s\\..\\..\\lang", dir);
+    return 1;
+}
+
+/* The ids a complete translation has to carry: the interface's vocabulary, plus the game's own
+ * script when its source text is there. Sorted and made distinct for the lookups above. */
+static int lang_required_build(void)
+{
+    char dir[LANG_PATH_MAX];
+    int i;
+
+    for (i = 0; i < LANG_KEY_COUNT; i++)
+    {
+        int specs = lang_specs(g_interface[i]);
+
+        if (!lang_req_add(lang_hash64(g_interface[i]))) return 0;
+        if (specs > 0 && g_fmtCount < LANG_FMT_MAX)
+        {
+            g_fmtId[g_fmtCount] = lang_hash64(g_interface[i]);
+            g_fmtSpecs[g_fmtCount] = specs;
+            g_fmtCount++;
+        }
+    }
+
+    for (i = 0; i < 4 && lang_dir(i, dir); i++)
+    {
+        char path[LANG_PATH_MAX];
+        char *text, *p;
+
+        sprintf(path, "%s\\en.csv", dir);
+        text = lang_read_path(path, 0);
+        if (text == 0) continue;
+        printf("language: the source text %s sets what a complete translation needs\n", path);
+        for (p = text; *p != 0; )
+        {
+            int more;
+            char *key = lang_field(&p, &more);
+            char *second = more ? lang_field(&p, &more) : 0;
+            char *third = more ? lang_field(&p, &more) : 0;
+            char *english = third != 0 ? third : second;
+
+            while (more) lang_field(&p, &more);
+            if (key[0] == 0 || key[0] == '#') continue;
+            if (english == 0 || english[0] == 0) continue;
+            if (!lang_req_add(lang_row_key(key))) { plat_free(text); return 0; }
+        }
+        plat_free(text);
+        break;                          /* the first one is the file the loader would use */
+    }
+
+    qsort(g_req, (size_t)g_reqCount, sizeof(g_req[0]), lang_u64_cmp);
+    {
+        int d = 1;
+
+        for (i = 1; i < g_reqCount; i++)
+            if (g_req[i] != g_req[d - 1]) g_req[d++] = g_req[i];
+        g_reqCount = d;
+    }
+    return g_reqCount > 0;
+}
+
+/* 1 when the file at `path` translates every required line; `missing` is how many it does not. */
+static int lang_complete(const char *path, int *missing)
+{
+    char *text = lang_read_path(path, 0);
+    u8 *hit;
+    int left;
+
+    if (missing != 0) *missing = g_reqCount;
+    if (text == 0 || g_reqCount == 0) return 0;
+    hit = (u8 *)plat_alloc((u32)g_reqCount);
+    if (hit == 0) return 0;
+    memset(hit, 0, (u32)g_reqCount);
+    left = g_reqCount;
+
+    {
+        char *p;
+
+        for (p = text; *p != 0; )
+        {
+            int more, k = -1, want;
+            char *key = lang_field(&p, &more);
+            char *second = more ? lang_field(&p, &more) : 0;
+            char *third = more ? lang_field(&p, &more) : 0;
+            char *value = third != 0 ? third : second;
+            u64 id;
+
+            while (more) lang_field(&p, &more);
+            if (key[0] == 0 || key[0] == '#') continue;
+            if (value == 0 || value[0] == 0) continue;
+            id = lang_row_key(key);
+            k = lang_req_find(id);
+            if (k < 0 || hit[k]) continue;
+            /* A format whose % marks differ is drawn in English (lang_format), so it is no
+             * translation of that line. */
+            want = lang_fmt_specs(id);
+            if (want >= 0 && lang_specs(value) != want) continue;
+            hit[k] = 1;
+            left--;
+        }
+    }
+    plat_free(hit);
+    plat_free(text);
+    if (missing != 0) *missing = left;
+    return left == 0;
+}
+
+/* 1 for `name` being a two-letter code and the .csv suffix ("de.csv", "DE.CSV"); `code` is left
+ * lower case. */
+static int lang_file_code(const char *name, char *code)
+{
+    static const char suffix[] = ".csv";
+    int i;
+
+    for (i = 0; i < 2; i++)
+    {
+        char c = name[i];
+
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if (c < 'a' || c > 'z') return 0;
+        code[i] = c;
+    }
+    code[2] = 0;
+    for (i = 0; i < 4; i++)
+    {
+        char a = name[2 + i], b = suffix[i];
+
+        if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+        if (a != b) return 0;
+    }
+    return name[6] == 0;
+}
+
+typedef struct lang_scan_ctx
+{
+    const char *dir;
+    lang_seen *seen;
+} lang_scan_ctx;
+
+static void lang_scan_file(const char *name, u32 size, void *ctxp)
+{
+    lang_scan_ctx *ctx = (lang_scan_ctx *)ctxp;
+    char code[LANG_CODE_MAX + 1];
+    char path[LANG_PATH_MAX];
+    int i, missing = 0;
+
+    (void)size;
+    if (!lang_file_code(name, code)) return;
+    if (strcmp(code, "en") == 0) return;        /* the original's English needs no file */
+    for (i = 0; i < ctx->seen->count; i++)
+        if (strcmp(ctx->seen->code[i], code) == 0) return;
+    /* An earlier folder's copy is the one lang_read_file would read, so it decides - complete or
+     * not - and this one is not looked at again. */
+    if (ctx->seen->count >= LANG_SEEN_MAX) return;
+    strcpy(ctx->seen->code[ctx->seen->count++], code);
+
+    sprintf(path, "%s\\%s", ctx->dir, name);
+    if (!lang_complete(path, &missing))
+    {
+        printf("language: %s is not a complete translation (%d of %d line(s) missing) - "
+               "not offered\n", path, missing, g_reqCount);
+        return;
+    }
+    if (g_availCount >= LANG_AVAILABLE_MAX)
+    {
+        printf("language: %s is complete, but only %d language(s) fit the list\n", path,
+               LANG_AVAILABLE_MAX - 1);
+        return;
+    }
+    strcpy(g_avail[g_availCount++], code);
+    printf("language: found %s (%s)\n", code, path);
+}
+
+static u32 lang_scan(void)
+{
+    char dir[LANG_PATH_MAX];
+    lang_seen seen;
+    int i;
+
+    if (g_scanned) return (u32)(g_availCount - 1);
+    g_scanned = 1;
+    g_availCount = 0;
+    strcpy(g_avail[g_availCount++], "en");
+    if (!lang_required_build())
+    {
+        printf("language: no key list to measure a translation against - English only\n");
+        return 0;
+    }
+
+    seen.count = 0;
+    for (i = 0; i < 4 && lang_dir(i, dir); i++)
+    {
+        lang_scan_ctx ctx;
+
+        ctx.dir = dir;
+        ctx.seen = &seen;
+        plat_dir_files(dir, lang_scan_file, &ctx);
+    }
+
+    printf("language: %d language(s) offered:", g_availCount);
+    for (i = 0; i < g_availCount; i++) printf(" %s", g_avail[i]);
+    printf("\n");
+    return (u32)(g_availCount - 1);
+}
+
+u32 rt_lang_scan(void) { return lang_scan(); }
+
+int rt_lang_available_count(void)
+{
+    lang_scan();
+    return g_availCount > 0 ? g_availCount : 1;
+}
+
+const char *rt_lang_available(int i)
+{
+    lang_scan();
+    return i >= 0 && i < g_availCount ? g_avail[i] : 0;
+}
+
+int rt_lang_available_index(const char *code)
+{
+    char c[LANG_CODE_MAX + 1];
+    int i;
+
+    lang_scan();
+    if (lang_code_of(code, c) == 0) return -1;
+    for (i = 0; i < g_availCount; i++)
+        if (strcmp(g_avail[i], c) == 0) return i;
+    return -1;
 }
 
 /* --- the lookup the front end's function-entry hook makes ---------------------------------- */

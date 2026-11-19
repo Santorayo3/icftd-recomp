@@ -1,13 +1,38 @@
 # Translations (`lang\`)
 
-`icftd.ini` `[GAME] language=de` makes the game draw German. **Every** translated line is in a file
-here — the interface, the menus, the map's place names, the boot's messages and the port's own
-screens as well as the game's own story (what a room narrates, what the people say, the telephone
-dialogue). One file per language: `de.csv` is German, `fr.csv` would be French.
+The game finds its translations itself: **every `<code>.csv` in this folder is a language**, where
+`<code>` is a two-letter name (`de.csv` is German, `fr.csv` would be French) and the file holds
+**every** translated line — the interface, the menus, the map's place names, the boot's messages and
+the port's own screens as well as the game's own story (what a room narrates, what the people say,
+the telephone dialogue). At start-up the game browses the folder, keeps the files that are
+**complete**, and offers them in the title menu's settings: **Settings → Language**, with the two
+letter name between the minus and plus buttons. That row writes `icftd.ini` `[GAME] language=<code>`,
+so the next start uses it too.
 
-Nothing is translated in the source any more. `src\runtime\lang.c` holds the loader and the
-**interface's English vocabulary** — the list of lines the exporter has to know about — and the
-translation itself is only ever the file.
+Nothing has to be rebuilt or configured: drop `fr.csv` into `lang\`, start the game, and `fr` is one
+of the languages the row steps through. A file that is *not* complete is left out (and named on the
+console with the number of missing lines), and `[GAME] language` naming it leaves the run in English —
+a half-finished file would draw a mixture of two languages, which reads as a broken translation
+rather than as an unfinished one.
+
+Nothing is translated in the source any more. `src\runtime\lang.c` holds the loader, the
+**interface's English vocabulary** — the list of lines the exporter has to know about — and the rule
+for what "complete" means; the translation itself is only ever the file.
+
+## What "complete" means
+
+* every line of the interface's own vocabulary: the engine's menus, the map's place names, the boot's
+  messages, the save/load screen and the port's own screens (the title, the settings, the save slots,
+  the OSD), plus the **formats** of the messages the program builds itself (`Sleep for %d hours.`,
+  `June %d, 1951 - %02d:%02d %s`, …), whose `%` marks have to come in the same order as the
+  English ones;
+* and, when the source text `lang\en.csv` is there (the development tree has it, a release does
+  not), every id it lists — the game's own script. That is the only file that can enumerate it, so a
+  release without `en.csv` can check the interface only.
+
+`tools\lang-export.ps1` never writes an incomplete file: `-Pack` takes the work file and keeps its
+translated side, and `-Work` puts back every row the translation already has, so a translation that
+was packed once stays complete when the source is regenerated.
 
 ## Three files, and what may be committed
 
@@ -23,7 +48,8 @@ possible to ship a translation without shipping the original's script.
 
 `en.csv` and `*.work.csv` are in `.gitignore`; every `<code>.csv` is meant to be committed. The ids
 do not change as long as the English text does not, so a translation stays valid when the source is
-regenerated.
+regenerated. A work file is not a language name (`de.work.csv` is not two letters and `.csv`), so the
+game never picks it up.
 
 ## The workflow
 
@@ -39,8 +65,9 @@ powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Pack
 ```
 
 **Another language is the same three steps with `-Lang fr`**: `-Work` writes `lang\fr.work.csv`,
-`-Pack` writes `lang\fr.csv`, and `icftd.ini` `[GAME] language=fr` draws it. Nothing in the game
-has to be rebuilt for it — the file is the whole catalog.
+`-Pack` writes `lang\fr.csv` — and the game offers `fr` in Settings → Language from the next start
+on (and `icftd.ini` `[GAME] language=fr` selects it without the menu). Nothing in the game has to be
+rebuilt for it — the file is the whole catalog.
 
 Translate **column 3 of `de.work.csv`** — or its equivalent in a spreadsheet — and re-run `-Pack`.
 Step 2 never loses work: it merges `en.csv` with whatever `de.csv` already has, and a translated
@@ -50,8 +77,9 @@ The format is a CSV with a **semicolon** separator, so every spreadsheet shows i
 
 * Semicolon separator, `"CSV UTF-8"` when saving. `;`, `"` and line breaks in a field are quoted the
   way CSV quotes them — the spreadsheet does that by itself.
-* An empty text field is a placeholder: the record is skipped and the line is drawn in English. A
-  half-finished file is usable, and a missing row is the same as an empty one.
+* An empty text field is a placeholder: the loader skips the record and the line stays English — but
+  a file that still holds one is not complete, so the settings row does not offer it (and
+  `[GAME] language` naming it keeps the run English). A missing row counts the same.
 * One group of rows is a **format**, the shape of a message the program builds itself at run time —
   `Sleep for %d hours.`, `June %d, 1951 - %02d:%02d %s`, `Sorry, %s has been destroyed.`,
   `Sorry, %s is closed. It will open again at %d:00 %s.`, `ETA: %02d:%02d`, `REEL %d`, and the two
@@ -60,8 +88,9 @@ The format is a CSV with a **semicolon** separator, so every spreadsheet shows i
   English) rather than reading the wrong argument.
 * Umlauts and ß are welcome; UTF-8 and ANSI (which a plain "CSV" save writes) both work, UTF-16 does
   not. Records that start with `#` are comments.
-* The game reads the file at start-up — restart it, no rebuild. It prints the file it used and its
-  size, so a translation that does not appear can be diagnosed.
+* The game reads the files at start-up — restart it, no rebuild. The folder it browsed, every
+  language it offers and the file each one lives in are printed, so a translation that does not
+  appear can be diagnosed (an incomplete one says how many lines it is missing).
 
 **The font is ASCII.** `Ä Ö Ü ä ö ü` are six glyphs of the port's own, `ß` is drawn as "ss", and
 any other accented Latin letter is drawn as its base letter (`é` → `e`, `ñ` → `n`, `Å` → `A`) — a

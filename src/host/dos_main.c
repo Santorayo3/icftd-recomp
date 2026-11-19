@@ -1714,23 +1714,30 @@ int main(int argc, char **argv)
      * title engages itself when the program is about to play its intro (see title.c). --titlekey is
      * the exception: it asks for the title's own menu, so it arms the title in a scripted run too. */
     host_title_key(titleKey);
-    host_title_arm((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0);
-    if (g_mousePath != 0) pointer_script_load(g_mousePath);
-    /* A scripted stick/fire (src\oracle\input.c): applied at the frame boundary by oracle_tick, so
-     * a screen that waits for the button - the engine's own save prompt - can be played headless. */
-    if (g_inputPath != 0 && !input_load(g_inputPath))
     {
-        rt_shutdown(&m);
-        plat_shutdown();
-        return 1;
+        int armTitle = (frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0;
+
+        host_title_arm(armTitle);
+        if (g_mousePath != 0) pointer_script_load(g_mousePath);
+        /* A scripted stick/fire (src\oracle\input.c): applied at the frame boundary by
+         * oracle_tick, so a screen that waits for the button - the engine's own save prompt - can
+         * be played headless. */
+        if (g_inputPath != 0 && !input_load(g_inputPath))
+        {
+            rt_shutdown(&m);
+            plat_shutdown();
+            return 1;
+        }
+        /* The port's per-screen seams (the pointer, the crosshair, the aim) are played-game
+         * features: they run in a played run and in a run that asked for the pointer with --mouse,
+         * never in a measurement. The cheat follows the same rule with its own scripted form. A
+         * language needs the entry hook as well - the settings view can select one at any time,
+         * so a run that shows the title keeps it installed even when it started in English. */
+        g_portArm = ((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
+                    g_mousePath != 0;
+        if (g_portArm || armTitle || g_cheatFrame != 0 || host_lang_on())
+            rc_entryHook = dos_entry;
     }
-    /* The port's per-screen seams (the pointer, the crosshair, the aim) are played-game features:
-     * they run in a played run and in a run that asked for the pointer with --mouse, never in a
-     * measurement. The cheat follows the same rule with its own scripted form. */
-    g_portArm = ((frameLimit == 0 || titleKey >= 0) && g_callPc == 0 && g_dumpPath == 0) ||
-                g_mousePath != 0;
-    if (g_portArm || g_cheatFrame != 0 || host_lang_on())
-        rc_entryHook = dos_entry;
 
     g_cpu = &c;
     oracle_boot(rc_active->entry, rc_active->a4);

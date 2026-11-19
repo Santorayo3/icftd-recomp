@@ -1,5 +1,6 @@
 /* The language wiring: see lang_hook.h. */
 #include <stdio.h>
+#include <string.h>
 
 #include "lang_hook.h"
 #include "../recomp/fn_table.h"
@@ -11,10 +12,34 @@
 void host_lang_load(void)
 {
     const char *code = rt_config_get("GAME", "language");
-    int on = (int)rt_lang_set(code);
+    int on;
 
+    rt_lang_scan();                    /* the folders the settings view offers, read once */
+    on = (int)rt_lang_set(code);
     printf("language: %s%s\n", on ? rt_lang_code() : "en (the original's English)",
            code == 0 ? " - no [GAME] language entry" : "");
+}
+
+int host_lang_switch(rt_machine *m, const char *code)
+{
+    const char *want;
+    int index;
+    u32 on;
+
+    if (code == 0) return 0;
+    index = rt_lang_available_index(code);
+    if (index < 0) return 0;                    /* not a language this run offers */
+    want = rt_lang_available(index);
+    if (rt_lang_code() != 0 && strcmp(rt_lang_code(), want) == 0) return 1;
+    on = rt_lang_set(want);
+
+    /* The machine's own copy of the catalog, the file the next start reads, and the code in force:
+     * the view, the game and icftd.ini cannot disagree about it. rt_lang_set leaves the code
+     * lower case, which is what the file is named. */
+    rt_config_save_string("GAME", "language", rt_lang_code());
+    if (m != 0) rt_lang_open(m);
+    printf("language: %s\n", on ? rt_lang_code() : "en (the original's English)");
+    return 1;
 }
 
 void host_lang_open(rt_machine *m)

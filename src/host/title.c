@@ -68,8 +68,12 @@
  * The settings view changes the running machine, not just the file: the two volumes are the
  * mixer's gains (rt_audio_set_gain - the title's own score is what a player hears the step on) and
  * the toggle switches the window (plat_set_fullscreen), and each one is written back to icftd.ini
- * (rt_config_save_int) so the next start keeps it. The platform says whether it has a window mode
- * at all (plat_has_fullscreen), which is why the DOS build shows the two volumes only.
+ * (rt_config_save_int, rt_config_save_string) so the next start keeps it. The language row steps
+ * through the codes rt_lang_available names - English, then every complete `lang\<code>.csv` found
+ * at start-up - and the step is immediate: the catalog is re-read and copied into the machine's RAM
+ * (host_lang_switch), so this view's own labels and the game that starts after Back are already the
+ * new language. The platform says whether it has a window mode at all (plat_has_fullscreen), which
+ * is why the DOS build shows the volume and language rows only.
  *
  * The title also answers the engine's YES/NO load screen, which is why that screen never appears
  * in a played game: the decision it asked for was just made here. The screen is FUN_0001029e,
@@ -94,6 +98,7 @@
 #include "title_button.h"
 #include "time_freeze.h"
 #include "seams.h"
+#include "lang_hook.h"
 #include "../runtime/lang.h"
 
 /* Every engine address this file holds is a row of the seam table (src\host\seams.c), as a model
@@ -540,11 +545,34 @@ static void title_keys(void)
 static void title_settings_open(rt_machine *m, title_settings *settings)
 {
     title_settings_init(settings, m, (int)plat_has_fullscreen());
-    printf("title: settings: music %d/10, sound %d/10, %s (frame %lu)\n",
+    printf("title: settings: music %d/10, sound %d/10, %s, language %s (%d of %d) (frame %lu)\n",
            settings->music, settings->sound,
            settings->fullscreen_on ? (settings->fullscreen ? "fullscreen on" : "fullscreen off")
                                    : "no window mode",
+           rt_lang_code(), settings->language + 1, settings->languages,
            (unsigned long)m->frame);
+}
+
+/* The language step. The catalog is re-read and copied into the machine's RAM, so the change is in
+ * force at once - for the view's own labels, which are drawn through rt_lang_text, and for every
+ * line the engine draws when play starts. The step is cyclical: plus on the last code is the
+ * first ("en", the original's English), minus on the first is the last. */
+static void title_settings_language(rt_machine *m, title_settings *settings, int delta)
+{
+    int i;
+
+    if (settings->languages < 2) return;
+    i = settings->language + delta;
+    if (i < 0) i = settings->languages - 1;
+    if (i >= settings->languages) i = 0;
+    if (!host_lang_switch(m, rt_lang_available(i))) return;
+    settings->language = rt_lang_available_index(rt_lang_code());
+    if (settings->language < 0) settings->language = 0;
+    /* The label in the line is what this view draws from here on: the words the player sees are
+     * already the new language, which is the feedback the step promises. */
+    printf("title: language %s (%d of %d, frame %lu) - the view now reads \"%s\"\n",
+           rt_lang_available(settings->language), settings->language + 1, settings->languages,
+           (unsigned long)m->frame, rt_lang_text("Language"));
 }
 
 /* One volume step. The gain is the mixer's, so it is what the title's own score is played with the
@@ -606,6 +634,8 @@ static int title_settings_click(rt_machine *m, title_settings *settings)
     case TITLE_SETTING_MUSIC_UP:   title_settings_volume(m, settings, 1, +1); break;
     case TITLE_SETTING_SOUND_DOWN: title_settings_volume(m, settings, 0, -1); break;
     case TITLE_SETTING_SOUND_UP:   title_settings_volume(m, settings, 0, +1); break;
+    case TITLE_SETTING_LANGUAGE_DOWN: title_settings_language(m, settings, -1); break;
+    case TITLE_SETTING_LANGUAGE_UP:   title_settings_language(m, settings, +1); break;
     default: break;
     }
     return 1;

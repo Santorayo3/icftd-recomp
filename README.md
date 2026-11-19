@@ -151,18 +151,20 @@ screenshot, is what the feature is checked against (`docs\port-features.md`, "Th
 directions. Space (or the left mouse button) fires, Esc restarts the game, F1–F4 pick a save slot
 and F5 steps to the next one, and the title screen's `1`–`7` and `W`/`C`/`T` start its scenes.
 The title's own menu is clicked with the pointer: New Game, Load Game (the ten save slots), Settings
-(the fullscreen toggle and the two volume rows, which take effect at once and are written back to
-`icftd.ini`) and Quit Game, which shows a ten-second notice naming the successor on a black screen
-before the application closes. Alt+Enter is the shortcut for the same window switch, on every
-screen the game has (the settings view's toggle shows it there and then), and it writes
-`[VIDEO] fullscreen` back as well. `[GAME] language=de` in the same file turns the game's own text
-German (the port's screens and messages too; `en`, the default, is the original's English), see
-docs\port-features.md, "The language". The interface and the menus are translated in the build; the
-game's story — what the rooms narrate and what the people say on the telephone — comes from a
-translation file, `lang\de.csv` next to the executable, which `tools\lang-export.ps1` writes in three
+(the fullscreen toggle, the two volume rows and the language row, which all take effect at once and
+are written back to `icftd.ini`) and Quit Game, which shows a ten-second notice naming the successor
+on a black screen before the application closes. Alt+Enter is the shortcut for the same window
+switch, on every screen the game has (the settings view's toggle shows it there and then), and it
+writes `[VIDEO] fullscreen` back as well. The language row steps through the languages the game found
+at start-up — English, the original's, then every complete `lang\<code>.csv` next to the executable,
+shown by its two-letter name — and each step switches the interface and the game at once, so a
+translation is added by dropping its file in, not by editing anything (`en`, the default, is the
+original's English): see docs\port-features.md, "The language", and `lang\README.md`. The game's own
+text — the menus, the messages, the port's screens and the story, what the rooms narrate and what the
+people say on the telephone — is entirely in that file, which `tools\lang-export.ps1` writes in three
 steps: the game's own text (`lang\en.csv`, not committed), the translator's three-column working file,
 and the finished translation keyed by an id instead of by the English — so the shipped file carries
-none of the original's script (see `lang\README.md`). Two cheats: left Ctrl+W ends a minigame in that scene's own
+none of the original's script. Two cheats: left Ctrl+W ends a minigame in that scene's own
 success state, and left Ctrl+T on the situation map freezes the game's clock (`Time frozen`, then
 `Time unfrozen` again), holding it through every screen until the game is restarted or a new game is
 started from the title.
