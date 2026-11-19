@@ -14,7 +14,9 @@
 #   * the language row steps through the codes the start-up scan found (English first, then every
 #     complete `lang\<code>.csv`), cyclically in both directions, changes the view's own words at
 #     once (the log line names the label the view now draws, read back from that language's file)
-#     and writes [GAME] language;
+#     and writes [GAME] language; the same step on a staged release folder - `lang\` with the
+#     shipped translations only, which is where the game writes the English source files itself on
+#     its first start - has to work as well;
 #   * Back closes the view and puts the main menu back, and reopening Settings shows the new state;
 #   * the ini keeps everything the write does not own - the comments, the key order, and the key it
 #     did not touch (sound=7 stays 7 while music changes);
@@ -387,6 +389,55 @@ public static class LangId {
             } else {
                 Ok ("the game started after the switch draws {0} ('{1}')" -f $offered[1], $roomText)
             }
+        }
+        # 5d. A release's first start. There `lang\` holds the shipped translations and nothing
+        #     else - `en.csv` / `en_ant.csv` are written by the game itself on that start, so the
+        #     completeness scan has no source text and the add-on's half cannot be measured. Picking
+        #     a language then still has to work: that is the folder shape a player has, and it is
+        #     the one the development tree never shows (its `lang\` carries both source files).
+        $rel = Join-Path $Work 'release'
+        if (Test-Path $rel) { Remove-Item -LiteralPath $rel -Recurse -Force }
+        $relLang = Join-Path $rel 'lang'
+        New-Item -ItemType Directory -Force -Path $relLang | Out-Null
+        $code = $offered[1]
+        Copy-Item -LiteralPath (Join-Path $root "lang\$code.csv") -Destination $relLang
+        if (Test-Path (Join-Path $root "lang\${code}_ant.csv")) {
+            Copy-Item -LiteralPath (Join-Path $root "lang\${code}_ant.csv") -Destination $relLang
+        }
+        Copy-Item -LiteralPath $Exe -Destination (Join-Path $rel 'It Came from the Desert.exe')
+        $relExe = (Resolve-Path (Join-Path $rel 'It Came from the Desert.exe')).Path
+        $script:frame = 40
+        $firstLines = New-Object System.Collections.Generic.List[string]
+        function FirstClick([int[]]$at)
+        {
+            $script:firstLines.Add(("{0} {1} {2} 1" -f $script:frame, $at[0], $at[1]))
+            $script:firstLines.Add(("{0} {1} {2} 0" -f ($script:frame + 4), $at[0], $at[1]))
+            $script:frame += 20
+        }
+        FirstClick $settingsButton
+        FirstClick $langUp
+        FirstClick $back
+        FirstClick $quit
+        $firstLines | Set-Content -Encoding ascii (Join-Path $Work 'clicks-first.txt')
+        $firstClicks = (Resolve-Path (Join-Path $Work 'clicks-first.txt')).Path
+        # Started from its own folder, as a double-click starts it - a run from the repository root
+        # would find the development tree's `lang\en.csv` in the working directory and scan with a
+        # source text, which is exactly what a release's first start does not have.
+        Push-Location $rel
+        try {
+            $first = (& $relExe (Join-Path $root $Image) 3000000 --data (Join-Path $root $DataDir) `
+                      --titlekey 14 --mouse $firstClicks 2>&1 | Out-String)
+        }
+        finally { Pop-Location }
+        Set-Content -Path (Join-Path $Work 'first-start.log') -Value $first
+        if ($first -match '\*\* crash') {
+            Fail 'selecting a language on a release''s first start crashed the game'
+        } elseif ($first -notmatch ('title: language {0} \(2 of \d+, frame \d+\)' -f $code)) {
+            Fail 'selecting a language on a release''s first start did not take'
+        } elseif ($first -match 'is not complete for Antheads') {
+            Fail 'the first start measured the add-on''s half against an empty line list'
+        } else {
+            Ok 'a release''s first start selects a language, add-on''s half included'
         }
         $startIni | Set-Content -Encoding ascii $ini           # the rest of the check runs English
     }

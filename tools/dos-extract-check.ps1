@@ -91,7 +91,9 @@ $withExit = @('ICFTD.EXE --extract > EX.LOG',
 
 # Every file of a tree, keyed by its uppercased relative path (FAT is case-insensitive, and a
 # DOSBox-mounted folder does not keep the case the disk had). The executable, the settings, the
-# DOSBox config and this check's own logs are not part of the tree.
+# DOSBox config and this check's own logs are not part of the tree; neither is `LANG\`, which the
+# game fills with the English source text out of the player's own data on a start (lang_source.c) -
+# it is written from the tree, not extracted into it.
 function TreeHashes([string]$dir)
 {
     $full = (Resolve-Path $dir).Path
@@ -101,6 +103,7 @@ function TreeHashes([string]$dir)
         $rel = $_.FullName.Substring($full.Length).TrimStart('\').ToUpperInvariant()
         if ($skip -contains $_.Name.ToUpperInvariant()) { return }
         if ($rel.StartsWith('DISKS\')) { return }       # the player's floppy images
+        if ($rel.StartsWith('LANG\')) { return }        # the source text the game writes from the data
         if ($_.Extension.ToUpperInvariant() -eq '.LOG' -or $_.Extension.ToUpperInvariant() -eq '.RAM') { return }
         $map[$rel] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
     }
@@ -146,6 +149,13 @@ if ($haveAnt -and $log -notmatch "assets: 82 file\(s\) from the add-on's 3 disk 
 }
 if ($log -notmatch 'icftd: exit code 0') { Fail 'the first start did not exit 0' }
 if ($log -match 'Please put the three original') { Fail 'the first start asked for disks it had' }
+# The player has to be told the first start is working: the line goes through plat_console_line, so
+# it reaches the text screen as well as this log - and it has to come before the work begins.
+$wait = $log.IndexOf('Please wait... extracting resources from disk images')
+$began = $log.IndexOf('assets: extracting the game data')
+if ($wait -lt 0) { Fail 'the first start did not tell the player it was extracting' }
+elseif ($began -ge 0 -and $wait -gt $began) { Fail 'the extraction notice came after the extraction had begun' }
+else { Ok 'the first start says "Please wait... extracting resources from disk images" before it reads them' }
 $theirs = TreeHashes $reference
 $mine = TreeHashes $first
 TreeEqual $mine $theirs 'the extracted tree'
@@ -214,7 +224,8 @@ $before = TreeHashes $first
 $log = Invoke-Dos $first $withExit (Join-Path $first 'EX.LOG')
 $after = TreeHashes $first
 if ($log -match 'assets: extracting') { Fail 'a second start extracted again' }
-else { Ok 'a second start extracts nothing' }
+elseif ($log -match 'Please wait') { Fail 'a second start told the player it was extracting' }
+else { Ok 'a second start extracts nothing and says nothing' }
 if ($before.Count -ne $after.Count) { Fail 'a second start changed the tree' } else {
     $changed = 0
     foreach ($k in $before.Keys) { if (-not $after.ContainsKey($k) -or $after[$k] -ne $before[$k]) { $changed++ } }

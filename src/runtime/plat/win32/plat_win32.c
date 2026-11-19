@@ -2450,6 +2450,15 @@ void plat_message(const char *title, const char *text)
     MessageBoxA(0, text, title ? title : "", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
 }
 
+/* See platform.h: stdout, which is the console when the run was started from one (a double-click
+ * hides that console, so the game's own screens carry anything else the player has to read). */
+void plat_console_line(const char *text)
+{
+    if (text == 0 || *text == 0) return;
+    printf("%s\n", text);
+    fflush(stdout);
+}
+
 s32 plat_spawn(const char *exe, const char *args)
 {
     STARTUPINFOA si;

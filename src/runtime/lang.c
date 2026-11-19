@@ -1238,12 +1238,17 @@ static char *lang_read_source(const char *name, char *usedPath)
     return 0;
 }
 
-/* `count` ids in `arr`, sorted and made distinct. */
+/* `count` ids in `arr`, sorted and made distinct. An empty set stays empty: there is no `arr` to
+ * sort then (the add-on's own list is empty until `en_ant.csv` is there to be read), and a count
+ * of one would name an id no row carries - the add-on's half would be measured against nothing
+ * and index into the missing array. */
 static void lang_req_sorted_distinct(u64 *arr, int *count)
 {
-    int i, d = 1;
+    int i, d;
 
+    if (*count <= 0) { *count = 0; return; }
     qsort(arr, (size_t)*count, sizeof(arr[0]), lang_u64_cmp);
+    d = 1;
     for (i = 1; i < *count; i++)
         if (arr[i] != arr[d - 1]) arr[d++] = arr[i];
     *count = d;

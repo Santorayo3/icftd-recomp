@@ -1015,6 +1015,10 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
                 bySet[DISK_BUILD_ADDON][3] != 0;
     wrote = 0;
 
+    /* Something is about to be read and written: tell the player, once, before the work starts -
+     * the console line is all an unbooted game can show, and this is the only moment it is true. */
+    if (needOriginal || (needAddon && haveAddon)) plat_console_line(RT_ASSETS_MSG_EXTRACTING);
+
     if (needOriginal) {
         printf("assets: extracting the game data from %s\\ into %s\\\n", diskDir, dataDir);
         files = extract_set(dataDir, layout, DISK_BUILD_ORIGINAL, bySet[DISK_BUILD_ORIGINAL],

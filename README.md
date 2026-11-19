@@ -197,7 +197,11 @@ player's own disks on its first start and shows
 Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart.
 ```
 
-when they are not there. What that first start writes is the tree the engine runs from: `DISK1..3`
+when they are not there, and while it reads them it says
+`Please wait... extracting resources from disk images`. Those two lines are the only text the DOS
+build writes to the screen - everything else goes to stdout, which a played run binds to `NUL` so
+no diagnostic can draw into the mode 13h picture. What that first start writes is the tree the
+engine runs from: `DISK1..3`
 (the three filesystems, every file under a legal DOS 8.3 name), `NAMES.TXT` and `DSHELL.IMG` (the
 game program flattened at 0x4000), plus `ICFTD.INI`. `NAMES.TXT` exists because the engine asks for
 AmigaDOS names FAT cannot hold (`fonts\newnem.font`); the extractor renames those files to 8.3 and

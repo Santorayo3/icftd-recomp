@@ -304,6 +304,16 @@ void plat_message(const char *title, const char *text);
  * first write. DOS only; a no-op elsewhere. */
 void plat_quiet_console(void);
 
+/* One line the player has to read, written where the screen still is: the console. The two
+ * start-up notices speak to the player - "the images are not in `disks\`" and "the disks are being
+ * read now" - and on DOS they must be shown although plat_quiet_console has bound stdout to NUL,
+ * so the line is written to the console device itself; it runs before the boot sets mode 13h, which
+ * is why the text screen is still there. Every other platform writes it to stdout, which is the
+ * console (or the log) the run was given. A redirected stdout keeps its copy on any platform, so a
+ * check reads the same line. English, on every platform: the console is not the game's screen and
+ * carries no language (the game's own language applies from the boot on). */
+void plat_console_line(const char *text);
+
 /* Hides the console window this process owns, when it owns one - the console a double-click gives a
  * console executable - so a run that shows the game's window shows nothing else. A console the run
  * was started from (a terminal, or a check script's redirected handles) is left alone: its log

@@ -1948,6 +1948,24 @@ void plat_quiet_console(void)
     (void)freopen("NUL", "wb", stdout);
 }
 
+/* See platform.h. The line goes to the console device, not to stdout, because the release binds
+ * stdout to NUL (plat_quiet_console): DOS's own CON handle is the text screen, and both notices are
+ * written before the boot sets mode 13h, so the screen is still there to hold them. A redirected
+ * stdout keeps its copy of the line, which is what the checks read. */
+void plat_console_line(const char *text)
+{
+    FILE *con;
+
+    if (text == 0 || *text == 0) return;
+    printf("%s\n", text);
+    fflush(stdout);
+    con = fopen("CON", "w");
+    if (con == 0) return;
+    fputs(text, con);
+    fputc('\n', con);
+    fclose(con);
+}
+
 /* A DOS program's console is its one screen - there is no separate console window to hide, and the
  * WINDOWS host never runs here; plat_quiet_console is the DOS answer to the same question. */
 void plat_console_hide_own(void)

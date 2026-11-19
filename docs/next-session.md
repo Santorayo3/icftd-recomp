@@ -409,6 +409,19 @@ a non-redirected 100-frame run the text screen holds only the harness' own `READ
 the summary and start banner are gone - while the same run with `> T1.LOG` writes the same 3.5 KB
 log as before.
 
+**Two lines came back (2026-11-19), and only these two.** The player has to be told why a start
+stopped and what a first start is doing, so `plat_console_line()` (`platform.h`) writes a line to
+stdout - the log, when the run was given one - **and** to DOS's own `CON` device, which is the text
+screen the console handle is no longer bound to. Both callers run before the boot sets mode 13h
+(`src\runtime\assets.c` before it reads the disks, `dos_main.c` when the ensure fails), so the text
+screen still holds them; the messages themselves are English, because the console is not the game's
+screen and has no language (`RT_ASSETS_MSG_DISKS` / `RT_ASSETS_MSG_EXTRACTING`, assets.h). Measured
+in DOSBox, non-redirected: an empty `disks\` leaves `Please put the three original …` on the text
+screen after the program exits 1, and a first start shows `Please wait... extracting resources from
+disk images` while it reads them (screen capture at `cycles=3000` with the extraction still
+running); the same runs with `> ICFTD.LOG` carry both lines at the same points, and nothing else
+of the start banner or the summary reaches the screen.
+
 ## The DOS release extracts itself on first start (2026-11-16)
 
 Task 4 of [`dos-parity.md`](dos-parity.md) is in. `src\runtime\assets.c` gained a layout parameter

@@ -1664,7 +1664,10 @@ int main(int argc, char **argv)
         char msg[600];
         if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg, (u32)sizeof msg) != RT_ASSETS_OK)
         {
-            printf("icftd: %s\n", rt_lang_text(msg));
+            /* On the console the player is looking at, not the log: the release's stdout is bound
+             * to NUL (plat_quiet_console). English, like the message itself - the console has no
+             * language (platform.h, plat_console_line). */
+            plat_console_line(msg[0] != 0 ? msg : RT_ASSETS_MSG_DISKS);
             return 1;
         }
         dos_lang_source(dataDir, langSourcePath);
@@ -1697,7 +1700,8 @@ int main(int argc, char **argv)
             if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_DOS, msg,
                                  (u32)sizeof msg) != RT_ASSETS_OK)
             {
-                printf("icftd: %s\n", rt_lang_text(msg));
+                /* The console, not the log: see the --extract branch above. */
+                plat_console_line(msg[0] != 0 ? msg : RT_ASSETS_MSG_DISKS);
                 return 1;
             }
         }

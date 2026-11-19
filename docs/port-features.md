@@ -1160,10 +1160,14 @@ startup, before the machine boots, and asks one question: is there an extracted 
   whole tree of each disk; the engine then opens its files by name, and the program it boots is
   bound to this exact `dshell` (fixed load base, entry and A4), so a different build of the game is
   out of reach even though nothing would refuse it up front.
-* **The message is the feature's only player-facing text**, and it is the one the request named:
-  `Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and
-  restart.` A windowed start puts it in a modal box (`plat_message`), a headless one prints it and
-  exits 1.
+* **Two lines, both English, are the feature's player-facing text**, and they are the ones the
+  requests named: `Please put the three original 'It Came from the Desert' disk images in the
+  'disks' folder and restart.` when the images are not there, and `Please wait... extracting
+  resources from disk images` while a start reads them - once, before the work begins, because
+  until the game is up the console is all there is to show. A windowed Windows start puts the first
+  in a modal box (`plat_message`); every other start writes both through `plat_console_line`
+  (`src\runtime\platform.h`: the console screen on DOS, where `stdout` is bound to `NUL`, and
+  `stdout` elsewhere) and exits 1 after the first.
 * **Where the folders are** is resolved once (`host_asset_dirs` in `src\host\main.c`): `export\`
   and `disks\` next to the executable when the executable has an `export\` folder — the release
   layout, started from anywhere — and plain working-directory-relative `export\`/`disks` otherwise,

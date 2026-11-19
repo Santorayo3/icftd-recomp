@@ -603,7 +603,10 @@ A sensible split over sessions:
   `NUL`; the OSD (`rt_osd_text`) is picture data and is unaffected. A redirected stdout is not a
   character device - INT 21h AH=44h reports bit 7 of DX - so `> ICFTD.LOG` keeps every diagnostic
   line the checks read. Do not "restore" the start banner or the run summary: a played DOS run
-  prints nothing.
+  prints nothing but the two lines the player has to read - "the images are not in `disks\`" and
+  `Please wait... extracting resources from disk images` - and those go through `plat_console_line`
+  (`src\runtime\platform.h`), which writes to DOS's own `CON` device before the boot sets mode 13h;
+  a redirected stdout keeps its copy, so the checks read both.
 * **Do not gate a fix behind a flag.** The seams must be installed in a normal played launch; the
   existing played-run condition in `dos_main.c` is the model. A measurement run must not install
   `rc_entryHook`.

@@ -32,10 +32,13 @@ enum {
 /* The three images that make a complete data set. */
 #define RT_ASSETS_DISK_COUNT 3
 
-/* The text the player sees when the floppy images are not where they have to be - the one message
- * this feature owns, because there is nothing else a first start can say. */
+/* The two lines this feature puts in front of the player: what to do when the floppy images are not
+ * where the game reads them, and what a start is doing while it reads them (a moment's work, and
+ * until the game itself is up the console is all there is to show). Both are English, because both
+ * are written before the game's own screen exists - see plat_console_line in platform.h. */
 #define RT_ASSETS_MSG_DISKS \
     "Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart."
+#define RT_ASSETS_MSG_EXTRACTING "Please wait... extracting resources from disk images"
 
 /* 1 when dataDir holds a complete extraction for `layout` (the disk folders and the flattened game
  * program; for DOS the name map too). The image is written last, so an interrupted extraction does
