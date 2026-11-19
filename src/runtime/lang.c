@@ -77,6 +77,7 @@ static const char *const g_interface[] =
     "Make a Call",
     "Answer the Door",
     "Fight",
+    "Fight Ant Head",
     "Escape Hospital",
     "Take a Flight",
     "Fire Game",
@@ -208,11 +209,14 @@ static const char *const g_interface[] =
 
     /* --- the formats of the messages the program builds itself ------------------------------ */
     "June %d, 1951 - %02d:%02d %s",
+    "January %d, 1956 - %02d:%02d %s",
     "a.m.",
     "p.m.",
     "Sorry, %s has been destroyed.",
     "Sorry, %s is closed. It will open again at %d:00 %s.",
     "Sleep for %d hours.",
+    "The number %d. Hmmmmmm, wonder what that could mean.",
+    "There's just one other thing. I don't know if this means anything, but the number %d keeps going through my head.",
     "ETA: %02d:%02d",
     "REEL %d"
 };
@@ -253,6 +257,7 @@ static lang_entry *g_ent;                 /* the catalog in force               
 static int g_entCount;
 static char *g_pool;                      /* every g_ent[i].text, converted, end to end   */
 static char *g_owned;                     /* the translation file as it was read          */
+static char *g_ownedAnt;                  /* its add-on half, `<code>_ant.csv` (or 0)     */
 static u32 *g_machAddr;                   /* g_ent[i].text's address in the machine's RAM */
 static u32 *g_entHash;
 static int *g_slot;                       /* open addressing: an index into g_ent, -1     */
@@ -268,8 +273,17 @@ static char g_avail[LANG_AVAILABLE_MAX][LANG_CODE_MAX + 1];  /* "en", then the f
 static int g_availCount;
 static int g_scanned;
 
+/* The add-on's own script (`en_ant.csv`), minus every id the base catalog already covers: what a
+ * `<code>_ant.csv` has to carry to be merged into the catalog. */
+static u64 *g_reqAnt;
+static int g_reqAntCount;
+static int g_reqAntCap;
+
 /* Browses the language folders once (below, "a complete translation"). */
 static u32 lang_scan(void);
+/* 1 when the add-on's half translates every id en_ant.csv names that the base catalog does not
+ * already cover (see lang_required_build). */
+static int lang_ant_complete_text(const char *text, int *missing);
 
 /* --- the catalog's text in the font's character set --------------------------------------- */
 
@@ -414,12 +428,14 @@ static void lang_free(void)
 {
     if (g_pool != 0) plat_free(g_pool);
     if (g_owned != 0) plat_free(g_owned);
+    if (g_ownedAnt != 0) plat_free(g_ownedAnt);
     if (g_ent != 0) plat_free(g_ent);
     if (g_machAddr != 0) plat_free(g_machAddr);
     if (g_entHash != 0) plat_free(g_entHash);
     if (g_slot != 0) plat_free(g_slot);
     g_pool = 0;
     g_owned = 0;
+    g_ownedAnt = 0;
     g_ent = 0;
     g_entCount = 0;
     g_machAddr = 0;
@@ -494,37 +510,39 @@ static char *lang_read_path(const char *path, u32 *size)
  *                                    double-clicking the executable finds the file it sees
  *   lang\<code>.csv                  the working directory
  *
- * The one that was used is printed, so a missing translation is a one-line diagnosis. */
-static u32 lang_read_file(const char *code)
+ * The one that was used is printed, so a missing translation is a one-line diagnosis. `name` is
+ * the file's stem: "de" for the catalog, "de_ant" for the add-on's own half - and `required` says
+ * whether a missing file is a diagnosis (the catalog) or simply the add-on having no German half. */
+static u32 lang_read_named(const char *name, char **owned, int required)
 {
     char path[LANG_PATH_MAX];
     const char *dir = plat_exe_dir();
     u32 n = 0;
 
-    sprintf(path, "%s\\lang\\%s.csv", dir != 0 ? dir : "", code);
+    sprintf(path, "%s\\lang\\%s.csv", dir != 0 ? dir : "", name);
     if (plat_path_kind(path) != PLAT_PATH_FILE && dir != 0 && dir[0] != 0)
-        sprintf(path, "%s\\..\\lang\\%s.csv", dir, code);
+        sprintf(path, "%s\\..\\lang\\%s.csv", dir, name);
     if (plat_path_kind(path) != PLAT_PATH_FILE && dir != 0 && dir[0] != 0)
-        sprintf(path, "%s\\..\\..\\lang\\%s.csv", dir, code);
-    if (plat_path_kind(path) != PLAT_PATH_FILE) sprintf(path, "lang\\%s.csv", code);
+        sprintf(path, "%s\\..\\..\\lang\\%s.csv", dir, name);
+    if (plat_path_kind(path) != PLAT_PATH_FILE) sprintf(path, "lang\\%s.csv", name);
     if (plat_path_kind(path) != PLAT_PATH_FILE)
     {
         /* The older tab-separated file is not read any more: say so instead of silently staying
          * English, which looks exactly like a translation that does not match. */
         char old[LANG_PATH_MAX];
 
-        sprintf(old, "%s\\lang\\%s.txt", dir != 0 ? dir : "", code);
+        sprintf(old, "%s\\lang\\%s.txt", dir != 0 ? dir : "", name);
         if (dir != 0 && dir[0] != 0 && plat_path_kind(old) != PLAT_PATH_FILE)
-            sprintf(old, "%s\\..\\..\\lang\\%s.txt", dir, code);
+            sprintf(old, "%s\\..\\..\\lang\\%s.txt", dir, name);
         if (plat_path_kind(old) == PLAT_PATH_FILE)
-            printf("language: %s is ignored - the translation file is %s.csv\n", old, code);
-        else
+            printf("language: %s is ignored - the translation file is %s.csv\n", old, name);
+        else if (required)
             printf("language: no lang\\%s.csv - the run stays English (see lang\\README.md)\n",
-                   code);
+                   name);
         return 0;
     }
-    g_owned = lang_read_path(path, &n);
-    if (g_owned == 0) return 0;
+    *owned = lang_read_path(path, &n);
+    if (*owned == 0) return 0;
     printf("language: %s (%lu bytes)\n", path, (unsigned long)n);
     return n;
 }
@@ -637,9 +655,42 @@ static int lang_index(void)
     return 1;
 }
 
+/* Files the records of one catalog text into g_ent/g_pool, starting at pool offset `*at`. Rows are
+ * kept in file order, so a later row for the same text wins (lang_index) - and the add-on's half is
+ * filed after the base one, which is how it may correct a line for the add-on. */
+static void lang_parse_catalog(char *text, u32 *at, u32 poolSize)
+{
+    char *p = text;
+
+    while (*p != 0 && g_entCount < LANG_MAX_ENTRIES)
+    {
+        int more;
+        char *key = lang_field(&p, &more);
+        char *second = more ? lang_field(&p, &more) : 0;
+        char *third = more ? lang_field(&p, &more) : 0;
+        /* Two fields are <key>;<text>. Three are the translator's file, <id>;<English>;<text>
+         * - the middle one is for the translator's eyes and is never looked up. */
+        char *value = third != 0 ? third : second;
+        u64 id;
+
+        while (more) lang_field(&p, &more);      /* a record with more fields than that */
+
+        /* A comment record has one field (or starts with #), and an empty text field is the
+         * placeholder the exporter leaves for a translator who has not got there yet. */
+        if (key[0] == 0 || key[0] == '#') continue;
+        if (value == 0 || value[0] == 0) continue;
+        g_ent[g_entCount].text = g_pool + *at;
+        *at += lang_convert(value, g_pool + *at, poolSize > *at ? poolSize - *at : 0) + 1u;
+        id = lang_key_id(key);
+        if (id != 0) { g_ent[g_entCount].en = 0; g_ent[g_entCount].id = id; }
+        else { g_ent[g_entCount].en = key; g_ent[g_entCount].id = 0; }
+        g_entCount++;
+        g_fromFile++;
+    }
+}
+
 u32 rt_lang_set(const char *code)
 {
-    char *p;
     u32 poolSize = 0, at = 0;
 
     /* The code is a language name, "de", "fr", ... - lower case, and no path punctuation: it
@@ -663,45 +714,47 @@ u32 rt_lang_set(const char *code)
     /* The file is read first: the rows are kept in file order, so a later row for the same text
      * replaces an earlier one - which is how a translator's correction wins over the row above
      * it. No file, no translation: the run stays English rather than half a language. */
-    if (lang_read_file(g_code) == 0) return 0;
+    if (lang_read_named(g_code, &g_owned, 1) == 0) return 0;
+
+    /* The add-on's own script is a second file, `<code>_ant.csv`: the base catalog already carries
+     * the interface and everything the two games share, so this one holds the add-on's rooms, its
+     * people and its narration. It is measured against `en_ant.csv` when that source is here (the
+     * development tree) and merged in afterwards; a half-translated one would draw a mixture for
+     * the add-on alone, so it is skipped - and named - instead. */
+    {
+        char antName[LANG_CODE_MAX + 8];
+
+        sprintf(antName, "%s_ant", g_code);
+        if (lang_read_named(antName, &g_ownedAnt, 0) != 0)
+        {
+            int missing = 0;
+
+            if (!lang_ant_complete_text(g_ownedAnt, &missing))
+            {
+                printf("language: %s is not complete for Antheads (%d of %d line(s) missing) - "
+                       "the add-on's text stays English\n", antName, missing, g_reqAntCount);
+                plat_free(g_ownedAnt);
+                g_ownedAnt = 0;
+            }
+        }
+    }
+
     g_ent = (lang_entry *)plat_alloc((u32)LANG_MAX_ENTRIES * sizeof(lang_entry));
     g_machAddr = (u32 *)plat_alloc((u32)LANG_MAX_ENTRIES * sizeof(u32));
     poolSize = 64u + (u32)strlen(g_owned) * 2u + 256u;
+    if (g_ownedAnt != 0) poolSize += (u32)strlen(g_ownedAnt) * 2u;
     g_pool = (char *)plat_alloc(poolSize);
     if (g_ent == 0 || g_pool == 0 || g_machAddr == 0) { lang_free(); g_code = "en"; return 0; }
 
+    lang_parse_catalog(g_owned, &at, poolSize);
+    if (g_ownedAnt != 0)
     {
-        char *p = g_owned;
-
-        while (*p != 0 && g_entCount < LANG_MAX_ENTRIES)
-        {
-            int more;
-            char *key = lang_field(&p, &more);
-            char *second = more ? lang_field(&p, &more) : 0;
-            char *third = more ? lang_field(&p, &more) : 0;
-            /* Two fields are <key>;<text>. Three are the translator's file, <id>;<English>;<text>
-             * - the middle one is for the translator's eyes and is never looked up. */
-            char *text = third != 0 ? third : second;
-            u64 id;
-
-            while (more) lang_field(&p, &more);      /* a record with more fields than that */
-
-            /* A comment record has one field (or starts with #), and an empty text field is the
-             * placeholder the exporter leaves for a translator who has not got there yet. */
-            if (key[0] == 0 || key[0] == '#') continue;
-            if (text == 0 || text[0] == 0) continue;
-            g_ent[g_entCount].text = g_pool + at;
-            at += lang_convert(text, g_pool + at, poolSize > at ? poolSize - at : 0) + 1u;
-            id = lang_key_id(key);
-            if (id != 0) { g_ent[g_entCount].en = 0; g_ent[g_entCount].id = id; }
-            else { g_ent[g_entCount].en = key; g_ent[g_entCount].id = 0; }
-            g_entCount++;
-            g_fromFile++;
-        }
-        if (g_fromFile == 0)
-            printf("language: %s holds no translation - is the field separator ';' "
-                   "(a comma-separated export will not work)?\n", g_code);
+        printf("language: %s adds the add-on's own lines\n", g_code);
+        lang_parse_catalog(g_ownedAnt, &at, poolSize);
     }
+    if (g_fromFile == 0)
+        printf("language: %s holds no translation - is the field separator ';' "
+               "(a comma-separated export will not work)?\n", g_code);
 
     if (g_entCount == 0 || lang_index() == 0) { lang_free(); g_code = "en"; return 0; }
     g_on = 1;
@@ -825,21 +878,37 @@ static const char *lang_format(const char *en, int specs)
     return text != en && lang_specs(text) == specs ? text : en;
 }
 
-/* "June 3, 1951 - 09:05 a.m." (FUN_000055BA's clock line). */
+/* "June 3, 1951 - 09:05 a.m." (the 1989 game's clock line, FUN_000055BA) and
+ * "January 1, 1956 - 09:19 a.m." (the add-on's twin): the same shape with its own month and year,
+ * each rebuilt from its own format row. */
 static int lang_clock(char *out, u32 max, const char *s)
 {
     int day, hh, mm;
-    const char *p;
+    const char *p, *fmt, *rest;
+    u32 skip;
 
-    if (strncmp(s, "June ", 5) != 0) return 0;
-    p = lang_number(s + 5, &day);
-    if (p == 0 || strncmp(p, ", 1951 - ", 9) != 0) return 0;
-    p = lang_number(p + 9, &hh);
+    if (strncmp(s, "June ", 5) == 0)
+    {
+        fmt = "June %d, 1951 - %02d:%02d %s";
+        rest = ", 1951 - ";
+        p = lang_number(s + 5, &day);
+    }
+    else if (strncmp(s, "January ", 8) == 0)
+    {
+        fmt = "January %d, 1956 - %02d:%02d %s";
+        rest = ", 1956 - ";
+        p = lang_number(s + 8, &day);
+    }
+    else return 0;
+
+    skip = (u32)strlen(rest);
+    if (p == 0 || strncmp(p, rest, skip) != 0) return 0;
+    p = lang_number(p + skip, &hh);
     if (p == 0 || *p != ':') return 0;
     p = lang_number(p + 1, &mm);
     if (p == 0) return 0;
     if (strcmp(p, " a.m.") != 0 && strcmp(p, " p.m.") != 0) return 0;
-    sprintf(out, lang_format("June %d, 1951 - %02d:%02d %s", 4), day, hh, mm, rt_lang_text(p + 1));
+    sprintf(out, lang_format(fmt, 4), day, hh, mm, rt_lang_text(p + 1));
     return (u32)strlen(out) < max;
 }
 
@@ -898,6 +967,37 @@ static int lang_sleep(char *out, u32 max, const char *s)
     p = lang_number(s + 10, &hours);
     if (p == 0 || strncmp(p, " hours.", 7) != 0) return 0;
     sprintf(out, lang_format("Sleep for %d hours.", 1), hours);
+    return (u32)strlen(out) < max;
+}
+
+/* The add-on's fortune-teller hints, which carry the number she names: "The number 5. Hmmmmmm,
+ * wonder what that could mean." and "There's just one other thing. I don't know if this means
+ * anything, but the number 5 keeps going through my head." */
+static int lang_number_hint(char *out, u32 max, const char *s)
+{
+    static const char hint1[] = "The number ";
+    static const char hint1Tail[] = ". Hmmmmmm, wonder what that could mean.";
+    static const char hint2[] =
+        "There's just one other thing. I don't know if this means anything, but the number ";
+    static const char hint2Tail[] = " keeps going through my head.";
+    const char *fmt, *p;
+    int n;
+
+    if (strncmp(s, hint1, sizeof hint1 - 1u) == 0)
+    {
+        fmt = "The number %d. Hmmmmmm, wonder what that could mean.";
+        p = lang_number(s + sizeof hint1 - 1u, &n);
+        if (p == 0 || strcmp(p, hint1Tail) != 0) return 0;
+    }
+    else if (strncmp(s, hint2, sizeof hint2 - 1u) == 0)
+    {
+        fmt = "There's just one other thing. I don't know if this means anything, but the number %d "
+              "keeps going through my head.";
+        p = lang_number(s + sizeof hint2 - 1u, &n);
+        if (p == 0 || strcmp(p, hint2Tail) != 0) return 0;
+    }
+    else return 0;
+    sprintf(out, lang_format(fmt, 1), n);
     return (u32)strlen(out) < max;
 }
 
@@ -961,6 +1061,7 @@ static int lang_message(char *line, u32 max, const char *s)
 
     if (s[0] == 'J') ok = lang_clock(line, max, s);
     else if (s[0] == 'S') ok = lang_sorry(line, max, s) || lang_sleep(line, max, s);
+    else if (s[0] == 'T') ok = lang_number_hint(line, max, s);
     else if (s[0] == 'E' || s[0] == 'R') ok = lang_prefix(line, max, s);
     else return 0;
     return ok;
@@ -1025,24 +1126,30 @@ static u64 lang_row_key(const char *key)
     return id != 0 ? id : lang_hash64(key);
 }
 
-static int lang_req_add(u64 id)
+static int lang_req_add_to(u64 **arr, int *count, int *cap, u64 id)
 {
-    if (g_reqCount == g_reqCap)
+    if (*count == *cap)
     {
-        int cap = g_reqCap != 0 ? g_reqCap * 2 : 512;
-        u64 *grown = (u64 *)plat_alloc((u32)cap * sizeof(u64));
+        int grow = *cap != 0 ? *cap * 2 : 512;
+        u64 *grown = (u64 *)plat_alloc((u32)grow * sizeof(u64));
 
         if (grown == 0) return 0;
-        if (g_req != 0)
+        if (*arr != 0)
         {
-            memcpy(grown, g_req, (u32)g_reqCount * sizeof(u64));
-            plat_free(g_req);
+            memcpy(grown, *arr, (u32)*count * sizeof(u64));
+            plat_free(*arr);
         }
-        g_req = grown;
-        g_reqCap = cap;
+        *arr = grown;
+        *cap = grow;
     }
-    g_req[g_reqCount++] = id;
+    (*arr)[(*count)++] = id;
     return 1;
+}
+
+static int lang_req_add(u64 id) { return lang_req_add_to(&g_req, &g_reqCount, &g_reqCap, id); }
+static int lang_ant_req_add(u64 id)
+{
+    return lang_req_add_to(&g_reqAnt, &g_reqAntCount, &g_reqAntCap, id);
 }
 
 static int lang_u64_cmp(const void *a, const void *b)
@@ -1053,20 +1160,22 @@ static int lang_u64_cmp(const void *a, const void *b)
 }
 
 /* The required id's index, -1 when no line needs it. */
-static int lang_req_find(u64 id)
+static int lang_u64_find(const u64 *arr, int count, u64 id)
 {
-    int lo = 0, hi = g_reqCount - 1;
+    int lo = 0, hi = count - 1;
 
     while (lo <= hi)
     {
         int mid = lo + (hi - lo) / 2;
 
-        if (g_req[mid] == id) return mid;
-        if (g_req[mid] < id) lo = mid + 1;
+        if (arr[mid] == id) return mid;
+        if (arr[mid] < id) lo = mid + 1;
         else hi = mid - 1;
     }
     return -1;
 }
+
+static int lang_req_find(u64 id) { return lang_u64_find(g_req, g_reqCount, id); }
 
 /* The % marks an interface format takes, -1 when the id is not one of them. */
 static int lang_fmt_specs(u64 id)
@@ -1099,11 +1208,45 @@ static int lang_dir(int i, char *path)
     return 1;
 }
 
-/* The ids a complete translation has to carry: the interface's vocabulary, plus the game's own
- * script when its source text is there. Sorted and made distinct for the lookups above. */
-static int lang_required_build(void)
+/* The first source file `name` in the language folders, in lang_dir's order, or 0. */
+static char *lang_read_source(const char *name, char *usedPath)
 {
     char dir[LANG_PATH_MAX];
+    int i;
+
+    for (i = 0; i < 4 && lang_dir(i, dir); i++)
+    {
+        char path[LANG_PATH_MAX];
+        char *text;
+
+        sprintf(path, "%s\\%s", dir, name);
+        text = lang_read_path(path, 0);
+        if (text == 0) continue;
+        if (usedPath != 0) strcpy(usedPath, path);
+        return text;
+    }
+    return 0;
+}
+
+/* `count` ids in `arr`, sorted and made distinct. */
+static void lang_req_sorted_distinct(u64 *arr, int *count)
+{
+    int i, d = 1;
+
+    qsort(arr, (size_t)*count, sizeof(arr[0]), lang_u64_cmp);
+    for (i = 1; i < *count; i++)
+        if (arr[i] != arr[d - 1]) arr[d++] = arr[i];
+    *count = d;
+}
+
+/* The ids a complete translation has to carry: the interface's vocabulary, plus the game's own
+ * script when its source text is there. The add-on's script (`en_ant.csv`) is a second set, kept
+ * apart: the base catalog already covers every id the two games share, so only what is left over
+ * is asked of `<code>_ant.csv`. Sorted and made distinct for the lookups above. */
+static int lang_required_build(void)
+{
+    char path[LANG_PATH_MAX];
+    char *text, *p;
     int i;
 
     for (i = 0; i < LANG_KEY_COUNT; i++)
@@ -1119,14 +1262,9 @@ static int lang_required_build(void)
         }
     }
 
-    for (i = 0; i < 4 && lang_dir(i, dir); i++)
+    text = lang_read_source("en.csv", path);
+    if (text != 0)
     {
-        char path[LANG_PATH_MAX];
-        char *text, *p;
-
-        sprintf(path, "%s\\en.csv", dir);
-        text = lang_read_path(path, 0);
-        if (text == 0) continue;
         printf("language: the source text %s sets what a complete translation needs\n", path);
         for (p = text; *p != 0; )
         {
@@ -1142,17 +1280,35 @@ static int lang_required_build(void)
             if (!lang_req_add(lang_row_key(key))) { plat_free(text); return 0; }
         }
         plat_free(text);
-        break;                          /* the first one is the file the loader would use */
     }
+    lang_req_sorted_distinct(g_req, &g_reqCount);
 
-    qsort(g_req, (size_t)g_reqCount, sizeof(g_req[0]), lang_u64_cmp);
+    text = lang_read_source("en_ant.csv", path);
+    if (text != 0)
     {
-        int d = 1;
+        printf("language: the source text %s sets what the add-on's own half needs\n", path);
+        for (p = text; *p != 0; )
+        {
+            int more;
+            char *key = lang_field(&p, &more);
+            char *second = more ? lang_field(&p, &more) : 0;
+            char *third = more ? lang_field(&p, &more) : 0;
+            char *english = third != 0 ? third : second;
+            u64 id;
 
-        for (i = 1; i < g_reqCount; i++)
-            if (g_req[i] != g_req[d - 1]) g_req[d++] = g_req[i];
-        g_reqCount = d;
+            while (more) lang_field(&p, &more);
+            if (key[0] == 0 || key[0] == '#') continue;
+            if (english == 0 || english[0] == 0) continue;
+            id = lang_row_key(key);
+            /* The base file already answers every line both games draw; a row for one of those
+             * would only repeat it (and could disagree with it). */
+            if (lang_req_find(id) >= 0) continue;
+            if (!lang_ant_req_add(id)) { plat_free(text); return 0; }
+        }
+        plat_free(text);
     }
+    lang_req_sorted_distinct(g_reqAnt, &g_reqAntCount);
+
     return g_reqCount > 0;
 }
 
@@ -1198,6 +1354,48 @@ static int lang_complete(const char *path, int *missing)
     }
     plat_free(hit);
     plat_free(text);
+    if (missing != 0) *missing = left;
+    return left == 0;
+}
+
+/* 1 when the add-on's half translates every id `en_ant.csv` names that the base catalog does not
+ * already cover; `missing` is how many it does not. With no add-on source (a release has none) the
+ * file cannot be measured and is accepted as it is. The text is parsed on a copy: lang_field
+ * terminates the fields it walks through, and the catalog needs the file whole afterwards. */
+static int lang_ant_complete_text(const char *text, int *missing)
+{
+    char *copy, *p;
+    u8 *hit;
+    int left;
+
+    if (missing != 0) *missing = g_reqAntCount;
+    if (g_reqAntCount == 0) return 1;
+    copy = (char *)plat_alloc((u32)strlen(text) + 1u);
+    if (copy == 0) return 0;
+    strcpy(copy, text);
+    hit = (u8 *)plat_alloc((u32)g_reqAntCount);
+    if (hit == 0) { plat_free(copy); return 0; }
+    memset(hit, 0, (u32)g_reqAntCount);
+    left = g_reqAntCount;
+
+    for (p = copy; *p != 0; )
+    {
+        int more, k;
+        char *key = lang_field(&p, &more);
+        char *second = more ? lang_field(&p, &more) : 0;
+        char *third = more ? lang_field(&p, &more) : 0;
+        char *value = third != 0 ? third : second;
+
+        while (more) lang_field(&p, &more);
+        if (key[0] == 0 || key[0] == '#') continue;
+        if (value == 0 || value[0] == 0) continue;
+        k = lang_u64_find(g_reqAnt, g_reqAntCount, lang_row_key(key));
+        if (k < 0 || hit[k]) continue;
+        hit[k] = 1;
+        left--;
+    }
+    plat_free(hit);
+    plat_free(copy);
     if (missing != 0) *missing = left;
     return left == 0;
 }

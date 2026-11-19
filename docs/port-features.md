@@ -1243,6 +1243,14 @@ the telephone dialogue — all of it is one CSV with a semicolon separator, so a
 as columns, and the game reads it at start-up. One file per language: `de.csv`, `fr.csv`, ... —
 `icftd.ini` `[GAME] language` names which.
 
+**The add-on's own half is a second file.** *Antheads* has its own script, and its rooms, people and
+narration live in `<code>_ant.csv` (`de_ant.csv`). The loader reads `<code>.csv` and then merges that
+overlay on top of it: the interface and every line the two games share stay in one file, and only
+what the add-on alone draws needs the second. The half is optional (without it the add-on's text is
+English) and, when `lang\en_ant.csv` names the add-on's source, complete against the ids `en.csv`
+does not cover. `tools\lang-export.ps1 -Ant` writes both sides of it, the add-on's clock line
+(`January %d, 1956 - %02d:%02d %s`) being a format of its own beside the 1989 one.
+
 | | |
 |---|---|
 | where | `lang\<code>.csv` next to the executable, then up to two folders above it (the development tree's `bin\win32` → repository root), then `lang\<code>.csv` in the working directory |

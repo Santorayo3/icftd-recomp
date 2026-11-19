@@ -6,13 +6,14 @@
  * is that language's, and with English (the default) not a byte of the machine's state or of the
  * picture changes.
  *
- * Every translation is one file, `lang\<code>.csv` next to the executable: the interface, the
- * menus, the map's place names, the boot's messages and the port's own screens as well as the
- * game's story. Nothing is translated in the sources - lang.c holds the loader, the interface's
- * English vocabulary (rt_lang_key) and the rule for what a complete translation is, so adding a
- * language is a file, not a build. Each row is keyed by the FNV-1a id of the English text, so a
- * shipped translation never repeats the original's words (docs\port-features.md, "The translation
- * file").
+ * Every translation is `lang\<code>.csv` next to the executable: the interface, the menus, the
+ * map's place names, the boot's messages, the port's own screens and the 1989 game's story. The
+ * add-on "Antheads" has a second script, so its own lines live in `lang\<code>_ant.csv`, which the
+ * loader merges over that file (the shared lines stay in one place). Nothing is translated in the
+ * sources - lang.c holds the loader, the interface's English vocabulary (rt_lang_key) and the rule
+ * for what a complete translation is, so adding a language is a file, not a build. Each row is
+ * keyed by the FNV-1a id of the English text, so a shipped translation never repeats the original's
+ * words (docs\port-features.md, "The translation file").
  *
  * The engine builds its screens from strings it passes to a handful of layout routines
  * (FUN_00004F0A wraps a block, FUN_00005012 a narration page, FUN_00004E2E centres one line, ...),
@@ -35,11 +36,13 @@
 #include "machine.h"
 
 /* Selects a language by its code: "en" - and anything that is not a usable language code - is the
- * original's English, every other code reads `lang\<code>.csv`. Case insensitive; the settings
+ * original's English, every other code reads `lang\<code>.csv` and, when it is there and complete,
+ * merges `lang\<code>_ant.csv` (the add-on's own script) over it. Case insensitive; the settings
  * view's switch and host_lang_switch come through here as well as the ini's value.
  * 1 when a language is selected afterwards, i.e. the file was found, holds rows and is complete;
  * 0 when the run stays English (a missing or incomplete file is reported, so it is a one-line
- * diagnosis).
+ * diagnosis). An incomplete add-on half alone does not undo the base language: it is skipped and
+ * named, and the add-on's text stays English.
  *
  * The file is the only catalog there is: no translation is built into the binary. A row whose text
  * field is empty is a placeholder for the translator and changes nothing. */

@@ -9,6 +9,13 @@ the telephone dialogue). At start-up the game browses the folder, keeps the file
 letter name between the minus and plus buttons. That row writes `icftd.ini` `[GAME] language=<code>`,
 so the next start uses it too.
 
+**The add-on has its own half.** `de.csv` translates the 1989 game; the add-on *Antheads* has a
+second script, and its lines live in `de_ant.csv` (the language code and `_ant`). The game loads
+`<code>.csv` first and then merges `<code>_ant.csv` over it, so the interface and every line the two
+games share come from one file and only the add-on's own rooms, people and narration need the second.
+That second file is optional: without it the add-on's story is drawn in English while the rest of the
+game stays translated.
+
 Nothing has to be rebuilt or configured: drop `fr.csv` into `lang\`, start the game, and `fr` is one
 of the languages the row steps through. A file that is *not* complete is left out (and named on the
 console with the number of missing lines), and `[GAME] language` naming it leaves the run in English —
@@ -30,6 +37,11 @@ for what "complete" means; the translation itself is only ever the file.
   not), every id it lists — the game's own script. That is the only file that can enumerate it, so a
   release without `en.csv` can check the interface only.
 
+`<code>_ant.csv` is measured against `lang\en_ant.csv` when that source is there: every id it lists
+**that `en.csv` does not already cover** (the shared lines are the base file's). A half-finished
+add-on file is skipped and named on the console, exactly like a half-finished language; the add-on's
+text then stays English while `de.csv` keeps working.
+
 `tools\lang-export.ps1` never writes an incomplete file: `-Pack` takes the work file and keeps its
 translated side, and `-Work` puts back every row the translation already has, so a translation that
 was packed once stays complete when the source is regenerated.
@@ -42,14 +54,18 @@ possible to ship a translation without shipping the original's script.
 
 | file | content | in the repository? |
 |---|---|---|
-| `lang\en.csv` | `<id>;<English>` — every text the game can draw | **no**: it is the game's own script |
+| `lang\en.csv` | `<id>;<English>` — every text the 1989 game can draw | **no**: it is the game's own script |
+| `lang\en_ant.csv` | `<id>;<English>` — the add-on's own lines (the shared ones are in `en.csv`) | **no**: it is the game's own script |
 | `lang\de.work.csv` | `<id>;<English>;<German>` — the translator's file | **no**: it has the English column |
+| `lang\de_ant.work.csv` | the same for the add-on's half | **no**: it has the English column |
 | `lang\de.csv` | `<id>;<German>` — the translation | **yes** |
+| `lang\de_ant.csv` | `<id>;<German>` — the add-on's half | **yes** |
 
-`en.csv` and `*.work.csv` are in `.gitignore`; every `<code>.csv` is meant to be committed. The ids
-do not change as long as the English text does not, so a translation stays valid when the source is
-regenerated. A work file is not a language name (`de.work.csv` is not two letters and `.csv`), so the
-game never picks it up.
+`en.csv`, `en_ant.csv` and `*.work.csv` are in `.gitignore`; every `<code>.csv` and `<code>_ant.csv`
+is meant to be committed. The ids do not change as long as the English text does not, so a
+translation stays valid when the source is regenerated. A work file is not a language name
+(`de.work.csv` is not two letters and `.csv`), so the game never picks it up — and `de_ant.csv` is an
+overlay, not a language the settings row offers.
 
 ## The workflow
 
@@ -62,7 +78,17 @@ powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Work
 
 # 3. the committed translation, English stripped off            -> lang\de.csv
 powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Pack
+
+# the add-on's own half: the same three steps plus -Ant
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Ant            # -> lang\en_ant.csv
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Ant -Work      # -> lang\de_ant.work.csv
+powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Ant -Pack      # -> lang\de_ant.csv
 ```
+
+`-Ant` reads the add-on's banks (`ant2\Desert2.dat`, `ant2\phone2.dat`), scans the add-on's program
+for the strings it carries itself (the intro, the radio bulletins, the telephone lines and the
+endings), runs the add-on's build for anything only a play-through knows, and leaves out every id
+`en.csv` already lists, so the two source files do not overlap.
 
 **Another language is the same three steps with `-Lang fr`**: `-Work` writes `lang\fr.work.csv`,
 `-Pack` writes `lang\fr.csv` — and the game offers `fr` in Settings → Language from the next start
@@ -81,9 +107,11 @@ The format is a CSV with a **semicolon** separator, so every spreadsheet shows i
   a file that still holds one is not complete, so the settings row does not offer it (and
   `[GAME] language` naming it keeps the run English). A missing row counts the same.
 * One group of rows is a **format**, the shape of a message the program builds itself at run time —
-  `Sleep for %d hours.`, `June %d, 1951 - %02d:%02d %s`, `Sorry, %s has been destroyed.`,
-  `Sorry, %s is closed. It will open again at %d:00 %s.`, `ETA: %02d:%02d`, `REEL %d`, and the two
-  halves of the clock's `a.m.`/`p.m.`. Keep their `%` marks, in the same order: the game fills the
+  `Sleep for %d hours.`, `June %d, 1951 - %02d:%02d %s`, `January %d, 1956 - %02d:%02d %s`,
+  `Sorry, %s has been destroyed.`, `Sorry, %s is closed. It will open again at %d:00 %s.`,
+  `The number %d. Hmmmmmm, wonder what that could mean.`, `There's just one other thing. I don't
+  know if this means anything, but the number %d keeps going through my head.`, `ETA: %02d:%02d`,
+  `REEL %d`, and the two halves of the clock's `a.m.`/`p.m.`. Keep their `%` marks, in the same order: the game fills the
   numbers in. A row whose `%` marks do not match its English one is ignored (that line stays
   English) rather than reading the wrong argument.
 * Umlauts and ß are welcome; UTF-8 and ANSI (which a plain "CSV" save writes) both work, UTF-16 does

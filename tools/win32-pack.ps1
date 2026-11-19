@@ -39,13 +39,15 @@ Copy-Item -LiteralPath $exe -Destination (Join-Path $Out $name)
 
 # The translations travel next to the executable, where the game looks for them first
 # (lang.c, lang_read_file). A language's file is named after a two-letter code (lang.c, lang_scan),
-# so only `??.csv` travel: `en.csv` is the source text - the game's own script - and `*.work.csv`
-# is the translator's file, and neither may be shipped.
+# and the add-on's own half is `<code>_ant.csv`, so `??.csv` and `??_ant.csv` travel: `en.csv` /
+# `en_ant.csv` are the source texts - the game's own script - and `*.work.csv` is the translator's
+# file, and none of those may be shipped.
 $langDir = Join-Path $root 'lang'
 $langFiles = @()
 if (Test-Path $langDir) {
     $langFiles = @(Get-ChildItem -LiteralPath $langDir -Filter '*.csv' -File |
-                   Where-Object { $_.BaseName -match '^[A-Za-z]{2}$' -and $_.BaseName -notmatch '^en$' })
+                   Where-Object { $_.BaseName -match '^[A-Za-z]{2}(_ant)?$' -and
+                                  $_.BaseName -notmatch '^en(_ant)?$' })
 }
 if ($langFiles.Count -gt 0) {
     New-Item -ItemType Directory -Force -Path (Join-Path $Out 'lang') | Out-Null

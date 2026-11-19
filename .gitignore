@@ -81,5 +81,6 @@ third_party/reference/
 /lang/*.txt
 /lang/*.work.csv
 /lang/en.csv
+/lang/en_ant.csv
 !/lang/README.md
 
