@@ -2512,7 +2512,7 @@ void rt_gfx_present(rt_machine *m, u32 view)
  * The text sits 2 pixels in from the top left corner and the icon 2 pixels in from the top right;
  * the icon PNG ships its own 2-pixel transparent border, so it is placed flush. */
 #define OSD_PAD       2
-#define OSD_PEN_TEXT  255              /* #00FF00 */
+#define OSD_PEN_TEXT  255              /* #FFFFFF */
 #define OSD_PEN_ICON  240              /* 240..245: the save icon's colours */
 #define OSD_PEN_PTR   EMU_PEN_POINTER  /* 246..247: the pointer's outline and fill */
 #define OSD_PEN_CRS   248              /* 248..254: the crosshair's colours */
@@ -2692,7 +2692,7 @@ void rt_overlay_draw(rt_machine *m, rt_surface *s)
     if (gfx == 0 || s == 0 || s->dst == 0 || !overlay_up(m)) return;
     /* The overlay's pens are set every time it is drawn: the game's own table may have rebuilt them
      * since the last frame, and the platform uploads this range after the call. */
-    osd_colour(OSD_PEN_TEXT, 0, 255, 0);
+    osd_colour(OSD_PEN_TEXT, 255, 255, 255);
     for (i = 0; i < OSD_ICON_COLOURS; i++)
         osd_colour((u32)OSD_PEN_ICON + (u32)i, g_osdIconPal[i * 3], g_osdIconPal[i * 3 + 1],
                    g_osdIconPal[i * 3 + 2]);

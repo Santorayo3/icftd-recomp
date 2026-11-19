@@ -13,9 +13,12 @@
 #      including one smaller than the picture, so the downscale is covered - every output pixel
 #      equals the input pixel at (x*W/w, y*H/h). An interpolating scale fails this on the first
 #      non-uniform pixel, which is the "do not blur the pixel art" requirement.
-#   3. On a widescreen window the bars are curtain, not black: at 16:9 and 16:10 every bar pixel
-#      comes from the artwork's curtain. (A 21:9 window honestly reports the fraction instead: the
-#      artwork's own black centre shows next to the picture there, by the way it was drawn.)
+#   3. On a widescreen window the bars are the artwork's curtain, never a black fill: at 16:9 and
+#      16:10 every bar pixel is sampled from a curtain column of the artwork - the flat black centre
+#      between the two curtains never shows next to the picture - and at least two thirds of the bar
+#      is the curtain's own colour. (The rest is the artwork's black folds; a 21:9 window honestly
+#      reports the fraction instead, because there the art's black centre does sit next to the
+#      picture, by the way it was drawn.)
 #   4. [VIDEO] curtains=false turns the art off: the same paint call fills the bars black.
 #
 # Claim 2 runs the real C: border.c is compiled with the build scripts' flags and a generated
@@ -31,17 +34,19 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-# window, and the least share of the bar that must be curtain ('' = report only). 2048x1152 is this
-# machine's screen, 3840x2160 the common 4K panel, 1680x1050 is 16:10, 2560x1080 is 21:9, 320x200
-# is the windowed size (no bars) and 256x144 scales the picture down.
+# window, and the least share of the bar that must be the curtain's colour ($null = report only).
+# 2048x1152 is this machine's screen, 3840x2160 the common 4K panel, 1680x1050 is 16:10, 2560x1080
+# is 21:9, 320x200 is the windowed size (no bars) and 256x144 scales the picture down. The artwork's
+# folds are black, so the share is two thirds, not all of it; 16:9 and 16:10 additionally require
+# every bar pixel to come from a curtain column (see claim 3 above).
 $sizes = @(
-    @{ w = 2048; h = 1152; min = 0.99 },
-    @{ w = 1920; h = 1080; min = 0.99 },
-    @{ w = 3840; h = 2160; min = 0.99 },
-    @{ w = 1680; h = 1050; min = 0.99 },
+    @{ w = 2048; h = 1152; min = 0.65 },
+    @{ w = 1920; h = 1080; min = 0.65 },
+    @{ w = 3840; h = 2160; min = 0.65 },
+    @{ w = 1680; h = 1050; min = 0.65 },
     @{ w = 2560; h = 1080; min = $null },
     @{ w = 320;  h = 200;  min = $null },
-    @{ w = 256;  h = 144;  min = 0.99 }
+    @{ w = 256;  h = 144;  min = 0.65 }
 )
 
 if (-not (Test-Path $Header)) { Write-Output "FAIL border: no $Header - run tools\mkborder.ps1"; exit 1 }
@@ -168,7 +173,13 @@ public static class BorderCheck
 
         int bad = 0;
         string first = "";
-        long bar = 0, curtain = 0;
+        long bar = 0, curtain = 0, offCentre = 0;
+        // A curtain column is one the artwork paints at all: the flat black between the two
+        // curtains is the part the picture is meant to cover.
+        bool[] curtainCol = new bool[s_w];
+        for (int cx = 0; cx < s_w; cx++)
+            for (int cy = 0; cy < s_h; cy++)
+                if (s_img[cy * s_w + cx] != 0) { curtainCol[cx] = true; break; }
         for (int y = 0; y < h; y++)
         {
             int sy = y * s_h / h;
@@ -189,6 +200,7 @@ public static class BorderCheck
                 {
                     bar++;
                     if (got != 0) curtain++;
+                    if (!curtainCol[x * s_w / w]) offCentre++;
                 }
             }
         }
@@ -199,15 +211,30 @@ public static class BorderCheck
             return sb.ToString();
         }
         double share = bar == 0 ? 1.0 : (double)curtain / bar;
-        if (minCurtain != 0.0 && share < minCurtain)
+        string line = string.Format(CultureInfo.InvariantCulture,
+                                    "border: {0}x{1} point-sampled, {2:P1} of the {3} bar " +
+                                    "pixel(s) are curtain", w, h, share, bar);
+        if (minCurtain == 0.0)
+        {
+            sb.AppendLine(line);
+        }
+        else if (offCentre != 0)
+        {
+            sb.AppendLine(string.Format("FAIL border: {0}x{1} shows the artwork's flat black " +
+                                        "centre beside the picture in {2} bar pixel(s)",
+                                        w, h, offCentre));
+        }
+        else if (share < minCurtain)
+        {
             sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
                                         "FAIL border: {0}x{1} leaves the bars {2:P1} curtain, " +
                                         "wanted {3:P0} - the picture would sit on black",
                                         w, h, share, minCurtain));
+        }
         else
-            sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                                        "border: {0}x{1} point-sampled, {2:P1} of the {3} bar " +
-                                        "pixel(s) are curtain", w, h, share, bar));
+        {
+            sb.AppendLine(line + " (the rest is the artwork's black folds)");
+        }
         return sb.ToString();
     }
 

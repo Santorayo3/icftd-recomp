@@ -298,7 +298,7 @@ The overlay's colours are its own, and that is a claim the presenter has to keep
 takes a pointer to the *range's first entry* (`rgb` covers `first..first+count-1`), and the range
 upload in `host_overlay_draw` first handed it the table's base, so the scene's pens 0..31 were loaded
 into 224..255 and the OSD line and the arrow were painted in the scene's colours. `tools\window-check.ps1`
-now measures it on the live window (case 11: the OSD line is `#00FF00` over a scene) - the first
+now measures it on the live window (case 11: the OSD line is white over a scene) - the first
 check that fails on that bug and passes on the fix.
 
 Measured on this machine (`--window --displaystat --osd TESTOVERLAY --call 0x1C19A:2500 5000000`,

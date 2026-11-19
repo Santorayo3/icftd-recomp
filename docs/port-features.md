@@ -677,6 +677,51 @@ the game a window, the check samples the client area while the notice is up: **9
 white text pixels, their bounding box centred at 159,99 of the 320x200 picture, all four corners
 black** - the title art is gone and the text is where the feature says it is.
 
+## Escape asks before it leaves the game
+
+Escape in a played game no longer restarts at once. The port puts up a confirmation framed by
+`assets\quit_confirm.png` - a plaque in the middle of the picture with the question **Quit to title
+menu?** and two buttons, **Confirm** and **Cancel**:
+
+* **Confirm** takes the escape the key used to: `host_title_escape` stops the run and the front end
+  restarts the machine on the port's title screen, so nothing of the old session survives.
+* **Cancel** only closes the popup; the game is exactly where it was. Escape again does the same
+  thing, and so does clicking anywhere but a button.
+
+The picture and its two labels are the port's own surface, so there is nothing to diff against; what
+it owes is that its own claim holds and that the game is untouched.
+
+Where it attaches:
+
+* **The state and the drawing** are `src\host\quit_confirm.c` / `.h`: a small struct (open, the
+  hovered button, the pointer), the hit test, and a draw through the runtime's port-overlay hook
+  (`rt_overlay_palette`, `rt_font_text_draw`, `title_button_draw_at`, `rt_pointer_draw`). Both front
+  ends own one instance and call it from the same places, so the Windows and DOS builds show the
+  same dialog.
+* **The art** is `assets\quit_confirm.png`, kept byte-exact in `src\host\quit_confirm_art.h` by
+  `tools\mkquitconfirm.ps1`. Its top-left colour (the cyan around the plaque) is the table's
+  `QUIT_CONFIRM_TRANSPARENT`, so those pixels leave the game's picture showing through the rounded
+  corners - the same rule as the portrait box and the settings pictures.
+* **The input** is the frame boundary: `escape_pressed` (both front ends) decides between closing
+  the save picker, closing this popup, asking (`host_title_escape_asks`, `title.h` - true only in a
+  played game) and the measurement's old stop. While it is up, `port_owns_input` keeps the game's
+  fire, stick, cursor, aim and SAVE GAME mark from seeing the pointer or the click that the popup is
+  using. A measurement run (the title was never armed) never asks and stops as it always did.
+* **The entry the question is asked at** is the frame boundary every hook sees, so it works with
+  the window (`host_input`), headless with a scripted pointer (`host_pointer_frame`) and in the DOS
+  front end. `--esc <frame>` presses the same key through `escape_pressed`, which is why a scripted
+  run can ask it too; `--mouse` clicks the buttons.
+
+Measured with `tools\quit-confirm-check.ps1` (gate step 19b). From `--titlekey 0` at frame 200, the
+key logs `quit: confirmation shown (frame 200): 'Quit to title menu?' [Confirm] [Cancel]`; a click on
+Confirm logs `quit: confirmation confirmed (frame 203)` and then the usual `restarting the game`,
+the title's score starting a second time and the run ending on the hold point (0xD870). A click on
+Cancel logs `quit: confirmation cancelled (button, frame 203)` and the run goes on to its own frame
+budget with no restart. A run without `--titlekey` logs no `quit:` line and still stops on the key.
+The picture is compared raster-for-raster with the same frame without the popup (`--dump`,
+`--dumpfrom 205`): nothing outside the plaque's 173x72 rect changes, all 568 pixels of the art's
+cyan key colour are transparent, and the mustard interior and white text are there.
+
 ## The title's fifth button: playing Antheads
 
 A player whose data folder also holds the add-on "It Came from the Desert II - Antheads" gets one
@@ -840,15 +885,17 @@ The picture is not decoded at run time: `tools\mkborder.ps1` turns it into
 thousands of colours, so an 8-bit palette would band it), decoded once into a static image. It is
 scaled with **point sampling** — it is pixel art, and any smoothing turns the folds to mush — and
 stretched over the whole client area, which reproduces the author's layout exactly at 16:9 (the
-aspect the art was drawn for) and covers the bars completely at 16:10. A 21:9 window honestly
-shows the art's own black next to the picture.
+aspect the art was drawn for) and covers the bars completely at 16:10. The curtain's folds are
+black by design, so a bar is curtain and fold, never the black fill the art replaced. A 21:9 window
+honestly shows the art's own black next to the picture.
 
 `tools\border-check.ps1` is the feature's own check, in the gate: (1) the generated table is
 `assets\border.png` byte for byte, (2) the *shipped* `border_paint`, compiled with the build
 scripts' flags, is exactly point sampling at several window sizes — every output pixel is the
 input pixel at `x*W/w, y*H/h`, so an interpolating scale fails on the first non-uniform pixel —
-and (3) on 16:9 and 16:10 the bars are 100 % curtain instead of black. It SKIPs without the
-picture (user-supplied) or without Open Watcom.
+and (3) on 16:9 and 16:10 every bar pixel comes from a curtain column of the art (the flat black
+centre between the curtains never shows beside the picture) and at least two thirds of the bar is
+curtain colour. It SKIPs without the picture (user-supplied) or without Open Watcom.
 
 The art is the default and the ini can put the black back: `[VIDEO] curtains=true` is in the
 windowed default `icftd.ini` (`plat_default_ini`) with the other video settings, and the host

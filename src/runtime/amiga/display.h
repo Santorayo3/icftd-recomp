@@ -160,7 +160,8 @@ void rt_pointer_hidden(void);
  * the player sees and a half one reads as a lost pointer (a wider window's border art sits just past
  * the picture's edge, and an arrow at the edge slid under it). */
 enum { EMU_PEN_POINTER = 246, EMU_PEN_POINTER_COLOURS = 2 };   /* 246..247: outline, fill */
-/* The palette range the port's own surfaces draw in: the picker's art (224..232), the save icon
+/* The palette range the port's own surfaces draw in: the picker's and the Escape confirmation's
+ * art (224..232 - they are never up together), the save icon
  * (240..245), the arrow (246..247), the crosshair (248..254) and the OSD line (255). A presenter
  * that draws the overlay itself, after the picture was uploaded, re-uploads this range - and only
  * it - so the overlay's colours are device state for a moment rather than for every present. */

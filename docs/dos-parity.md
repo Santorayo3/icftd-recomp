@@ -204,7 +204,7 @@ Port the Windows state machine from `src\host\main.c`:
 * `map_pointer` must clear the map axes and fire and return while the picker owns input;
 * `save_ui_frame` (pointer hover + click: Back closes, a slot sets `m->saveSlot` and closes);
 * `save_ui_watch` (close the picker if the map left);
-* Escape closes the picker first, otherwise it restarts the game (as Windows does).
+* Escape closes the picker first, otherwise it asks (the Escape confirmation, as Windows does).
 
 **Drawing:** add `save_ui_draw(m, &g_saveUi)` in `dos_present` before the copy to VGA. It calls
 `rt_overlay_begin`, so it writes into the runtime framebuffer and the next present recomposes the
@@ -223,7 +223,7 @@ What landed, all in `src\host\dos_main.c`: the Windows state machine verbatim â€
 `save_click_pending`, `save_owns_input`, `save_click_note`, `save_fake_view`, `save_mark_click`
 (seam `FUN_0001061C`, `MAP_EVENT_PC`, `MAP_FIRE_HELD`, `MAP_PANEL`), the map-freeze branch in
 `map_pointer` (axes + fire zero, `s_fakeView` restore), `save_ui_frame`/`save_ui_watch` in
-`dos_input`, Escape closes the picker before it restarts the game, the picker owns the F-key slot
+`dos_input`, Escape closes the picker before it asks the confirmation, the picker owns the F-key slot
 choice while it is up, `save_ui_draw(m, &g_saveUi)` in `dos_present` before the copy (and before
 `--shot`), the picker's arrow branch in `pointer_present`, and a full reset on the title's restart.
 

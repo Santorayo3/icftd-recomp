@@ -31,8 +31,9 @@
  * executable, or `export`/`disks` in the working directory when the executable has no `export\`,
  * which is what a run from the repository root uses); `--extract` only fills the data folder.
  *
- * `--run` opens the window and plays at 50 Hz until it is closed (esc restarts the game at the
- * title screen, space or the left
+ * `--run` opens the window and plays at 50 Hz until it is closed (esc asks whether to go back to
+ * the title screen - the confirmation's Confirm is the restart, Cancel stays in the game - space or
+ * the left
  * mouse button is /FIRE, arrows are the joystick, F1..F4 pick a save slot and F5 cycles them, the
  * mouse moves the situation map's cursor, the phone book's arrow, the giant-ant fight's gun and the
  * fire game's extinguisher, and on a room screen it is the pointer a menu line is selected with;
@@ -99,6 +100,7 @@
 #include "hospital_camera.h"
 #include "save_button.h"
 #include "save_ui.h"
+#include "quit_confirm.h"
 #include "programs.h"
 #include "seams.h"
 #include "lang_dump.h"
@@ -596,6 +598,7 @@ static int save_mark_under_pointer(void)
 
 static int g_saveLog;
 static save_ui g_saveUi;           /* the save-slot picker (src\host\save_ui.c) */
+static quit_confirm g_quitConfirm; /* the Escape confirmation (src\host\quit_confirm.c) */
 static int s_markHover;            /* the pointer is over the SAVE GAME mark */
 static int s_markClick;            /* a click on the mark waits for the map's own tail */
 static u32 s_markClickFrame;       /* ... the frame it was reported in */
@@ -619,11 +622,61 @@ static int save_owns_input(const rt_machine *m)
     return g_saveUi.open || s_saveCommit || s_clickHeld || save_click_pending(m);
 }
 
+/* A port screen that holds the game's own input: the save picker, or the Escape confirmation,
+ * which is modal over whatever screen the game is showing. Neither may see a click and neither may
+ * move the game's cursor, aim or player while it is up. */
+static int port_owns_input(const rt_machine *m)
+{
+    return g_quitConfirm.open || save_owns_input(m);
+}
+
+/* Escape, wherever it comes from (the key or --esc): close the picker or the question if one is
+ * up, ask before leaving a played game, and stop a measurement as it always did. */
+static void escape_pressed(rt_machine *m)
+{
+    if (g_saveUi.open)
+    {
+        save_ui_close(&g_saveUi);
+        printf("save: slot picker closed (escape, frame %lu)\n", (unsigned long)m->frame);
+    }
+    else if (g_quitConfirm.open)
+        quit_confirm_close(&g_quitConfirm, m, "escape");
+    else if (host_title_escape_asks())
+        quit_confirm_open(&g_quitConfirm, m);
+    else host_title_escape(m);
+}
+
+/* --esc <frame>: the same path the Escape key takes (a test seam, like --call). Every frame hook
+ * that can be a headless run's boundary calls this, because a mouse script takes over the hook. */
+static void escape_seam(rt_machine *m)
+{
+    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
+    {
+        g_escDone = 1;
+        printf("recomp: escape at frame %lu\n", (unsigned long)m->frame);
+        escape_pressed(m);
+    }
+}
+
+/* The confirmation's once-per-frame work: follow the pointer, and act on a click. Confirm is the
+ * escape the player asked for; Cancel has already closed the popup. A click that did either is
+ * consumed, and the press that closes the popup must not reach the game either. */
+static void quit_confirm_input(rt_machine *m, int click)
+{
+    quit_confirm_choice choice;
+
+    if (!g_quitConfirm.open) return;
+    choice = quit_confirm_frame(&g_quitConfirm, m, g_ptrKnown, g_ptrX, g_ptrY, click);
+    if (choice == QUIT_CONFIRM_NONE) return;
+    s_clickHeld = 1;
+    if (choice == QUIT_CONFIRM_YES) host_title_escape(m);
+}
+
 /* Records a click that landed on the mark. The picker itself is opened at FUN_0001061C's entry
  * (save_mark_click), where the map has drawn its update and is about to test its own click. */
 static void save_click_note(rt_machine *m)
 {
-    if (save_owns_input(m)) return;
+    if (port_owns_input(m)) return;
     if (!save_mark_under_pointer()) return;
     s_markClick = 1;
     s_markClickFrame = m->frame;
@@ -653,6 +706,7 @@ static void save_fake_view(rt_machine *m)
  * exactly as the mark's own click did. */
 static void save_mark_click(rt_machine *m)
 {
+    if (g_quitConfirm.open) return;    /* the Escape question owns the screen; one modal at a time */
     if (s_saveCommit)
     {
         s_saveCommit = 0;
@@ -693,10 +747,10 @@ static void map_pointer(rt_machine *m)
     g_mapFrame = m->frame;
     if (!save_click_pending(m)) s_markClick = 0;
 
-    /* The picker (or the click that opens it, or the save it chose) holds the map still: the
-     * stick is idle and the fire is released for this update, so neither the cursor, the picture
-     * nor a destination can move or be picked. */
-    if (save_owns_input(m))
+    /* The picker (or the click that opens it, or the save it chose) holds the map still, and so
+     * does the Escape confirmation: the stick is idle and the fire is released for this update, so
+     * neither the cursor, the picture nor a destination can move or be picked. */
+    if (port_owns_input(m))
     {
         rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
         rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
@@ -995,7 +1049,9 @@ static void pointer_present(rt_machine *m)
     int room, menu, map, phone, show;
 
     if (!g_portArm || !g_ptrKnown) { s_ptrVisible = 0; rt_pointer_hidden(); return; }
-    /* The save picker is a pointer screen: its arrow is drawn over the popup by save_ui_draw. */
+    /* The popup and the save picker are pointer screens: their arrows are drawn over them by
+     * quit_confirm_draw / save_ui_draw, from their own 50 Hz state. */
+    if (g_quitConfirm.open) { s_ptrVisible = 1; rt_pointer_at(g_ptrX, g_ptrY); return; }
     if (g_saveUi.open) { s_ptrVisible = 1; rt_pointer_at(g_ptrX, g_ptrY); return; }
     room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
@@ -1407,12 +1463,7 @@ int host_title_pointer(rt_machine *m, input_state *in)
 static void host_esc_frame(rt_machine *m)
 {
     host_cheat_frame(m);
-    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
-    {
-        g_escDone = 1;
-        printf("recomp: escape at frame %lu\n", (unsigned long)m->frame);
-        host_title_escape(m);
-    }
+    escape_seam(m);
 }
 
 static void host_input(rt_machine *m)
@@ -1420,24 +1471,9 @@ static void host_input(rt_machine *m)
     input_state in;
     u16 joy;
 
-    /* --esc <frame>: the same path the Escape key takes (a test seam, like --call). */
-    if (g_escFrame != 0 && !g_escDone && m->frame >= g_escFrame)
-    {
-        g_escDone = 1;
-        printf("recomp: escape at frame %lu\n", (unsigned long)m->frame);
-        host_title_escape(m);
-    }
+    escape_seam(m);
     if (!plat_pump(&in)) m->stop = 1;
-    if (in.pressed[KEY_ESCAPE])
-    {
-        /* Escape closes the picker first; only outside it is the game's restart. */
-        if (g_saveUi.open)
-        {
-            save_ui_close(&g_saveUi);
-            printf("save: slot picker closed (escape, frame %lu)\n", (unsigned long)m->frame);
-        }
-        else host_title_escape(m);
-    }
+    if (in.pressed[KEY_ESCAPE]) escape_pressed(m);
     /* Alt+Enter, on every screen the game itself puts up: the window switches now and the ini keeps
      * the choice for the next start. The title's own loop asks the same helper (title.c). */
     if (in.pressed[KEY_FULLSCREEN])
@@ -1475,13 +1511,20 @@ static void host_input(rt_machine *m)
             g_ptrButtonPrev = 0;
         }
         if (s_clickHeld && !in.mouse_left && !g_ptrButton) s_clickHeld = 0;
-        save_ui_frame(m, click);
-        if (click) save_click_note(m);
+        /* The confirmation is modal: it follows the pointer itself, and the game sees none of the
+         * move or the click while it is up. */
+        if (g_quitConfirm.open)
+            quit_confirm_input(m, click);
+        else
+        {
+            save_ui_frame(m, click);
+            if (click) save_click_note(m);
+            /* The aiming scenes (the giant-ant fight, the fire game and the add-on's "Fight Ant
+             * Head") take the aim from the pointer once it moved over them; everywhere else this
+             * latch stays clear. */
+            aim_input(m, moved, joy != 0 || m->joy0 != 0);
+        }
         save_ui_watch(m);
-        /* The aiming scenes (the giant-ant fight, the fire game and the add-on's "Fight Ant Head")
-         * take the aim from the pointer once it moved over them; everywhere else this latch stays
-         * clear. */
-        aim_input(m, moved, joy != 0 || m->joy0 != 0);
         /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
          * owns nothing, so the next screen starts with the game's own placement until the pointer
          * moves again. */
@@ -1492,14 +1535,14 @@ static void host_input(rt_machine *m)
     if (input_active())
     {
         /* A frame-indexed script owns fire and the joystick; the keyboard only quits. */
-        if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
+        if (port_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
         plat_frame_sync();
         return;
     }
     /* Save slot: F1..F4 pick one, F5 steps to the next. The engine writes its save into
      * DSAVE:, which the runtime maps onto saves\slot<N>, so the only feedback is the overlay.
      * The picker's own choice owns the slot while it is up. */
-    if (!save_owns_input(m))
+    if (!port_owns_input(m))
     {
         int slot = 0;
         if (in.pressed[KEY_F1]) slot = 1;
@@ -1520,7 +1563,7 @@ static void host_input(rt_machine *m)
     }
     m->fireDown = (u8)((in.down[KEY_FIRE] || in.mouse_left || g_ptrButton) ? 1u : 0u);
     m->joy0 = joy;
-    if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; joy = 0; }
+    if (port_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; joy = 0; }
     if (g_record != 0 && ((int)m->fireDown != g_recFire || joy != g_recJoy))
     {
         /* The same frame-indexed form --input reads, so a played session can be replayed exactly in
@@ -1547,6 +1590,9 @@ static void host_pointer_frame(rt_machine *m)
 
     if (!g_portArm) return;
     host_cheat_frame(m);
+    /* The --esc seam is due on the same boundary, and a mouse script is what supplies the pointer
+     * the confirmation is clicked with - so this hook services both. */
+    escape_seam(m);
     if (g_ptrScriptCount > 0)
     {
         moved = pointer_script_tick(m) > 0;
@@ -1560,11 +1606,16 @@ static void host_pointer_frame(rt_machine *m)
     if (m->joy0 != 0) { g_ptrActive = 0; g_hoverOwn = 0; }   /* a scripted stick wins */
     if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
         g_ptrActive = 0;
-    save_ui_frame(m, click);
-    if (click) save_click_note(m);
+    if (g_quitConfirm.open)
+        quit_confirm_input(m, click);
+    else
+    {
+        save_ui_frame(m, click);
+        if (click) save_click_note(m);
+        aim_input(m, moved, m->joy0 != 0);
+    }
     save_ui_watch(m);
-    if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
-    aim_input(m, moved, m->joy0 != 0);
+    if (port_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
     pointer_present(m);
 }
 
@@ -1611,9 +1662,10 @@ static void shot_write(const char *path)
 }
 
 /* The port's overlay at display rate (docs\display-rate.md, phase 2): the OSD line, the save icon,
- * the pointer arrow, the aiming crosshair and the save picker, onto whatever chunky surface the
- * platform hands over. The platform calls this for every display frame it delivers; host_present
- * calls it for a headless --shot/--dump, so both paths show the same overlay.
+ * the pointer arrow, the aiming crosshair, the save picker and the Escape confirmation, onto
+ * whatever chunky surface the platform hands over. The platform calls this for every display frame
+ * it delivers; host_present calls it for a headless --shot/--dump, so both paths show the same
+ * overlay.
  *
  * The arrow's *drawn* position moves with the pointer here, at the panel's rate - a mouse reports
  * at 125-1000 Hz and the screen would otherwise show 50 of those samples a second. What the arrow
@@ -1629,7 +1681,7 @@ static void host_overlay_draw(u8 *dst, u32 stride, int w, int h)
     /* Only while the game's own picture is what the platform holds: the title and the farewell own
      * the screen (and their own pointer), and m->on_present is 0 for exactly those frames. */
     if (g_m == 0 || dst == 0 || g_m->on_present != host_present) return;
-    if (g_window && g_portArm && s_ptrVisible && !g_saveUi.open &&
+    if (g_window && g_portArm && s_ptrVisible && !g_saveUi.open && !g_quitConfirm.open &&
         plat_pointer_position(&px, &py))
         rt_pointer_at(px, py);
     s.dst = dst;
@@ -1638,6 +1690,7 @@ static void host_overlay_draw(u8 *dst, u32 stride, int w, int h)
     s.h = h;
     rt_overlay_draw(g_m, &s);
     save_ui_draw(g_m, &g_saveUi, &s);
+    quit_confirm_draw(g_m, &g_quitConfirm, &s);
     /* The overlay's own pens (224..255) are the colours it has just drawn with. They go to the
      * platform's *overlay* table, not the picture's: a presenter that builds a true-colour picture
      * resolves each layer through its own table, so an overlay pen no longer paints picture pixels
@@ -1706,9 +1759,9 @@ static void host_present(rt_machine *m)
      * a headless run - and, with a window, only for a capture: --shot and --dump are one raster per
      * composed frame and must contain what the screen showed, as they always have. Drawing into the
      * picture invalidates the plane comparison, so the next present rebuilds those pixels; a
-     * headless run therefore only does it when the picker is up, because the OSD, the arrow and the
-     * crosshair were already composed by the runtime inside rt_gfx_present. */
-    if ((!g_window && g_saveUi.open) || (g_window && capture))
+     * headless run therefore only does it when a port screen is up, because the OSD, the arrow and
+     * the crosshair were already composed by the runtime inside rt_gfx_present. */
+    if ((!g_window && (g_saveUi.open || g_quitConfirm.open)) || (g_window && capture))
     {
         u8 *base = rt_overlay_begin();
 
@@ -2433,6 +2486,7 @@ int main(int argc, char **argv)
             g_ptrButton = 0;
             g_ptrButtonPrev = 0;
             save_ui_init(&g_saveUi);
+            quit_confirm_init(&g_quitConfirm);
             s_markClick = 0;
             s_saveCommit = 0;
             s_clickHeld = 0;

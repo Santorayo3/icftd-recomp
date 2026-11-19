@@ -40,9 +40,11 @@
  * selects, so the key takes the same switch the game itself takes. An ending never returns - its
  * per-frame callback always answers 0 - so the title does not come back; Esc restarts the game.
  *
- * Escape in a played game is not a quit: the front end stops the run and starts the machine again,
- * so the player lands on this title with a fresh game (src\host\main.c, src\host\dos_main.c). The
- * menu itself ignores Escape - the Quit Game button is the way out.
+ * Escape in a played game asks first: the front end puts the port's confirmation up (framed by
+ * assets\quit_confirm.png, src\host\quit_confirm.c) and only a Confirm takes this restart, so the
+ * player lands on this title with a fresh game (src\host\main.c, src\host\dos_main.c). Cancel
+ * closes the question and changes nothing. The menu itself ignores Escape - the Quit Game button is
+ * the way out.
  *
  * The buttons are wired. New Game starts the intro (fire and 0 do the same), Load Game replaces the
  * buttons with the ten save slots (empty ones grey, a slot with a save white and #00FF00 under the
@@ -355,12 +357,13 @@ void host_title_key(int n)
     g_scripted = n >= 0;
 }
 
-/* Escape in a played game. The front end restarts the whole machine after this (see title.h), so
- * every piece of emulated state is the one a fresh boot makes - which is what "back to the title"
- * has to mean: the title is a host menu parked at the intro's setup, and nothing of the old
- * session's stack, heap or banks can survive into it. The stop is forced twice: m->stop leaves the
- * stream at the next function boundary, and rc_stopAt unwinds a translated busy loop that would
- * never reach one.
+/* Escape in a played game, confirmed: the confirmation popup's Confirm button calls this (the
+ * front end's input layer; src\host\quit_confirm.c). The front end restarts the whole machine after
+ * this (see title.h), so every piece of emulated state is the one a fresh boot makes - which is what
+ * "back to the title" has to mean: the title is a host menu parked at the intro's setup, and nothing
+ * of the old session's stack, heap or banks can survive into it. The stop is forced twice: m->stop
+ * leaves the stream at the next function boundary, and rc_stopAt unwinds a translated busy loop that
+ * would never reach one.
  *
  * The title belongs to the port, not to a build: it is always drawn on the 1989 program's hold
  * point, and its two game entries pick the build. So Escape from an add-on session boots the 1989
@@ -375,6 +378,11 @@ void host_title_escape(rt_machine *m)
     g_playOnBoot = 0;                    /* back to the menu, not into a game */
     m->stop = 1;
     rc_stopAt = (long)m->insns + 1;
+}
+
+int host_title_escape_asks(void)
+{
+    return g_playMode && !g_restart;
 }
 
 int host_title_restart_pending(void)

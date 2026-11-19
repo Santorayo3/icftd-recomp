@@ -7,7 +7,9 @@
 # The three endings do not come back: their per-frame callback always answers 0, so the check looks
 # for the word the key writes and the engine's own OPEN load instead.
 #
-# The Escape cases use --esc <frame>, a test seam that presses the key inside the run. A restart is
+# The Escape cases use --esc <frame>, a test seam that presses the key inside the run, plus a
+# --mouse script that clicks the confirmation's Confirm button - the key asks first, and only that
+# click restarts. A restart is
 # a fresh boot on the port's menu (the 1989 program), and the title's score starts a second time:
 # the frame count starts over, and the run ends on the title's hold point (the scripted menu takes
 # the "no such key" quit).
@@ -106,7 +108,8 @@ $cases = @(
        start = 'title: Time Ran Out at frame \d+'
        opens = @('Desert1:OPEN')
        ending = 3 }
-    # Escape restarts the whole game (a port feature). Three starting points: an ending, the game's
+    # Escape asks before it leaves the game (a port feature): the key puts the confirmation up and
+    # the script's click on Confirm is what restarts. Three starting points: an ending, the game's
     # own intro, and a minigame. The restart is a fresh boot, so the title's score starts a second
     # time and the run ends on the hold point with the frame count reset.
     @{ key = 8; name = 'Win Ending + Esc'; insns = 12000000; rasters = 1; returns = $false
@@ -154,7 +157,19 @@ foreach ($c in $cases) {
         $runArgs[0] = Join-Path $DataDir 'ant\code\dshell4k\dshell.img'
         $runArgs += @('--program', $c.program)
     }
-    if ($c.ContainsKey('esc')) { $runArgs += @('--esc', $c.esc) }
+    if ($c.ContainsKey('esc')) {
+        # The confirmation's Confirm button: the popup is 173x72 at the middle of the 320x200
+        # picture, its buttons at y 102..115 (src\host\quit_confirm.c), so Confirm's centre is
+        # 120,109. The click lands a few frames after the key, because the popup is not up yet on
+        # the key's own frame.
+        $clicks = Join-Path $LogDir (([IO.Path]::GetFileNameWithoutExtension($log)) + '-confirm.txt')
+        @(
+            ("{0} 120 109 0" -f ($c.esc + 1)),
+            ("{0} 120 109 1" -f ($c.esc + 3)),
+            ("{0} 120 109 0" -f ($c.esc + 5))
+        ) | Set-Content -Encoding ascii $clicks
+        $runArgs += @('--esc', $c.esc, '--mouse', $clicks)
+    }
     $out = & $Exe @runArgs 2>&1 | Out-String
     Set-Content -Path $log -Value $out
     $problems = @()
@@ -202,6 +217,12 @@ foreach ($c in $cases) {
     }
     if ($c.ContainsKey('restart')) {
         if ($out -notmatch 'escape at frame \d+') { $problems += 'the escape seam never fired' }
+        if ($out -notmatch 'quit: confirmation shown \(frame \d+\)') {
+            $problems += 'Escape did not put the confirmation up'
+        }
+        if ($out -notmatch 'quit: confirmation confirmed') {
+            $problems += 'the click on Confirm was not taken'
+        }
         if ($out -notmatch 'restarting the game') { $problems += 'escape did not restart the game' }
         $again = ([regex]::Matches($out, 'title: the map screen''s score starts under the title')).Count
         if ($again -lt 2) { $problems += 'the title did not come back after the restart' }

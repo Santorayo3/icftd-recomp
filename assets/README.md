@@ -32,6 +32,7 @@ so the game needs none of the original data to show its own screens.
 | `btn_normal.png`, `btn_hover.png` | `src\host\title_buttons.h` | `tools\mktitlebuttons.ps1` |
 | `minus_normal.png`, `minus_hover.png`, `plus_normal.png`, `plus_hover.png`, `toggle_on.png`, `toggle_off.png` | `src\host\settings_art.h` | `tools\mksettingsart.ps1` |
 | `portrait_box.png` | `src\host\portrait_box_art.h` | `tools\mkportraitbox.ps1` |
+| `quit_confirm.png` | `src\host\quit_confirm_art.h` | `tools\mkquitconfirm.ps1` |
 | `autosave.png` | `src\runtime\amiga\osd_icon.h` | `tools\mkosdicon.ps1` |
 | `crosshair.png` | `src\runtime\amiga\crosshair_art.h` | `tools\mkcrosshair.ps1` |
 | `border.png` | `src\runtime\plat\win32\border_art.h` | `tools\mkborder.ps1` |

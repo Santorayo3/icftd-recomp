@@ -47,6 +47,7 @@ $art = @(
     @{ Header = 'src\host\title_buttons.h';               Tool = 'tools\mktitlebuttons.ps1'; Pngs = @('assets\btn_normal.png', 'assets\btn_hover.png') },
     @{ Header = 'src\host\settings_art.h';                Tool = 'tools\mksettingsart.ps1';  Pngs = @('assets\minus_normal.png', 'assets\minus_hover.png', 'assets\plus_normal.png', 'assets\plus_hover.png', 'assets\toggle_on.png', 'assets\toggle_off.png') },
     @{ Header = 'src\host\portrait_box_art.h';            Tool = 'tools\mkportraitbox.ps1';  Pngs = @('assets\portrait_box.png') },
+    @{ Header = 'src\host\quit_confirm_art.h';            Tool = 'tools\mkquitconfirm.ps1';  Pngs = @('assets\quit_confirm.png') },
     @{ Header = 'src\runtime\amiga\pointer_art.h';        Tool = 'tools\mkpointer.ps1';      Pngs = @() }
 )
 

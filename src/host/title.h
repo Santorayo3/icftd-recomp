@@ -33,6 +33,12 @@ int host_title_addon(struct rt_machine *m);
  * left over. In a measurement run (the title was never armed) it keeps the old meaning: stop. */
 void host_title_escape(struct rt_machine *m);
 
+/* 1 when Escape has a question to ask before it takes host_title_escape()'s restart - i.e. in a
+ * played game. The front end puts the confirmation up (src\host\quit_confirm.c) and calls
+ * host_title_escape() only when the player confirms; 0 in a measurement, where Escape keeps its
+ * old meaning and stops the run at once. */
+int host_title_escape_asks(void);
+
 /* Read by the front end after its run loop: 1 means Esc asked for a restart. Clears the request. */
 int host_title_restart_pending(void);
 

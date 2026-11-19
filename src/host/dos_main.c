@@ -55,7 +55,7 @@
  *                        writes the translation source, lang\en.csv and lang\en_ant.csv)
  *   --langsource <dir>   write lang\en.csv and lang\en_ant.csv into <dir> and exit (the same files
  *                        the first start writes from the extracted data)
- *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
+ *   --esc <frame>        press Escape at that frame (asks before leaving a played game, like the key)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
  *   --timefreeze <f>[,<f>...]  press left Ctrl+T at each of those frames (the clock freeze's seam)
  *   --srcdiff           per presented frame: how many of the window's source bytes changed, how
@@ -86,6 +86,7 @@
 #include "hospital_camera.h"
 #include "save_button.h"
 #include "save_ui.h"
+#include "quit_confirm.h"
 #include "programs.h"
 #include "seams.h"
 #include "lang_hook.h"
@@ -509,6 +510,7 @@ static s32 s_mapLogX = -1, s_mapLogY = -1;  /* --hoverlog: the cursor last repor
 
 /* The save-slot picker (src\host\save_ui.c), the Windows front end's state machine. */
 static save_ui g_saveUi;
+static quit_confirm g_quitConfirm; /* the Escape confirmation (src\host\quit_confirm.c) */
 static int s_markClick;            /* a click on the mark waits for the map's own tail */
 static u32 s_markClickFrame;       /* ... the frame it was reported in */
 static int s_saveCommit;           /* a slot was chosen: the map's save path runs next */
@@ -682,11 +684,48 @@ static int save_owns_input(const rt_machine *m)
     return g_saveUi.open || s_saveCommit || s_clickHeld || save_click_pending(m);
 }
 
+/* A port screen that holds the game's own input: the save picker, or the Escape confirmation,
+ * which is modal over whatever screen the game is showing. */
+static int port_owns_input(const rt_machine *m)
+{
+    return g_quitConfirm.open || save_owns_input(m);
+}
+
+/* Escape, wherever it comes from (the key or --esc): close the picker or the question if one is
+ * up, ask before leaving a played game, and stop a measurement as it always did. */
+static void escape_pressed(rt_machine *m)
+{
+    if (g_saveUi.open)
+    {
+        save_ui_close(&g_saveUi);
+        printf("save: slot picker closed (escape, frame %lu)\n", (unsigned long)m->frame);
+    }
+    else if (g_quitConfirm.open)
+        quit_confirm_close(&g_quitConfirm, m, "escape");
+    else if (host_title_escape_asks())
+        quit_confirm_open(&g_quitConfirm, m);
+    else host_title_escape(m);
+}
+
+/* The confirmation's once-per-frame work: follow the pointer, and act on a click. Confirm is the
+ * escape the player asked for; Cancel has already closed the popup. A click that did either is
+ * consumed, and the press that closes the popup must not reach the game either. */
+static void quit_confirm_input(rt_machine *m, int click)
+{
+    quit_confirm_choice choice;
+
+    if (!g_quitConfirm.open) return;
+    choice = quit_confirm_frame(&g_quitConfirm, m, g_ptrKnown, g_ptrX, g_ptrY, click);
+    if (choice == QUIT_CONFIRM_NONE) return;
+    s_clickHeld = 1;
+    if (choice == QUIT_CONFIRM_YES) host_title_escape(m);
+}
+
 /* Records a click that landed on the mark. The picker itself is opened at FUN_0001061C's entry
  * (save_mark_click), where the map has drawn its update and is about to test its own click. */
 static void save_click_note(rt_machine *m)
 {
-    if (save_owns_input(m)) return;
+    if (port_owns_input(m)) return;
     if (!save_mark_under_pointer()) return;
     s_markClick = 1;
     s_markClickFrame = m->frame;
@@ -715,6 +754,7 @@ static void save_fake_view(rt_machine *m)
  * exactly as the mark's own click did. */
 static void save_mark_click(rt_machine *m)
 {
+    if (g_quitConfirm.open) return;    /* the Escape question owns the screen; one modal at a time */
     if (s_saveCommit)
     {
         s_saveCommit = 0;
@@ -758,10 +798,10 @@ static void map_pointer(rt_machine *m)
     g_mapFrame = m->frame;
     if (!save_click_pending(m)) s_markClick = 0;
 
-    /* The picker (or the click that opens it, or the save it chose) holds the map still: the
-     * stick is idle and the fire is released for this update, so neither the cursor, the picture
-     * nor a destination can move or be picked. */
-    if (save_owns_input(m))
+    /* The picker (or the click that opens it, or the save it chose) holds the map still, and so
+     * does the Escape confirmation: the stick is idle and the fire is released for this update, so
+     * neither the cursor, the picture nor a destination can move or be picked. */
+    if (port_owns_input(m))
     {
         rt_write16(&m->mem, RC_ADDR(MAP_AXIS_X), 0);
         rt_write16(&m->mem, RC_ADDR(MAP_AXIS_Y), 0);
@@ -1033,7 +1073,9 @@ static void pointer_present(rt_machine *m)
     int room, menu, map, phone, show;
 
     if (!g_portArm || !g_ptrKnown) { rt_pointer_hidden(); return; }
-    /* The save picker is a pointer screen: its arrow is drawn over the popup by save_ui_draw. */
+    /* The popup and the save picker are pointer screens: their arrows are drawn over them by
+     * quit_confirm_draw / save_ui_draw, from their own 50 Hz state. */
+    if (g_quitConfirm.open) { rt_pointer_at(g_ptrX, g_ptrY); return; }
     if (g_saveUi.open) { rt_pointer_at(g_ptrX, g_ptrY); return; }
     room = g_roomFrame != 0 && m->frame - g_roomFrame <= MAP_IDLE_FRAMES;
     menu = g_menuFrame != 0 && m->frame - g_menuFrame <= MAP_IDLE_FRAMES;
@@ -1198,7 +1240,7 @@ static void dos_input(rt_machine *m)
     {
         g_escDone = 1;
         printf("icftd: escape at frame %lu\n", (unsigned long)m->frame);
-        host_title_escape(m);
+        escape_pressed(m);
     }
     /* Left Ctrl+W (the minigame cheat), and --cheat as the scripted form of the same request. */
     host_cheat_input(m, &in);
@@ -1211,16 +1253,7 @@ static void dos_input(rt_machine *m)
         printf("icftd: Ctrl+W at frame %lu\n", (unsigned long)m->frame);
         host_cheat_force(m);
     }
-    if (in.pressed[KEY_ESCAPE])
-    {
-        /* Escape closes the picker first; only outside it is the game's restart. */
-        if (g_saveUi.open)
-        {
-            save_ui_close(&g_saveUi);
-            printf("save: slot picker closed (escape, frame %lu)\n", (unsigned long)m->frame);
-        }
-        else host_title_escape(m);
-    }
+    if (in.pressed[KEY_ESCAPE]) escape_pressed(m);
 
     joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
                     (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
@@ -1243,11 +1276,18 @@ static void dos_input(rt_machine *m)
             g_ptrButtonPrev = 0;
         }
         if (s_clickHeld && !in.mouse_left && !g_ptrButton) s_clickHeld = 0;
-        save_ui_frame(m, click);
-        if (click) save_click_note(m);
+        /* The confirmation is modal: it follows the pointer itself, and the game sees none of the
+         * move or the click while it is up. */
+        if (g_quitConfirm.open)
+            quit_confirm_input(m, click);
+        else
+        {
+            save_ui_frame(m, click);
+            if (click) save_click_note(m);
+            /* The aiming scenes take the aim from the pointer once it moved over them. */
+            aim_input(m, moved, joy != 0 || m->joy0 != 0);
+        }
         save_ui_watch(m);
-        /* The aiming scenes take the aim from the pointer once it moved over them. */
-        aim_input(m, moved, joy != 0 || m->joy0 != 0);
         /* Only the map's script and the phone's loop consume the pointer state: anywhere else it
          * owns nothing, so the next screen starts with the game's own placement. */
         if (m->frame > g_mapFrame + MAP_IDLE_FRAMES && m->frame > g_phoneFrame + MAP_IDLE_FRAMES)
@@ -1262,7 +1302,7 @@ static void dos_input(rt_machine *m)
          * engine's save prompt) can be played headless. The picker still holds both still while it
          * owns the input. */
         m->fireDown = (u8)((m->fireDown || g_ptrButton) ? 1u : 0u);
-        if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
+        if (port_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
         plat_frame_sync();
         return;
     }
@@ -1270,7 +1310,7 @@ static void dos_input(rt_machine *m)
     /* Save slot: F1..F4 pick one, F5 steps to the next. The engine writes its save into DSAVE:,
      * which the runtime maps onto SAVES\SLOT<N>, so the overlay is the only feedback. The picker's
      * own choice owns the slot while it is up. */
-    if (!save_owns_input(m))
+    if (!port_owns_input(m))
     {
         int slot = 0;
         if (in.pressed[KEY_F1]) slot = 1;
@@ -1290,7 +1330,7 @@ static void dos_input(rt_machine *m)
     }
     m->fireDown = (u8)((in.down[KEY_FIRE] || in.mouse_left || g_ptrButton) ? 1u : 0u);
     m->joy0 = joy;
-    if (save_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
+    if (port_owns_input(m)) { m->fireDown = 0; m->joy0 = 0; }
     {
         /* Time spent waiting for the next frame slot. It is the difference between the pacing
          * interval --perf reports and the work the frame actually costs, so without it the split
@@ -1354,12 +1394,12 @@ static void dos_present(rt_machine *m){
     u32 stride, t0 = g_perfOpen ? plat_pit_now() : 0;
 
     if (fb == 0 || pal == 0) return;
-    /* The save picker sits on top of the composed frame and under the pointer, so it also reaches
-     * --shot: the runtime framebuffer is what is copied into VGA here. The DOS build has no
-     * display clock (plat_display_hz is 0), so the port's overlay is composed into the picture
-     * just as it always was - docs\display-rate.md, phase 2 item 6 - and only the picker, which is
-     * this front end's own surface, invalidates the plane comparison. */
-    if (g_saveUi.open)
+    /* The save picker and the Escape confirmation sit on top of the composed frame and under the
+     * pointer, so they also reach --shot: the runtime framebuffer is what is copied into VGA here.
+     * The DOS build has no display clock (plat_display_hz is 0), so the port's overlay is composed
+     * into the picture just as it always was - docs\display-rate.md, phase 2 item 6 - and only these
+     * two, which are this front end's own surfaces, invalidate the plane comparison. */
+    if (g_saveUi.open || g_quitConfirm.open)
     {
         u8 *base = rt_overlay_begin();
         rt_surface s;
@@ -1371,6 +1411,7 @@ static void dos_present(rt_machine *m){
             s.w = w;
             s.h = h;
             save_ui_draw(m, &g_saveUi, &s);
+            quit_confirm_draw(m, &g_quitConfirm, &s);
         }
     }
     if (g_shotPath != 0) shot_write(g_shotPath);
@@ -1940,6 +1981,7 @@ int main(int argc, char **argv)
             g_ptrButton = 0;
             g_ptrButtonPrev = 0;
             save_ui_init(&g_saveUi);
+            quit_confirm_init(&g_quitConfirm);
             s_markClick = 0;
             s_saveCommit = 0;
             s_clickHeld = 0;

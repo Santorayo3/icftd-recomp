@@ -67,6 +67,10 @@
      19. title quit notice     (tools\quit-check.ps1 - a click on Quit Game shows the two requested
                                 lines on black for ten seconds, then the application closes; the
                                 screen is sampled where a desktop gives the game a window)
+    19b. escape confirmation   (tools\quit-confirm-check.ps1 - Escape in a played game asks with
+                                the requested question and buttons, Confirm restarts onto the
+                                title, Cancel only closes it, a measurement run is not asked, and
+                                the plaque's cyan surround is transparent in the dumped raster)
 
      20. clock freeze          (tools\time-freeze-check.ps1 - left Ctrl+T on the map holds the
                                 engine's clock: the date and time do not move, a travel adds no
@@ -88,7 +92,8 @@
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
     capture or reference-image test can prove a translated function. Steps 5-22 cover the port's
-    own surfaces - the presenter, the title menu and its settings and farewell, the map cursor, the
+    own surfaces - the presenter, the title menu and its settings and farewell, the Escape
+    confirmation, the map cursor, the
     save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
     the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys, the Ctrl+T
     clock freeze and the language - which have no counterpart in the original to diff against; they
@@ -205,6 +210,7 @@ $all = @(
     @{ Name = 'WASD keys (aliases)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\keys-check.ps1 } },
     @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
     @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
+    @{ Name = 'escape confirmation (popup)';          Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-confirm-check.ps1 } },
     @{ Name = 'clock freeze (Ctrl+T)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\time-freeze-check.ps1 } },
     @{ Name = 'profiler clock (8254)';                 Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pit-clock-check.ps1 } },
     @{ Name = 'language ([GAME] language)';            Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\lang-check.ps1 } }

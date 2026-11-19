@@ -41,7 +41,7 @@
 #      out of the box before the press landed there, so the press became a click on the picture and
 #      the run kept playing. Only the pointer *over the picture* is the game's; over the frame it
 #      stays the desktop's.
-#  11. The port's own overlay keeps its own colours over a scene: the OSD line is #00FF00 in the
+#  11. The port's own overlay keeps its own colours over a scene: the OSD line is white in the
 #      window, not a colour of the palette the scene loaded. The platform draws the overlay at
 #      display rate and hands the device its palette range; a run that handed over the table's base
 #      instead of the range's first entry loaded the scene's pens 0..31 into 224..255, and both the
@@ -760,7 +760,7 @@ try {
 
             # 11. The port's own overlay keeps its own colours over a scene. --osd arms the line on
             #     every present, the scene under it is the intro (--call enters it at frame 2500, so
-            #     the title does not take the screen), and the line must be #00FF00 in the window -
+            #     the title does not take the screen), and the line must be white in the window -
             #     the palette the scene loaded reaches the device through plat_set_palette, and the
             #     overlay's range has to be handed over from its own first entry or the scene's
             #     pens 0..31 land in 224..255 and colour the OSD line and the arrow.
@@ -785,17 +785,17 @@ try {
                 if ($shot13 -eq $null) {
                     Fail 'the overlay run would not render its client area'
                 } else {
-                    $green = 0
+                    $white = 0
                     for ($y = 0; $y -lt [Math]::Min(12, $shot13.Height); $y++) {
                         for ($x = 0; $x -lt [Math]::Min(140, $shot13.Width); $x++) {
                             $c = $shot13.GetPixel($x, $y)
-                            if ($c.R -lt 40 -and $c.G -gt 200 -and $c.B -lt 40) { $green++ }
+                            if ($c.R -gt 200 -and $c.G -gt 200 -and $c.B -gt 200) { $white++ }
                         }
                     }
-                    if ($green -lt 20) {
-                        Fail ("the OSD line is {0} pixel(s) of #00FF00 in the window - the overlay's colours are taken from the scene's palette" -f $green)
+                    if ($white -lt 20) {
+                        Fail ("the OSD line is {0} pixel(s) of #FFFFFF in the window - the overlay's colours are taken from the scene's palette" -f $white)
                     } else {
-                        Ok ("the OSD line keeps the port's own colour over a scene (#00FF00, {0} px)" -f $green)
+                        Ok ("the OSD line keeps the port's own colour over a scene (white, {0} px)" -f $white)
                     }
                     $shot13.Dispose()
                 }
