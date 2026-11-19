@@ -1,5 +1,5 @@
-/* --langdump: see lang_dump.c. The front end starts it and ends it; lang_hook.c feeds it the
- * English string at each text seam. */
+/* --langdump and --langkeys: see lang_dump.c. The front end starts the dump and ends it;
+ * lang_hook.c feeds it the English string at each text seam. */
 #ifndef ICFTD_HOST_LANG_DUMP_H
 #define ICFTD_HOST_LANG_DUMP_H
 
@@ -18,5 +18,11 @@ int host_lang_dump_on(void);
 
 /* Closes the file and reports how many lines were written. Called at exit. */
 void host_lang_dump_end(void);
+
+/* --langkeys <file>: the interface's English vocabulary (rt_lang_key), one escaped line each, for
+ * tools\lang-export.ps1 to merge into the source text. It is the half of the export that is not in
+ * the game's data files - the lines the engine draws from its program rather than its script bank,
+ * and the port's own screens - and it needs no run: it writes and closes at once. */
+void host_lang_keys(const char *path);
 
 #endif /* ICFTD_HOST_LANG_DUMP_H */

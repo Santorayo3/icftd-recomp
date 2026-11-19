@@ -1,9 +1,11 @@
 # The translation files, in three steps.
 #
-# The game's text is looked up by a **key**, not by the English text itself: every string has a
-# 64-bit FNV-1a id (sixteen hex digits) that `lang.c` computes the same way. That is what lets a
-# finished translation be shipped without a copy of the original's script - which is the only reason
-# the two are separate files:
+# Every translation lives in one file per language, and it holds *all* of it - the interface, the
+# menus, the map's place names, the boot's messages and the port's own screens as well as the
+# game's story. The game's text is looked up by a **key**, not by the English text itself: every
+# string has a 64-bit FNV-1a id (sixteen hex digits) that `lang.c` computes the same way. That is
+# what lets a finished translation be shipped without a copy of the original's script - which is the
+# only reason the two are separate files:
 #
 #   lang\en.csv         <id>;<English>              the source text   (not committed: game script)
 #   lang\de.work.csv    <id>;<English>;<German>     the translator's  (not committed: has English)
@@ -16,12 +18,21 @@
 #   powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Work        # -> lang\de.work.csv
 #   powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Pack        # -> lang\de.csv
 #
+# Another language is the same three steps with -Lang fr: its work file is `lang\fr.work.csv`, its
+# translation `lang\fr.csv`, and `icftd.ini` [GAME] language=fr draws it.
+#
 # `-Pack` is the step whose result belongs in the repository: it keeps only the German side, so the
 # file carries no English text at all. `-Work` rebuilds the translator's three-column file from
-# `en.csv` and whatever `de.csv` already has, so nothing already translated is ever lost.
+# `en.csv` and whatever `de.csv` already has, so nothing already translated is ever lost - a row
+# the source no longer knows is kept as it is.
 #
-# The source text comes from three places:
+# The source text comes from four places:
 #
+#   * the interface's own vocabulary, which `--langkeys` prints: the lines the engine draws from its
+#     program (the room menus, the map's place names, the boot's messages, the save/load screen)
+#     and the ones the port's screens draw (the title, the settings, the save slots, the OSD).
+#     That is also where the *formats* of the messages the program builds itself live ("Sleep for
+#     %d hours.", "June %d, 1951 - %02d:%02d %s"), which the engine fills in at run time;
 #   * a scripted run of the game with `--langdump`, which records every string the engine hands to
 #     its text routines - the load screen, the intro's narration, the room menus, the travel lines.
 #     Those live in memory only (the intro's bundle is compressed), so nothing else finds them. The
@@ -166,15 +177,28 @@ if ($Work) {
     [void]$sb.AppendLine('# Translation work file for It Came from the Desert - ' + $Lang + ', icftd.ini [GAME] language=' + $Lang)
     [void]$sb.AppendLine('# Three columns: the id, the game''s own text, your translation.')
     [void]$sb.AppendLine('# Translate column 3 only - columns 1 and 2 must stay as they are.')
-    [void]$sb.AppendLine('# An empty column 3 keeps what the game has (its German for the interface, English')
-    [void]$sb.AppendLine('# for the story). Save as CSV with a semicolon separator, then run')
-    [void]$sb.AppendLine('#   tools\lang-export.ps1 -Pack')
-    [void]$sb.AppendLine('# which writes the file that belongs in the repository (column 3, keyed by the id).')
+    [void]$sb.AppendLine('# An empty column 3 keeps the game''s own English, which is what an unfinished')
+    [void]$sb.AppendLine('# file looks like. Save as CSV with a semicolon separator, then run')
+    [void]$sb.AppendLine('#   tools\lang-export.ps1 -Pack -Lang ' + $Lang)
+    [void]$sb.AppendLine('# which writes the file the game reads (column 3, keyed by the id).')
+    $known = @{}
     $rows = 0
     foreach ($r in (ReadRecords $sourceFile)) {
-        $id = if (IsId $r.Key) { $r.Key.ToUpper() } else { IdOf $r.English }
+        # A two-column source record is <id>;<English>, which ReadRecords reports as the German
+        # field - the name is the translator's file's, where that column is the translation.
+        $id = if (IsId $r.Key) { $r.Key.ToUpper() } else { IdOf $r.German }
+        $known[$id] = 1
         $german = if ($done.ContainsKey($id)) { $done[$id] } else { '' }
         [void]$sb.AppendLine($id + ';' + (CsvField $r.German) + ';' + (CsvField $german))
+        $rows++
+    }
+    # A translated row the source does not know - its English text is no longer in the game's data,
+    # or it names its text by the text itself - is kept as it is, so -Pack writes it back.
+    foreach ($r in (ReadRecords $outFile)) {
+        $id = if (IsId $r.Key) { $r.Key.ToUpper() } else { IdOf $r.Key }
+        if ($known.ContainsKey($id) -or $r.German.Length -eq 0) { continue }
+        [void]$sb.AppendLine($id + ';;' + (CsvField $r.German))
+        $known[$id] = 1
         $rows++
     }
     [System.IO.File]::WriteAllText($workFile, $sb.ToString(), $utf8)
@@ -182,20 +206,20 @@ if ($Work) {
     exit 0
 }
 
-# --- -Pack: the committed translation - the German side only, keyed by id -----------------------
+# --- -Pack: the translation the game reads - the translated side only, keyed by id --------------
 if ($Pack) {
     $from = if (Test-Path $workFile) { $workFile } else { $outFile }
     if (-not (Test-Path $from)) { throw "no $(Show $workFile) - run tools\lang-export.ps1 -Work first" }
     $sb = New-Object System.Text.StringBuilder
-    [void]$sb.AppendLine('# Translation for It Came from the Desert - icftd.ini [GAME] language=' + $Lang)
-    [void]$sb.AppendLine('# Each record is the id of an English text and its ' + $Lang + ' translation. The id')
+    [void]$sb.AppendLine('# Complete translation for It Came from the Desert - icftd.ini [GAME] language=' + $Lang)
+    [void]$sb.AppendLine('# Each record is the id of an English text and its translation into ' + $Lang + ' - the')
+    [void]$sb.AppendLine('# interface, the menus, the map''s places, the messages and the whole story. The id')
     [void]$sb.AppendLine('# is an FNV-1a hash of the English (sixteen hex digits) and is not the text itself,')
     [void]$sb.AppendLine('# so this file carries none of the original script.')
     [void]$sb.AppendLine('# Generated by tools\lang-export.ps1 -Pack from the translator''s work file.')
     [void]$sb.AppendLine('# Translate in ' + $Lang + '.work.csv and re-run -Pack, never in this file: it is')
     [void]$sb.AppendLine('# rewritten from that one.')
-    [void]$sb.AppendLine('# An empty ' + $Lang + ' field keeps what the game has (its German for the')
-    [void]$sb.AppendLine('# interface, English for the story).')
+    [void]$sb.AppendLine('# A line without a record here - or whose record is empty - is drawn in English.')
     $rows = 0
     foreach ($r in (ReadRecords $from)) {
         if ($r.German.Length -eq 0) { continue }
@@ -220,6 +244,7 @@ New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $sourceFile) | Out-Null
 
 $ui = New-Object System.Collections.ArrayList       # the run's records, in the order they appeared
+$iface = New-Object System.Collections.ArrayList    # the interface's own text (--langkeys)
 $story = New-Object System.Collections.ArrayList
 $talk = New-Object System.Collections.ArrayList
 
@@ -248,10 +273,22 @@ function AddText($list, [string]$text) {
     if (-not $list.Contains($text)) { [void]$list.Add($text) }
 }
 
-# 1. the strings only a run knows
+# 1. the interface's own vocabulary - the lines the engine draws from its program and the port's
+#    screens draw, which no data file holds. `--langkeys` prints it without running the game, so
+#    this one needs the executable but neither disks nor a scene.
+if (-not (Test-Path $Exe)) { throw "no $Exe - build it with tools\build-host.ps1 (it lists the interface's text)" }
+$keys = Join-Path $Scratch 'keys.tsv'
+& $Exe --langkeys $keys | Out-Null
+if (-not (Test-Path $keys)) { throw "$Exe did not write $keys" }
+foreach ($line in [System.IO.File]::ReadAllLines($keys)) {
+    if ($line.Length -eq 0 -or $line.StartsWith('#')) { continue }
+    $en = Unescape $line
+    if ($en.Length -gt 0 -and -not $iface.Contains($en)) { [void]$iface.Add($en) }
+}
+
+# 2. the strings only a run knows
 $dump = Join-Path $Scratch 'run.tsv'
 if (-not $SkipRun) {
-    if (-not (Test-Path $Exe)) { throw "no $Exe - build it with tools\build-host.ps1 (or pass -SkipRun)" }
     if (-not (Test-Path $Image)) { throw "no $Image - run tools\extract.ps1 (or pass -SkipRun)" }
     $taps = @('# lang-export: fire taps, long enough for the intro and a room')
     for ($f = 10; $f -le 20000; $f += 60) { $taps += "$f 1 0xFFFF"; $taps += "$($f + 6) 0 0xFFFF" }
@@ -276,7 +313,7 @@ if (Test-Path $dump) {
     }
 }
 
-# 2. the rooms' script bank
+# 3. the rooms' script bank
 if (Test-Path $desert) {
     $b = [System.IO.File]::ReadAllBytes($desert)
     $i = 0
@@ -316,7 +353,7 @@ if (Test-Path $desert) {
     }
 } else { Write-Output "lang-export: no $desert - skipping the rooms' text" }
 
-# 3. the telephone dialogue
+# 4. the telephone dialogue
 if (Test-Path $phone) {
     foreach ($line in [System.IO.File]::ReadAllLines($phone)) {
         $text = $line.TrimEnd("`r")
@@ -331,35 +368,47 @@ if (Test-Path $phone) {
 } else { Write-Output "lang-export: no $phone - skipping the telephone dialogue" }
 
 # --- the source file: <id>;<English> -----------------------------------------------------------
-# One record belongs in one section only: the run draws story records and menu labels alike, and the
-# two data files are scanned for the same text.
-$storySet = @{}
-foreach ($t in $story) { $storySet[$t] = 1 }
-foreach ($t in $talk) { $storySet[$t] = 1 }
+# One record belongs in one section only: the run draws story records and menu labels alike, the
+# interface's own list repeats lines the run and the data files also hold, and the two data files
+# are scanned for the same text. A line that appears twice would be a row a translator fills in
+# twice, so the first section that names it keeps it.
 $uiOnly = @()
-foreach ($t in $ui) { if (-not $storySet.ContainsKey($t)) { $uiOnly += $t } }
+foreach ($t in $ui) { $uiOnly += $t }
+$seen = @{}
+$secIface = New-Object System.Collections.ArrayList
+$secUi    = New-Object System.Collections.ArrayList
+$secStory = New-Object System.Collections.ArrayList
+$secTalk  = New-Object System.Collections.ArrayList
+foreach ($section in @(@($iface, $secIface), @($uiOnly, $secUi), @($story, $secStory), @($talk, $secTalk))) {
+    foreach ($t in $section[0]) {
+        if ($seen.ContainsKey($t)) { continue }
+        $seen[$t] = 1
+        [void]$section[1].Add($t)
+    }
+}
 
 $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('# Source text of It Came from the Desert - the id and the English text of every')
 [void]$sb.AppendLine('# string the game can draw. NOT committed: this is the game''s own script.')
 [void]$sb.AppendLine('# tools\lang-export.ps1 -Work builds the translator''s file from it, -Pack writes')
-[void]$sb.AppendLine('# the translation that belongs in the repository.')
+[void]$sb.AppendLine('# the translation the game reads.')
 [void]$sb.AppendLine('#')
 [void]$sb.AppendLine('# The id is an FNV-1a hash of the English text (sixteen hex digits), and lang.c')
 [void]$sb.AppendLine('# computes the same value, so a translation file never repeats the original''s')
 [void]$sb.AppendLine('# words.')
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine("# --- the interface, the menus and the messages ($($uiOnly.Count) record(s)) ---")
-foreach ($t in $uiOnly) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
+[void]$sb.AppendLine("# --- the interface, the menus and the messages ($($secIface.Count + $secUi.Count) record(s)) ---")
+foreach ($t in $secIface) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
+foreach ($t in $secUi) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine("# --- the story: the rooms, the people and the narration ($($story.Count) record(s)) ---")
-foreach ($t in $story) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
+[void]$sb.AppendLine("# --- the story: the rooms, the people and the narration ($($secStory.Count) record(s)) ---")
+foreach ($t in $secStory) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine("# --- the telephone dialogue ($($talk.Count) record(s)) ---")
-foreach ($t in $talk) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
+[void]$sb.AppendLine("# --- the telephone dialogue ($($secTalk.Count) record(s)) ---")
+foreach ($t in $secTalk) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
 
 [System.IO.File]::WriteAllText($sourceFile, $sb.ToString(), $utf8)
-$total = $uiOnly.Count + $story.Count + $talk.Count
+$total = $secIface.Count + $secUi.Count + $secStory.Count + $secTalk.Count
 Write-Output ("lang-export: {0} record(s) written to {1} - {2} interface, {3} story, {4} telephone" -f `
-              $total, $Source, $uiOnly.Count, $story.Count, $talk.Count)
+              $total, $Source, ($secIface.Count + $secUi.Count), $secStory.Count, $secTalk.Count)
 Write-Output 'lang-export: next: -Work for the translator''s file, then -Pack for the translation'

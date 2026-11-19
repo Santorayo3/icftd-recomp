@@ -1155,7 +1155,7 @@ static void loading_frame(rt_machine *m)
  * once while g_ptrKnown is clear. */
 static void dos_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
-    host_lang_entry(c, m, pc);            /* [GAME] language: the German string, if there is one */
+    host_lang_entry(c, m, pc);            /* [GAME] language: the translated string, if there is one */
     /* The map's script: the pointer seam, and the screen Ctrl+T's clock freeze belongs to. */
     if (host_time_freeze_map_pc(pc)) { map_pointer(m); return; }
     if (host_cheat_entry(m, pc)) return;
@@ -1660,7 +1660,7 @@ int main(int argc, char **argv)
         rt_shutdown(&m);
         return 1;
     }
-    host_lang_open(&m);                    /* [GAME] language=de: the catalog into this machine */
+    host_lang_open(&m);                    /* [GAME] language=xx: the catalog into this machine */
     m.dataDir = dataDir;
     m.saveName = rc_active->saveName;
     m.saveBytes = rc_active->saveBytes;

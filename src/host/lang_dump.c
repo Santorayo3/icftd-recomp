@@ -26,18 +26,23 @@ int host_lang_dump_on(void) { return g_file != 0; }
 
 /* Writes one string with the escapes the loader decodes again: a tab would end the field, a
  * newline the row, and a byte the file could not hold as text is written as \xHH. */
-static void dump_row(const char *en)
+static void dump_escape(FILE *f, const char *en)
 {
     const u8 *p = (const u8 *)en;
 
     for (; *p != 0; p++)
     {
-        if (*p == '\\') fputs("\\\\", g_file);
-        else if (*p == '\t') fputs("\\t", g_file);
-        else if (*p == '\n') fputs("\\n", g_file);
-        else if (*p < 0x20u || *p >= 0x7Fu) fprintf(g_file, "\\x%02X", *p);
-        else fputc(*p, g_file);
+        if (*p == '\\') fputs("\\\\", f);
+        else if (*p == '\t') fputs("\\t", f);
+        else if (*p == '\n') fputs("\\n", f);
+        else if (*p < 0x20u || *p >= 0x7Fu) fprintf(f, "\\x%02X", *p);
+        else fputc(*p, f);
     }
+}
+
+static void dump_row(const char *en)
+{
+    dump_escape(g_file, en);
     fputs("\t\n", g_file);
 }
 
@@ -92,4 +97,23 @@ void host_lang_dump_end(void)
     g_seenPool = 0;
     g_seenCount = 0;
     g_seenPoolAt = 0;
+}
+
+void host_lang_keys(const char *path)
+{
+    FILE *f;
+    int i, count = rt_lang_key_count();
+
+    if (path == 0 || path[0] == 0) return;
+    f = fopen(path, "wb");
+    if (f == 0) { printf("language: cannot write %s\n", path); return; }
+    fputs("# The interface's English text, one line each, with the same escapes as --langdump.\n"
+          "# tools\\lang-export.ps1 merges it into the source text a translation starts from.\n", f);
+    for (i = 0; i < count; i++)
+    {
+        dump_escape(f, rt_lang_key(i));
+        fputc('\n', f);
+    }
+    fclose(f);
+    printf("language: %d interface line(s) written to %s\n", count, path);
 }

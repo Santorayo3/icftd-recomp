@@ -585,8 +585,9 @@ const char *plat_default_ini(void)
            "music=10\r\n"
            "\r\n"
            "[GAME]\r\n"
-           "; The language of the game's own text: en = the original's English (the default),\r\n"
-           "; de = German. The port's own screens (title, settings, save slots) follow it too.\r\n"
+           "; The language of the game's own text: en = the original's English (the default).\r\n"
+           "; Any other code reads LANG\\<code>.CSV next to the game (de = German), which holds\r\n"
+           "; every translated line - the interface and the port's own screens too.\r\n"
            "language=en\r\n";
 }
 

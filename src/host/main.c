@@ -18,6 +18,7 @@
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
  *                [--mouse <file>] [--hoverlog] [--srcdiff] [--genericblit]
  *                [--cameralog] [--savelog] [--program ant|original] [--langdump <file>]
+ *                [--langkeys <file>]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
  * launched by double-clicking it.
@@ -59,7 +60,10 @@
  * only exists in memory (the intro's compressed narration pages, the room menus, the map's
  * messages). The run stays English while it dumps, whatever `[GAME] language` says, so a row is
  * always the original's text; tools\lang-export.ps1 runs it and merges its rows with the prose read
- * out of the data files into `lang\de.csv` (docs\port-features.md, "The language").
+ * out of the data files and the interface's own vocabulary (`--langkeys`) into `lang\en.csv`, the
+ * source a translation file is made from (docs\port-features.md, "The translation file").
+ * `--langkeys <file>` writes that vocabulary on its own: the lines the engine draws from its
+ * program and the port's own screens, which no data file holds.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
  * `--titlekey` takes one of the title screen's menu choices (0 the game, 1..7 the minigames, 8..10
  * the endings; 11 and 12 are the menu's Load Game and New Game buttons, i.e. the played path where
@@ -1305,7 +1309,7 @@ static void loading_frame(rt_machine *m)
  * seam. */
 static void host_entry(cpu_t *c, rt_machine *m, u32 pc)
 {
-    host_lang_entry(c, m, pc);            /* [GAME] language: the German string, if there is one */
+    host_lang_entry(c, m, pc);            /* [GAME] language: the translated string, if there is one */
     if (host_cheat_entry(m, pc)) return;
     if (load_pc(pc)) { g_loadSeen = m->frame; return; }
     if (host_hospital_camera_entry(m, pc)) return;
@@ -1825,6 +1829,11 @@ int main(int argc, char **argv)
          * routines, one `<English><TAB>` row each, which is what a translation file is made of
          * (tools\lang-export.ps1 runs this and merges the rows with the data files' prose). */
         if (strcmp(argv[i], "--langdump") == 0 && i + 1 < argc) { langDumpPath = argv[++i]; continue; }
+        /* --langkeys <file>: the interface's English vocabulary - the lines the engine draws from
+         * its program (menus, place names, boot messages) and the port's own screens, neither of
+         * which is in the game's data files - written for tools\lang-export.ps1. Nothing has been
+         * set up yet, so it is written here and the program ends: no run, no game data needed. */
+        if (strcmp(argv[i], "--langkeys") == 0 && i + 1 < argc) { host_lang_keys(argv[++i]); return 0; }
         if (strcmp(argv[i], "--interpstat") == 0) { g_interpStat = 1; continue; }
         if (strcmp(argv[i], "--cover") == 0 && i + 1 < argc) { coverPath = argv[++i]; continue; }
         if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc) { shotPath = argv[++i]; continue; }
@@ -2028,7 +2037,7 @@ int main(int argc, char **argv)
     if (!rt_init(&m)) { printf("recomp: out of memory\n"); return 1; }
     g_m = &m;
     if (!rt_load_image(&m, base, image)) { printf("recomp: cannot load %s\n", image); rt_shutdown(&m); return 1; }
-    host_lang_open(&m);                    /* [GAME] language=de: the catalog into this machine */
+    host_lang_open(&m);                    /* [GAME] language=xx: the catalog into this machine */
     m.dataDir = dataDir;
     m.saveName = rc_active->saveName;
     m.saveBytes = rc_active->saveBytes;
@@ -2186,8 +2195,8 @@ int main(int argc, char **argv)
     g_portArm = (g_window && inputPath == 0 && statePrefix == 0 && shotPath == 0 &&
                 dumpPrefix == 0 && g_callPc == 0 && g_pokeCount == 0) || mousePath != 0;
     /* The cheat follows the same rule, and --cheat is its scripted form: it needs the entry hook
-     * even in a run that is otherwise a measurement, because that run asked for the cheat. German
-     * needs it too: the translation is the hook's other job (src\host\lang_hook.c). */
+     * even in a run that is otherwise a measurement, because that run asked for the cheat. A
+     * language needs it too: the translation is the hook's other job (src\host\lang_hook.c). */
     if (g_portArm || g_cheatFrame != 0 || host_lang_on() || host_lang_dump_on()) rc_entryHook = host_entry;
     host_hospital_camera_log(g_cameraLog);
     host_save_button_log(g_saveLog);

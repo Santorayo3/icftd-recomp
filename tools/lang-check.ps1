@@ -3,15 +3,20 @@
 # A port feature: the original is English-only, so there is nothing to diff the German against.
 # What is checked is what the feature claims:
 #
-#   * `[GAME] language=de` makes the engine draw German where it drew English - the load screen
-#     ("Lizard Breath hat auf dich gewartet.") and a room's action list ("Zur Karte", "Schlafen"),
-#     both through the engine's own layout routines, so the wrap and the centring are the game's;
+#   * `[GAME] language=de` makes the engine draw German where it drew English - the load screen and
+#     a room's action list, both through the engine's own layout routines, so the wrap and the
+#     centring are the game's. The words are the ones `lang\de.csv` holds, read back here (the file
+#     *is* the catalog: no translation is built into the binary), so a translator's correction is
+#     never mistaken for a failure;
 #   * `[GAME] language=en` (the default) draws the original's English, unchanged;
 #   * the language changes nothing the game computes: the two runs' RAM is byte-identical except
-#     inside the region the runtime reserves for the German catalog (above the emulated stack,
+#     inside the region the runtime reserves for the translated catalog (above the emulated stack,
 #     0x184000..0x1C0000 - memory the machine model never hands to the game), and their machine
 #     state (registers, custom chips, frame count) is identical;
-#   * with no `[GAME]` entry at all the run is the English one ("language=en" is the default).
+#   * with no `[GAME]` entry at all the run is the English one ("language=en" is the default);
+#   * the dump the exporter starts from is the English text, whatever language is selected;
+#   * a translation file translates the interface and the story, by text key and by id, and its
+#     middle column (the translator's English) is never drawn.
 #
 # The room menu needs the intro played through: the tap script below presses fire every 60 frames
 # for the first ~1600 frames, which advances the five narration pages and leaves the room's action
@@ -22,7 +27,8 @@ param(
     [string]$Exe = 'bin\win32\icftd-recomp.exe',
     [string]$DataDir = 'export',
     [string]$Image = 'export\code\dshell4k\dshell.img',
-    [string]$Work = 'out\lang-check'
+    [string]$Work = 'out\lang-check',
+    [string]$Lang = 'de'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -37,6 +43,94 @@ Get-ChildItem $Work -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -
 $fail = 0
 function Fail([string]$text) { Write-Output "FAIL lang: $text"; $script:fail++ }
 function Ok([string]$text) { Write-Output "lang: $text" }
+
+# The translation the run is about to read, in the order lang_read_file tries: next to the
+# executable (where a release keeps it), else the repository's own lang\ folder.
+$langDir = Join-Path (Split-Path $Exe) 'lang'
+$langFile = if (Test-Path (Join-Path $langDir "$Lang.csv")) { Join-Path $langDir "$Lang.csv" } else { "lang\$Lang.csv" }
+
+Add-Type -TypeDefinition @'
+public static class LangId {
+    public static ulong Hash(byte[] b) {
+        ulong h = 14695981039346656037UL;
+        foreach (byte c in b) { h ^= c; h *= 1099511628211UL; }
+        return h;
+    }
+}
+'@
+function IdOf([string]$text) {
+    return ('{0:X16}' -f [LangId]::Hash([System.Text.Encoding]::UTF8.GetBytes($text)))
+}
+
+# The fields of one CSV record, quotes removed ("" is a quote inside a quoted field).
+function Fields([string]$record) {
+    $fields = New-Object System.Collections.ArrayList
+    $sb = New-Object System.Text.StringBuilder
+    $i = 0
+    while ($i -le $record.Length) {
+        $quoted = $false
+        [void]$sb.Clear()
+        if ($i -lt $record.Length -and $record[$i] -eq '"') { $quoted = $true; $i++ }
+        while ($i -lt $record.Length) {
+            $ch = $record[$i]
+            if ($quoted) {
+                if ($ch -eq '"') {
+                    if ($i + 1 -lt $record.Length -and $record[$i + 1] -eq '"') { [void]$sb.Append('"'); $i += 2; continue }
+                    $i++; $quoted = $false; continue
+                }
+                [void]$sb.Append($ch); $i++
+            }
+            elseif ($ch -eq ';') { break }
+            else { [void]$sb.Append($ch); $i++ }
+        }
+        [void]$fields.Add($sb.ToString())
+        if ($i -lt $record.Length -and $record[$i] -eq ';') { $i++ } else { break }
+    }
+    return $fields
+}
+
+# The translation the file holds for an English text - the last row wins, as it does in lang.c.
+# '' when the file has none, which is what a line the game draws in English looks like.
+function German([string]$english) {
+    $id = IdOf $english
+    $text = ''
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $root $langFile))) {
+        if ($line.Length -eq 0 -or $line.StartsWith('#')) { continue }
+        if (-not $line.StartsWith($id)) { continue }
+        $f = Fields $line
+        if ($f.Count -ge 2) { $text = $f[1] }
+    }
+    return $text
+}
+
+# The file's text as the screen has it: lang.c converts UTF-8 to the font's own codes - the six
+# umlauts 0x80..0x85, "ss" for ß, the base letter for another accented Latin-1 letter, '?' for what
+# the font cannot show - and --textlog writes a byte it cannot print as '.'. Written out here so
+# the assertion names the file's own words instead of a wording this script remembers.
+function Drawn([string]$text) {
+    $fold = 'AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTs' + 'aaaaaaaceeeeiiiidnooooo/ouuuuyty'
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $text.ToCharArray()) {
+        $cp = [int]$ch
+        $code = @($cp)
+        if ($cp -eq 0x00C4) { $code = 0x80 }
+        elseif ($cp -eq 0x00D6) { $code = 0x81 }
+        elseif ($cp -eq 0x00DC) { $code = 0x82 }
+        elseif ($cp -eq 0x00E4) { $code = 0x83 }
+        elseif ($cp -eq 0x00F6) { $code = 0x84 }
+        elseif ($cp -eq 0x00FC) { $code = 0x85 }
+        elseif ($cp -eq 0x00DF) { $code = 0x73, 0x73 }
+        elseif ($cp -eq 0x2013 -or $cp -eq 0x2014) { $code = 0x2D }
+        elseif ($cp -eq 0x2018 -or $cp -eq 0x2019) { $code = 0x27 }
+        elseif ($cp -eq 0x201C -or $cp -eq 0x201D) { $code = 0x22 }
+        elseif ($cp -ge 0x00C0 -and $cp -le 0x00FF) { $code = [int][char]$fold[$cp - 0x00C0] }
+        elseif ($cp -ge 0x80) { $code = 0x3F }
+        foreach ($b in $code) {
+            [void]$sb.Append($(if ($b -ge 32 -and $b -lt 127) { [char]$b } else { '.' }))
+        }
+    }
+    return $sb.ToString()
+}
 
 # The settings file the executable reads is the one next to it (rt_config_ensure). The check owns
 # it while it runs and puts the player's own file back afterwards.
@@ -64,20 +158,31 @@ try {
     Set-Language 'en'
     $en = Run 'en' 2600000 @('--input', (Join-Path $Work 'advance.txt'), '--textlog',
                              '--state', 'out\lang-check\en', '--ram', '100')
-    Set-Language 'de'
+    Set-Language $Lang
     $de = Run 'de' 2600000 @('--input', (Join-Path $Work 'advance.txt'), '--textlog',
                              '--state', 'out\lang-check\de', '--ram', '100')
 
     if ($en -notmatch 'Lizard Breath has been awaiting your return\.') {
         Fail 'language=en did not draw the original English load screen'
     } else { Ok 'language=en draws the original English' }
-    if ($de -notmatch 'Lizard Breath hat auf dich gewartet\.') {
-        Fail 'language=de did not draw the German load screen'
-    } elseif ($de -notmatch 'Zum Laden eines Spielstands w') {
-        Fail 'language=de drew the German heading but not the question below it'
-    } else { Ok 'language=de draws German' }
-    if ($de -match 'Lizard Breath has been awaiting your return\.') {
-        Fail 'language=de still drew the English line'
+
+    # What the file holds is exactly what must be on the screen - not a wording this script
+    # remembers, which a translator may have corrected since.
+    $loadText = German 'Lizard Breath has been awaiting your return.'
+    $askText  = German "If you want to load a saved game, select 'YES'."
+    if ($loadText -eq '' -or $askText -eq '') {
+        Fail "$langFile does not translate the load screen, so there is nothing to compare against"
+    } else {
+        if ($de -notmatch [regex]::Escape((Drawn $loadText))) {
+            Fail "language=$Lang did not draw the file's load screen line ('$loadText')"
+        } elseif ($de -notmatch [regex]::Escape((Drawn $askText))) {
+            Fail "language=$Lang drew the load screen's first line but not the question below it"
+        } else {
+            Ok "language=$Lang draws what $langFile holds"
+        }
+        if ($de -match [regex]::Escape('Lizard Breath has been awaiting your return.')) {
+            Fail "language=$Lang still drew the English line"
+        }
     }
 
     # --- 2. the language changed nothing the game computes ------------------------------------
@@ -144,12 +249,20 @@ try {
         else { Ok "registers, custom chips and the frame counts are identical up to frame $limit (the first German line), $compared record(s)" }
     }
 
-    # --- 3. a room's action list is German too -------------------------------------------------
-    Set-Language 'de'
+    # --- 3. a room's action list is translated too ---------------------------------------------
+    Set-Language $Lang
     $room = Run 'room' 60000000 @('--input', (Join-Path $Work 'advance.txt'), '--textlog')
-    if ($room -notmatch '"Zur Karte"') { Fail 'the room menu did not draw "Zur Karte"' }
-    elseif ($room -notmatch '"Schlafen"') { Fail 'the room menu drew "Zur Karte" but not "Schlafen"' }
-    else { Ok 'the room action list is German (Zur Karte, Anrufen, Schlafen)' }
+    $mapText = German 'Go to Map'
+    $sleepText = German 'Sleep'
+    if ($mapText -eq '' -or $sleepText -eq '') {
+        Fail "$langFile does not translate the room menu, so there is nothing to compare against"
+    } elseif ($room -notmatch [regex]::Escape('"' + (Drawn $mapText) + '"')) {
+        Fail "the room menu did not draw '$mapText'"
+    } elseif ($room -notmatch [regex]::Escape('"' + (Drawn $sleepText) + '"')) {
+        Fail "the room menu drew '$mapText' but not '$sleepText'"
+    } else {
+        Ok "the room action list is $Lang ('$mapText', '$sleepText')"
+    }
 
     # --- 4. no [GAME] entry at all is English --------------------------------------------------
     Set-Content -LiteralPath $ini -Value "; lang-check`r`n" -NoNewline -Encoding ascii
@@ -159,15 +272,16 @@ try {
     } else { Ok 'no [GAME] entry means en (the default)' }
     # --- 5. the dump is the English text, whatever language the settings select ------------------
     # `--langdump` is what tools\lang-export.ps1 builds the translation file from, so it has to be
-    # the original's English: with German selected the run it is taken from stays English as well,
-    # because a substituted string would arrive at the next text routine down and be written down
-    # as if it were the original (that is how a German line ended up in the English column).
+    # the original's English: with another language selected the run it is taken from stays English
+    # as well, because a substituted string would arrive at the next text routine down and be
+    # written down as if it were the original (that is how a translated line ended up in the
+    # English column).
     $dumpEn = Join-Path $Work 'dump-en.tsv'
     $dumpDe = Join-Path $Work 'dump-de.tsv'
     $dumpTaps = @('--input', (Join-Path $Work 'advance.txt'))
     Set-Language 'en'
     $null = Run 'dumpen' 5000000 (@('--langdump', $dumpEn) + $dumpTaps)
-    Set-Language 'de'
+    Set-Language $Lang
     $null = Run 'dumpde' 5000000 (@('--langdump', $dumpDe) + $dumpTaps)
     if (-not (Test-Path $dumpEn) -or -not (Test-Path $dumpDe)) {
         Fail 'the language dump was not written'
@@ -177,52 +291,27 @@ try {
         if ($a -notmatch 'Lizard Breath has been awaiting your return\.') {
             Fail 'the dump does not hold the load screen text'
         } elseif ($a -ne $b) {
-            Fail 'the dump differs between language=en and language=de - it is meant to be the English'
+            Fail "the dump differs between language=en and language=$Lang - it is meant to be the English"
         } else {
             Ok 'the language dump is the English text with either language selected'
         }
     }
 
-    # --- 6. a translation file overrides the built-in text, and adds story text ----------------
+    # --- 6. the file is the only catalog: a row keyed by the text overrides the row keyed by the
+    #        id, a story record keyed by its id is drawn, and the middle column never is ---------
     $story = ''
     $storyId = ''
     $export = Join-Path $Work 'export.csv'
     if (Test-Path $Exe) {
         # The exporter writes the source text, `<id>;<English>`: running it here also checks that
-        # the file it writes is one the game's id keying can use.
+        # the file it writes is one the game's id keying can use, and that `--langkeys` reached it.
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\lang-export.ps1') `
             -SkipRun -Source $export -Scratch (Join-Path $Work 'export') | Out-Null
     }
     if (-not (Test-Path $export)) {
         Fail 'tools\lang-export.ps1 wrote no file'
     } else {
-        # The fields of a CSV record, quotes removed ("" is a quote inside a quoted field).
-        # Reading them back here also checks the exporter's quoting.
-        function Fields([string]$record) {
-            $fields = New-Object System.Collections.ArrayList
-            $sb = New-Object System.Text.StringBuilder
-            $i = 0
-            while ($i -le $record.Length) {
-                $quoted = $false
-                [void]$sb.Clear()
-                if ($i -lt $record.Length -and $record[$i] -eq '"') { $quoted = $true; $i++ }
-                while ($i -lt $record.Length) {
-                    $ch = $record[$i]
-                    if ($quoted) {
-                        if ($ch -eq '"') {
-                            if ($i + 1 -lt $record.Length -and $record[$i + 1] -eq '"') { [void]$sb.Append('"'); $i += 2; continue }
-                            $i++; $quoted = $false; continue
-                        }
-                        [void]$sb.Append($ch); $i++
-                    }
-                    elseif ($ch -eq ';') { break }
-                    else { [void]$sb.Append($ch); $i++ }
-                }
-                [void]$fields.Add($sb.ToString())
-                if ($i -lt $record.Length -and $record[$i] -eq ';') { $i++ } else { break }
-            }
-            return $fields
-        }
+        # Reading the records back here also checks the exporter's quoting.
         $rows = [System.IO.File]::ReadAllLines($export)
         $best = ''
         foreach ($row in $rows) {
@@ -239,37 +328,27 @@ try {
     if ($story -eq '') {
         Fail 'the exported file holds no narration record to translate'
     } else {
-        $langDir = Join-Path (Split-Path $Exe) 'lang'
-        $langFile = 'lang\de.csv'
-        if (Test-Path $langDir) { $langFile = Join-Path $langDir 'de.csv' }
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $langFile) | Out-Null
         $savedLang = if (Test-Path $langFile) { [System.IO.File]::ReadAllBytes($langFile) } else { $null }
         try {
-            Set-Language 'de'
+            Set-Language $Lang
             # The id a shipped record names its text by (lang.c, lang_hash64): FNV-1a over the
             # bytes of the English text. If this value ever stops matching, every translation file
             # in the repository stops working - so it is computed here, independently.
-            if (-not ('LangId' -as [type])) {
-                Add-Type -TypeDefinition @'
-public static class LangId {
-    public static ulong Hash(byte[] b) {
-        ulong h = 14695981039346656037UL;
-        foreach (byte c in b) { h ^= c; h *= 1099511628211UL; }
-        return h;
-    }
-}
-'@
-            }
-            $id = '{0:X16}' -f [LangId]::Hash([System.Text.Encoding]::UTF8.GetBytes($story))
+            $id = IdOf $story
             if ($storyId -ne '' -and $storyId -ne $id) {
                 Fail ("the exporter's id ($storyId) and the game's own ($id) disagree")
             }
-            # Both fields quoted and their quotes doubled, which is what a spreadsheet writes and
-            # what the loader reads back: a key that holds the separator must survive. One record
-            # here is keyed by the English text, the other by its id in the three-column shape a
-            # translator works in - its middle column is a decoy that must never be drawn.
+            # The file the run reads is the shipped one plus the three rows this test is about, so
+            # the rest of the game stays translated: one row is keyed by the English text and
+            # overrides the shipped row for the same line (the later row wins), one is keyed by the
+            # id in the three-column shape a translator works in - its middle column is a decoy
+            # that must never be drawn - and both are quoted, which is what a spreadsheet writes
+            # and what the loader reads back.
             function Q([string]$t) { return '"' + $t.Replace('"', '""') + '"' }
-            $records = "# lang-check`r`n" +
+            $doorText = German 'Answer the Door'
+            $shippedText = if ($savedLang -ne $null) { [System.Text.Encoding]::UTF8.GetString($savedLang) } else { '' }
+            $records = $shippedText +
                        (Q 'Lizard Breath has been awaiting your return.') + ';' +
                        (Q 'AUS DER DATEI, Lizard Breath.') + "`r`n" +
                        $id + ';' + (Q 'DECOY - the English column is never drawn') + ';' +
@@ -278,17 +357,18 @@ public static class LangId {
                                            (New-Object System.Text.UTF8Encoding($false)))
             $file = Run 'file' 60000000 @('--input', (Join-Path $Work 'advance.txt'), '--textlog')
             if ($file -notmatch 'AUS DER DATEI, Lizard Breath\.') {
-                Fail 'the translation file did not override the built-in German of the load screen (text key)'
-            } elseif ($file -match 'Lizard Breath hat auf dich gewartet\.') {
-                Fail 'the built-in German was still drawn although the file translates that line'
+                Fail 'a row keyed by the English text did not override the row keyed by its id'
+            } elseif ($loadText -ne '' -and $file -match [regex]::Escape((Drawn $loadText))) {
+                Fail 'the shipped line was still drawn although a later row translates it'
             } elseif ($file -notmatch 'GESCHICHTE AUS DER DATEI') {
                 Fail 'a story record keyed by its id was not drawn'
             } elseif ($file -match 'DECOY') {
                 Fail 'the middle field of a three-field record was drawn - it must be ignored'
-            } elseif ($file -notmatch 'AUS DER DATEI, Lizard Breath[\s\S]*T\.r \.ffnen') {
+            } elseif ($doorText -ne '' -and
+                    $file -notmatch ('AUS DER DATEI, Lizard Breath[\s\S]*' + [regex]::Escape('"' + (Drawn $doorText) + '"'))) {
                 Fail 'the run did not reach the room menu after the translated narration'
             } else {
-                Ok 'a translation file translates the interface and the story, by text key and by id'
+                Ok 'one file translates the interface and the story, by text key and by id'
             }
         }
         finally {

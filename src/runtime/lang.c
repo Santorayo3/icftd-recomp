@@ -1,13 +1,17 @@
-/* German for the game's text. See lang.h.
+/* The game's text in another language. See lang.h.
  *
- * The catalog is keyed by the English text exactly as the engine (or a port surface) has it, so a
- * lookup is a plain byte comparison - no ids to keep in step, and a string that is not in the
- * catalog simply stays English.
+ * One file per language carries every translation there is - the interface, the menus, the map's
+ * place names, the boot's messages and the port's own screens as well as the game's story:
+ * `lang\<code>.csv`, `<id>;<text>`, where the id is the FNV-1a hash of the English text (sixteen
+ * hex digits). Nothing is translated in this source file. What it holds is the interface's English
+ * vocabulary (`g_interface`), which is what the exporter needs to know the lines exist, and the
+ * loader: read the file, convert it to the font's codes, index it, and hand the engine the
+ * translated string where it drew an English one.
  *
- * The German side is written in UTF-8 and converted to the font's own character codes at start-up
- * (see lang_font_code): the disk font `fonts\newnem.font` carries ASCII only, so the umlauts are
- * drawn as a base letter plus a diaeresis (display.c) and code 0x80..0x85 selects them. 'ß' is
- * spelled "ss", which is what the font can show.
+ * A file's text is written in UTF-8 and converted to the font's own character codes at start-up
+ * (see lang_font_code): the disk font `fonts\newnem.font` carries ASCII only, so Ä Ö Ü ä ö ü are
+ * the port's own glyphs (display.c) and code 0x80..0x85 selects them; every other accented letter
+ * is drawn as its base letter, and 'ß' is spelled "ss", which is what the font can show.
  */
 #include "lang.h"
 
@@ -16,15 +20,16 @@
 
 #include "platform.h"
 
-/* Where the catalog is copied to: above the emulated stack (EMU_STACK_TOP) and below the library
- * base blocks (EMU_LIB_BASE), a range the machine model never allocates from. A German run
- * therefore starts with the same RAM an English one does - no heap block moved. */
+/* Where the translation is copied to: above the emulated stack (EMU_STACK_TOP) and below the
+ * library base blocks (EMU_LIB_BASE), a range the machine model never allocates from. A translated
+ * run therefore starts with the same RAM an English one does - no heap block moved. */
 #define LANG_BASE 0x00184000u
 #define LANG_BYTES 0x0003C000u          /* up to EMU_LIB_BASE at 0x1C0000 */
 
 /* One scratch line per formatted string, for the messages the engine builds at run time
- * ("June %d, 1951 - ...", "Sorry, %s has been closed. ..."), which cannot have a catalog entry of
- * their own. A small ring, because a caller may hold one line across the next lookup. */
+ * ("June %d, 1951 - ...", "Sorry, %s has been closed. ..."): their text changes with every place
+ * and every minute, so the file carries their *format* and the numbers are put into it at run time.
+ * A small ring, because a caller may hold one line across the next lookup. */
 #define LANG_SCRATCH_COUNT 4
 #define LANG_SCRATCH_LEN   320
 
@@ -35,197 +40,213 @@
 #define LANG_STORY_COUNT   4
 #define LANG_STORY_LEN     1024
 
-/* The longest catalog key. A narration record runs to some 700 characters, so this has to hold a
- * whole story page; a longer run of text at a text routine's argument is never a catalog entry. */
+/* The longest key a lookup names: a narration record runs to some 700 characters, so this has to
+ * hold a whole story page; a longer run of text at a text routine's argument is never a row of the
+ * file. */
 #define LANG_KEY_MAX 1024
 
-typedef struct lang_pair
-{
-    const char *en;
-    const char *de;
-} lang_pair;
-
-static const lang_pair g_catalog[] =
+/* The interface's English text - the vocabulary every translation has to cover on top of the
+ * game's own script.
+ *
+ * These are the lines the engine draws from its program and its data bank (the menus, the map's
+ * place names, the boot's messages, the save/load screen) and the ones the port's own screens draw
+ * (the title, the settings, the save slots, the OSD). They are not in the game's story text, so
+ * they are not in the source that tools\lang-export.ps1 reads out of the game data - this list is
+ * what the exporter adds to it (`--langkeys`, src\host\lang_dump.c).
+ *
+ * It carries English only. What a line is called in another language is in that language's file,
+ * `lang\<code>.csv`, keyed by the FNV-1a id of the text here (sixteen hex digits) - so adding a
+ * language is adding a row per line to a file, and never touching this one. A line without a row
+ * simply stays English.
+ *
+ * The last group is different: those are *formats*, the shape of the messages the program builds
+ * itself at run time ("Sleep for 3 hours."). A row for one of those would be a row for that one
+ * number, so the engine recognises the shape, reads the numbers out, and lays them out with the
+ * translated format (see "the formatted messages", below).
+ */
+static const char *const g_interface[] =
 {
     /* --- the engine's own interface ------------------------------------------------------- */
-    { "Look North",                     "Norden ansehen" },
-    { "Look South",                     "Süden ansehen" },
-    { "Look West",                      "Westen ansehen" },
-    { "Look East",                      "Osten ansehen" },
-    { "Go to Map",                      "Zur Karte" },
-    { "Situation Map",                  "Lagekarte" },
-    { "Make a Call",                    "Anrufen" },
-    { "Answer the Door",                "Tür öffnen" },
-    { "Fight",                          "Kämpfen" },
-    { "Escape Hospital",                "Krankenhaus verlassen" },
-    { "Take a Flight",                  "Flug machen" },
-    { "Fire Game",                      "Feuer löschen" },
-    { "There's no one around.",         "Hier ist niemand." },
-    { "Nothing's happening here.",      "Hier passiert nichts." },
-    { "No one's home.",                 "Niemand zu Hause." },
-    { "Everyone's out at the moment.",  "Im Moment ist niemand da." },
-    { "Sorry, you can only get there through the Ore Plant.",
-      "Tut mir leid, dorthin geht es nur über das Erzwerk." },
-    { "Sorry, no visiting is allowed.", "Tut mir leid, Besuche sind nicht erlaubt." },
-    { "Sleep for %d hours.",            "Schlafen für %d Stunden." },
-    { "Game Paused. Press left mouse button to continue.",
-      "Spiel pausiert. Linke Maustaste zum Fortsetzen." },
-    { "Game paused. Press left",        "Spiel pausiert. Linke" },
-    { "mouse button to continue",       "Maustaste zum Fortsetzen" },
-    { "Show new evidence",              "Neue Beweise zeigen" },
-    { "Want ant info?",                 "Ameisen-Infos?" },
-    { "Now about this other evidence you brought...", "Nun zu den anderen Beweisen..." },
-    { "Arsenal",                        "Waffenlager" },
-    { "Sleep",                          "Schlafen" },
+    "Look North",
+    "Look South",
+    "Look West",
+    "Look East",
+    "Go to Map",
+    "Situation Map",
+    "Make a Call",
+    "Answer the Door",
+    "Fight",
+    "Escape Hospital",
+    "Take a Flight",
+    "Fire Game",
+    "There's no one around.",
+    "Nothing's happening here.",
+    "No one's home.",
+    "Everyone's out at the moment.",
+    "Sorry, you can only get there through the Ore Plant.",
+    "Sorry, no visiting is allowed.",
+    "Game Paused. Press left mouse button to continue.",
+    "Game paused. Press left",
+    "mouse button to continue",
+    "Show new evidence",
+    "Want ant info?",
+    "Now about this other evidence you brought...",
+    "Arsenal",
+    "Sleep",
 
     /* The room action labels live in the room's own data bank (desert.dat), not in the program,
      * so they are listed here with the program's own menu strings. */
-    { "Answer Door",                    "Tür öffnen" },
-    { "Bert on Phone",                  "Bert am Telefon" },
-    { "Continue",                       "Weiter" },
-    { "Next",                           "Weiter" },
-    { "enough evidence?",               "Genug Beweise?" },
-    { "fluid proof",                    "Beweis: Flüssigkeit" },
-    { "sound proof",                    "Beweis: Ton" },
-    { "tissue proof",                   "Beweis: Gewebe" },
-    { "track proof",                    "Beweis: Spur" },
-    { "Look at Samples",                "Proben ansehen" },
-    { "Talk to Biff",                   "Mit Biff reden" },
-    { "Go to Map Down",                 "Zur Karte" },
-    { "Go to NOMAP",                    "Zur Karte" },
-    { "Hospital",                       "Krankenhaus" },
-    { "M-4 Mine",                       "Mine M-4" },
-    { "Police Station",                 "Polizeiwache" },
-    { "Can't allocate animation bitmaps.", "Animations-Bitmaps nicht verfügbar." },
-    { "Can't open animation views.",    "Animations-Views nicht verfügbar." },
-    { "Can't open animation rastport.", "Animations-RastPort nicht verfügbar." },
+    "Answer Door",
+    "Bert on Phone",
+    "Continue",
+    "Next",
+    "enough evidence?",
+    "fluid proof",
+    "sound proof",
+    "tissue proof",
+    "track proof",
+    "Look at Samples",
+    "Talk to Biff",
+    "Go to Map Down",
+    "Go to NOMAP",
+    "Hospital",
+    "M-4 Mine",
+    "Police Station",
+    "Can't allocate animation bitmaps.",
+    "Can't open animation views.",
+    "Can't open animation rastport.",
 
     /* The save/load screen the engine puts up on its own ("ICFTD" world). */
-    { "Lizard Breath has been awaiting your return.", "Lizard Breath hat auf dich gewartet." },
-    { "If you want to load a saved game, select 'YES'.", "Zum Laden eines Spielstands wähle 'JA'." },
-    { "If you want to start a new game, select 'NO'.",   "Für ein neues Spiel wähle 'NEIN'." },
-    { "Is something more important than saving",         "Ist etwas wichtiger, als die Menschheit" },
-    { "mankind from annihilation? If so, select 'YES'.", "vor dem Untergang zu bewahren? Dann 'JA'." },
-    { "If you pushed save game by mistake, choose 'NO'.",
-      "Bei versehentlichem Speichern wähle 'NEIN'." },
-    { "YES",                            "JA" },
-    { "NO",                             "NEIN" },
+    "Lizard Breath has been awaiting your return.",
+    "If you want to load a saved game, select 'YES'.",
+    "If you want to start a new game, select 'NO'.",
+    "Is something more important than saving",
+    "mankind from annihilation? If so, select 'YES'.",
+    "If you pushed save game by mistake, choose 'NO'.",
+    "YES",
+    "NO",
 
     /* The boot's own messages (a disk is missing, write protected, ...). */
-    { "Please insert disk:",            "Bitte Diskette einlegen:" },
-    { "or press left mouse button to abort.", "oder linke Maustaste zum Abbrechen." },
-    { "The disk:",                      "Die Diskette:" },
-    { "is write protected.",            "ist schreibgeschützt." },
-    { "Unprotect and re-insert it.",    "Schreibschutz entfernen und neu einlegen." },
-    { "Unresolvable file read/write error!", "Nicht behebbarer Lese-/Schreibfehler!" },
-    { "The game is unplayable.",        "Das Spiel ist nicht spielbar." },
-    { "Press button to continue.",      "Taste drücken zum Fortsetzen." },
+    "Please insert disk:",
+    "or press left mouse button to abort.",
+    "The disk:",
+    "is write protected.",
+    "Unprotect and re-insert it.",
+    "Unresolvable file read/write error!",
+    "The game is unplayable.",
+    "Press button to continue.",
 
     /* The places the map and the rooms name. */
-    { "Mine 1",                         "Mine 1" },
-    { "Mine 2",                         "Mine 2" },
-    { "Mine 3",                         "Mine 3" },
-    { "Mine 4",                         "Mine 4" },
-    { "Mine 5",                         "Mine 5" },
-    { "Cook's Stud Farm",               "Cooks Gestüt" },
-    { "J.D.'s Farm",                    "J.D.s Farm" },
-    { "McWilliams Dairy",               "McWilliams Molkerei" },
-    { "Creature Cave A",                "Kreaturenhöhle A" },
-    { "Creature Cave B",                "Kreaturenhöhle B" },
-    { "Creature Cave C",                "Kreaturenhöhle C" },
-    { "Ore Plant",                      "Erzwerk" },
-    { "PumpStation 1",                  "Pumpwerk 1" },
-    { "PumpStation 2",                  "Pumpwerk 2" },
-    { "PumpStation 3",                  "Pumpwerk 3" },
-    { "Mine Tunnel",                    "Minenstollen" },
-    { "North Volcanic Cone",            "Nordvulkankegel" },
-    { "S.W. Volcanic Cone",             "SW-Vulkankegel" },
-    { "N.E. Volcanic Cone",             "NO-Vulkankegel" },
-    { "Quarry",                         "Steinbruch" },
-    { "Hilbers Field",                  "Hilbers Feld" },
-    { "National Guard Armory",          "Nationalgarde-Zeughaus" },
-    { "Fortune Teller",                 "Wahrsagerin" },
-    { "Home Base",                      "Heimatbasis" },
-    { "Godfrey's Hot Springs",          "Godfreys Thermalquellen" },
-    { "Platt University Lab",           "Platt-Uni-Labor" },
-    { "Neptune Hall",                   "Neptune Hall" },
-    { "KBUG Radio",                     "KBUG Radio" },
-    { "O'Riordan's Pub",                "O'Riordans Kneipe" },
-    { "Melville Memorial Hospital",     "Melville-Gedenkkrankenhaus" },
-    { "Elmer's Service Station",        "Elmers Tankstelle" },
-    { "Lizard Breath Police",           "Polizei Lizard Breath" },
-    { "Lizard Breath Star",             "Lizard Breath Star" },
-    { "Mayor's Office",                 "Büro des Bürgermeisters" },
-    { "Main Street",                    "Hauptstraße" },
-    { "Main Street South",              "Hauptstraße Süd" },
-    { "Main Street West",               "Hauptstraße West" },
-    { "Main Street East",               "Hauptstraße Ost" },
-    { "Beverly's Drive-In",             "Beverlys Drive-In" },
+    "Mine 1",
+    "Mine 2",
+    "Mine 3",
+    "Mine 4",
+    "Mine 5",
+    "Cook's Stud Farm",
+    "J.D.'s Farm",
+    "McWilliams Dairy",
+    "Creature Cave A",
+    "Creature Cave B",
+    "Creature Cave C",
+    "Ore Plant",
+    "PumpStation 1",
+    "PumpStation 2",
+    "PumpStation 3",
+    "Mine Tunnel",
+    "North Volcanic Cone",
+    "S.W. Volcanic Cone",
+    "N.E. Volcanic Cone",
+    "Quarry",
+    "Hilbers Field",
+    "National Guard Armory",
+    "Fortune Teller",
+    "Home Base",
+    "Godfrey's Hot Springs",
+    "Platt University Lab",
+    "Neptune Hall",
+    "KBUG Radio",
+    "O'Riordan's Pub",
+    "Melville Memorial Hospital",
+    "Elmer's Service Station",
+    "Lizard Breath Police",
+    "Lizard Breath Star",
+    "Mayor's Office",
+    "Main Street",
+    "Main Street South",
+    "Main Street West",
+    "Main Street East",
+    "Beverly's Drive-In",
 
     /* --- the port's own surfaces: the title, the settings, the save slots, the OSD ---------- */
-    { "New Game",                       "Neues Spiel" },
-    { "Play Antheads",                  "Antheads" },
-    { "Load Game",                      "Spiel laden" },
-    { "Settings",                       "Optionen" },
-    { "Quit Game",                      "Beenden" },
-    { "Fullscreen",                     "Vollbild" },
-    { "On",                             "Ein" },
-    { "Off",                            "Aus" },
-    { "Music Vol.",                     "Musik" },
-    { "Sound Vol.",                     "Sound" },
-    { "Back",                           "Zurück" },
-    { "More",                           "Mehr" },
-    { "Save Game",                      "Spiel speichern" },
-    { "Slot %d",                        "Slot %d" },
-    { "Slot %d%s",                      "Slot %d%s" },
-    { "(Empty)",                        "(Leer)" },
-    { "Save Slot - %d%s",               "Speicherplatz - %d%s" },
-    { "Loading",                        "Lädt" },
-    { "Time frozen",                    "Zeit eingefroren" },
-    { "Time unfrozen",                  "Zeit läuft" },
-    { "Check out my spiritual successor \"It Returned to the Desert\"",
-      "Schau dir den Nachfolger \"It Returned to the Desert\" an" },
-    { "Available on Steam and itch.io", "Erhältlich auf Steam und itch.io" },
-    { "Please put the three original 'It Came from the Desert' disk images in the 'disks' folder"
-      " and restart.",
-      "Bitte lege die drei Original-Disketten von 'It Came from the Desert' in den Ordner 'disks'"
-      " und starte neu." },
-    { "No game data folder was given.", "Kein Spieldaten-Ordner angegeben." },
-    { "BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)",
-      "Kein Ton: BLASTER fehlt (A220 I5 D1 T4)" }
+    "New Game",
+    "Play Antheads",
+    "Load Game",
+    "Settings",
+    "Quit Game",
+    "Fullscreen",
+    "On",
+    "Off",
+    "Music Vol.",
+    "Sound Vol.",
+    "Back",
+    "More",
+    "Save Game",
+    "Slot %d",
+    "Slot %d%s",
+    "(Empty)",
+    "Save Slot - %d%s",
+    "Loading",
+    "Time frozen",
+    "Time unfrozen",
+    "Check out my spiritual successor \"It Returned to the Desert\"",
+    "Available on Steam and itch.io",
+    "Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart.",
+    "No game data folder was given.",
+    "BLASTER not set - no sound (set BLASTER=A220 I5 D1 T4)",
+
+    /* --- the formats of the messages the program builds itself ------------------------------ */
+    "June %d, 1951 - %02d:%02d %s",
+    "a.m.",
+    "p.m.",
+    "Sorry, %s has been destroyed.",
+    "Sorry, %s is closed. It will open again at %d:00 %s.",
+    "Sleep for %d hours.",
+    "ETA: %02d:%02d",
+    "REEL %d"
 };
 
-#define LANG_COUNT ((int)(sizeof g_catalog / sizeof g_catalog[0]))
+#define LANG_KEY_COUNT ((int)(sizeof g_interface / sizeof g_interface[0]))
 
-/* The catalog in force is the built-in table above plus whatever the translation file adds
- * (lang\<code>.csv next to the executable): a row of the file overrides a built-in one, so a
- * translation can be corrected without a rebuild, and a row whose German field is empty is simply a
- * placeholder for the translator and changes nothing.
+/* The catalog in force is the translation file (`lang\<code>.csv` next to the executable) and
+ * nothing else: a row whose text field is empty is the placeholder the exporter leaves for a
+ * translator who has not got there yet, and changes nothing - that line stays English.
  *
  * A row may name its English text two ways: verbatim (what a translator works with) or by its
  * 64-bit FNV-1a id, sixteen hex digits. The second form is how a finished translation can be
  * shipped **without carrying the original's text** - see the export tool and docs\port-features.md,
  * "Delivering a translation". */
-#define LANG_MAX_ENTRIES 4096              /* built-ins plus the file's rows               */
+#define LANG_MAX_ENTRIES 4096              /* the file's rows                              */
 #define LANG_FILE_MAX    (512u * 1024u)    /* the largest translation file read            */
 #define LANG_PATH_MAX    320               /* <exe dir>\lang\<code>.csv                    */
 #define LANG_SEP         ';'               /* the CSV's field separator                    */
 #define LANG_ID_LEN      16                /* hex digits of an id-keyed row                */
+#define LANG_CODE_MAX    7                 /* the letters of a language code, "de" ...     */
 
 typedef struct lang_entry
 {
     const char *en;                        /* the English text, as the game has it (or 0)  */
-    const char *de;                        /* German, in the font's codes (a converted copy) */
+    const char *text;                      /* the translation, in the font's codes (a copy) */
     u64 id;                                /* FNV-1a of `en`, when `en` is not here        */
 } lang_entry;
 
 static int g_on;                          /* a language other than English is selected    */
+static char g_codeBuf[LANG_CODE_MAX + 1];
 static const char *g_code = "en";
 static lang_entry *g_ent;                 /* the catalog in force                         */
 static int g_entCount;
-static char *g_pool;                      /* every g_ent[i].de, converted, end to end     */
+static char *g_pool;                      /* every g_ent[i].text, converted, end to end   */
 static char *g_owned;                     /* the translation file as it was read          */
-static u32 *g_machAddr;                   /* g_ent[i].de's address in the machine's RAM   */
+static u32 *g_machAddr;                   /* g_ent[i].text's address in the machine's RAM */
 static u32 *g_entHash;
 static int *g_slot;                       /* open addressing: an index into g_ent, -1     */
 static int g_slots;                       /* the number of slots                          */
@@ -262,9 +283,38 @@ static const char *lang_font_code(u32 cp, int *out)
     case 0x2013: case 0x2014: *out = '-'; return 0;
     case 0x2018: case 0x2019: *out = '\''; return 0;
     case 0x201C: case 0x201D: *out = '"'; return 0;
-    case 0x00E9: *out = 'e'; return 0;
-    default: *out = cp < 0x80u ? (int)cp : '?'; return 0;
     }
+
+    /* Every other accented Latin-1 letter is drawn as its base letter (é -> e, Å -> A, ñ -> n):
+     * another language's words stay readable, where '?' would not. The six umlauts above keep
+     * their own glyph, which is why this comes second. */
+    if (cp >= 0x00C0u && cp <= 0x00FFu)
+    {
+        if (cp <= 0x00C6u) *out = 'A';            /* À..Æ */
+        else if (cp == 0x00C7u) *out = 'C';
+        else if (cp <= 0x00CBu) *out = 'E';
+        else if (cp <= 0x00CFu) *out = 'I';
+        else if (cp == 0x00D0u) *out = 'D';
+        else if (cp == 0x00D1u) *out = 'N';
+        else if (cp <= 0x00D6u || cp == 0x00D8u) *out = 'O';
+        else if (cp == 0x00D7u) *out = 'x';       /* × */
+        else if (cp <= 0x00DCu) *out = 'U';
+        else if (cp == 0x00DDu) *out = 'Y';
+        else if (cp == 0x00DEu) *out = 'T';       /* Þ */
+        else if (cp <= 0x00E6u) *out = 'a';
+        else if (cp == 0x00E7u) *out = 'c';
+        else if (cp <= 0x00EBu) *out = 'e';
+        else if (cp <= 0x00EFu) *out = 'i';
+        else if (cp == 0x00F0u) *out = 'd';
+        else if (cp == 0x00F1u) *out = 'n';
+        else if (cp <= 0x00F6u || cp == 0x00F8u) *out = 'o';
+        else if (cp == 0x00F7u) *out = '/';       /* ÷ */
+        else if (cp <= 0x00FCu) *out = 'u';
+        else *out = 'y';
+        return 0;
+    }
+    *out = cp < 0x80u ? (int)cp : '?';
+    return 0;
 }
 
 /* A translation file is a spreadsheet's CSV: the text is written in whatever encoding the
@@ -368,8 +418,9 @@ static void lang_free(void)
     g_open = 0;
 }
 
-/* The translation file's text, or 0. It is a spreadsheet's CSV: `<English>;<German>`, one record
- * per line, fields quoted the way CSV quotes them. Where it is looked for, in this order:
+/* The translation file's text, or 0. It is a spreadsheet's CSV: `<English>;<text>` (or
+ * `<id>;<text>`), one record per line, fields quoted the way CSV quotes them. Where it is looked
+ * for, in this order:
  *
  *   <exe dir>\lang\<code>.csv        where a release keeps it, next to the game
  *   <exe dir>\..\lang\<code>.csv     one and two folders above the executable: the development
@@ -403,6 +454,9 @@ static u32 lang_read_file(const char *code)
             sprintf(old, "%s\\..\\..\\lang\\%s.txt", dir, code);
         if (plat_path_kind(old) == PLAT_PATH_FILE)
             printf("language: %s is ignored - the translation file is %s.csv\n", old, code);
+        else
+            printf("language: no lang\\%s.csv - the run stays English (see lang\\README.md)\n",
+                   code);
         return 0;
     }
     f = plat_open(path);
@@ -514,7 +568,7 @@ static int lang_same(int a, int b)
 
 /* Allocates the table for g_entCount entries (twice as many slots as entries, rounded up to a
  * power of two) and files every entry into it. A later entry with the same text replaces the
- * earlier one, which is how a translation file overrides a built-in row. */
+ * earlier one, which is how a row further down the file corrects the one above it. */
 static int lang_index(void)
 {
     int i, slots = 2;
@@ -542,46 +596,37 @@ static int lang_index(void)
 
 u32 rt_lang_set(const char *code)
 {
-    char want[8];
-    int i, de;
+    int n;
     char *p;
     u32 poolSize = 0, at = 0;
 
+    /* The code is a language name, "de", "fr", ... - lower case, and no path punctuation: it
+     * becomes part of the file name below ("en" - and anything that is not a usable code - is the
+     * original's English). */
     code = code != 0 ? code : "en";
-    for (i = 0; i < 7 && code[i] != 0 && code[i] != ' ' && code[i] != '\t'; i++)
+    for (n = 0; n < LANG_CODE_MAX && code[n] != 0; n++)
     {
-        char c = code[i];
+        char c = code[n];
         if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
-        want[i] = c;
+        if ((c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-') break;
+        g_codeBuf[n] = c;
     }
-    want[i] = 0;
-    de = (want[0] == 'd' && want[1] == 'e' && want[2] == 0);
+    g_codeBuf[n] = 0;
 
     lang_free();
-    g_code = de ? "de" : "en";
-    if (!de) return 0;
+    g_code = g_codeBuf[0] != 0 ? g_codeBuf : "en";
+    if (strcmp(g_code, "en") == 0) return 0;
 
-    /* The file is read first: the rows are kept in file order, so a row whose English side is
-     * already there (a built-in one, or an earlier row) replaces it - the file wins. */
-    lang_read_file("de");
+    /* The file is read first: the rows are kept in file order, so a later row for the same text
+     * replaces an earlier one - which is how a translator's correction wins over the row above
+     * it. No file, no translation: the run stays English rather than half a language. */
+    if (lang_read_file(g_code) == 0) return 0;
     g_ent = (lang_entry *)plat_alloc((u32)LANG_MAX_ENTRIES * sizeof(lang_entry));
     g_machAddr = (u32 *)plat_alloc((u32)LANG_MAX_ENTRIES * sizeof(u32));
-    poolSize = 64u;
-    for (i = 0; i < LANG_COUNT; i++) poolSize += (u32)strlen(g_catalog[i].de) * 2u + 8u;
-    if (g_owned != 0) poolSize += (u32)strlen(g_owned) * 2u + 256u;
+    poolSize = 64u + (u32)strlen(g_owned) * 2u + 256u;
     g_pool = (char *)plat_alloc(poolSize);
     if (g_ent == 0 || g_pool == 0 || g_machAddr == 0) { lang_free(); g_code = "en"; return 0; }
 
-    for (i = 0; i < LANG_COUNT; i++)
-    {
-        g_ent[i].en = g_catalog[i].en;
-        g_ent[i].id = 0;
-        g_ent[i].de = g_pool + at;
-        at += lang_convert(g_catalog[i].de, g_pool + at, poolSize - at) + 1u;
-    }
-    g_entCount = LANG_COUNT;
-
-    if (g_owned != 0)
     {
         char *p = g_owned;
 
@@ -591,19 +636,19 @@ u32 rt_lang_set(const char *code)
             char *key = lang_field(&p, &more);
             char *second = more ? lang_field(&p, &more) : 0;
             char *third = more ? lang_field(&p, &more) : 0;
-            /* Two fields are <key>;<German>. Three are the translator's file, <id>;<English>;
-             * <German> - the middle one is for the translator's eyes and is never looked up. */
-            char *de = third != 0 ? third : second;
+            /* Two fields are <key>;<text>. Three are the translator's file, <id>;<English>;<text>
+             * - the middle one is for the translator's eyes and is never looked up. */
+            char *text = third != 0 ? third : second;
             u64 id;
 
             while (more) lang_field(&p, &more);      /* a record with more fields than that */
 
-            /* A comment record has one field (or starts with #), and an empty German field is the
+            /* A comment record has one field (or starts with #), and an empty text field is the
              * placeholder the exporter leaves for a translator who has not got there yet. */
             if (key[0] == 0 || key[0] == '#') continue;
-            if (de == 0 || de[0] == 0) continue;
-            g_ent[g_entCount].de = g_pool + at;
-            at += lang_convert(de, g_pool + at, poolSize > at ? poolSize - at : 0) + 1u;
+            if (text == 0 || text[0] == 0) continue;
+            g_ent[g_entCount].text = g_pool + at;
+            at += lang_convert(text, g_pool + at, poolSize > at ? poolSize - at : 0) + 1u;
             id = lang_key_id(key);
             if (id != 0) { g_ent[g_entCount].en = 0; g_ent[g_entCount].id = id; }
             else { g_ent[g_entCount].en = key; g_ent[g_entCount].id = 0; }
@@ -615,7 +660,7 @@ u32 rt_lang_set(const char *code)
                    "(a comma-separated export will not work)?\n", g_code);
     }
 
-    if (lang_index() == 0) { lang_free(); g_code = "en"; return 0; }
+    if (g_entCount == 0 || lang_index() == 0) { lang_free(); g_code = "en"; return 0; }
     g_on = 1;
     return 1;
 }
@@ -623,13 +668,20 @@ u32 rt_lang_set(const char *code)
 u32 rt_lang_on(void) { return (u32)g_on; }
 const char *rt_lang_code(void) { return g_code; }
 
+int rt_lang_key_count(void) { return LANG_KEY_COUNT; }
+
+const char *rt_lang_key(int i)
+{
+    return i >= 0 && i < LANG_KEY_COUNT ? g_interface[i] : 0;
+}
+
 const char *rt_lang_text(const char *en)
 {
     int e;
 
     if (en == 0 || !g_on || g_ent == 0) return en;
     e = lang_find(en);
-    return e >= 0 ? g_ent[e].de : en;
+    return e >= 0 ? g_ent[e].text : en;
 }
 
 /* --- the machine's copy -------------------------------------------------------------------- */
@@ -645,7 +697,7 @@ u32 rt_lang_open(rt_machine *m)
 
     for (i = 0; i < g_entCount; i++)
     {
-        const char *s = g_ent[i].de;
+        const char *s = g_ent[i].text;
         u32 len = (u32)strlen(s) + 1u;
 
         if (at + len + LANG_SCRATCH_COUNT * LANG_SCRATCH_LEN +
@@ -688,9 +740,11 @@ void rt_lang_close(void)
 }
 
 /* --- messages the engine formats at run time -----------------------------------------------
- * A format string cannot have a catalog entry (its result changes every minute, every place), so
- * the few messages the game builds with sprintf are recognised by their shape and rebuilt in
- * German. Everything else stays English. */
+ * Their text changes with every place and every minute ("Sleep for 3 hours.", "June 3, 1951 -
+ * 09:05 a.m."), so no row of the file can be a row for one of them. What the file holds instead is
+ * their *format* - the English shape with the numbers left out, and its translation with the
+ * numbers in the same order - and the engine recognises the shape, reads the numbers out and lays
+ * them into the translated format. Everything else stays English. */
 
 static const char *lang_number(const char *s, int *out)
 {
@@ -699,6 +753,33 @@ static const char *lang_number(const char *s, int *out)
     while (*s >= '0' && *s <= '9') { n = n * 10 + (*s - '0'); s++; digits++; }
     *out = n;
     return digits != 0 ? s : 0;
+}
+
+/* The number of %-specifiers in a format, "%%" not counted as one. */
+static int lang_specs(const char *f)
+{
+    int n = 0;
+
+    for (; *f != 0; f++)
+    {
+        if (*f != '%') continue;
+        if (f[1] == '%') { f++; continue; }
+        n++;
+        while (f[1] != 0 && (f[1] == '-' || f[1] == '+' || f[1] == '0' || f[1] == ' ' ||
+                             (f[1] >= '0' && f[1] <= '9') || f[1] == '.' || f[1] == '#'))
+            f++;
+    }
+    return n;
+}
+
+/* The translated format for an English one, when the translation takes the same arguments;
+ * otherwise the English format, so a mistyped row reads the right arguments rather than overrun
+ * them. */
+static const char *lang_format(const char *en, int specs)
+{
+    const char *text = rt_lang_text(en);
+
+    return text != en && lang_specs(text) == specs ? text : en;
 }
 
 /* "June 3, 1951 - 09:05 a.m." (FUN_000055BA's clock line). */
@@ -715,13 +796,12 @@ static int lang_clock(char *out, u32 max, const char *s)
     p = lang_number(p + 1, &mm);
     if (p == 0) return 0;
     if (strcmp(p, " a.m.") != 0 && strcmp(p, " p.m.") != 0) return 0;
-    sprintf(out, "%d. Juni 1951 - %02d:%02d %s", day, hh, mm,
-            p[1] == 'a' ? "vorm." : "nachm.");
+    sprintf(out, lang_format("June %d, 1951 - %02d:%02d %s", 4), day, hh, mm, rt_lang_text(p + 1));
     return (u32)strlen(out) < max;
 }
 
 /* "Sorry, %s has been destroyed." and "Sorry, %s is closed. It will open again at %d:00 %s."
- * (FUN_00003B1E), with the place's own name looked up in the catalog. */
+ * (FUN_00003B1E), with the place's own name translated as well. */
 static int lang_sorry(char *out, u32 max, const char *s)
 {
     static const char destroyed[] = " has been destroyed.";
@@ -740,7 +820,7 @@ static int lang_sorry(char *out, u32 max, const char *s)
         if (n >= sizeof name) return 0;
         memcpy(name, body, n);
         name[n] = 0;
-        sprintf(out, "Tut mir leid, %s wurde zerstört.", rt_lang_text(name));
+        sprintf(out, lang_format("Sorry, %s has been destroyed.", 1), rt_lang_text(name));
         return (u32)strlen(out) < max;
     }
 
@@ -758,8 +838,8 @@ static int lang_sorry(char *out, u32 max, const char *s)
         if (p == 0 || strncmp(p, ":00 ", 4) != 0) return 0;
         p += 4;
         if (strncmp(p, "a.m.", 4) != 0 && strncmp(p, "p.m.", 4) != 0) return 0;
-        sprintf(out, "Tut mir leid, %s ist geschlossen. Öffnet wieder um %d:00 %s",
-                rt_lang_text(name), hour, p[0] == 'a' ? "vorm." : "nachm.");
+        sprintf(out, lang_format("Sorry, %s is closed. It will open again at %d:00 %s.", 3),
+                rt_lang_text(name), hour, rt_lang_text(p));
         return (u32)strlen(out) < max;
     }
     return 0;
@@ -774,26 +854,38 @@ static int lang_sleep(char *out, u32 max, const char *s)
     if (strncmp(s, "Sleep for ", 10) != 0) return 0;
     p = lang_number(s + 10, &hours);
     if (p == 0 || strncmp(p, " hours.", 7) != 0) return 0;
-    sprintf(out, "Schlafen für %d Stunden.", hours);
+    sprintf(out, lang_format("Sleep for %d hours.", 1), hours);
     return (u32)strlen(out) < max;
 }
 
 /* "ETA: %02d:%02d" (the flight's arrival line) and "REEL %d" (the boot's disk swap). */
 static int lang_prefix(char *out, u32 max, const char *s)
 {
-    const char *rest;
+    int first, second;
+    const char *p;
 
-    if (strncmp(s, "ETA: ", 5) == 0) rest = s + 5;
-    else if (strncmp(s, "REEL ", 5) == 0) rest = 0;
-    else return 0;
-    if (rest != 0) { sprintf(out, "Ankunft: %s", rest); return (u32)strlen(out) < max; }
-    sprintf(out, "ROLLE %s", s + 5);
-    return (u32)strlen(out) < max;
+    if (strncmp(s, "ETA: ", 5) == 0)
+    {
+        p = lang_number(s + 5, &first);
+        if (p == 0 || *p != ':') return 0;
+        p = lang_number(p + 1, &second);
+        if (p == 0 || *p != 0) return 0;
+        sprintf(out, lang_format("ETA: %02d:%02d", 2), first, second);
+        return (u32)strlen(out) < max;
+    }
+    if (strncmp(s, "REEL ", 5) == 0)
+    {
+        p = lang_number(s + 5, &first);
+        if (p == 0 || *p != 0) return 0;
+        sprintf(out, lang_format("REEL %d", 1), first);
+        return (u32)strlen(out) < max;
+    }
+    return 0;
 }
 
-/* The next scratch line, filled with `len` bytes of `text`. A German string handed to a routine is
- * always a copy: FUN_0000510E paginates by writing NULs into the string it is given, so a shared
- * catalog entry would be destroyed by the first page. */
+/* The next scratch line, filled with `len` bytes of `text`. A translated string handed to a
+ * routine is always a copy: FUN_0000510E paginates by writing NULs into the string it is given, so
+ * a shared catalog entry would be destroyed by the first page. */
 static u32 lang_scratch(rt_machine *m, const char *text, u32 len)
 {
     u32 addr;
@@ -818,7 +910,7 @@ static u32 lang_story(rt_machine *m, const char *text, u32 len)
     return addr;
 }
 
-/* The German for a formatted message, rebuilt in `line`; 0 when the text is not one of the
+/* The translation of a formatted message, rebuilt in `line`; 0 when the text is not one of the
  * messages above. */
 static int lang_message(char *line, u32 max, const char *s)
 {
@@ -841,8 +933,8 @@ int rt_lang_is_message(const char *en)
     return lang_message(line, sizeof line, en);
 }
 
-/* The German for a formatted message, rebuilt in the next scratch line. 0 when the text is not one
- * of the messages above. */
+/* The translation of a formatted message, rebuilt in the next scratch line. 0 when the text is not
+ * one of the messages above. */
 u32 rt_lang_pattern(rt_machine *m, const char *s)
 {
     char line[LANG_SCRATCH_LEN];
@@ -862,7 +954,8 @@ const char *rt_lang_probe(rt_machine *m, u32 arg)
     if (arg < 0x100u || arg >= m->mem.size) return 0;
     p = (const char *)m->mem.base + arg;
     /* The first argument of a text routine is a string; every other function's is not. Rejecting
-     * anything but printable text keeps the cost of a call to one load while German is selected. */
+     * anything but printable text keeps the cost of a call to one load while a language is
+     * selected. */
     if ((u8)p[0] < 0x20u || (u8)p[0] > 0x7Eu) return 0;
     for (i = 0; i < LANG_KEY_MAX; i++)
     {
@@ -889,9 +982,9 @@ u32 rt_lang_arg(rt_machine *m, u32 arg, int writable)
     e = lang_find(p);
     if (e >= 0 && g_machAddr[e] != 0)
     {
-        const char *de = g_ent[e].de;
+        const char *text = g_ent[e].text;
 
-        return writable ? lang_story(m, de, (u32)strlen(de) + 1u) : g_machAddr[e];
+        return writable ? lang_story(m, text, (u32)strlen(text) + 1u) : g_machAddr[e];
     }
     return rt_lang_pattern(m, p);
 }

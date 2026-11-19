@@ -78,10 +78,11 @@
                                 both PIT modes, racing latches, late BIOS ticks and midnight)
 
      22. language              (tools\lang-check.ps1 - [GAME] language: en draws the original's line
-                                and de the German one from the same machine, the RAM differs only in
-                                the catalog's own region, the machine state is record-for-record
-                                identical up to the first German line, and a room's action list is
-                                German too)
+                                 and de the line lang\de.csv holds from the same machine, the RAM
+                                 differs only in the catalog's own region, the machine state is
+                                 record-for-record identical up to the first translated line, a
+                                 room's action list is translated too, and one file carries both the
+                                 interface and the story)
 
     Steps 1-4 decide the translation, and they do it on machine state alone: no pixel, frame,
     capture or reference-image test can prove a translated function. Steps 5-22 cover the port's

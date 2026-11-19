@@ -11,9 +11,9 @@
 void host_lang_load(void)
 {
     const char *code = rt_config_get("GAME", "language");
-    int de = (int)rt_lang_set(code);
+    int on = (int)rt_lang_set(code);
 
-    printf("language: %s%s\n", de ? "de (German)" : "en (the original's English)",
+    printf("language: %s%s\n", on ? rt_lang_code() : "en (the original's English)",
            code == 0 ? " - no [GAME] language entry" : "");
 }
 

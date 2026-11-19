@@ -1144,9 +1144,13 @@ disks arriving on a later start, and one add-on image changing nothing.
 The original is English-only, so the German is a port feature with nothing to diff. What it owes
 is that its claim is exact, and that English is untouched.
 
-* **What it does.** `language=de` (anything else, a missing entry included, is `en`) makes the
-  engine draw German. The catalog lives in `src\runtime\lang.c` and is keyed by the English text
-  itself, so no ids are kept in step and a string without an entry simply stays English.
+* **What it does.** `language=de` selects the translation file `lang\de.csv`; any other code names
+  its own file (`lang\fr.csv`, ...), and `en` (the default), a missing entry or a code with no file
+  is the original's English. **That file is the whole catalog**: the interface, the menus, the map's
+  place names, the boot's messages, the port's own screens and the game's story, each row keyed by
+  the FNV-1a id of the English text. Nothing is translated in `src\runtime\lang.c` any more — it
+  holds the loader and the interface's English vocabulary (`rt_lang_key`, printed by `--langkeys`
+  for the exporter), so adding a language is a file and not a build.
 * **Where the swap happens.** The engine builds every text screen from strings it hands to a
   handful of layout routines — `FUN_00004E2E` (one centred line), `FUN_00004F0A` (a wrapped
   block), `FUN_00005012`/`FUN_000050CA` (a narration page), `FUN_00004F5C` (the line count the box
@@ -1155,7 +1159,7 @@ is that its claim is exact, and that English is untouched.
   run a *paged* text — `FUN_00002218` (a story screen: `(x, text)`) and `FUN_00001FAA` (a speech:
   `(x, y, text, n)`). The translated dispatcher enters every function through `rc_entryHook`, so
   `host_lang_entry` (`src\host\lang_hook.c`) replaces the stack argument the string arrives in: the
-  routine then wraps, centres and draws the German with the game's own font and the game's own
+  routine then wraps, centres and draws the translation with the game's own font and the game's own
   arithmetic. Everything downstream — the pointer's hit boxes, the pause screen's re-draw of the
   last narration string, the box heights — follows because it was never told which language it is
   drawing. The addresses are seams (`seams.h`, both builds), and the add-on's twins are in the
@@ -1163,47 +1167,56 @@ is that its claim is exact, and that English is untouched.
 * **A paged text gets a copy of its own.** `FUN_0000510E` paginates by writing NULs into the string
   it is given, and its caller keeps walking that string. So the two paged routines are swapped at
   *their* entry, before their own prologue reads the argument — the caller's pointer then is the
-  German text too, and the pages are cut out of it (`lang_story`, a 4 × 1 KB ring in the catalog
+  translated text too, and the pages are cut out of it (`lang_story`, a 4 × 1 KB ring in the catalog
   region). The first page of one of those records is what a player sees on a room's narration
-  screen, and the German pages are the engine's own breaks on the German text.
+  screen, and the translated pages are the engine's own breaks on the translated text.
 * **Only a text routine is a candidate.** An argument of *any* function looks the same, and a
   decompressor's destination buffer that happens to contain a catalogued line ("Ore Plant" on the
   stack) was handed the German string — that is why the hook is limited to those ten entries.
 * **Nothing the machine counts changes.** The swap is an uncharged memory write (`rt_write32`, not
-  the cycle-charging `rc_wr32`): with German selected the machine's registers, custom chips and
-  frame boundaries are the original's until the first German line is drawn
+  the cycle-charging `rc_wr32`): with a language selected the machine's registers, custom chips and
+  frame boundaries are the original's until the first translated line is drawn
   (`tools\lang-check.ps1` compares every record up to that frame), and from there the only
   difference is the game's own layout arithmetic on a different string plus the pixels. The
   catalog sits at 0x184000..0x1C0000, above the emulated stack and below the library bases, so a
-  German run starts with the same heap an English one does — the RAM at frame 100 differs in that
-  region and nowhere else.
-* **The font gets the umlauts.** `fonts\newnem.font` carries ASCII only, so `Ä Ö Ü ä ö ü` are
-  drawn as their base letter plus a diaeresis (`display.c`): the dots sit in the letter's own free
-  top rows for the lower case, and one row above the cell for a capital, which every glyph of the
-  10 px font leaves empty. `ß` is spelled "ss". The catalog is written in UTF-8 and converted to
-  those codes once, at start-up.
+  translated run starts with the same heap an English one does — the RAM at frame 100 differs in
+  that region and nowhere else.
+* **The font gets the umlauts.** `fonts\newnem.font` carries ASCII only, so `Ä Ö Ü ä ö ü` are six
+  glyphs of the port's own (`display.c`), drawn to the cell of `fonts\newnem\7`: six columns by
+  seven rows, the feet on row 5 like every letter of the font, the dots in row 0 and row 1 clear.
+  A glyph replaces the base letter in its own cell, so the advance, the centring and the engine's
+  line breaks stay the font's, and nothing can reach the line above (the engine steps from line to
+  line by a cell's height). `ß` is spelled "ss", and another accented Latin letter is drawn as its
+  base letter (`é` → `e`), which is what keeps a language other than German readable. The file is
+  written in UTF-8 and converted to those codes once, at start-up.
 * **The port's own screens follow it** — the title's buttons and settings, the save/load slot list,
   the OSD line, the farewell notice and the first-start message go through `rt_lang_text`; a
   `sprintf`-built label is built from the translated format (`rt_lang_text("Save Slot - %d%s")`).
 * **The engine's formatted messages** ("June %d, 1951 - ...", "Sorry, %s has been destroyed.",
-  "Sleep for %d hours.", "ETA: ...") cannot have a catalog entry — their text changes every
-  minute — so `lang.c` recognises their shape and rebuilds them in German (`3. Juni 1951 - 09:05
-  vorm.`), with the place's own name looked up in the catalog.
+  "Sleep for %d hours.", "ETA: ...") cannot be a row of their own — their text changes every
+  minute — so the file carries their **format** and `lang.c` recognises the shape, reads the numbers
+  out and lays them into the translated format (`3. Juni 1951 - 09:05 vorm.`), with the place's own
+  name translated as well. A translated format whose `%` marks do not match the English one is
+  ignored, so a mistyped row draws English rather than reading the wrong argument.
 
-**What is asserted** (`tools\lang-check.ps1`): en draws the original's line and de the German one
-from the same machine; the RAM at frame 100 differs only inside the catalog's region; the machine
-state is record-for-record identical up to the first German line; a room's action list is German
-(`Zur Karte`, `Anrufen`, `Schlafen` — through `FUN_00004F0A`, so the wrap and the spacing are the
-engine's); a translation file (`lang\de.txt`) overrides a built-in line *and* translates a whole
-narration record out of `desert.dat`; and a file without a `[GAME]` entry runs in English. The room
-screen needs the intro played through; the script taps fire every 60 frames.
+**What is asserted** (`tools\lang-check.ps1`): en draws the original's line and de the line
+`lang\de.csv` holds for it (read back from the file in the check, so a translator's correction is
+never mistaken for a failure); the RAM at frame 100 differs only inside the catalog's region; the
+machine state is record-for-record identical up to the first translated line; a room's action list
+is the file's German (`Karte öffnen`, `Anrufen`, `Schlafen` — through `FUN_00004F0A`, so the wrap
+and the spacing are the engine's); a later row keyed by the English text overrides the row keyed by
+its id *and* a story record keyed by its id is drawn, while the translator's middle column never is;
+a file without a `[GAME]` entry runs in English; and the `--langdump` the exporter builds the source
+from is the English text with either language selected. The room screen needs the intro played
+through; the script taps fire every 60 frames.
 
 ## The translation file: `lang\de.csv`
 
-The catalog in `lang.c` carries the interface, the menus and the messages. The game's own story —
-the rooms' narration, what the people say, the telephone dialogue — is far too much to belong in a
-source file, and it is a translator's work, not the port's. It arrives as a **translation file** the
-game reads at start-up: a CSV with a semicolon separator, so a spreadsheet shows it as columns.
+**The file is the whole catalog.** The interface, the menus, the map's place names, the boot's
+messages, the port's own screens and the game's story — the rooms' narration, what the people say,
+the telephone dialogue — all of it is one CSV with a semicolon separator, so a spreadsheet shows it
+as columns, and the game reads it at start-up. One file per language: `de.csv`, `fr.csv`, ... —
+`icftd.ini` `[GAME] language` names which.
 
 | | |
 |---|---|
@@ -1213,21 +1226,23 @@ game reads at start-up: a CSV with a semicolon separator, so a spreadsheet shows
 | three fields | `<id>;<English>;<German>` — the translator's work file; the middle field is never looked up |
 | comments | a record whose first field starts with `#` (a one-field record is skipped as well) |
 | encoding | UTF-8 (a byte order mark is fine) or ANSI/Latin-1, which is what a plain spreadsheet export writes; UTF-16 is refused with a message |
-| empty German field | a placeholder: the record is skipped and the game keeps its own text (the catalog's German, else the English) |
+| empty text field | a placeholder: the record is skipped and the line is drawn in English — a missing row is the same thing, so a half-finished file is usable |
+| formats | the messages the program builds itself have their *format* in the file (`Sleep for %d hours.`, `June %d, 1951 - %02d:%02d %s`, `Sorry, %s has been destroyed.`, `Sorry, %s is closed. It will open again at %d:00 %s.`, `ETA: %02d:%02d`, `REEL %d`, `a.m.`, `p.m.`); the translation keeps the same `%` marks in the same order, and a row whose marks do not match draws English instead (`lang_format`) |
 
-The last record with a given key wins, so a translator can override a catalog entry as well. The
-text is converted and copied into the machine's RAM like the catalog (`rt_lang_open`), and a text
-longer than a story copy (> 1 KB) stays English rather than being cut. Two dialogs keep a wrong file
-from looking like a broken translation: the path and size of the file that was used are printed at
-start-up, and a file that yields no translation at all reports the separator as the likely reason.
+The last record with a given key wins, so a correction is appended rather than edited in place. The
+text is converted and copied into the machine's RAM (`rt_lang_open`), and a text longer than a story
+copy (> 1 KB) stays English rather than being cut. Two dialogs keep a wrong file from looking like a
+broken translation: the path and size of the file that was used are printed at start-up, and a file
+that yields no translation at all reports the separator as the likely reason.
 
 ### Delivering a translation without carrying the original's script
 
-The English column *is* the game's script, decoded from `desert.dat`/`PHONE.DAT` — so a translation
-file that repeats it cannot be redistributed for the same reason the game data cannot (`.gitignore`,
-"nothing that is game artwork, that contains it, or that was decoded from it"). Keying by an id
-removes that: a hash is a fact about the text, not the text. Hence three files, and only the third
-belongs in the repository:
+The English column *is* the game's script, decoded from `desert.dat`/`PHONE.DAT` (and, for the
+interface, out of the program and the port's own screens) — so a translation file that repeats it
+cannot be redistributed for the same reason the game data cannot (`.gitignore`, "nothing that is
+game artwork, that contains it, or that was decoded from it"). Keying by an id removes that: a hash
+is a fact about the text, not the text. Hence three files, and only the third belongs in the
+repository:
 
 | file | content | committed |
 |---|---|---|
@@ -1241,9 +1256,11 @@ powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Work      # -> l
 powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Pack      # -> lang\de.csv
 ```
 
-`-Work` merges `en.csv` with whatever `de.csv` already holds, so no translated record is ever lost;
-`-Pack` writes the German side only. The ids are stable while the English text is, so a translation
-file outlives a regeneration of the source.
+`-Work` merges `en.csv` with whatever `de.csv` already holds, so no translated record is ever lost —
+including a row whose English text has since left the game's data; `-Pack` writes the translated side
+only. The ids are stable while the English text is, so a translation file outlives a regeneration of
+the source. **`-Lang fr` does the same three steps for another language** (`lang\fr.work.csv`,
+`lang\fr.csv`), and nothing has to be rebuilt: the file is the catalog.
 
 **What this does and does not settle.** It settles the *reproduction of the original*: the shipped
 file contains no game text, and the ids are not protected expression. Two rights then meet in the
@@ -1251,16 +1268,18 @@ translation itself: the translator's — a translation is a protected work (§3 
 came to you is what your contract says, since in Germany the rights have to be granted explicitly
 (§31 UrhG) — and the original's, because a translation is also a derivative of the game's script and
 publishing it needs the rights holder's consent (§23 UrhG). Owning the translation settles the first,
-not the second. What the port ships in the binary is the interface German only: short functional
-labels, prompts and messages. Whoever publishes a translated story, in this repository or in a
-release, decides that last question; keeping it out of the repo and offering it as a separate file a
-player drops into `lang\` is the cautious route. (Not legal advice — ask the rights holder or a
-lawyer.)
+not the second. Whoever publishes a translated story, in this repository or in a release, decides
+that last question; keeping it out of the repo and offering it as a separate file a player drops into
+`lang\` is the cautious route. (Not legal advice — ask the rights holder or a lawyer.)
 
 ### The source text
 
 **`tools\lang-export.ps1` writes it**, every English string the game can draw:
 
+* the interface's own vocabulary, `lang.c`'s `g_interface` printed by **`--langkeys`** — the lines
+  the engine draws from its program (the room menus, the map's place names, the boot's messages, the
+  save/load screen) and the ones the port's screens draw (the title, the settings, the save slots,
+  the OSD), which no data file holds. The formats of the formatted messages are part of it;
 * a scripted run with `--langdump`, which records every string the engine hands to a text routine —
   the load screen, the intro's narration pages, the room menus, the travel lines. Those live in
   memory only (the intro's bundle is compressed), so nothing else finds them. The run stays English
@@ -1271,10 +1290,10 @@ lawyer.)
 * `PHONE.DAT`, whose lines are `<speaker>:<text>` — the speaker picks a portrait and is never drawn,
   the text after the colon is the record.
 
-The engine re-wraps and re-centres German with its own font, so a translation that is much longer
-than the English line will not fit the same box. Times and the messages the program formats itself
-(`June 1, 1951 - 09:32 a.m.`, `ETA: 00:05`) are not in the file: the catalog builds those from their
-pattern (`rt_lang_is_message`).
+The engine re-wraps and re-centres the translated text with its own font, so a translation that is
+much longer than the English line will not fit the same box. Times and the messages the program
+formats itself (`June 1, 1951 - 09:32 a.m.`, `ETA: 00:05`) are in the file as the *format* they are
+built from, never as one finished line (`rt_lang_is_message` keeps them out of the dump).
 
 ## The dev loop
 

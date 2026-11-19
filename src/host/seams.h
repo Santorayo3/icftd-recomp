@@ -40,7 +40,7 @@ typedef struct seam_set
     u32 textLinePc;         /* FUN_00004d76: draws one line of a text menu              */
     u32 textLineRet;        /* its return address inside FUN_00004f0a                   */
     /* The engine's text routines: the entry points a string arrives at, and the only places
-     * [GAME] language=de swaps one (src\host\lang_hook.c). */
+     * [GAME] language swaps one (src\host\lang_hook.c). */
     u32 textBootPc;         /* FUN_0000093a: a centred message in its own box (boot)    */
     u32 textCenterPc;       /* FUN_00004e2e: one centred line                           */
     u32 textBlockPc;        /* FUN_00004f0a: a wrapped block of lines                   */
