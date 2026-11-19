@@ -75,6 +75,7 @@ $sources = @(
     (Join-Path $rt 'assets.c'),
     (Join-Path $rt 'config.c'),
     (Join-Path $rt 'lang.c'),
+    (Join-Path $rt 'lang_source.c'),
     (Join-Path $rt 'plat\dos\plat_dos.c'),
     (Join-Path $mus 'm68kcpu.c'),
     (Join-Path $mus 'm68kops.c'),

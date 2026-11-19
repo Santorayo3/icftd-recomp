@@ -51,7 +51,10 @@
  *                        the endings, 11/12 the menu's Load Game / New Game, 15 "Play Antheads")
  *   --program ant       run the add-on "Antheads" instead of the 1989 game (a dev seam; a player
  *                        reaches it through the title's fifth button)
- *   --extract            extract the game data from `disks\` into the data folder and exit
+ *   --extract            extract the game data from `disks\` into the data folder and exit (it also
+ *                        writes the translation source, lang\en.csv and lang\en_ant.csv)
+ *   --langsource <dir>   write lang\en.csv and lang\en_ant.csv into <dir> and exit (the same files
+ *                        the first start writes from the extracted data)
  *   --esc <frame>        press Escape at that frame (the restart-to-title seam, like --call)
  *   --cheat <frame>      press left Ctrl+W at that frame (the minigame cheat's seam)
  *   --timefreeze <f>[,<f>...]  press left Ctrl+T at each of those frames (the clock freeze's seam)
@@ -86,6 +89,7 @@
 #include "programs.h"
 #include "seams.h"
 #include "lang_hook.h"
+#include "../runtime/lang_source.h"
 #include "../runtime/lang.h"
 
 #define DOS_IMAGE      "DSHELL.IMG"
@@ -1341,8 +1345,7 @@ static void shot_write(const char *path)
     fclose(f);
 }
 
-static void dos_present(rt_machine *m)
-{
+static void dos_present(rt_machine *m){
     const u8 *fb = rt_gfx_framebuffer();
     const u8 *pal = rt_gfx_palette();
     u8 *dst;
@@ -1425,6 +1428,30 @@ static void dos_present(rt_machine *m)
     (void)m;
 }
 
+/* The game's own source text (lang_source.c): written into the language folder when it is not
+ * there yet - a by-product of the player's own data, never shipped - or into `forcePath` when
+ * --langsource named one (the check tool). A read-only folder is not fatal. */
+static void dos_lang_source(const char *dataDir, const char *forcePath)
+{
+    char dir[400];
+    char msg[600];
+
+    if (forcePath != 0)
+    {
+        int wrote = rt_lang_source_write(dataDir, RT_ASSETS_DOS, forcePath, 1, msg,
+                                         (u32)sizeof msg);
+        if (wrote < 0) printf("icftd: %s\n", msg);
+        else printf("icftd: %d source file(s) written to %s\n", wrote, forcePath);
+        return;
+    }
+    if (rt_lang_write_dir(dir, (u32)sizeof dir))
+    {
+        msg[0] = 0;
+        if (rt_lang_source_write(dataDir, RT_ASSETS_DOS, dir, 0, msg, (u32)sizeof msg) < 0)
+            printf("icftd: %s\n", msg);
+    }
+}
+
 int main(int argc, char **argv)
 {
     rt_machine m;
@@ -1435,6 +1462,7 @@ int main(int argc, char **argv)
     const char *dataDir = 0;
     const char *diskDir = 0;
     int extractOnly = 0;            /* --extract: fill the data folder and stop */
+    const char *langSourcePath = 0; /* --langsource: write en.csv/en_ant.csv there and stop */
     u32 frameLimit = 0;
     int slot = 1;
     int titleKey = -1;              /* --titlekey: take this title screen menu choice */
@@ -1465,6 +1493,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--disks") == 0 && i + 1 < argc) { diskDir = argv[++i]; continue; }
         if (strcmp(argv[i], "--image") == 0 && i + 1 < argc) { image = argv[++i]; continue; }
         if (strcmp(argv[i], "--extract") == 0) { extractOnly = 1; continue; }
+        if (strcmp(argv[i], "--langsource") == 0 && i + 1 < argc) { langSourcePath = argv[++i]; continue; }
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc)
         {
             frameLimit = (u32)strtoul(argv[++i], 0, 0);
@@ -1597,6 +1626,7 @@ int main(int argc, char **argv)
             printf("icftd: %s\n", rt_lang_text(msg));
             return 1;
         }
+        dos_lang_source(dataDir, langSourcePath);
         return 0;
     }
     if (image == 0)
@@ -1639,6 +1669,14 @@ int main(int argc, char **argv)
             printf("icftd: the add-on's data is not in the data folder (ANT1..3, ANTSHEL.IMG)\n");
         return 1;
     }
+    /* The game's own source text, from the tree that is now complete (lang_source.c). */
+    if (langSourcePath != 0)
+    {
+        dos_lang_source(dataDir, langSourcePath);
+        return 0;
+    }
+    dos_lang_source(dataDir, 0);
+
     /* The table the dispatcher searches, and the entry, A4 and save geometry the engine boots and
      * writes with, belong to the build being run; every other constant is the same for both (same
      * load address). */

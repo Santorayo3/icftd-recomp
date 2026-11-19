@@ -271,7 +271,7 @@ try {
         Fail 'without a [GAME] entry the run did not draw the English text'
     } else { Ok 'no [GAME] entry means en (the default)' }
     # --- 5. the dump is the English text, whatever language the settings select ------------------
-    # `--langdump` is what tools\lang-export.ps1 builds the translation file from, so it has to be
+    # `--langdump` is a development seam (a one-off capture of what a run draws), so it has to be
     # the original's English: with another language selected the run it is taken from stays English
     # as well, because a substituted string would arrive at the next text routine down and be
     # written down as if it were the original (that is how a translated line ended up in the
@@ -301,12 +301,12 @@ try {
     #        id, a story record keyed by its id is drawn, and the middle column never is ---------
     $story = ''
     $storyId = ''
-    $export = Join-Path $Work 'export.csv'
+    $export = Join-Path $Work 'source\en.csv'
     if (Test-Path $Exe) {
         # The exporter writes the source text, `<id>;<English>`: running it here also checks that
         # the file it writes is one the game's id keying can use, and that `--langkeys` reached it.
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\lang-export.ps1') `
-            -SkipRun -Source $export -Scratch (Join-Path $Work 'export') | Out-Null
+            -Source $export -Scratch (Join-Path $Work 'export') | Out-Null
     }
     if (-not (Test-Path $export)) {
         Fail 'tools\lang-export.ps1 wrote no file'
@@ -380,6 +380,43 @@ try {
 finally {
     if ($saved -ne $null) { Set-Content -LiteralPath $ini -Value $saved -NoNewline -Encoding ascii }
     else { Remove-Item -LiteralPath $ini -Force -ErrorAction SilentlyContinue }
+}
+
+# --- 7. the game writes the exporter's source text, byte for byte ----------------------------
+# A player has no checkout: extraction writes `lang\en.csv` (and the add-on's `en_ant.csv`) from
+# the player's own data (src\runtime\lang_source.c), so a translation can be started without the
+# original's words ever being shipped. The ids *are* the English text, so a difference between the
+# two would make every translation made against one incomplete against the other - nothing else
+# would notice.
+$written = Join-Path $Work 'written'
+Remove-Item -LiteralPath $written -Recurse -Force -ErrorAction SilentlyContinue
+$null = & $Exe $Image 1 --data $DataDir --langsource $written 2>&1
+if (-not (Test-Path (Join-Path $written 'en.csv'))) {
+    Fail 'the game did not write en.csv from the extracted data'
+} elseif (-not (Test-Path $export)) {
+    # the exporter itself failed above, which is the failure to report
+} elseif ((Get-FileHash -LiteralPath $export).Hash -ne (Get-FileHash -LiteralPath (Join-Path $written 'en.csv')).Hash) {
+    Fail "the game's en.csv and tools\lang-export.ps1's differ"
+} else {
+    Ok 'the game writes the exporter''s source text, byte for byte'
+    $antImage = Join-Path $DataDir 'ant\code\dshell4k\dshell.img'
+    $baseSource = Join-Path $root 'lang\en.csv'
+    # The add-on's half is defined against the base source, which the exporter reads from the
+    # repository; it is only comparable while that file is the one the data produces.
+    if ((Test-Path $antImage) -and (Test-Path $baseSource) -and
+        (Get-FileHash -LiteralPath $baseSource).Hash -eq (Get-FileHash -LiteralPath $export).Hash) {
+        $exportAnt = Join-Path $Work 'source\en_ant.csv'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\lang-export.ps1') `
+            -Ant -Source $exportAnt -Scratch (Join-Path $Work 'export-ant') | Out-Null
+        if (-not (Test-Path $exportAnt) -or -not (Test-Path (Join-Path $written 'en_ant.csv'))) {
+            Fail 'the add-on''s source text was not written'
+        } elseif ((Get-FileHash -LiteralPath $exportAnt).Hash -ne
+                  (Get-FileHash -LiteralPath (Join-Path $written 'en_ant.csv')).Hash) {
+            Fail "the game's en_ant.csv and tools\lang-export.ps1 -Ant's differ"
+        } else {
+            Ok 'the game writes the add-on''s source text the same way'
+        }
+    }
 }
 
 if ($fail -ne 0) { Write-Output "lang: $fail failure(s)"; exit 1 }

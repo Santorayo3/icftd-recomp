@@ -145,14 +145,6 @@ E2A7341649A67E26;Die Zahl %d. Hmmmmmm, was das wohl bedeuten mag.
 6473084F8BBBA2A9;Da ist noch etwas. Ich weiß nicht, ob es etwas bedeutet, aber die Zahl %d geht mir immer wieder durch den Kopf.
 81195B7FCDF4F21F;Ankunft: %02d:%02d
 FFAA9105C76318BA;ROLLE %d
-6C026B1480B9CCC4;Ich lebte seit etwa einem Monat in einer kleinen Wüstenstadt. Ich bin Geologe und in meinem Spiel landen die interessantesten Steine immer an den uninteressantesten Orten. Willkommen bei Lizard Breath U.S.A., einem weiteren Tumblewee-Truck-Rastplatz, wo die Witze schlimmer sind als der Kaffee und jeder Tag so ziemlich wie jeder andere war. Zumindest bis der Meteoroid Stohlheinz A221357 vom Himmel fiel und praktisch auf Wiley Jeeters halbgeheimem Destillierapparat außerhalb der Stadt landete. Wiley ging es gut und das Geschäft in O'Riordan's Bar nahm deutlich zu, sodass die Einheimischen es insgesamt als einen Nettogewinn betrachteten. Ich war auf der Suche nach Steinen und dachte darüber nach, wie gut es sich anfühlte, wieder zu Hause zu sein, als es an der Tür klopfte ...
-73BAD0B74407F6A6;Hier sind die Proben, nach denen Sie gesucht haben, Doc.
-B247CAC7C0BE92E3;Ich werde dir mal einen Blick darauf werfen, wo sie herkommen, falls du Lust hast, es zu wissen ...
-C0A13C8C06D4447A;In dem Monat, in dem Geez für mich gearbeitet hatte, hatte ich seinen Esel noch nie so aufgeregt gesehen.  Als ich gerade danach fragen wollte, hörte ich Biff durch die Hintertür kommen ...
-D9A5A4881B88A7B8;Fragen Sie meine Güte nach dem Esel
-46EC3700AAD693C7;Finden Sie die Quelle der Proben
-4C02ED7D52116B42;Gehen Sie zu einem anderen Ort
-C72AEEA813178756;Seit dieser verdammte Meteoriteneinschlag wird sie sich nicht mehr dem Vulkan im Süden nähern. Stur wie ein Maultier...nichts für ungut, Liebling...
 393785F96045D561;Mine M-5
 1E0448BBDE1D3DEF;Mine M-3
 69EAA58F942A8596;Mine M-2
@@ -718,9 +710,17 @@ C08C30DC0AA4F916;Reden Sie weiter
 0AB43692E3D429F0;Sie haben das Recht, nervös zu sein. Etwas Dunkles zeichnet sich am Horizont ab. Ich sehe ... große LÖCHER im Boden. Das Bild verblasst....
 B7E1D1CEE99383B1;Mehr kann ich dazu nicht sagen.
 452C42C8A2BD9F43;Die alte Frau hat mir eine Gänsehaut bereitet. Als ich mich umdrehte, um zu gehen, nahm ich mir vor, ein Auge auf sie zu haben.
+6C026B1480B9CCC4;Ich lebte seit etwa einem Monat in einer kleinen Wüstenstadt. Ich bin Geologe und in meinem Spiel landen die interessantesten Steine immer an den uninteressantesten Orten. Willkommen bei Lizard Breath U.S.A., einem weiteren Tumblewee-Truck-Rastplatz, wo die Witze schlimmer sind als der Kaffee und jeder Tag so ziemlich wie jeder andere war. Zumindest bis der Meteoroid Stohlheinz A221357 vom Himmel fiel und praktisch auf Wiley Jeeters halbgeheimem Destillierapparat außerhalb der Stadt landete. Wiley ging es gut und das Geschäft in O'Riordan's Bar nahm deutlich zu, sodass die Einheimischen es insgesamt als einen Nettogewinn betrachteten. Ich war auf der Suche nach Steinen und dachte darüber nach, wie gut es sich anfühlte, wieder zu Hause zu sein, als es an der Tür klopfte ...
+73BAD0B74407F6A6;Hier sind die Proben, nach denen Sie gesucht haben, Doc.
+B247CAC7C0BE92E3;Ich werde dir mal einen Blick darauf werfen, wo sie herkommen, falls du Lust hast, es zu wissen ...
+C0A13C8C06D4447A;In dem Monat, in dem Geez für mich gearbeitet hatte, hatte ich seinen Esel noch nie so aufgeregt gesehen.  Als ich gerade danach fragen wollte, hörte ich Biff durch die Hintertür kommen ...
+D9A5A4881B88A7B8;Fragen Sie meine Güte nach dem Esel
+46EC3700AAD693C7;Finden Sie die Quelle der Proben
+4C02ED7D52116B42;Gehen Sie zu einem anderen Ort
 F2373E35FBB4B8F6;Das ist Jim Dandy, Doc. Elvira und ich wollten sowieso in die Stadt ... eine schöne alte Zeit haben, nicht wahr, Liebling? Ein bisschen Kleiebrei für den Esel und Sauermaische für den alten Bock! Eh, Doc? Eh? Hehe ... jetzt sei nicht so mürrisch, Elvira ... ich bin ein alter Kuhhirte ...!
 09361BA7D2102A20;Biff
 AE3F2EEE13C7E4C4;Ich sehe, dass Sie beschäftigt sind, Doc. Ich bin bei O'Riordan, wenn Sie mich brauchen.
+C72AEEA813178756;Seit dieser verdammte Meteoriteneinschlag wird sie sich nicht mehr dem Vulkan im Süden nähern. Stur wie ein Maultier...nichts für ungut, Liebling...
 AE8668D01509E754;Jeepers, das ist gruselig, Doc! Eine dieser Proben hat einen seltsamen Glanz!
 E6F55B7DDB7AA20D;Gehen Sie zur Karte
 3E24132B3EE4248C;Ich bin bei O'Riordan's, wenn du mich brauchst.

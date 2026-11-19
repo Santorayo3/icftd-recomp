@@ -18,7 +18,7 @@
  *                [--titlekey <n>] [--esc <frame>] [--cheat <frame>] [--timefreeze <frame>[,<frame>...]]
  *                [--mouse <file>] [--hoverlog] [--srcdiff] [--genericblit]
  *                [--cameralog] [--savelog] [--program ant|original] [--langdump <file>]
- *                [--langkeys <file>]
+ *                [--langkeys <file>] [--langsource <dir>]
  *
  * Started with no arguments at all it plays the game (like `--run`): that is how a release is
  * launched by double-clicking it.
@@ -59,9 +59,10 @@
  * one `<English><TAB>` row each - the raw material of a translation file, including the text that
  * only exists in memory (the intro's compressed narration pages, the room menus, the map's
  * messages). The run stays English while it dumps, whatever `[GAME] language` says, so a row is
- * always the original's text; tools\lang-export.ps1 runs it and merges its rows with the prose read
- * out of the data files and the interface's own vocabulary (`--langkeys`) into `lang\en.csv`, the
- * source a translation file is made from (docs\port-features.md, "The translation file").
+ * always the original's text. The translation source itself does not need a run:
+ * `src\runtime\lang_source.c` writes it from the player's own extracted data at the first start,
+ * and `--langsource <dir>` does the same into a folder of the caller's choosing (the two are
+ * asserted byte-identical to tools\lang-export.ps1's output).
  * `--langkeys <file>` writes that vocabulary on its own: the lines the engine draws from its
  * program and the port's own screens, which no data file holds.
  * `--speed` scales that clock for inspection: 100 is the Amiga's 50 Hz.
@@ -102,6 +103,7 @@
 #include "seams.h"
 #include "lang_dump.h"
 #include "lang_hook.h"
+#include "../runtime/lang_source.h"
 #include "../runtime/lang.h"
 
 /* The game program inside the data folder, which a fresh release only gets by extraction. Both
@@ -1771,6 +1773,7 @@ int main(int argc, char **argv)
     const char *busTablePath = 0;
     int titleKey = -1;                     /* --titlekey: take this menu choice on the title */
     const char *langDumpPath = 0;          /* --langdump: the English text a run draws */
+    const char *langSourcePath = 0;        /* --langsource: write en.csv/en_ant.csv there and stop */
     u32 translated = 0, interpreted = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -1829,6 +1832,10 @@ int main(int argc, char **argv)
          * routines, one `<English><TAB>` row each, which is what a translation file is made of
          * (tools\lang-export.ps1 runs this and merges the rows with the data files' prose). */
         if (strcmp(argv[i], "--langdump") == 0 && i + 1 < argc) { langDumpPath = argv[++i]; continue; }
+        /* --langsource <dir>: writes the game's own source text (`en.csv` and the add-on's
+         * `en_ant.csv`) into <dir> and ends - the same files extraction writes, for a check that
+         * they still match tools\lang-export.ps1's (tools\lang-check.ps1). */
+        if (strcmp(argv[i], "--langsource") == 0 && i + 1 < argc) { langSourcePath = argv[++i]; continue; }
         /* --langkeys <file>: the interface's English vocabulary - the lines the engine draws from
          * its program (menus, place names, boot messages) and the port's own screens, neither of
          * which is in the game's data files - written for tools\lang-export.ps1. Nothing has been
@@ -2024,6 +2031,29 @@ int main(int argc, char **argv)
             printf("recomp: %s\n", rt_lang_text(msg));
             if (g_window) plat_message("It Came from the Desert", rt_lang_text(msg));
             return 1;
+        }
+    }
+    {   /* The game's own source text is a by-product of the player's own data (lang_source.c):
+         * the data folder now holds everything it takes, so `lang\en.csv` and the add-on's
+         * `en_ant.csv` are written where a translation lives - a translator can start from them
+         * without the original's words ever being shipped. A file that is already there is never
+         * rewritten (it may be the player's own, or a development tree's). */
+        char dir[400];
+        char msg[600];
+
+        if (langSourcePath != 0)
+        {
+            int wrote = rt_lang_source_write(dataDir, RT_ASSETS_WINDOWS, langSourcePath, 1, msg,
+                                             (u32)sizeof msg);
+            if (wrote < 0) { printf("recomp: %s\n", msg); return 1; }
+            printf("recomp: %d source file(s) written to %s\n", wrote, langSourcePath);
+            return 0;
+        }
+        if (rt_lang_write_dir(dir, (u32)sizeof dir))
+        {
+            msg[0] = 0;
+            if (rt_lang_source_write(dataDir, RT_ASSETS_WINDOWS, dir, 0, msg, (u32)sizeof msg) < 0)
+                printf("language: %s\n", msg);          /* a read-only folder is not fatal */
         }
     }
     if (extractOnly) return 0;

@@ -7,15 +7,6 @@
 # Translate in de_ant.work.csv and re-run -Pack, never in this file: it
 # is rewritten from that one.
 # A line without a record here - or whose record is empty - is drawn in English.
-41A65174448EFC1B;Ich...ich kann kaum laufen...die Schmerzen...
-009226272E0D0BFE;Du solltest nicht auf sein! Du brauchst Ruhe. Ich bin Dusty, das ist mein Bruder Biff...
-CA9DB2BE69F96EDD;Dein Tankwagen ist auf der Interstate umgekippt, du warst bis jetzt bewusstlos, Mister.
-3DBC97DCCB97DAF2;Der Truck...die tödliche Fracht!
-3FEB8E6F221B9366;Ja, irgendwas hat dich ganz schön erwischt, im Tank war ein großes Loch...gut, dass er leer war!
-0DD7FCBEF9E67D41;Leer?! In dem Tank war genug Plutonium, um die ganze Stadt auszulöschen! Ich muss das Zeug finden!
-CB77451F44682A24;Wir haben deine Brieftasche durchgesehen...Mr. Nash...nur nach einer Telefonnummer gesucht, deinem Büro...deiner Frau...
-17A5BBC988ADD5C9;Aber Brick Nash hat keins von beidem, Baby, nicht mal annähernd...obwohl er bald eine Dauerstelle bei einem gewissen Verein in Leavenworth, Kansas haben könnte.
-EC1E1F38F1416919;KBUG-MELDUNG: G-Men durchkämmen die Stadt nach einem Plutoniumdieb, angeblich bewaffnet und gefährlich. Weitere Einzelheiten folgen.
 422E802806BC8CE3;Klingt, als wäre etwas Großes vor meiner Tür...
 453E65249B72C8EC;Buck hier hat einen mächtig guten Plan, Mister Brick! Los, erzähl ihm!
 E986392B3389EB99;Ich sag's ihm ja...hetz mich nicht...ich krieg meine Gedanken gerade...
@@ -36,7 +27,6 @@ A035985236096372;Hey, Cootie Queen! Für dich bin ich eine 200-Pfund-Dose Raid, 
 746736D8A6F97D75;Unsere Freunde kommen jetzt zu Hilfe, wir sind gerettet!
 58A78D119153CE33;Wer? Die Armee, die Nationalgarde?
 05EBEDDFCEC339DF;Nein, Schatz, die Ameisen natürlich!
-FDB77BF2B2E7B76B;ZURÜCK! ZURÜCK ODER ICH...
 2AD725BFFCEF6BC0;Schatz, ich höre sie schon die Straße herunterkommen! Das ist das Ende!
 22DAD181DBBA87AD;Es ist nicht das Ende, solange es noch einen anständigen Amerikaner gibt, der gegen alle Widerstände für seine Verfassungsrechte kämpft!
 CF44AA2081FA2C02;Oh, Brick!
@@ -69,7 +59,6 @@ C96669CC5E87E1A4;Ihr Läusefreunde bringt mich zum Kotzen! Verwandelt euch, mach
 84F2B609E61325DC;Du kommst genau richtig, ein Sammeltrupp Ameisen ist auf dem Weg hierher...hörst du...DA SIND SIE!
 E9C1124DCE31E670;Stell dir, wenn du kannst, eine perfekte Welt der Ordnung und des Zwecks vor, in der Zweifel und Unentschlossenheit durch die kosmische Herrschaft des großen Ameisen-Overminds hinweggefegt werden!
 615683383E9EE96E;Stell dir, wenn du kannst, deinen kosmischen Cootie-König vor, plattgedrückt wie ein Käfer auf der kosmischen Windschutzscheibe des großen kosmischen Buick auf dem Weg zum Laden für ein Bierchen und eine Dose Raid...
-F5DF6B20A93CC563;RAID?!!!
 48783A70385C319B;Danke, das brauchte ich...da kommen sie, VERBRATEN WIR SIE!!
 303460D673AE8D7E;Ich denke, hier ist eine kleine Rede angebracht...Wieder einmal bereiten sich die treuen Stammgäste von O'Riordan's darauf vor, ihre Nachbarschaftskneipe vor Horden eingleisiger Eindringlinge zu schützen, die auf die völlige Zerstörung des Lokals aus sind! Diese edle Tradition begann im Jahr 29, als ein zahlenmäßig unterlegenes und stark betrunkenes Bataillon von O'Riordan's Stammgästen ihren geliebten Pub erfolgreich gegen wiederholte Angriffe von Eliot Ness und den Unbestechlichen verteidigte! Lasst uns weiterkämpfen für Wahrheit, Gerechtigkeit, den amerikanischen Weg und ein großes, eiskaltes Bier!
 C131E872B9171F8D;Ich b-b-begebe mich zur Baustelle! Da gehen die A-a-ameisen hin!
@@ -90,16 +79,12 @@ BA7D5982B43D7FB6;Bürgermeister, wenn ich dich hier allein lasse...bist du Ameis
 BC02891AD4F4B88A;Verflixt! Du musst sofort zu diesem Nest und die Königin erledigen, junger Hüpfer! Wenn nicht...wird diese ganze Stadt platter als ein Pfannkuchen!
 737F4B1B705FCC49;Gerade kam ein Anruf von meinem Kumpel bei McWilliams Dairy. Er sagt, die Ameisen sind mit voller Wucht zurück. Ich ziehe nach Norden, um sie zu bekämpfen...du solltest das auch tun, wenn dir dein Leben lieb ist!
 C69C2341B284A702;Du kannst diese Dinger nicht aufhalten...ich weiß es, ich war einer von ihnen. Es ist das Ende, einfach das Ende...hörst du! SIE KOMMEN UNSERETWEGEN! LAUF UM DEIN LEBEN!
-F7F60644FF081D45;WIR SIND ZURÜCK! HA HA HA!
 0AB9C9E36756855B;Heiliger Katzenjammer, ich war eine echte KRÄNKELNDE BOHNE! Danke, dass du mich und meine unsterbliche Seele aus Satans Klauen gerettet hast, Freund!
 A57DC530C6505AE6;Ich wusste nicht, dass Satan auf Autoteile steht...
 E96A6DA32B3022A8;Sie sind überall, M-3, M-4...wir versuchen, sie im Tunnel zu halten...VORSICHT! DA KOMMEN SIE!
-C0CB2DAAFEFB5303;ALL EURE STÜMPERHAFTEN VERSUCHE, UNS AUFZUHALTEN, SIND GESCHEITERT...DU BIST HOFFNUNGSLOS MACHTLOS, KLEINER MENSCH!
 86B40BCCDBDD6804;Meine Männlichkeit steht nicht infrage, du Weichei! Aber jeder weiß, dass alle Arbeiterameisen WEIBLICH sind, du großer, dummer, schlaffhändiger AMEISENVESTIT!
-86340A6A55181723;AAAARRRGGGHHH!
 332FDCE1B2B2F7E4;Danke für die Rasur, Kumpel! So eine Schießerei habe ich nicht mehr gesehen, seit Bonnie und Clyde durch die Stadt kamen!
 B41A74F415BE3CB3;Die Ameisen sind mit voller Wucht zurück...SIE SIND NICHT AUFZUHALTEN!
-63EB8BE3A2208390;STIRB, BRICK, DU ABSCHAUMGESICHT!
 CCA3A42A760DEB5A;Sie sind in den Tunneln... ich weiß nicht, ob wir sie halten können...
 A52F3D8BFB2B5869;Wir machen uns bereit für diese verdammten Ameisen...
 EBD9EB97DC5A7A37;Diesmal sind es wir oder sie...bis zum Tod!
@@ -113,7 +98,6 @@ B7B6455A12221584;Ich bin froh, dass jemand den Mut hatte, meine Streitkräfte au
 E5A0DCEB8028A3F8;Die Ameisen sind unsere Freunde, Brick. Sie meinen es nicht böse! Tatsächlich habe ich sie eingeladen, sie sollten bald hier sein...
 877714657BED5115;Für ein leichtes Mittagessen aus frischer Leberpastete mit einem frühen Glukose-Cabernet?
 9D32D2DC4324ED5C;Pez ihn
-4DE9740900B4656D;PEZ! ICH MUSS ES HABEN!
 920FEC3157481CC6;Ich bin wieder Mensch! Was für eine Erleichterung...denk nur an die Ersparnis bei Schuhen allein! Du hast freie Hand mit meinen Streitkräften, Nash! Was du sagst, gilt!
 AB4E7FFD787B0CA6;Die Kristallkugel verrät alles...die Winde haben sich gedreht und die Ameisen, sie sind auf dem Marsch. Wichtige Leute in der Stadt sind vielleicht noch Ameisen-Zombies...damit du Erfolg hast, müssen sie aufgespürt und wieder menschlich gemacht werden! Warte...der Ameisen-Overmind spricht...ES IST VORBEI, BRICK NASH! ES IST NUR EINE FRAGE DER ZEIT, BIS DIE AMEISEN DIE WELT REGIEREN! Das ist alles... ich muss mich jetzt ausruhen...
 EBC4C07D368E70C4;Brick, das Telefon klingelt ununterbrochen, die Ameisen marschieren und die Stadt mobilisiert! Menschenskinder!
@@ -134,7 +118,6 @@ EC09AD86C9AA7061;Habe ich dich nicht gerade da drüben das Auto hochheben sehen?
 4B13E59AC9724315;Wer, i-i-ich? Das war nur ein k-k-leines Auto, mein W-w-wagenheber ist kaputt.
 6758592655CD3E79;Der 51er Crosley wiegt etwa eine Tonne. Du wiegst etwa 200...lass mal sehen, eine Ameise kann etwa das Zehnfache ihres eigenen Gewichts heben...
 ACA192F47BCAF46E;Ich zog meinen treuen Pez-Spender und feuerte ein paar Schüsse aus nächster Nähe ab...
-5A7FA06447CB6385;DU H-H-H-H-HAST MICH ERWISCHT, B-B-BRICK...
 5EDAF55A5698B011;Puh! Danke für den H-h-haarschnitt, Kumpel! Ich bin jetzt bereit! Lass uns ein paar Ameisen b-b-barbecuen!
 371205854A7BDF82;Okay, klar, du hast meinen Hals gerettet, aber die Ameisen greifen überall an! Wir sind in der Unterzahl, umgangen und völlig ohne Glück, Nash! Hast du irgendwelche brillanten Ideen, Schlaumeier?
 3F901162C1BB4B41;Ich denke, das wäre ein guter Zeitpunkt zum Entspannen, es scheint nicht viel los zu sein. Es ist noch viel Zeit, sich später mit dem kleinen Schädlingsproblem zu befassen. Wie wäre es mit einer Tasse Kaffee?
@@ -153,7 +136,6 @@ C92EB1F28E2B6557;Guter Schuss, Scharfschütze! Ich dachte schon, ich wäre erled
 43A3B0F21AC72274;Nicht gut für wen...oder was?
 B82D2018F8DFBC72;Wir werden heute nicht...aktiv sein...
 6809A307C769C703;Was meinst du mit wir, Fühlerfresse!
-7AD14FCFE33303CC;PEZ...AAAARRGGGHH!
 9E9AF680DA4C601E;Vielleicht hättest du lieber ein Clorets, MAULGERUCH...
 0B648C40556BC536;Puh! Danke, ich fühle mich wie ein neuer Mensch!
 A1698050EA233138;Den Spruch hast du von meiner Ex-Freundin geklaut...
@@ -175,26 +157,21 @@ F48486F950F38ED9;Ludds Munitionsannex, ohne Zweifel...
 BACD703993F36896;Das Wetter hat sie verlangsamt...jetzt ist die Zeit, sich zu organisieren!
 47082B87E96F993F;Ich rieche Typ-0-negativ-Blut, gemischt mit etwas Pabst Blue Ribbon...
 EDEC98AF02A439AF;Das ist erstaunlich, das ist genau mein...Moment mal!
-8127EDC5E9F6AF72;GLUKOSE!
 694032B42DB9DA41;Du hast da was Gutes getan, Kumpel. Ich hoffe, ich kann dir behilflich sein.
 99AA96B4B1E3F614;Du und ich beide, Mister.
 3CF4511FDA16DC82;Das kühle Wetter ist auf unserer Seite, das bremst die Ameisen. Von jetzt an können wir keinem der Bergleute von M-3, 4 oder 5 mehr trauen. Sei vorsichtig, Brick!
 13B2C29FAEF5B5AB;Okay, na gut, ich bin also ein Ameisenkopf, na und? Wen juckt's. Es ist eine edle Tradition: Der Wolfsmensch, Dracula, Jekyll und Hyde. Hey, Kumpel, lass mich dir was sagen...ICH BIN STOLZ, EIN AMEISENKOPF ZU SEIN!
 952488DA317C4CBF;Was kommt als Nächstes, ein Insektenminderheiten-Punkt im Parteiprogramm der Demokraten? Rechne nicht damit, meine Tochter zu heiraten, Insektenfleck!
-98BC52A3EAF8CD1E;DU RECHTSEXTREMER AMEISENHETZER-NAZI...AAARRRGGGHHH!
 07A32B03578E6D76;Danke für die Gesichtsbehandlung, Kumpel!
 D1F473EF70E90369;Die Arbeit eines Kammerjägers ist nie getan...
 8BE633226A49DEC4;Es ist kalt und still. Besser, als von einem Käfer wie ein Käfer zerquetscht zu werden...
 04E2DFFD0FAB4232;Es ist zu kalt... ich halte es nicht aus!
 19F46B3EB1C35DBD;SO kalt ist es nun auch wieder nicht, Kumpel...
-2CF01E05BC715D0C;ZUCKER!
 CD727FEDC695F74E;Verrückt! Was für ein Trip! Danke, dass du mich nach Hause gebracht hast!
 3709CE440E107BBD;Kein Problem. Holen wir uns diese Mutanten.
 059D27A122277992;Es ist kalt... besser, als Ameisenfutter zu sein...
-905A4B7E7CD11D2B;STIRB, MENSCH!
 C03348F3329103F7;Das war unglaublich! Ich glaube nicht, dass ich das noch mal durchmachen will!
 BF4FEC67D4868CD8;Du und ich beide, Bruder...
-76D98B1A7E9FE71B;STINKENDER MENSCH...STIRB STIRB STIRB!
 EAB142EFC15A837F;Que magnifique! Ich bin wieder der ganze Franzose! Ich muss dir jetzt die Marseillaise vorsingen...
 3C375FCC2FE4C4A4;Hey, beruhige dich, Louie! Die Ameisen sind tödlich genug, hm?
 FCE6103FBE8C809D;Alles ist bestens, Mr. Nash, kein Problem. Das Wetter ist allerdings unangenehm kühl geworden...
@@ -202,7 +179,6 @@ FCE6103FBE8C809D;Alles ist bestens, Mr. Nash, kein Problem. Das Wetter ist aller
 F34795C1CB27EC3A;PEZ! Mein Lieblings...SCHLÜRF SCHLÜRF!
 F68E6956D2C45563;Ich bin wieder ein ordentlicher G.I.! Du bist ein wahrer amerikanischer Held, Nash! Dafür bekommst du die Medal of Honor!
 7F416317DA4E18AA;So eine habe ich schon! Hier geht es nicht um Ruhm, du Infanterist, hier geht es um Mumm! Kannst du dem Feind unter Beschuss gegenübertreten und seine Antennensysteme aus seiner Schädelregion entfernen, mit präzisem Schießen aus dem halbautomatischen M-1-Gewehr?
-61F8C5B8F2EFCEE5;JAWOHL!
 7D1A3575B3759123;Braver Mann, Sergeant! WEGGETRETEN!
 82151EB8AAC658E5;Die Kristallkugel verrät alles...du musst zum Tresorraum im Krankenhaus und den Safe öffnen...nur dann lassen sich die Verwandlungen verhindern...heute kommen keine Ameisen heraus...zu kalt für sie...das ist alles.
 A59B8EC9BE84AA65;Die Kristallkugel verrät alles...die Kälte hat die Ameisen verlangsamt, aber die Gefahr lauert noch ganz in der Nähe. Deine Nächsten könnten in Schwierigkeiten stecken...geh schnell und sieh nach ihnen...die Minen sind auch verseucht und der Flughafen.....es gibt noch mehr, aber ihre Identitäten liegen im Schatten...
@@ -220,9 +196,7 @@ DAF837243FE39E6D;Ich schätze, das Bingo-Spiel wurde verschoben...
 DEAD79330808091D;Diese Kerle sind hinter mir her, ich sollte lieber auf die Straße...
 263F18B07CCC5317;Hoffentlich hält das Wetter, damit wir zu diesem Ameisennest kommen und es ausräumen können!
 5C8C1E6A2DFC9955;K-k-k-kaltes Wetter! Das ist großartig! Diese Ameisen können bei so einem Wetter kaum funktionieren! Schnappen wir uns die dreckigen b-b-ba-ba-Bakterienatmer!
-3A10ED85B1884023;ST-ST-STIRB, M-M-MENSCH!
 EBC82768E124E2BD;Du hast m-m-mich gerettet! Ich mache ein paar M-M-Molotow-Cocktails, Mr. Brick. Ich werde diese Biester in der ganzen S-s-straße rösten! Sie kommen aus dem Norden...das ist, w-w-was ich denke!
-BA3A2A62A38F713D;STIRB, MENSCH...!
 6B1B120558A66881;Danke für den Haarschnitt, Nash. Du bist ziemlich geschickt mit der Kanone...auf welcher Seite des Gesetzes übst du das eigentlich aus?
 81AE9FF29FC45758;Auf der Seite, die gerade deinen Hals gerettet hat, Kumpel. Reicht dir das?
 D1E63FAB71391449;Bei dieser Kälte ist es ein guter Tag, unsere Kräfte aufzustellen. Werfen wir einen Blick auf die Schlachtkarte...
@@ -230,7 +204,6 @@ D1E63FAB71391449;Bei dieser Kälte ist es ein guter Tag, unsere Kräfte aufzuste
 E2077517D8FBB4CE;Genau wie letztes Mal hat uns das kalte Wetter den Hals gerettet! Jetzt ist die Zeit, rauszugehen und sie gründlich zu vertrimmen, solange nicht so viele herumlaufen!
 8A1CE49DB26ED35D;Menschen...die glücklich und zufrieden in einer von Ameisen regierten Welt leben...es könnte passieren...
 C7F1804140FFEA05;Klingt für mich wie ein gut geführter Milchhof, Drecksack...
-199828CDE75EBF2C;DANN STIRB WIE VIEH IM SCHLACHTHAUS!
 4F8B2A80B8C8F89D;Nash, du verdienst eine besondere Belobigung dafür...du hast den Bürgermeister gerettet!
 5BD8B9F66826A421;Lass die Medaille weg, Jackson. Wie wäre es mit fünfzig Dollar und einem schnellen Auto?
 F2C91C9A06B6993C;Hör mal, Nash! Warum dauert es so verdammt lange, dieses miese Ameisennest zu zerstören? Bist du ein Mann oder eine Maus? Das kalte Wetter hält nicht ewig!
@@ -239,7 +212,6 @@ EE8A265771E8D7A8;Die Straßen sind wie leergefegt, wo sind alle hin?
 540D8A1E5F2EA1B4;Danke für das Vertrauen, Leute...sind diese Drecksäcke es überhaupt wert, gerettet zu werden?
 FAD0BB5874AE9D87;Wir wollen dich aus dem Weg haben, Twink...wir haben Pläne, nicht nur für dieses Kaff, nein...wir denken an den ganzen Planeten, Mann....ha ha ha!Wir sehen uns auf der Straße, Trottel!
 D607C70A676D6D73;Was ist los mit Biff, er sieht aus, als hätte er gerade eine Lawrence-Welk-Platte gehört...
-E2F00A71254D413F;BRICK! SIE SIND DIREKT HINTER MIR...LAUF!
 217EB66CB487FC27;Menschenskind, Brick! Du hast die Dinger ja wirklich geschmissen! Warte, bis die Bande hört, dass ein Kumpel von mir so cool ist, eine Stadt mit bloßen Händen plattzumachen! Das ist das Allergrößte!
 BA5EAD0A92079FF2;Warte, bis die Bande von diesen fleischfressenden Läusen in Teenager-Teriyaki verwandelt wird! Von diesen coolen Typen bleiben nur Radkappen übrig! Das ist kein Rock'n'Roll-High-School...das ist kein Tutti Frutti...das ist KRIEG!
 860607173DEBE706;Waal, ach du je, da ist ja wieder der Stadtjunge. Ich begreife nicht, warum du hier deine Zeit verschwendest, hier ist nichts los, man sieht nur dem Gras beim Wachsen zu...
@@ -251,7 +223,6 @@ B477C16578F2B8C2;Ein Pez...ein hübsch violetter, zuckersüßer Pez!
 5D763E2828BBC90D;Das war das Mindeste...deine exoskelettale Patina passte nicht zu deinen Socken...
 F8A7B56DEC6621B9;Das Universum ist ein weites Netz konkurrierender Lebensformen, Mr. Nash, und die Artenvielfalt auf diesem Planeten verhält sich nicht anders als auf jedem anderen. Das Leben ist wie ein Karussell...manche Arten wissen einfach nicht, wann sie absteigen sollen, nicht wahr, Mr. Nash?
 42A622370187C56F;Was für ein Haufen pseudointellektueller Quatsch! Du vergisst das Überleben des Stärkeren, du exoskelettales Exkrement! FRISS PEZ, INSEKTENFLECK!
-B961C753DA5CA762;ZUCKER...ZUCKER...SCHLÜRF SCHLÜRF!
 F71E9DB4FF187025;Außergewöhnlich! Wieder Mensch! Ich kann dir nicht genug danken, Mr. Nash!
 190728F1322B9813;Mach einfach ein paar Ameisen weg, dann passt das schon, Kumpel...
 10392AEA0A684BA3;Klar, ich habe bei der Blutspende mitgemacht...welcher normale, rotblütige Bürger von Lizard Breath würde das nicht? Welcher aufrechte Durchschnitts-A-TYP-NAMENS-JOE würde NICHT DEN ÄRMEL HOCHKREMPELN UND SICH EINE GROSSE NADEL IN DEN ARM STECHEN LASSEN UND SICH DAS GANZE BLUT ABSAUGEN LASSEN! AAAARRRGGGHHH!
@@ -262,9 +233,7 @@ A75404F0B70B3416;Schöne Stadt...
 8467B1113E914A94;Schöner Planet...
 7E32426E02A55CAD;Finden wir auch...
 700CB853310740F0;Wer ist WIR? Friss Pez, Larvenlippen!
-C74C9ECC49FD897D;ORANGE, ORANGE, MEIN LIEBLING! SCHLÜRF SCHLÜRF!
 0271687F0BE1CD7E;Guter Schuss! Ich schulde dir was, Scharfschütze!
-7EAF0DA3FA429BC7;SIE SIND IM TUNNEL! LAUFT UM EUER LEBEN!
 BA79CBDA1064170F;Was zum Teufel macht Geez am Flughafen?
 53F880C3FDE2C719;Verflixt, Brick! Ich bin gerade noch rausgekommen! Biff und ich wurden getrennt...überall waren Ameisen, ich glaube, einige sind mir hierher gefolgt...Louie ist verschwunden und...AB IN DIE BERGE, DA KOMMEN SIE!
 7CF72EA8A154F9CF;Was sagt dieser Gefreite da drüben? Der Sergeant ist heute nicht zum Dienst erschienen? Ist das ungewöhnlich? Zum ersten Mal seit zweiundzwanzig Jahren, hm? Sehr interessant...
@@ -280,17 +249,13 @@ A6232E073549A3D8;Dieses Labor ist nicht mehr sicher...ihr solltet jetzt verschwi
 D8ADE4E1680F733A;Brick, ich habe Angst! Ameisen strömen aus dem Norden herein und überall verschwinden Menschen! Diese schrecklichen Ameisenmenschen übernehmen die Stadt! Biff ist weg...der Radiosender ist erledigt...ich gehe Biff suchen!
 048789A864D253F5;Die Bar ist leer...ich schätze, Ameisenköpfe haben keine Happy Hour...
 39A6C870EA7BFCB6;W-w-weißt du, Mr. Brick, d-d-diese Ameisenleute sind gar nicht so übel, wenn man sie erst kennenlernt.
-DEC0A62D1D0F1A02;Z-Z-ZUCKER! ICH MUSS M-M-MEHR ZU MIR NEHMEN!
 E5E0B3730466C993;Du hast mir da oben am V-v-vulkan wirklich das Leben gerettet...wir brauchen Truppen, wenn wir diese Dinger aufhalten wollen...falls sie noch keine Ameisenköpfe sind...
 01D24D6567A9BBBC;Ich mache ein paar M-M-Molotow-Cocktails, Mr. Brick. Ich werde diese Biester in der ganzen S-s-straße rösten! Sie kommen aus dem Norden...das ist, w-w-was ich denke!
 99BCDA84E0E1D89E;Auf dem Schreibtisch liegt ein Zettel...der Sheriff ist mit dem Bürgermeister zum Flughafen gefahren...klingt ganz danach, wenn man diese Weichlinge kennt...
 F75A9209FC2E6303;Schließ die Tür ab! Sie sind überall...Riesenameisen...Ameisenkopf-Menschen...sie kommen über das Querfenster...ich muss diese letzten Momente zu Papier bringen, damit künftige Generationen erfahren, was hier passiert ist...falls es überhaupt eine Zukunft gibt!
 201885BC11884A30;Hier steht, der Bürgermeister ist mit dem Sheriff auf dem Weg zum Flughafen...
 1E2A34FD5C5CB606;Dieser hohe Pfeifton ist ohrenbetäubend...HEY, BERGMANN, WAS IST DAS FÜR EIN LÄRM?
-398E2E9219A909C2;WELCHER LÄRM?
-6EBDE1921DDA660A;NIMM DIE WATTE AUS DEINEN...VORSICHT!
 B9926A4342A9BBA3;Automatisches Waffenfeuer...ICH BIN GETROFFEN!
-D67806DE3485007F;KRANKENHAUS ^ >198
 F725C74C978041B0;Hier bricht die Hölle los...
 FA2C051C18ACD307;Ich habe ein paar von ihnen erledigt, aber hinter dem Haus sind mehr! Schau, SIE HAT MA! ICH KOMME, MA...HAU MIT DEM BESEN ZU!
 106C9AD68EAA7043;Guten Tag, Mr. Nash. Bei M-3 ist etwas, das du dir sofort ansehen solltest. Ich bin sicher, du findest es ÄUSSERST interessant. Ein Zug fährt sofort ab, steig ein. Es sieht so aus, als wärst du der Einzige, der mitfährt...bon voyage...
@@ -301,7 +266,6 @@ E15E3FADB14D264B;In einer fließenden Bewegung zücke ich geschickt meinen treue
 46D5488DE61E6BB0;Wa...was ist passiert? Ich bin wieder ich selbst...du hast mich gerettet, Nash! Das war wirklich ein sauberer Schuss! Treten wir ein paar Ameisen in den Hintern, Kumpel!
 FA227D3BCFAE0C63;Die Strahlungswerte gehen durch die Decke! Dieser hohe Pfeifton...AMEISEN!
 9694FA540AE391DD;Elmer ist kurz davor, zum Käferburger zu werden...
-61ABCDFC0AF233EA;R-R-RETTE MICH, B-B-BRICK!
 67CBB08CA7A9D495;Puh! D-d-danke, Brick! Ich war fast Ameisenf-f-futter!
 043824DD5E962326;Kein Problem, Kleiner! Du solltest besser zurück zur Station und Benzinfaschen bauen, wir brauchen jede Feuerkraft, die wir kriegen können!
 734D7AE1830F7DF5;Niemand da...ein Schuss...ICH BIN GETROFFEN!
@@ -327,7 +291,6 @@ A32647D9FA84AF0B;Jemand klopft an die Tür...
 F82F93929B679160;Hallo, Brick. Was hast du vor? Ich höre, es gibt keine Ameisen mehr, alles ist wieder normal. Ich schätze, du kannst jetzt die Stadt verlassen, es gibt keinen Grund zu bleiben. Auf Wiedersehen, Brick...
 42646A4617D5B1B2;Pez sie
 D52B5B647CBBFF44;Ich zücke meinen Pez-Spender und feuere eine Ladung in ihre Richtung...
-F5FD45B8A3F7A263;PEZ! MMMMM...ZUCKER AUFNEHMEN...MASSEN VON ZUCKER!
 C04FE3D8AFCAD8CA;Ich danke dir sehr, Brick. Du hast mich vor diesen scheußlichen Kreaturen gerettet. Ich werde es dir irgendwie vergelten.
 B7604C8C6E8ADE69;Klingt nach einem Besucher...
 FB0440004A3F5F9F;Oh Brick, ich habe mir solche Sorgen gemacht...nimm mich in die Arme, lass diesen Schauer noch einmal durch mich fahren...
@@ -341,7 +304,6 @@ B8E2E665E9823871;Sag mal, Brick! Billy hat eine Spur zu dem Buch, nach dem du ge
 E627C8C714C1D84B;Du meinst, ich kann sie mit meinem Pez-Spender abschießen?
 D8D51193CEB7118C;Klar, aber ich dachte, nur Kinder essen Pez!
 1ED7D3E894F0EB1D;Siehst du diese Delle in meinem Spender? Sie hat in Korea eine Kugel gestoppt, Kleiner. Das war der Anfang einer wunderbaren Freundschaft zwischen mir und Pez! Danke für den Tipp, Billy...sag mal, wie wäre es mit einer Runde Kirsch-Pez für euch beide?
-57F017A54CB865BE;KLAR DOCH, BRICK! WIR SIND KEINE AMEISEN!
 F7E308035CF5067C;Die verdammten Käfer sind überall! Billy und sein Dad schreien um Hilfe, aber ich sehe sie noch nicht...wenn ich diese kolossalen Läuse nicht schnell wegpuste, sind wir alle Ameisenfutter...
 B3BA81DE7A6CF79D;Danke, Brick. Ich dachte, wir wären Ameisenfutter.
 420A9BFA58833BBB;Junge, ich auch. Wir hatten einfach Glück, das ist alles.
@@ -371,15 +333,16 @@ DEC6C98C694E3672;Ja, okay, alle. Nun, bis auf den im Flugzeug...ich meine, er is
 696144F80F01F841;Ich schätze deine Ehrlichkeit, Brick. Ich bin sicher, dieses verabscheuungswürdige Verhalten liegt jetzt hinter dir und...offen gesagt, ich denke, du solltest für deine Aufrichtigkeit in dieser Sache belohnt werden...
 61BA066E7351AD5A;Als sich ihre Lippen öffnen, beugen dunkle, namenlose Mächte meinen Willen...
 B6A3B326DCDF559C;Belohnung annehmen
+1AE6EF48587E6CC7;...und hier ist Elvis mit Don't Be Cruel...
 1F77BEB269B65105;Brick, du warst wunderbar. Hör zu, ich höre ständig Dinge über das Krankenhaus...ich weiß nicht...Leute kommen von dort zurück...ANDERS. Vielleicht hat es etwas mit diesen Ameisenmenschen zu tun, die du gesehen hast. Viel Glück da draußen, Baby.
 D7BD9867A1E4CAC3;Kein aufgepumpter Käfer kommt jemals wieder an ihr schickes Chassis heran...
+42B4ED2F7A0B6D54;...und alle Bürger werden gewarnt, sich von dieser Region fernzuhalten, da angenommen wird, dass sie der Standort der Hauptkolonie der Kreaturen ist. Die örtlichen Behörden haben gerade einen Generalalarm ausgerufen, basierend auf den neuen Beweisen, die der lokale Held Brick Nash ans Licht gebracht hat...das Kriegsrecht ist bis auf Weiteres in Kraft...bleiben Sie ruhig, halten Sie Ihre Kinder drinnen...bleiben Sie auf dieser Frequenz des Conelrad-Netzwerks für weitere Meldungen...und jetzt, das ist all euch großen Käfern gewidmet...Little Richard mit Keep a Knockin' But You Can't Come In...
 2CE2EF17DF385F07;Diese Puppe bringt mich wirklich zum Lachen...sie ist irgendwie in Ordnung...
 3711B707D4275FCC;Ich wusste die ganze Zeit, dass du recht hattest, Brick, aber jetzt weiß ich nicht, ob es einen Weg gibt, diese schrecklichen Dinger aufzuhalten!
 207DCABCADB19F64;Es war das Verrückteste, was ich je gesehen habe... ich fragte ihn nur, ob er einen oder zwei Stücke Zucker in seinen Kaffee will, und er verwandelte sich in so ein AMEISENKOPF-Ding...er lief herum und benahm sich wie verrückt...Mensch, wenn der Truck ihn nicht erwischt hätte, wer weiß, was er getan hätte! Auf dem Pflaster blieb nichts außer seinem Overall und einem Haufen schleimiges Zeug...das jagt einem einen Schauer ein!
 5E065890E016E1CD;Sieht aus, als hätte Elmer einen Zettel hinterlassen...BEIM WANDERN AM NO-OST-VULKANKEGEL. MORGEN ZURÜCK, ELMER. Verrückter Junge...wahrscheinlich versucht er, das Nest zu finden und irgendeine John-Wayne-Heldennummer abzuziehen...
 50B98E137178592D;Danke, dass du dich gestellt hast, Brick. Das hat mir einen Haufen Ärger erspart.
 E9FC01FC9DA67C13;Vergiss es, Kumpel, ich bin...bewusstlos...
-CF03DDDE30A3DC97;KRANKENHAUS ^ >248
 F972D3D460F3A4B3;Ich bin überzeugt! Sie sind zurück, und mit voller Wucht! Wir müssen eine Schlachtkarte aufstellen! Hier ist der Angriffsplan!
 3D01A210131C1825;Norma sagt mir, dass Bert im Krankenhaus ist...das könnten schlechte Nachrichten für den alten Bert sein...
 2C2981AEF88D0A2B;Du warst es also die ganze Zeit...WACHEN, WACHEN! SCHLAGT IHN ERBARMUNGSLOS!
@@ -422,14 +385,12 @@ BB733D2F7E0426DB;Hm, da ist jemand an der Tür, wer zum Teufel könnte das sein?
 E4E73DC348B1C883;Brick...ich...hast du Charleston Chew-Riegel? Wie wäre es mit einem Baby Ruth? Gib mir einfach eine Tasse Zucker, dann...mir ist schlecht...etwas in mir versucht herauszukommen...es ist BÖSE...HILF MIR, BRICK!
 8D6657D0E7839DE3;Jackie helfen
 2D9AC435851CE79E;Jackie mag eine Ameise sein, aber sie ist immer noch eine süße Ameise...
-D069EEC3ABFA6A36;BRICK NASH MUSS STERBEN - STERBEN - STERBEN!
 B3F1FAA717EC32B5;Oh, Brick. Es war furchtbar...du hast mich gerettet... ich hätte dich umgebracht!
 E3A7934FFB995C45;Nicht der alte Brick, Puppengesicht. Fang an zu reden...
 D52FC58FD90DEA0F;Mensch, nach all dem und...mein Make-up ist nicht mal verschmiert! Küss mich, Brick!
 41339A4FEAAD9C1C;Sie küssen
 DEEF5EEAEB14BFE2;Also Brick, ich muss jetzt los. Wir sehen uns.
 8E744BE794276FDC;Brick! Billys Dad hat angerufen, er sagt, Billy hat etwas Wichtiges entdeckt und will dich sofort in Dr. Wells' altem Labor sehen.
-370611E7439F15F0;DU! DU BIST DER FLUGZEUGENTFÜHRER! DU BIST NICHTS BESSERES ALS EIN KOMMUNISTISCHER SPION! DAS WIRD MIR SPASS MACHEN!
 C3488FFB68F214DA;Das sollte ihn aufhalten, während ich versuche, aus dieser Sache herauszukommen. Ich muss wach bleiben, ich kann nicht einfach in einem Krankenhausbett herumliegen!
 29DC57777DF54624;Billy hat so eine verrückte Vorstellung, dass...
 858FDB4B605A5663;Brick, ich habe einige wichtige Notizen von Dr. Wells gefunden. Folgendes habe ich erfahren: Dr. Wells war besorgt über eine ZWEITE AMEISENKÖNIGIN, die möglicherweise noch in oder bei der Stadt lebt. Einige Eier der ursprünglichen Königin wurden gegen Dr. Wells' Willen im Keller des Krankenhauses gelagert. Wenn etwas diese Eier aktivieren würde...
@@ -450,7 +411,6 @@ AEA580C9D958790E;Das ist er...der Flugzeugentführer...eine Runde frei für den 
 12B5BBD7CFBA7F60;Hör zu, Nash, bleib weg von hier, sonst beschuldigen sie mich, einen bekannten Verbrecher zu beherbergen! Hör zu, du solltest schnell Beweise finden, sonst bist du erledigt, amigo! Ich höre immer wieder Gerüchte über einen geheimen Raum im Keller des Krankenhauses, aber ich kann es noch nicht bestätigen. Ich grabe weiter...und jetzt RAUS HIER, ja?
 19915008B3476D14;Du warst es also die ganze Zeit...WACHEN! SCHNAPPT IHN EUCH!
 F4C6D0300A389040;Zwei Schläger mit Knüppeln haben mich in die Ecke gedrängt...
-DAC48C13E0FFB6F3;KRANKENHAUS
 293893FA490D7C68;Du solltest besser von der Straße gehen, junger Kerl! Alle in der Stadt jagen dich...halte dich vorerst am Stadtrand auf. Aber bleib weg von der Nordseite...diese verdammten Ameisen sind dort oben auf dem Marsch!
 10F39429D91CA898;Das ist er... ich habe sein Bild gesehen...
 D8229A475B14B417;Schnappen wir ihn uns... hängen wir ihn auf...
@@ -511,15 +471,12 @@ E2BEA14945538926;B-B-Brick, verschwinde von hier! Sie haben deinen Truck gefunde
 CDE9F6A6E73B62C5;Oh-oh, da kommt gerade einer von ihnen...
 2E5B61617E475B1B;Dieser Kerl war nicht so hart, wie er dachte. Es würde mehr als einen dieser Witzfiguren brauchen, um mich aufzuhalten.
 7AE0AD2E18432E25;Sieht aus, als wäre der Sheriff unterwegs... hm, da kommt eine Funkübertragung rein...
-9EFFD1DA1D5B173F;AHHH, WIR HABEN EINEN ZEHN-ZWANZIG-SIEBEN HIER IN EINER SCHLUCHT AUSSERHALB DER STADT...ETWA ZWANZIG TONNEN TANKWAGEN...EIN GROSSES LOCH IN DEN TANK GERISSEN, SCHEINT LEER ZU SEIN, OVER...ZEHN-VIER EINHEIT NEUN...SICHERUNG HALTEN, EIN N.E.S.T.-TEAM IST UNTERWEGS...KCA8 REGIONALCODE ZWANZIG IN ALARM...OVER AND OUT...
 3D56C56506AE5688;Das ist großartig, ich könnte genauso gut Werbetafeln tragen mit der Aufschrift ÖFFENTLICHER FEIND NR. 1.
 573E4F1016C05D9A;Brick! Hör zu, Kumpel, du steckst ganz schön in der Patsche. Sie haben deinen Truck, sie haben Fingerabdrücke...es ist nur eine Frage der Zeit, bis dein Bild in der ganzen Stadt klebt! Ich weiß nicht, was ich dir sagen soll, außer...schön, dich gekannt zu haben!
 69284AE7B01AFE18;Jetzt haben wir ihn! Sie haben den Truck gefunden, sie haben Fingerabdrücke...dieser Kerl ist so gut wie Haifutter! Ich will, dass dieser Kerl bis Sonnenuntergang am Fahnenmast des Rathauses aufgeknüpft wird!
 D890750CB02F4042;Ruhiger Tag, keine Menschenseele unterwegs.
 BABA7F229ED31236;Dieser Kerl scheint geradezu BESESSEN...
-DACD7E167F35F4F6;DIE MENSCHHEIT...WIRD IN KOLONIEN LEBEN...GESUNDHEITSSPENDENDER KRIEG...WIRD STÄNDIG UND FRUCHTBAR SEIN...UND UNSERE HOCHZEITSFLÜGE WERDEN ZAHLREICH UND FREUDVOLL SEIN...DU BRICK NASH...FEIND...EHRBARER GEGNER...DU MUSST JETZT STERBEN!
 D1CFFFB7AB3424FA;Was zum... er verwandelt sich in...
-74AF1E682F3385C0;STIRB - STIRB - STIRB!
 E68571A9AFD916AD;Hey, schaut mal, Jungs, den Twink! Hör zu, Widerling! Ich und meine Jungs Nick und Eddie...wir beherrschen die Straße in dieser Stadt...wer uns in die Quere kommt, kriegt die große Abreibung!
 F5CFDC4048296FE5;Dieser Kerl sieht aus wie der Tod auf Urlaub...
 914789ED06F111E9;Mister, hier geht so ein gottverdammter KÄFER um...
@@ -544,14 +501,12 @@ CDE0B94D1CB73B87;Sie kamen zur Scheune herunter und brachten mich dazu, mit dem 
 5ABD0937AB2DFD6D;Ich wirbelte rechtzeitig herum und sah drei Feds in schwarzen Anzügen näher kommen...
 835EBF15E7B063C9;Diese Kerle versuchten nur, ihre Bürgerpflicht zu tun, aber ich bin auf einer Mission. Niemand hält mich jetzt auf...!
 3A4A82740DFF6BDD;Wie komme ich an diesem Kerl vorbei und hinauf zu den Minen?
-956D950E06AED914;WAS WILLST DU?
 8BAD29EB331D8D68;Tagesarbeiter
 A6388246289EA761;Ich weiß nicht
 53C4DF554C6BECF7;Gut, die Grippe hat uns dezimiert, wir können jede Hilfe gebrauchen! Schnapp deine Sachen, der Zug nach M-3 fährt in drei Minuten ab....
 FB87D3DFCC4274F6;Hey...warte mal...heute kamen ein paar Regierungsleute vorbei und suchten jemanden, der neu in der Stadt wäre.....
 C638D173312BF3EE;Dieser Kerl ist mir auf der Spur...
 52B4D9CFF016EF6F;Der Grubenaufseher pfeift...
-9B619C15F9FEDB81;HEY....HIER IST ER!
 EE77882E68E5709B;Dieser G-Man hinter dem Schuppen hat mich im Visier!
 1355BD7905882B3F;Ich kann hinter diesem Felsen sehen, was von einer Leiche übrig ist...was ist das für ein Geräusch?
 322F84F320E2E9CD;Klingt, als versucht er, jemanden über den Minenkreis zu erreichen...
@@ -568,6 +523,7 @@ F6DE0FDAAF4A684F;Wir sind keine Verbrecher, außerdem haben wir die dritte Klass
 6ADFBDFA9C214C3E;Verdammt, die Feds sind mir dicht auf den Fersen...
 821B1D66670C470F;Nach den G-Men fragen
 BCD73ED7DD8CD7DD;Sie sind vor weniger als einer Stunde mit diesem Truck vorgefahren, von dem ich dachte, er sei voller Vogelbeobachter...
+2E61BC931E3D54BA;...es sagt N.E.S.T. und so weiter auf der Seite...
 2C0C0B22CE7D4FB5;Wer erzählt hier die Geschichte, Wilbur?
 20A790645CAE737F;Nuclear Emergency Strike Team...ich bin erledigt...
 132453557EEFF69C;Aber als sie all diese Thompson-Maschinenpistolen herausholten...
@@ -590,6 +546,14 @@ C8C41BBE67E0A560;Mit Ida fortfahren
 F2C6E75D81929EA2;Es herrscht jetzt große Verwirrung...ich bin...der Overmind! Ich sehe durch viele Augen...BRICK NASH...MUSS...ZERSTÖRT WERDEN! DIE KOLONIE...WIRD...JEDEN WIDERSTAND ZERMALMEN...ARBEITERANGRIFFE BEGINNEN SOFORT...MENSCHLICHE BEKEHRUNGEN BEGINNEN...STIRB FÜR DIE KOLONIE...TÖTE FÜR DIE KOLONIE!
 008047012B9643F7;Diese Dinger, die ich letzte Nacht auf der Straße sah...sie waren ECHT...nein, das ist unmöglich!
 BB6AFEE0C03538BC;Ich kann nicht weiter...ich bin erschöpft.
+41A65174448EFC1B;Ich...ich kann kaum laufen...die Schmerzen...
+009226272E0D0BFE;Du solltest nicht auf sein! Du brauchst Ruhe. Ich bin Dusty, das ist mein Bruder Biff...
+CA9DB2BE69F96EDD;Dein Tankwagen ist auf der Interstate umgekippt, du warst bis jetzt bewusstlos, Mister.
+3DBC97DCCB97DAF2;Der Truck...die tödliche Fracht!
+3FEB8E6F221B9366;Ja, irgendwas hat dich ganz schön erwischt, im Tank war ein großes Loch...gut, dass er leer war!
+0DD7FCBEF9E67D41;Leer?! In dem Tank war genug Plutonium, um die ganze Stadt auszulöschen! Ich muss das Zeug finden!
+CB77451F44682A24;Wir haben deine Brieftasche durchgesehen...Mr. Nash...nur nach einer Telefonnummer gesucht, deinem Büro...deiner Frau...
+17A5BBC988ADD5C9;Aber Brick Nash hat keins von beidem, Baby, nicht mal annähernd...obwohl er bald eine Dauerstelle bei einem gewissen Verein in Leavenworth, Kansas haben könnte.
 AB8C48E75C9293B7;Wir wissen, was du getan hast. Es läuft alles im Radio.
 D75A8189729A2B98;Der Truck, den du gefahren hast, mit den ganzen unheimlichen Totenköpfen und radioaktiven Zeichen überall drauf...ich sagte zu Dusty, Menschenskinder, das ist kein Eiswagen! Ich ließ Elmer aus der Werkstatt ihn abschleppen und in einer Schlucht entsorgen. Sie werden ihn jetzt nie finden. Du musst wirklich mutig sein, Mister!
 547C2DAB55839020;Hör auf mit dem Gequatsche, Kleiner. Willst du mich verpfeifen oder nicht?
@@ -616,10 +580,8 @@ E0F28CE6BFC72153;Was ist das, ein Gabby-Hayes-Vorsprechen?
 53CC99793C140870;Howdy, Partner! Dusty hat mich rübergeschickt, um nach dir zu sehen. Du solltest dich eine Weile unter einem Stein verstecken, die G-Men sind überall und suchen dich. Wenn ich irgendwas tun kann, sag Bescheid!
 4FA5490B71C19D41;Danke, ich sage Bescheid.
 E00C47C6410E3F5D;Los, Margaret, ich habe sie nach Harry Trumans Schwester benannt, sing für den netten Mann das High-Noon-Thema...do not forsake me o my darlin'...
-511712A7692565A2;BRY2
 1167890544888FA1;Hörst du das? Ist sie nicht großartig!
 8CDCBF5E29664D0B;Jetzt das Frankie-Lane-Medley...Ghost riders in...the skyyyy...
-511713A769256755;BRY3
 94333B09018AE9AB;Diese Kerle werden wahrscheinlich meine Kumpels in der Hölle...
 D89E0A8129FF37E0;Einige Leute hier machen ein großes Aufheben um dich...vielleicht weil du mit irgendwas irgendwohin gefahren bist...das können die meisten Leute in dieser Stadt nicht behaupten...jawohl! Du willst dieses Irgendwas wahrscheinlich zurückholen. Sprich mit Dusty, sie weiß mehr, als sie zugibt. Aber das tun wir doch alle, nicht wahr, junger Mann? Heh heh, komm, Margaret, lass uns zum Wassertrog schlendern! Margaret liebt die Happy Hour bei O'Riordan's... sie bekommt einen Futtersack voll Biernüsse aufs Haus!
 2F9882F7117E34FF;Jippie-ai-oh-ki-yay-jippie-ai-ohhhh...!
@@ -653,12 +615,14 @@ F27E39A6F7EF7606;Wahrscheinlich eine Art Held, Dad. Ich habe ein paar alte Zeitu
 E061F41BF41889BD;Mein kleiner Bruder lag verdammt richtig! Er hätte da draußen wie ein Weihnachtsbaum geleuchtet...
 13A2D893E4C0FAF4;Lass uns kein müßiges, törichtes Gerede über AMEISEN führen, Sohn! Erinnerst du dich, was dein Vater dir gesagt hat? Wir müssen jetzt gehen, NICHT WAHR, BILLY...
 7C710CDBA4552392;Heilige Kuh, diese Puppe ist ein echter Discjockey...
+B0BB7FBF250CE6BA;...und um die Topmeldung der Stunde zu wiederholen: Der Truck mit einem potenziell tödlichen Plutoniumzünder, der vom A-Bombentestgelände Diablo Flats entwendet wurde, wird noch immer vermisst. Der von N.E.S.T., dem Nuclear Emergency Strike Team, herausgegebene Fahndungsaufruf ist weiterhin in Kraft. Jeder, der Informationen über die Identität oder den Aufenthaltsort des Entführers hat, sollte sich sofort an das Sheriff-Department wenden.
 FD931ED0F6534433;Mit ihr sprechen
 F38DCAF1C3242DCA;Jetzt ein Wort von Ludds Munitionsannex in Slackjaw, der fragt: Was ist Martin ohne Lewis, Abbott ohne Costello, Larry und Curly ohne Moe, Waffen und Munition ohne Bier? Ja, Ludd's hat alles für die magischen verlorenen Wochenenden in der Wüste! Wie Ludds Frau Betty sagt: Wenn es sich nicht bewegt, habe ich es wohl getroffen!
 9871953201BE3CBB;Was machst du hier? Ludd hat diese ganze schießwütige Stadt bis an die Zähne bewaffnet! Nimm meinen Truck, hau ab, solange du noch kannst!
 D98B4E251F0641C0;Bleiben
 9E9E7AACAD85665B;Ich will, dass du GEHST!
 2A2BAD436F033BEA;Ihre verängstigten Augen blitzten wie Quecksilber...
+1C6C72193B63B262;...und ich will, dass du bleibst...
 2420F431E91E75DF;Als sich unsere Lippen treffen, beugen dunkle, namenlose Mächte meinen Willen...
 51E980C4992E36A7;Warte! Halt...da ist noch etwas!
 BA1EDF241C5CD96E;Erzähl mir was, was ich nicht weiß, Baby. Es gibt immer noch etwas...
@@ -666,8 +630,10 @@ BA1EDF241C5CD96E;Erzähl mir was, was ich nicht weiß, Baby. Es gibt immer noch 
 5A89E1F211A4F87F;Wenn du glaubst, du kannst damit umgehen, erzähle ich dir etwas, was du nicht weißt...
 F8AE4F4476B97039;Gespräch fortsetzen
 885B6D2986FAA5A6;Dusty hat mir die ganze Geschichte erzählt...
+30A2C87B53F2AFE0;...das war alles vor fünf Jahren. Alle in der Stadt schlossen eine Art Pakt, nie über das Geschehene zu sprechen. Es schien nicht einmal mehr real zu sein...bis du aufgetaucht bist! Du hast sie gesehen, nicht wahr? Nichts sonst auf Erden hätte das mit deinem Tankwagen anrichten können!
 94B528CE3B668D4A;Diese Pistole ist eine echte Haubitze...und ein Geigerzähler...Was hat das alles zu bedeuten?
 7EF31A753F4B9D6C;Wenn du bleibst, brauchst du diese Dinger und noch viel mehr. Und jetzt raus hier, bevor mein Chef zurückkommt!
+566CAD7F27BDA392;...manche Leute sagen, er ist genau hier in der Stadt, versteckt! Nun, Mensch, J.T., wenn du eine A-Bombe gestohlen hättest, was zum Teufel würdest du in Lizard Breath machen? Wenn sie dich erwischen, würden die Einheimischen dir den Hintern versohlen! Ja, wir würden ihm den Hintern versohlen, klar! Sag mal, hat jemand Benny gesehen? Seine Schicht war vor einer Stunde an der Pumpstation eins zu Ende...er kommt immer direkt nach der Arbeit hierher...komisch...traurig wegen Billy Bob, nicht wahr? Heutzutage nichts weiter als ein Penner...
 1280F53BA1968B6B;Wirklich freundliche Leute...ich sollte trotzdem nach seltsamen Vorgängen Ausschau halten...
 1CBB52B332F5C37A;Der Barkeeper hat mir ein Zeichen wegen diesem Kerl gegeben...
 7AFFF58AFCF29FA0;Sie sind nie gegangen, weißt du! Sie sind immer noch hier...und DIESMAL wird es ANDERS...sie machen mich zum Hohepriester von Lizard Breath!
@@ -682,12 +648,12 @@ FE4AE5A227A2139D;Das ist nicht mein Kampf, Kleiner. Natürlich war Korea auch ni
 639F18BE855ECE99;In die Höhle des Löwen...das ist verrückt...was, wenn sie mein Bild schon an der Wand hängen haben?
 4ECBBC27A554695D;Was willst du, Bursche? Siehst du nicht, dass wir hier eine Krise haben? RUF ALLE WAGEN...RUF ALLE WAGEN...SOFORT ZUM HAUS DES BÜRGERMEISTERS...EIN ZEHN-ZWANZIG-EINS GREIFT DAS HAUS AN...WIEDERHOLE...ZEHN-ZWANZIG-EINS GREIFT DAS HAUS AN!
 BCBFC065F6297E2B;Sie haben den Bürgermeister!
-4ED8BC6DBB044ECA;EIN ZWEITER STINKTIER WURDE IN DER NÄHE GESICHTET, MIT VORSICHT VORGEHEN...
 EB6BE8FCB279BEEF;Ich schätze, vor diesen Kerlen bin ich eine Weile sicher...
 01F2930C8820ED0E;Kluger Schachzug, dass du dich mir stellst, Nash! Das wird die Story des Jahrhunderts! Ich habe sogar die Schlagzeile: ATOM-NICKER NASH GESCHNAPPT!
 C27F18E5B670FCCB;Kein Deal, Bert
 ED4E8DA42F5E3F2F;Okay, okay...ein guter Zeitungsmann verrät niemals seine Quellen. Gib mir ein Exklusivinterview über deine Geschichte...wie wär's damit: ATOM-ATTENTÄTER AUF FREIEM FUSS, nein, nein, wir nehmen die positive Seite: HELD VON GROUND ZERO! Ich könnte diesen Winkel spielen, klar, aber du musst mir Beweise für deine Behauptungen über die Strahlungsgefahr liefern. Diese Zeitung druckt Fakten, wir sind hier nicht beim National Inquisitor! Jetzt rück raus, wie bist du in diese Sache hineingeraten?
 213365FF3F5F8B14;Bert die Geschichte erzählen
+A8C233B3479694E9;...also dachte dein kleiner Bruder, Dr. Wells würde dich entlasten. Dieses Notizbuch von Dr. Wells, du sagst, es beweist deinen Fall... vielleicht ja, aber es gibt viele Leute in dieser Stadt, die nicht wollen, dass diese Informationen bekannt werden. Ich kann die Geschichte von Küste zu Küste bringen und deinen Namen reinwaschen, aber nicht ohne dieses Notizbuch! Sag Bescheid, wenn du es hast!
 C8D63C781A3BB008;Ich sollte bei diesem Trottel cool bleiben...
 883B4C30794726C3;Unser erster Tourist! Ich möchte, dass du weißt, dass Lizard Breath am Rande eines neuen Zeitalters steht...des ATOMZEITALTERS!
 7D0ECD572D8225DB;Dem Bürgermeister zuhören
@@ -704,6 +670,7 @@ A8050859E545E1FA;Oh-oh, dieser Kerl wirkt zu freundlich...
 4BE4B2110E5A5596;Howdy! Was sagst du zu diesem Nuklear-Banditen, hm? Die Leute sagen, er ist genau hier in der Stadt! Hoho, ich würde wirklich gern mal so eine berühmte Person treffen! Nun, ich habe dich wirklich vollgequatscht.
 177E5C61B1504125;Und ich habe wirklich mit DIR geredet, Freund. Weißt du, einige dieser Stadtleute sind gar nicht so übel...wenn man über eine Sesshaftigkeit nachdenken würde...
 40273167FBC61FBF;Dieser Kerl sieht aus, als wäre er auf Lachgas...
+97B56880DB7DA2F2;...also sagt Lucy: Oh-oh Ricky, ich glaube, ich habe den Truthahn in den Schulbus und den kleinen Ricky in den Ofen gesteckt! Da sagt Ricky: Vell, ist er schon fertig? Ich bin am Verhungern! Ha ha ha ha ha!
 ADFAA10BDA9383CA;Lizard Breath betritt das Goldene Zeitalter des Fernsehens...
 BAADFE41ED113E53;Da kommt schon wieder dieser verrückte Goldsucher...
 FAD20E4AEDFE2EA7;Mensch! Eine Menge Ärger, ein ganzer Haufen Ärger da draußen an der Nordseite. Das reicht, um einem die WILLIES zu machen! Du solltest einen Bogen darum machen, Freund...wenn dir dein Leben lieb ist!
@@ -721,7 +688,6 @@ F173E5A6ABCEDF73;Geh raus, geh raus, bevor ich mich verwandle...AAARRGH!
 3728542CE097E0CD;Klar doch, Kumpel. Wenn du dich das nächste Mal verwandelst, sag Bescheid.
 3D0BB3F2C52E3177;Ich konnte die Muschelköpfe unter der Erde arbeiten hören. Keine Zeit, mit mir zu reden.
 79ADCC9AF9BC3CE4;Dieser Kerl lässt Ernie Kovacs wie Dwight D. Eisenhower aussehen...
-6B562ADF61D55796;HABT KEINE ANGST...WIR SIND EURE FREUNDE...SCHLIESST EUCH UNS AN UND ERLEBT DIE SELBSTLOSE FREUDE DER KOLONIE...ENTSORGT EURE WINZIGE MENSCHLICHE FORM...
 B563E3274A2ABA1E;Sprich für dich selbst, Nudelhals!
 830297C0F9C05A41;Danke für die Rasur, Kumpel!
 4C694DBF4540B100;Hoffentlich sind meine Barbier-Tage vorbei.
@@ -745,16 +711,11 @@ B03802A5A89C4958;Auf eine Ahnung setzen
 7E515BDC4EE1EA4E;Ich erzähle dir von meiner Mutter...MENSCHLICHER HUNDEKÖDER!
 638C21A3A190A25B;Menschen 1, Ameisen 0.
 8E3ADAB6A2418389;Danke, das brauchte ich.
-63EEC702F8CED358;15-9BA
-C23E34C7E67159BE;15-10BA
-B7EF53C7E023569D;15-11BA
 25100386F7C40E23;Kein Bergmann zu sehen. Zeit weiterzugehen.
 EB0128FE81D31B1F;Der Grubenaufseher sieht aus, als hätte ihm jemand einen Mickymaus-Drink verpasst...
-C3EFD7EDE40EAB94;HALLO-MR. NASH-SO-EIN-SCHÖNER-TAG-NICHT-WAHR?
 4F206D917B58ADE1;Soll ich es wagen, diesen Kerl in die Enge zu treiben?
 ABC3499A0578543B;Ihn testen
 B6E8F55FDD791F2F;Das macht einem direkt Freude, geboren zu sein, was, Kumpel?
-49E84A68FFADBB32;GEBOREN? DU-BELEIDIGST-MEINE-RASSE-DU-VERWESTER-SPROSS-WEIBLICHER-FLEISCHSÄCKE...
 DD7671EFEAD5B124;Komm und hol es dir, Puppengesicht...
 6A64B1222C4E10CF;Fühlst du dich jetzt besser, Kumpel?
 7052BC97B8A1913A;Puh! Ja. Danke für die Gesichtsstraffung. Ich schulde dir was.
@@ -779,7 +740,6 @@ B49A15B6E2F5DB73;So normal, wie du eben sein kannst.
 C8878E201D1E5906;Eine letzte Frage, Zep! Jeder waschechte Kerl aus Jersey müsste das wissen...wer hat die Series im 44er-Jahr gewonnen...die Brooklyn Dodgers oder die Yanks?
 AEEF9F8AE8FF285E;Das ist leicht, es waren...die...äh...die Dodgers, richtig?
 3C5B9A2F5DCC4534;Komisch, Zep...1944 gab es KEINE Series wegen des Zweiten Weltkriegs...das wusste jeder auf dem Planeten, aber du warst nicht auf dem Planeten, oder, ASTEROIDENATEM?!
-4C2F86C7AD63C113;IHR HIRNLOSEN MENSCHEN MIT EUREN BELUSTIGENDEN KLEINEN KRIEGEN UND SPIELEN MIT STÖCKEN UND BÄLLEN...MACHT EUCH BEREIT ZUM AUSSTERBEN! EINE NEUE HERRENRASSE IST GEKOMMEN!
 5AD7A540853818F1;Er mag Baseball nicht kennen, aber er liefert eine ziemlich gute Show.
 D558BFED991A0487;Danke für den Präzisionsschuss, Kumpel! Sag Bescheid, wenn ich helfen kann.
 7219CB4695197BC6;Ich kann jede Hilfe gebrauchen. Schnappen wir uns diese glubschäugigen Mutanten!
@@ -798,6 +758,7 @@ F7BE544ABDBB34CC;Das Flugzeug, es ist bereit und wartet, mon ami!
 54C24E2ADAC7C9AB;Ich denke, siebenundzwanzig Kampfeinsätze über Korea qualifizieren mich, diese Kiste zu fliegen, die da draußen auf dem Feld steht.
 9D0790E4021B01D8;Oohh, le GROSSE SACHE! Du machst einen Snap-Roll mit einer F-86 hinter ein paar stinkenden MiG-21...Fisch im Fass! Ich habe großartiges Fliegen gesehen, mon ami, genau hier in dieser Stadt, in genau diesem Flugzeug, einen sehr großen Sieg...zut alor...
 B470F18BA0FE99C3;Red weiter, Kumpel...
+EDCE82A7A08BB774;...aber, ah...was weiß ich schon? Ich bin nur ein verrückter Mann, der große Klappe hat, nicht? Du fliegst, fünfundzwanzig Dollar...mal sehen, ob du diesen fliegenden Mülleimer da drüben beherrschst...zeig das Geld, flieg den Müll...ist doch ein Witz, oder?
 098D4463A0C6EE11;Vielleicht zeige ich diesem Froschlecker, wie wir das in der guten alten U.S.A.F. machen, F-86 hin oder her...
 17665313B16AED83;Halt! Du kannst das Flugzeug heute nicht fliegen...es ist...in Reparatur. Vielleicht dauert die Reparatur lange, du gehst woandershin, störst Louie nicht.
 4C26281555AFC5C4;Hey, was ist das?
@@ -805,7 +766,6 @@ B470F18BA0FE99C3;Red weiter, Kumpel...
 74BD56A942DBAE80;Sag mal, Louie, wie nannten sie die Franzosen, die sich während der Besatzung mit den Nazis eingelassen haben?
 22679C0FDC7AA250;Ich weiß nichts von diesen Nazis...ich habe nur...Befehle befolgt...
 24A5A4784CB0B889;KOLLABORATEURE, ja, genau. Und weißt du, was sie mit Kollaborateuren gemacht haben, Louie?
-78A7033A6377A8F0;DU KRIEGST MICH NIE LEBENDIG, STINKENDER MENSCH!
 1D214EF241B1588D;Bleib genau da stehen, Junge. Du bist unbefugt auf Regierungseigentum! Weise dich aus!
 945CBD5508C92750;Schaut mal her, wir haben einen Straftäter, der sich direkt meiner Anweisung widersetzt, das Gelände zu verlassen! Wir kommunizieren nicht, Sohn! Mal sehen, ob du das hier aufnehmen kannst!
 66F8F2B87EC4652E;Militärpolizisten mit Schlagstöcken!
@@ -821,6 +781,7 @@ E0ED13907B5A476E;Ein ruhiges Haus, zur Abwechslung.
 564EBA96E71770C6;Die Crew muss woanders arbeiten. Ich beschloss weiterzugehen.
 06EAB64601E497B5;Hey hör mal, Brick, hast du einen Schokoriegel oder so dabei?
 C8D13795D5D6C992;Hör zu, ein Schokoriegel ist das Letzte, woran ein Kerl in deiner Lage jetzt denken sollte...
+D842FF814B89E0E7;...aber es ist das Erste, woran eine AMEISE denken sollte! Ich rieche Glukose...schlürf...das ist gut genug für mich, Süßigkeitenmann!
 437577BE65E05FB4;Danke, Nash. Im Käferland zu sein ist nicht so lustig, wie es aussieht.
 0D09499B06878445;Na, ich gehe sicher nie dorthin. Braten wir ein paar Ameisen.
 3AC99A235467D363;Das Labor war leer.
@@ -829,6 +790,7 @@ C8D13795D5D6C992;Hör zu, ein Schokoriegel ist das Letzte, woran ein Kerl in dei
 52C6C55D6DABA6B1;Und ob ich gleichwohl mit Satan wandle, ich habe die heilende Kraft der heiligen Handfeuerwaffe gespürt...HALLELUJA, BRUDER! Holen wir Schwester Jackie her, damit sie Hand aufgelegt bekommt!
 4D99D00E65793073;Mir hat dieser Kerl als Käfer besser gefallen...
 9371FEC65CFAA7C7;Dusty ist nicht da, ich schätze, sie ist noch nicht auf Sendung....
+76CB4B56EDD22CC2;...und vergiss nicht, ins Melville Memorial Hospital zur großen Blutspende zu gehen. Eine Blutkonserve heute bedeutet einen Liter Liebe für einen kleinen bedürftigen Kumpel morgen. Und jetzt Red Rivers mit My Heart Bleeds For You.
 CBC003A1304EDDB2;Stoppt diese Blutspenden-Werbung, das ist nur ein Betrug, um menschliches Blut zu bekommen für die...
 0B64DD347C480EF0;Sie stoppen? Sei nicht albern, Schatz...ich bin heute sogar selbst hingegangen und habe gespendet. Ich denke, es ist Zeit, dass du das auch tust...
 4984E0FAA95F07BA;Deine Augen...sie sind nicht dieselben...
@@ -836,7 +798,6 @@ CBC003A1304EDDB2;Stoppt diese Blutspenden-Werbung, das ist nur ein Betrug, um me
 9EFC9F67C9C3B992;Nicht du...jeder, nur nicht du!
 51E14158E3428D1E;Menschliche Sorgen scheinen jetzt so kleinlich...schließe dich uns an, Brick, oder wir müssen dich mit all den anderen beseitigen!
 A4BEB693E82E6E12;Du bist nicht Dusty! Du bist so eine stinkende Kotzbrocken-Ameise! Komm, zück deine Fühler, du dreckiger Käfer...ich blase dir dein verdammtes Hirn raus!
-9A3ABC7F6231108C;BRING MICH NICHT ZUM LACHEN, WINZIGER MENSCHENWURM...
 A43002B5F4A15E2F;Oh, Brick! Es tut mir so leid, dass ich mich so verhalten habe. Ich konnte einfach nicht anders. Ich danke dir so sehr, dass du mich gerettet hast! Bitte verzeih mir.
 EB92CA316D20FFE0;Klar doch, Baby. Und jetzt entschuldige mich, ich habe noch eine Rechnung mit ein paar sechsbeinigen Drecksäcken offen.
 71B7F92BE7BDA3CF;Dieser Ort ist tot. Ich sollte weitergehen...
@@ -848,7 +809,6 @@ B3F147D2B0119E08;Nenn mich Brick
 56AB9BEE2E8BFCE6;Vielleicht, aber mit weichen Gegenständen kann ich machen, was ich will...
 8F205DA6F02DFBFA;Kann ich etwas für dich tun, bevor ich gehe?
 6A9E80919510AD72;Nun, das wird mir ein Vergnügen sein, Brick. Weißt du, ein Mann wie du SOLLTE Brick genannt werden. Also, wie kann ich helfen?
-4B9C19D8FF26D37A;HILFE
 2662B9C55B736760;Etwas später...
 3557CB7410D8DE94;Hör zu, Brick, ich bin wirklich nervös wegen etwas, aber ich glaube, ich kann dir jetzt vertrauen... hier stimmt etwas nicht, die Ärzte, einige der Krankenschwestern... Patienten kommen hier total zugerichtet von Autounfällen herein... oder sie brauchen GROSSE OPERATIONEN... und werden am nächsten Tag entlassen...VÖLLIG GEHEILT, aber mit einem seltsamen Ausdruck im Gesicht, als wären sie ZOMBIES! Und diese Blutspende... das ganze Blut wird in einen mysteriösen gesperrten Tresorraum im Unterkeller neben der Leichenhalle gebracht! Wenn du mich fragst, hat das etwas mit diesem ganzen A-Bomben-Zeug zu tun!
 F824B714CFA7D4A5;Nach den Unterlagen fragen
@@ -893,7 +853,6 @@ EEB321DED7A9BCFB;Elmer sieht aus wie ein Geist...
 D0755AD69C0B8137;Volltanken
 A254ADEA9A20E828;Volltanken?
 799C61D272FBF7BC;Nein...ich tanke DICH...mit VERBLEITEM SUPER!
-6935115935140EF6;DU NARR...WARUM KÄMPFST DU GEGEN UNS? BALD SIND MENSCHEN SO AUSGESTORBEN WIE DER D-D-D-DO-DO-DODO, DER DINOSAURIER!
 29A81369ADA4CB7C;D-d-danke, Mr. Nash! D-d-du hast mein Leben gerettet! Ich kann sofort ein paar B-b-benzinbomben bauen, um ein paar Ameisen zu r-r-rösten!
 C07405A71FF1D43F;Gute Idee, Kleiner. Gehen wir ein paar Käfer kochen.
 22B38CC95EE1AF95;Im Moment war niemand am Wachpult.
@@ -921,24 +880,10 @@ C9BE5D509B287FF0;Erinnerst du dich an den alten Cagney-Film, ja, The Night Has a
 8623D03E1975F758;Ich brauchte jemanden, der mich aufheitert...
 B17CE86DC61B23BD;Das ist wirklich eine schöne, ruhige Stadt. Ein Kerl könnte sich hier niederlassen, entspannen...wenn es ihm nichts ausmacht, von Ameisen in der Größe von Buicks zertrampelt zu werden...
 97D75C75BE37CAB3;Heute Nacht ist niemand auf der Straße. Vielleicht sind alle unten im Drive-in und schauen diesen neuen Film...ich glaube, er heißt Them. Was er wohl handelt...
-F94B4603DDE89D7F;15-HBA
 D3C5A386F6A72C09;Es sah aus, als würde Wings laufen. Schade, dass ich keine Zeit hatte, dazubleiben.
 6670F5888DB4E7C5;Ich bin überrascht, dass du aufgetaucht bist, Schleimball. Kommen wir zur Sache...
 4CDCB0FDBBA22997;Lasst mich an diesen Kerl ran!
-1AE6EF48587E6CC7;...und hier ist Elvis mit Don't Be Cruel...
-42B4ED2F7A0B6D54;...und alle Bürger werden gewarnt, sich von dieser Region fernzuhalten, da angenommen wird, dass sie der Standort der Hauptkolonie der Kreaturen ist. Die örtlichen Behörden haben gerade einen Generalalarm ausgerufen, basierend auf den neuen Beweisen, die der lokale Held Brick Nash ans Licht gebracht hat...das Kriegsrecht ist bis auf Weiteres in Kraft...bleiben Sie ruhig, halten Sie Ihre Kinder drinnen...bleiben Sie auf dieser Frequenz des Conelrad-Netzwerks für weitere Meldungen...und jetzt, das ist all euch großen Käfern gewidmet...Little Richard mit Keep a Knockin' But You Can't Come In...
 55E6FEF0C3B1B3C8;Louie, erinnerst du dich an den Franzosen- und Indianerkrieg, als sie eure französischen Hintern quer über Nordamerika verprügelt haben? Hey, das sind im Grunde dieselben Widerlinge, die dich mit diesem A-Bomben-Ding wieder fertigmachen wollen! Denk an William Pitt, Louie...sein Ururenkel steht hinter dem Bergrücken mit dem Finger am Abzug!
-2E61BC931E3D54BA;...es sagt N.E.S.T. und so weiter auf der Seite...
-B0BB7FBF250CE6BA;...und um die Topmeldung der Stunde zu wiederholen: Der Truck mit einem potenziell tödlichen Plutoniumzünder, der vom A-Bombentestgelände Diablo Flats entwendet wurde, wird noch immer vermisst. Der von N.E.S.T., dem Nuclear Emergency Strike Team, herausgegebene Fahndungsaufruf ist weiterhin in Kraft. Jeder, der Informationen über die Identität oder den Aufenthaltsort des Entführers hat, sollte sich sofort an das Sheriff-Department wenden.
-1C6C72193B63B262;...und ich will, dass du bleibst...
-30A2C87B53F2AFE0;...das war alles vor fünf Jahren. Alle in der Stadt schlossen eine Art Pakt, nie über das Geschehene zu sprechen. Es schien nicht einmal mehr real zu sein...bis du aufgetaucht bist! Du hast sie gesehen, nicht wahr? Nichts sonst auf Erden hätte das mit deinem Tankwagen anrichten können!
-566CAD7F27BDA392;...manche Leute sagen, er ist genau hier in der Stadt, versteckt! Nun, Mensch, J.T., wenn du eine A-Bombe gestohlen hättest, was zum Teufel würdest du in Lizard Breath machen? Wenn sie dich erwischen, würden die Einheimischen dir den Hintern versohlen! Ja, wir würden ihm den Hintern versohlen, klar! Sag mal, hat jemand Benny gesehen? Seine Schicht war vor einer Stunde an der Pumpstation eins zu Ende...er kommt immer direkt nach der Arbeit hierher...komisch...traurig wegen Billy Bob, nicht wahr? Heutzutage nichts weiter als ein Penner...
-A8C233B3479694E9;...also dachte dein kleiner Bruder, Dr. Wells würde dich entlasten. Dieses Notizbuch von Dr. Wells, du sagst, es beweist deinen Fall... vielleicht ja, aber es gibt viele Leute in dieser Stadt, die nicht wollen, dass diese Informationen bekannt werden. Ich kann die Geschichte von Küste zu Küste bringen und deinen Namen reinwaschen, aber nicht ohne dieses Notizbuch! Sag Bescheid, wenn du es hast!
-97B56880DB7DA2F2;...also sagt Lucy: Oh-oh Ricky, ich glaube, ich habe den Truthahn in den Schulbus und den kleinen Ricky in den Ofen gesteckt! Da sagt Ricky: Vell, ist er schon fertig? Ich bin am Verhungern! Ha ha ha ha ha!
-EDCE82A7A08BB774;...aber, ah...was weiß ich schon? Ich bin nur ein verrückter Mann, der große Klappe hat, nicht? Du fliegst, fünfundzwanzig Dollar...mal sehen, ob du diesen fliegenden Mülleimer da drüben beherrschst...zeig das Geld, flieg den Müll...ist doch ein Witz, oder?
-D842FF814B89E0E7;...aber es ist das Erste, woran eine AMEISE denken sollte! Ich rieche Glukose...schlürf...das ist gut genug für mich, Süßigkeitenmann!
-76CB4B56EDD22CC2;...und vergiss nicht, ins Melville Memorial Hospital zur großen Blutspende zu gehen. Eine Blutkonserve heute bedeutet einen Liter Liebe für einen kleinen bedürftigen Kumpel morgen. Und jetzt Red Rivers mit My Heart Bleeds For You.
-8FCBC6DC42E9C105;Behandlung annehmen
 D324AE432BD4E9F9;Wie sollte ein Drittklässler in einer Woche Fanny Hill durchbekommen...besonders mit all dem Nachschlagen im medizinischen Wörterbuch? Euer Ehren, das ist ein echter Held der koreanischen Polizeiaktion! Nun, nein, es war eigentlich kein echter KRIEG, Euer Ehren...nein, wir haben auch nicht wirklich GEWONNEN...Mensch, Richter, wir alle wissen, dass mein Mandant so schuldig ist wie nur was, hängt ihn einfach mit diesem Strick auf, den uns Ludds Munitionsannex großzügig geliefert hat...
 FA145E16EB6FC670;Ich sehe, im Beverly's Drive-In läuft Battle Hell mit Audie Murphy. Mann, ich wünschte, dieser ganze Schlamassel wäre nur ein Film mit Audie Murphy...und ich könnte in meinem Dodge mit der großen Sitzbank sitzen, mit meiner Freundin bis zur dritten Base kommen, zusehen, wie die Air Force ein paar Ameisen nuklear auslöscht, mein Popcorn essen und nach Hause fahren...Aber ich komme nicht von der Leinwand runter...jemand muss mich von der Leinwand runterholen...
 DD902413C7CD1648;Wo bin ich? Ach ja, dieser Schrottplatz wieder. So fühlt sich also eine Fliege an, nachdem sie mit der Fliegenklatsche getanzt hat... ich sehe wahrscheinlich genauso aus. Ich frage mich, ob ich laufen kann...
@@ -946,10 +891,7 @@ DC4DCCE5DFBC31D0;Schöner Zug, Brick, alter Junge... direkt in den Fleischwolf u
 E596BB678201C3B0;Was zum... Ach ja, JETZT erinnere ich mich... ich muss verrückt sein oder so, um in diesem Irren-Sandkasten Spielzeugsoldat zu spielen! Es ist ein dreckiger Job, klar... warum ich? Ich schätze, ich habe noch die meisten meiner Körperteile, also... in dem Kind steckt noch etwas Kampfgeist!
 BD62A718C866F6A4;Hier gibt es nichts zu sehen.
 4DE399B28AA12270;Hier gibt es nichts Sehenswertes.
-10F1338D32D186B6;Es fühlte sich gut an, wieder auf den Beinen zu sein. Die Ruhe hat mir gutgetan, aber ich hatte Zeit verloren. Ich musste zurück an die Arbeit.
 FD0FC3594BB8CFC9;CONELRAD-MELDUNG: Für das Gebiet Lizard Breath wurde Generalalarm ausgerufen. Der Bürgermeister hat Brick Nash zum Oberbefehlshaber aller Kräfte in der Region ernannt.
-BEE4037531AC2548;Ich war jetzt wirklich müde und mein Körper ließ es mich wissen.
-F775E302C6787654;Ich begann, mich ein wenig müde zu fühlen.
 748B91169CAABE55;Sorry, Mister, sie sind nicht zu Hause. Ich hoffe, sie sind nicht krank geworden wie Jackie und mussten ins Krankenhaus.
 35A185B87207FEB9;Niemand scheint zu Hause zu sein. Was auch immer umgeht, hat den Leiter des Erzwerks erwischt. Im Krankenhaus ist viel los.
 A51EB7C51C7DCEB9;Niemand meldet sich. Vielleicht besuchen sie Elmer oder Big Mac. Die sind die letzten, die krank wurden.
@@ -961,6 +903,7 @@ A51EB7C51C7DCEB9;Niemand meldet sich. Vielleicht besuchen sie Elmer oder Big Mac
 9242CC60EC8E980C;Was mache ich da? Ich kann mich selbst nicht anrufen.
 D3DC173B36B697AB;Sorry, Mister, es meldet sich niemand. Vielleicht erreichst du sie später.
 FCB87755E914AF16;Die Leitung ist tot. Die Vermittlung muss geschlossen sein.
+EC1E1F38F1416919;KBUG-MELDUNG: G-Men durchkämmen die Stadt nach einem Plutoniumdieb, angeblich bewaffnet und gefährlich. Weitere Einzelheiten folgen.
 D0FE1C22E0593D9E;KBUG-MELDUNG: Die G-Men haben ein Phantombild des Plutoniumdiebs veröffentlicht, der angeblich noch im Gebiet von Lizard Breath auf freiem Fuß ist. Bei Sichtung sofort die Polizei verständigen.
 C808BC8269BDF29A;KBUG-NEWS: Meldung über einen kleinen Ärger in der M-3-Mine heute...die Jungs raufen sich wohl darum, wer Hattie McCloskey zum Lizard Festival ausführen darf, jetzt wo sie achtzehn geworden ist und so...
 38319837C9861F0F;KBUG-NEWS: Wir hörten, dass der Raufbold Bo McCoy gerade mit einer wilden Geschichte vom Nordwestvulkan zurückgekommen ist. Zweifellos wurde der Teil über Hattie McCloskey auf dem Rücksitz seines heißen Ford weggelassen. War das nicht die Geschichte, Bo?
@@ -970,34 +913,13 @@ A3EB0980A0440A1E;CONELRAD-WARNUNG: Dieses Gebiet wurde zur Notfall-Überwachungs
 9893DF6CF9B1332F;CONELRAD-ALARM: Dieses Gebiet wurde soeben zur Notfall-Alarmzone erklärt. Feindkonzentrationen nehmen in den westlichen und nordwestlichen Quadranten zu. Erhebliche Verluste an Menschenleben sind möglich. Bleiben Sie ruhig. Ein hohes, pfeifendes Geräusch kann dem Feindkontakt vorausgehen. Nutzen Sie im Kontaktfall verfügbare Schusswaffen. Bleiben Sie für weitere Hinweise auf Empfang.
 6809B2F0FBA0C832;CONELRAD-KATASTROPHENALARM: Diese Region wurde soeben zum Katastrophengebiet erklärt. Versuchen Sie nicht, wiederhole, nicht über den Flughafen zu evakuieren. Die Luftwaffe erwägt eine nukleare Antwort auf die Situation. Wenn ein Flugzeug über Ihnen zu hören ist, setzen Sie eine Sonnenbrille auf und bleiben Sie ruhig. Dies könnte die letzte...
 821CE01A762FC7BE;Hier ist...Hattie...Hattie McCloskey...die in dieses Radio spricht...ist da irgendjemand...ist irgendetwas übrig...irgendwo? Kann mich jemand hören? Was ist das für ein Geräusch...dieses quietschende Geräusch...es wird lauter...jetzt leg ich mich hin zum Schlafen...ich...sollt ich sterben, eh ich erwache...oh je...AAAHHH!
-80C03A9D98A961F1;Das kann nicht sein. Ich muss träumen...
-A00927B35C13CA36;Ich hätte nicht so spät essen dürfen. Was für ein Albtraum...
-CF41F3DAF0F81E98;Meine Waffe war leer. Diesmal gab es keine Flucht.
 1810E41A6C145873;Meine Waffe klickte auf einer leeren Kammer. Wenn die Ameise jetzt käme, wäre ich Kreaturenfutter. Ich beschloss, meine Pistole nachzuladen... nur für alle Fälle.
-BD82ECD99D8D86D5;Ich wachte aus einem dringend nötigen Schlaf auf und überdachte meinen nächsten Schritt.
-EDE9B52DF359A583;Ich wachte aus meinem kurzen Nickerchen auf. Als mein Kopf klar wurde, dachte ich über meinen nächsten Schritt nach.
 C93F9E157E2D56D2;Es war alles wie ein Traum...ein böser! Und was habe ich meinem kleinen Bruder zu erzählen! Ihm wird es jetzt gut gehen. Nette Stadt, nette Leute. Auch ein paar tolle Frauen...ja. Dieses...Ding, das hier passiert ist...vielleicht war das kein Zufall...vielleicht könnte es wieder passieren, irgendwo...eine andere kleine Heimatstadt in den U.S.A....Ich muss die Kunde verbreiten...die Leute müssen davon erfahren....hey, ihr da draußen! Hört zu...hört gut zu! Alle...geht zum Fenster...geht hinaus und...schaut nach oben! Ja, schaut weiter... BEOBACHTET DEN HIMMEL...BEOBACHTET DEN HIMMEL...!
-694B336224530B8C;Die Zeit lief ab. Das Letzte, woran ich mich erinnern konnte, war die Explosion des Dynamits, das die Tunnelwände über mir zum Einsturz brachte...
 E8B2E98ABF129999;Es gab kein Halten mehr, die monströse Insektenplage rollte weiter und weiter. Diese Stadt und vielleicht die ganze Welt war erledigt. Hätte ich sie aufhalten können? Vielleicht, aber es spielte keine Rolle mehr. In der wenig verbleibenden Zeit gab es nur noch eines zu tun... zu beenden, was ich mit Dusty begonnen hatte. Ich wusste irgendwie, dass sie noch lebte, verloren im Schutt und Rauch, meinen Namen rufend. Ich wusste, ich würde sie finden, und ich wusste, was als Nächstes passieren würde...
-730BD4F4B8F1A2C2;Meldung: Riesenameisen greifen die Innenstadt von Lizard Breath an... die Einwohner leisten letzten Widerstand.
-0DE831570FE8C767;Der Motor spuckte. Das konnte nur eines bedeuten.
-C333D2DB8F9388BB;Ich hatte kein Benzin mehr.
-1E994BEEF708E31B;Ich fiel durch die Nestöffnung in den ersten Tunnel. Ich musste die Kammer der Königin finden und eine Dynamitüberraschung hinterlassen, bevor ihre Anhänger mich Stück für Stück auseinandernahmen.
-6DADDA0C5D3A9784;Ich schätze, meine Flugkünste waren etwas eingerostet. Louie schlug vor, morgen wiederzukommen. Er würde versuchen, das Flugzeug reparieren zu lassen.
 B0BB6298B6BAB4D9;Die Wüstenelemente forderten ihren Tribut. Plötzlich wurde mir schwarz vor Augen.
-CF89212C08448516;Meine Flugkünste verbesserten sich und ich schaffte es, das Flugzeug sicher zu landen.
-724A985E6B4556F5;Ich hatte Glück, die alte Kiste heil herunterzubekommen, ohne ins Gras zu beißen. Als ich begann, zurück in die Stadt zu laufen, fragte ich mich, wie lange ich dafür brauchen würde.
-A9AB164B3203E453;Die letzte Mutation kollabierte in einem Haufen Schleim. Für den Moment war die Wüste still.
-79201FF9E3A9487F;Ich schätze, sie hatten genug. Der Rest der Kolonne machte sich in die Berge davon.
-AB5A2DA11E9B6C1A;Eine Granate ging so nah los, dass ich meinen Namen darauf sehen konnte. Dann wurde alles schwarz...
-346F7435FD050089;Der Tank erbebte, als würde er wie ein Blatt geschüttelt. Dann wurde alles schwarz...
 791D175AA362705B;Es gab etwas, das sie mich auf dieser Etage nicht sehen lassen wollten.
-805874969C300CC0;Das Personal war zu schnell für mich. Sie spritzten mir eine Injektion und meine Beine wurden puddingweich, als die Beruhigungsspritze wirkte.
 ADE024E5E7470C33;Ich hatte endlich Gelegenheit, die Patientenkarten und Wells' Abhandlung über Strahlung zu lesen, die ich im Safe gefunden hatte. Das sollte sich als sehr nützlich erweisen.
 75F1B16A11F3BFC5;Ice und die Hellcats kamen aus dem Nichts und rasten in Zentimetern an meinem Truck vorbei. Ice brüllte etwas von Hühnchen. Sie verschwanden vor mir, aber ich wusste, dass sie
-EFF9F1A9B7A007DD;nur wenden würden. Jeden Moment würden sie zurückkommen... zwei Tonnen heißes Eisen, die auf meine Kühlerfigur zurasten...
-5128917607A88120;Die Reifen von Ices Auto kreischten, als er von der Straße schleuderte. Als ich vorbeifuhr, hob er die Faust und forderte mich heraus, ihn zum finalen Duell zum Beverly's Drive-In zu treffen.
-11ACACCFDBEEA01A;Ich trat im letzten Moment auf die Bremse und schleuderte meinen Truck von der Straße. Als ich mit hämmerndem Herzen dasaß, fuhren Ice und seine Kumpels lachend vorbei und sagten, sie seien im Beverly's Drive-In, wenn ich etwas dagegen tun wolle.
 B7A65C922A415D71;Das Labor? Nun, Mensch, da wird niemand sein! Der alte Doc Wells ist vor Jahren gestorben...seitdem war niemand mehr da!
 0D60E2B8F664D5CE;Schön, dass du angerufen hast, Brick. Hör zu, sie haben deinen Truck gefunden! Du solltest dich eine Weile bedeckt halten.
 433C86F3939DFE08;Hast du gehört? Jackie ist im Krankenhaus...es war so ein seltsamer Unfall!
@@ -1011,3 +933,81 @@ B49C0DFD741B303E;Brick, Billys Dad versucht dich zu erreichen. Ruf sie im Labor 
 6A623B2CA0C5BA0F;Ich und Geez gehen in die Berge, um dir ein Versteck zu suchen. Halt dich bis dahin versteckt, okay?
 B98E282F5F111403;Brick! Ich glaube, ich habe gefunden, was du suchst...komm sofort her!
 8EC841D6629192A1;Oh, Brick! Die Ameisen waren gerade hier, mir geht es gut, aber es war furchtbar! Kannst du vorbeikommen und mich besuchen?
+FDB77BF2B2E7B76B;ZURÜCK! ZURÜCK ODER ICH...
+F5DF6B20A93CC563;RAID?!!!
+F7F60644FF081D45;WIR SIND ZURÜCK! HA HA HA!
+C0CB2DAAFEFB5303;ALL EURE STÜMPERHAFTEN VERSUCHE, UNS AUFZUHALTEN, SIND GESCHEITERT...DU BIST HOFFNUNGSLOS MACHTLOS, KLEINER MENSCH!
+86340A6A55181723;AAAARRRGGGHHH!
+63EB8BE3A2208390;STIRB, BRICK, DU ABSCHAUMGESICHT!
+4DE9740900B4656D;PEZ! ICH MUSS ES HABEN!
+5A7FA06447CB6385;DU H-H-H-H-HAST MICH ERWISCHT, B-B-BRICK...
+7AD14FCFE33303CC;PEZ...AAAARRGGGHH!
+8127EDC5E9F6AF72;GLUKOSE!
+98BC52A3EAF8CD1E;DU RECHTSEXTREMER AMEISENHETZER-NAZI...AAARRRGGGHHH!
+2CF01E05BC715D0C;ZUCKER!
+905A4B7E7CD11D2B;STIRB, MENSCH!
+76D98B1A7E9FE71B;STINKENDER MENSCH...STIRB STIRB STIRB!
+61F8C5B8F2EFCEE5;JAWOHL!
+3A10ED85B1884023;ST-ST-STIRB, M-M-MENSCH!
+BA3A2A62A38F713D;STIRB, MENSCH...!
+199828CDE75EBF2C;DANN STIRB WIE VIEH IM SCHLACHTHAUS!
+E2F00A71254D413F;BRICK! SIE SIND DIREKT HINTER MIR...LAUF!
+B961C753DA5CA762;ZUCKER...ZUCKER...SCHLÜRF SCHLÜRF!
+C74C9ECC49FD897D;ORANGE, ORANGE, MEIN LIEBLING! SCHLÜRF SCHLÜRF!
+7EAF0DA3FA429BC7;SIE SIND IM TUNNEL! LAUFT UM EUER LEBEN!
+DEC0A62D1D0F1A02;Z-Z-ZUCKER! ICH MUSS M-M-MEHR ZU MIR NEHMEN!
+398E2E9219A909C2;WELCHER LÄRM?
+6EBDE1921DDA660A;NIMM DIE WATTE AUS DEINEN...VORSICHT!
+D67806DE3485007F;KRANKENHAUS ^ >198
+61ABCDFC0AF233EA;R-R-RETTE MICH, B-B-BRICK!
+F5FD45B8A3F7A263;PEZ! MMMMM...ZUCKER AUFNEHMEN...MASSEN VON ZUCKER!
+57F017A54CB865BE;KLAR DOCH, BRICK! WIR SIND KEINE AMEISEN!
+CF03DDDE30A3DC97;KRANKENHAUS ^ >248
+D069EEC3ABFA6A36;BRICK NASH MUSS STERBEN - STERBEN - STERBEN!
+370611E7439F15F0;DU! DU BIST DER FLUGZEUGENTFÜHRER! DU BIST NICHTS BESSERES ALS EIN KOMMUNISTISCHER SPION! DAS WIRD MIR SPASS MACHEN!
+DAC48C13E0FFB6F3;KRANKENHAUS
+9EFFD1DA1D5B173F;AHHH, WIR HABEN EINEN ZEHN-ZWANZIG-SIEBEN HIER IN EINER SCHLUCHT AUSSERHALB DER STADT...ETWA ZWANZIG TONNEN TANKWAGEN...EIN GROSSES LOCH IN DEN TANK GERISSEN, SCHEINT LEER ZU SEIN, OVER...ZEHN-VIER EINHEIT NEUN...SICHERUNG HALTEN, EIN N.E.S.T.-TEAM IST UNTERWEGS...KCA8 REGIONALCODE ZWANZIG IN ALARM...OVER AND OUT...
+DACD7E167F35F4F6;DIE MENSCHHEIT...WIRD IN KOLONIEN LEBEN...GESUNDHEITSSPENDENDER KRIEG...WIRD STÄNDIG UND FRUCHTBAR SEIN...UND UNSERE HOCHZEITSFLÜGE WERDEN ZAHLREICH UND FREUDVOLL SEIN...DU BRICK NASH...FEIND...EHRBARER GEGNER...DU MUSST JETZT STERBEN!
+74AF1E682F3385C0;STIRB - STIRB - STIRB!
+956D950E06AED914;WAS WILLST DU?
+9B619C15F9FEDB81;HEY....HIER IST ER!
+511712A7692565A2;BRY2
+511713A769256755;BRY3
+4ED8BC6DBB044ECA;EIN ZWEITER STINKTIER WURDE IN DER NÄHE GESICHTET, MIT VORSICHT VORGEHEN...
+6B562ADF61D55796;HABT KEINE ANGST...WIR SIND EURE FREUNDE...SCHLIESST EUCH UNS AN UND ERLEBT DIE SELBSTLOSE FREUDE DER KOLONIE...ENTSORGT EURE WINZIGE MENSCHLICHE FORM...
+63EEC702F8CED358;15-9BA
+C23E34C7E67159BE;15-10BA
+B7EF53C7E023569D;15-11BA
+C3EFD7EDE40EAB94;HALLO-MR. NASH-SO-EIN-SCHÖNER-TAG-NICHT-WAHR?
+49E84A68FFADBB32;GEBOREN? DU-BELEIDIGST-MEINE-RASSE-DU-VERWESTER-SPROSS-WEIBLICHER-FLEISCHSÄCKE...
+4C2F86C7AD63C113;IHR HIRNLOSEN MENSCHEN MIT EUREN BELUSTIGENDEN KLEINEN KRIEGEN UND SPIELEN MIT STÖCKEN UND BÄLLEN...MACHT EUCH BEREIT ZUM AUSSTERBEN! EINE NEUE HERRENRASSE IST GEKOMMEN!
+78A7033A6377A8F0;DU KRIEGST MICH NIE LEBENDIG, STINKENDER MENSCH!
+9A3ABC7F6231108C;BRING MICH NICHT ZUM LACHEN, WINZIGER MENSCHENWURM...
+4B9C19D8FF26D37A;HILFE
+6935115935140EF6;DU NARR...WARUM KÄMPFST DU GEGEN UNS? BALD SIND MENSCHEN SO AUSGESTORBEN WIE DER D-D-D-DO-DO-DODO, DER DINOSAURIER!
+F94B4603DDE89D7F;15-HBA
+8FCBC6DC42E9C105;Behandlung annehmen
+10F1338D32D186B6;Es fühlte sich gut an, wieder auf den Beinen zu sein. Die Ruhe hat mir gutgetan, aber ich hatte Zeit verloren. Ich musste zurück an die Arbeit.
+BEE4037531AC2548;Ich war jetzt wirklich müde und mein Körper ließ es mich wissen.
+F775E302C6787654;Ich begann, mich ein wenig müde zu fühlen.
+80C03A9D98A961F1;Das kann nicht sein. Ich muss träumen...
+A00927B35C13CA36;Ich hätte nicht so spät essen dürfen. Was für ein Albtraum...
+CF41F3DAF0F81E98;Meine Waffe war leer. Diesmal gab es keine Flucht.
+BD82ECD99D8D86D5;Ich wachte aus einem dringend nötigen Schlaf auf und überdachte meinen nächsten Schritt.
+EDE9B52DF359A583;Ich wachte aus meinem kurzen Nickerchen auf. Als mein Kopf klar wurde, dachte ich über meinen nächsten Schritt nach.
+694B336224530B8C;Die Zeit lief ab. Das Letzte, woran ich mich erinnern konnte, war die Explosion des Dynamits, das die Tunnelwände über mir zum Einsturz brachte...
+730BD4F4B8F1A2C2;Meldung: Riesenameisen greifen die Innenstadt von Lizard Breath an... die Einwohner leisten letzten Widerstand.
+0DE831570FE8C767;Der Motor spuckte. Das konnte nur eines bedeuten.
+C333D2DB8F9388BB;Ich hatte kein Benzin mehr.
+1E994BEEF708E31B;Ich fiel durch die Nestöffnung in den ersten Tunnel. Ich musste die Kammer der Königin finden und eine Dynamitüberraschung hinterlassen, bevor ihre Anhänger mich Stück für Stück auseinandernahmen.
+6DADDA0C5D3A9784;Ich schätze, meine Flugkünste waren etwas eingerostet. Louie schlug vor, morgen wiederzukommen. Er würde versuchen, das Flugzeug reparieren zu lassen.
+CF89212C08448516;Meine Flugkünste verbesserten sich und ich schaffte es, das Flugzeug sicher zu landen.
+724A985E6B4556F5;Ich hatte Glück, die alte Kiste heil herunterzubekommen, ohne ins Gras zu beißen. Als ich begann, zurück in die Stadt zu laufen, fragte ich mich, wie lange ich dafür brauchen würde.
+A9AB164B3203E453;Die letzte Mutation kollabierte in einem Haufen Schleim. Für den Moment war die Wüste still.
+79201FF9E3A9487F;Ich schätze, sie hatten genug. Der Rest der Kolonne machte sich in die Berge davon.
+AB5A2DA11E9B6C1A;Eine Granate ging so nah los, dass ich meinen Namen darauf sehen konnte. Dann wurde alles schwarz...
+346F7435FD050089;Der Tank erbebte, als würde er wie ein Blatt geschüttelt. Dann wurde alles schwarz...
+805874969C300CC0;Das Personal war zu schnell für mich. Sie spritzten mir eine Injektion und meine Beine wurden puddingweich, als die Beruhigungsspritze wirkte.
+EFF9F1A9B7A007DD;nur wenden würden. Jeden Moment würden sie zurückkommen... zwei Tonnen heißes Eisen, die auf meine Kühlerfigur zurasten...
+5128917607A88120;Die Reifen von Ices Auto kreischten, als er von der Straße schleuderte. Als ich vorbeifuhr, hob er die Faust und forderte mich heraus, ihn zum finalen Duell zum Beverly's Drive-In zu treffen.
+11ACACCFDBEEA01A;Ich trat im letzten Moment auf die Bremse und schleuderte meinen Truck von der Straße. Als ich mit hämmerndem Herzen dasaß, fuhren Ice und seine Kumpels lachend vorbei und sagten, sie seien im Beverly's Drive-In, wenn ich etwas dagegen tun wolle.

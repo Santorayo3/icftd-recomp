@@ -33,9 +33,10 @@ for what "complete" means; the translation itself is only ever the file.
   the OSD), plus the **formats** of the messages the program builds itself (`Sleep for %d hours.`,
   `June %d, 1951 - %02d:%02d %s`, …), whose `%` marks have to come in the same order as the
   English ones;
-* and, when the source text `lang\en.csv` is there (the development tree has it, a release does
-  not), every id it lists — the game's own script. That is the only file that can enumerate it, so a
-  release without `en.csv` can check the interface only.
+* and, when the source text `lang\en.csv` is there, every id it lists — the game's own script. The
+  game writes that file itself, from the player's own extracted data, at the first start (see
+  below), so a release normally has it too; only a folder the game cannot write is measured against
+  the interface alone.
 
 `<code>_ant.csv` is measured against `lang\en_ant.csv` when that source is there: every id it lists
 **that `en.csv` does not already cover** (the shared lines are the base file's). A half-finished
@@ -67,6 +68,18 @@ translation stays valid when the source is regenerated. A work file is not a lan
 (`de.work.csv` is not two letters and `.csv`), so the game never picks it up — and `de_ant.csv` is an
 overlay, not a language the settings row offers.
 
+### Where the two English files come from
+
+They are the game's own script and are never shipped. You get them from the game data you own:
+
+* **A player** gets them automatically: on the first start, once the data has been extracted from
+  their own floppy images, the game writes `lang\en.csv` and (when the add-on's disks are there)
+  `lang\en_ant.csv` next to the translations. A file that is already there is never overwritten, so
+  a translator's copy stays as it is.
+* **A development tree** writes the same bytes with `tools\lang-export.ps1` (step 1 below); the two
+  writers are asserted byte-identical by `tools\lang-check.ps1`, because an id *is* the English text
+  — a difference would silently make every translation incomplete.
+
 ## The workflow
 
 ```
@@ -87,8 +100,7 @@ powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1 -Ant -Pack      #
 
 `-Ant` reads the add-on's banks (`ant2\Desert2.dat`, `ant2\phone2.dat`), scans the add-on's program
 for the strings it carries itself (the intro, the radio bulletins, the telephone lines and the
-endings), runs the add-on's build for anything only a play-through knows, and leaves out every id
-`en.csv` already lists, so the two source files do not overlap.
+endings), and leaves out every id `en.csv` already lists, so the two source files do not overlap.
 
 **Another language is the same three steps with `-Lang fr`**: `-Work` writes `lang\fr.work.csv`,
 `-Pack` writes `lang\fr.csv` — and the game offers `fr` in Settings → Language from the next start

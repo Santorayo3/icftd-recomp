@@ -771,6 +771,13 @@ const char *rt_lang_key(int i)
     return i >= 0 && i < LANG_KEY_COUNT ? g_interface[i] : 0;
 }
 
+/* The id a translation row is keyed by (lang_source.c writes it, tools\lang-export.ps1 computes
+ * it in C#): FNV-1a over the bytes of the English text. */
+u64 rt_lang_id(const char *en)
+{
+    return lang_hash64(en);
+}
+
 const char *rt_lang_text(const char *en)
 {
     int e;
@@ -1424,6 +1431,40 @@ static int lang_file_code(const char *name, char *code)
         if (a != b) return 0;
     }
     return name[6] == 0;
+}
+
+static void lang_any_visit(const char *name, u32 size, void *ctx)
+{
+    char code[LANG_CODE_MAX + 1];
+
+    (void)size;
+    if (*(int *)ctx == 0 && lang_file_code(name, code)) *(int *)ctx = 1;
+}
+
+/* The folder a generated file goes in: the first language folder that already holds a translation
+ * (the copy lang_read_file would read), else the folder next to the executable - the one a release
+ * ships its `lang\` as. */
+u32 rt_lang_write_dir(char *path, u32 max)
+{
+    char dir[LANG_PATH_MAX];
+    int i, pick = -1;
+
+    for (i = 0; i < 4 && lang_dir(i, dir); i++)
+    {
+        int found = 0;
+
+        if (i == 0 && dir[0] == '\\') continue;         /* an empty exe dir would name the root */
+        if (pick < 0) pick = i;
+        plat_dir_files(dir, lang_any_visit, &found);
+        if (found && strlen(dir) + 1u <= max)
+        {
+            strcpy(path, dir);
+            return 1;
+        }
+    }
+    if (pick < 0 || !lang_dir(pick, dir) || strlen(dir) + 1u > max) return 0;
+    strcpy(path, dir);
+    return 1;
 }
 
 typedef struct lang_scan_ctx

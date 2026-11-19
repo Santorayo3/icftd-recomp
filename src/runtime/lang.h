@@ -76,6 +76,14 @@ const char *rt_lang_code(void);
 int rt_lang_key_count(void);
 const char *rt_lang_key(int i);
 
+/* The id a translation row is keyed by: FNV-1a over the bytes of the English text, printed as
+ * sixteen hex digits in the file. */
+u64 rt_lang_id(const char *en);
+
+/* The folder a generated file goes in - the first language folder that already holds a
+ * translation, else the one next to the executable. 0 when this platform has no folder to name. */
+u32 rt_lang_write_dir(char *path, u32 max);
+
 /* The host's own strings (the title, the settings, the OSD line, ...): the translated text when a
  * language is selected, `en` itself otherwise. Never returns 0. */
 const char *rt_lang_text(const char *en);

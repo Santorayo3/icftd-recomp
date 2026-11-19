@@ -26,27 +26,25 @@
 # `en.csv` and whatever `de.csv` already has, so nothing already translated is ever lost - a row
 # the source no longer knows is kept as it is.
 #
-# The source text comes from four places:
+# The source text comes from three places - the same ones the game itself reads when extraction
+# writes the files for a player (src\runtime\lang_source.c, which must produce the same bytes):
 #
 #   * the interface's own vocabulary, which `--langkeys` prints: the lines the engine draws from its
 #     program (the room menus, the map's place names, the boot's messages, the save/load screen)
 #     and the ones the port's screens draw (the title, the settings, the save slots, the OSD).
 #     That is also where the *formats* of the messages the program builds itself live ("Sleep for
 #     %d hours.", "June %d, 1951 - %02d:%02d %s"), which the engine fills in at run time;
-#   * a scripted run of the game with `--langdump`, which records every string the engine hands to
-#     its text routines - the load screen, the intro's narration, the room menus, the travel lines.
-#     Those live in memory only (the intro's bundle is compressed), so nothing else finds them. The
-#     run stays English while it dumps, whatever [GAME] language says;
-#   * `desert.dat` (the rooms' script bank): its records are `<00> <length> <text>` (and `<00 1A>
-#     <u32> <u16 length> <text>` for the long narration pages), and the engine hands the text after
-#     the `^`-markers straight to the layout routines, so that is the record;
+#   * `desert.dat` (the rooms' script bank) and the program image `dshell.img`: the bank's records
+#     are `<00> <length> <text>` (and `<00 1A> <u32> <u16 length> <text>` for the long narration
+#     pages, `<u32 nameLen><name><u16 length> <text>` for a speech), and the image holds the
+#     narration, radio, telephone and ending strings the engine draws from its data segment;
 #   * `PHONE.DAT`, whose lines are `<speaker>:<text>` - the speaker picks a portrait picture and is
 #     never drawn, the text after the colon is the record.
 #
-# `-Ant` is the 1990 add-on's own half: it reads `Desert2.dat`/`phone2.dat` and runs the add-on's
-# build for the strings only the program knows (its intro), writing `en_ant.csv`, `de_ant.work.csv`
-# and `de_ant.csv` instead of the base files. Rows the base source already lists are left out - the
-# game merges `<code>_ant.csv` over `<code>.csv`, so the shared lines stay in one file.
+# `-Ant` is the 1990 add-on's own half: it reads `Desert2.dat`/`phone2.dat` and the add-on's image,
+# writing `en_ant.csv`, `de_ant.work.csv` and `de_ant.csv` instead of the base files. Rows the base
+# source already lists are left out - the game merges `<code>_ant.csv` over `<code>.csv`, so the
+# shared lines stay in one file.
 param(
     [string]$Exe = 'bin\win32\icftd-recomp.exe',
     [string]$DataDir = 'export',
@@ -54,8 +52,6 @@ param(
     [string]$Lang = 'de',
     [string]$Source = 'lang\en.csv',
     [string]$Scratch = 'out\lang-export',
-    [int]$Insns = 60000000,
-    [switch]$SkipRun,
     [switch]$Ant,
     [switch]$Work,
     [switch]$Pack
@@ -264,7 +260,6 @@ if ($Ant) {
 New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $sourceFile) | Out-Null
 
-$ui = New-Object System.Collections.ArrayList       # the run's records, in the order they appeared
 $iface = New-Object System.Collections.ArrayList    # the interface's own text (--langkeys)
 $story = New-Object System.Collections.ArrayList
 $talk = New-Object System.Collections.ArrayList
@@ -327,38 +322,7 @@ if (-not $Ant) {
     }
 }
 
-# 2. the strings only a run knows
-$dump = Join-Path $Scratch 'run.tsv'
-if (-not $SkipRun) {
-    if (-not (Test-Path $Image)) { throw "no $Image - run tools\extract.ps1 (or pass -SkipRun)" }
-    $taps = @('# lang-export: fire taps, long enough for the intro and a room')
-    for ($f = 10; $f -le 20000; $f += 60) { $taps += "$f 1 0xFFFF"; $taps += "$($f + 6) 0 0xFFFF" }
-    $tapsPath = Join-Path $Scratch 'advance.txt'
-    Set-Content -Path $tapsPath -Value $taps -Encoding ascii
-    Write-Output "lang-export: running $Insns instructions to collect the text the game draws"
-    $log = Join-Path $Scratch 'run.log'
-    # Note: not `$out` - PowerShell variables are case insensitive.
-    $runArgs = @($Image, $Insns, '--data', $DataDir, '--input', $tapsPath, '--langdump', $dump)
-    if ($Ant) { $runArgs += @('--program', 'ant') }
-    $runOut = (& $Exe @runArgs 2>&1 | Out-String)
-    Set-Content -Path $log -Value $runOut
-    if ($runOut -notmatch 'distinct line\(s\) dumped') {
-        Write-Output 'lang-export: the run did not finish - see ' $log
-    }
-}
-if (Test-Path $dump) {
-    foreach ($line in [System.IO.File]::ReadAllLines($dump)) {
-        if ($line.Length -eq 0 -or $line.StartsWith('#')) { continue }
-        $tabAt = $line.IndexOf("`t")
-        if ($tabAt -lt 0) { continue }
-        $en = Unescape ($line.Substring(0, $tabAt))
-        # The dump also records strings that are not drawn prose (a room id on its way to a lookup);
-        # Wanted is the same filter the bank scan uses.
-        if ($en.Length -gt 0 -and -not $ui.Contains($en) -and (Wanted $en)) { [void]$ui.Add($en) }
-    }
-}
-
-# 3. the rooms' script bank
+# 2. the rooms' script bank
 if (Test-Path $desert) {
     $b = [System.IO.File]::ReadAllBytes($desert)
     $i = 0
@@ -461,7 +425,7 @@ if (Test-Path $desert) {
     }
 } else { Write-Output "lang-export: no $desert - skipping the rooms' text" }
 
-# 3b. the add-on's own program: its narration, radio bulletins, telephone lines and endings live
+# 2b. the add-on's own program: its narration, radio bulletins, telephone lines and endings live
 #     in the executable as NUL-terminated strings, not in the rooms' bank. Each one ends with a
 #     small binary tag whose last four printable bytes are `]Nu`; the text is what follows. The
 #     formats the engine builds itself are already in the interface vocabulary (they carry a `%`
@@ -505,7 +469,7 @@ if (Test-Path $Image) {
     }
 }
 
-# 4. the telephone dialogue
+# 3. the telephone dialogue
 if (Test-Path $phone) {
     foreach ($line in [System.IO.File]::ReadAllLines($phone)) {
         $text = $line.TrimEnd("`r")
@@ -522,18 +486,14 @@ if (Test-Path $phone) {
 } else { Write-Output "lang-export: no $phone - skipping the telephone dialogue" }
 
 # --- the source file: <id>;<English> -----------------------------------------------------------
-# One record belongs in one section only: the run draws story records and menu labels alike, the
-# interface's own list repeats lines the run and the data files also hold, and the two data files
-# are scanned for the same text. A line that appears twice would be a row a translator fills in
-# twice, so the first section that names it keeps it.
-$uiOnly = @()
-foreach ($t in $ui) { $uiOnly += $t }
+# One record belongs in one section only: the interface's own list repeats lines the data files
+# also hold, and the two data files are scanned for the same text. A line that appears twice would
+# be a row a translator fills in twice, so the first section that names it keeps it.
 $seen = @{}
 $secIface = New-Object System.Collections.ArrayList
-$secUi    = New-Object System.Collections.ArrayList
 $secStory = New-Object System.Collections.ArrayList
 $secTalk  = New-Object System.Collections.ArrayList
-foreach ($section in @(@($iface, $secIface), @($uiOnly, $secUi), @($story, $secStory), @($talk, $secTalk))) {
+foreach ($section in @(@($iface, $secIface), @($story, $secStory), @($talk, $secTalk))) {
     foreach ($t in $section[0]) {
         if ($seen.ContainsKey($t)) { continue }
         $seen[$t] = 1
@@ -554,7 +514,7 @@ if ($Ant) {
             if ($f.Count -ge 2) { $baseIds[$f[0].ToUpper()] = 1 }
         }
     }
-    foreach ($list in @($secIface, $secUi, $secStory, $secTalk)) {
+    foreach ($list in @($secIface, $secStory, $secTalk)) {
         $keep = @($list | Where-Object { -not $baseIds.ContainsKey((IdOf $_)) })
         $list.Clear()
         foreach ($t in $keep) { [void]$list.Add($t) }
@@ -578,10 +538,9 @@ if ($Ant) {
 [void]$sb.AppendLine('# computes the same value, so a translation file never repeats the original''s')
 [void]$sb.AppendLine('# words.')
 [void]$sb.AppendLine('')
-if ($secIface.Count + $secUi.Count -gt 0) {
-    [void]$sb.AppendLine("# --- the interface, the menus and the messages ($($secIface.Count + $secUi.Count) record(s)) ---")
+if ($secIface.Count -gt 0) {
+    [void]$sb.AppendLine("# --- the interface, the menus and the messages ($($secIface.Count) record(s)) ---")
     foreach ($t in $secIface) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
-    foreach ($t in $secUi) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
     [void]$sb.AppendLine('')
 }
 [void]$sb.AppendLine("# --- the story: the rooms, the people and the narration ($($secStory.Count) record(s)) ---")
@@ -591,7 +550,7 @@ foreach ($t in $secStory) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)
 foreach ($t in $secTalk) { [void]$sb.AppendLine((IdOf $t) + ';' + (CsvField $t)) }
 
 [System.IO.File]::WriteAllText($sourceFile, $sb.ToString(), $utf8)
-$total = $secIface.Count + $secUi.Count + $secStory.Count + $secTalk.Count
+$total = $secIface.Count + $secStory.Count + $secTalk.Count
 Write-Output ("lang-export: {0} record(s) written to {1} - {2} interface, {3} story, {4} telephone" -f `
-              $total, $Source, ($secIface.Count + $secUi.Count), $secStory.Count, $secTalk.Count)
+              $total, $Source, $secIface.Count, $secStory.Count, $secTalk.Count)
 Write-Output 'lang-export: next: -Work for the translator''s file, then -Pack for the translation'

@@ -1122,6 +1122,15 @@ startup, before the machine boots, and asks one question: is there an extracted 
   layout, started from anywhere — and plain working-directory-relative `export\`/`disks` otherwise,
   which is how a run out of the repository root finds the developer's tree. `--data` and `--disks`
   override both, and `--extract` only fills the tree (the check seam).
+* **The player's own copy of the source text.** Once the tree is there, `rt_lang_source_write`
+  (`src\runtime\lang_source.c`) writes `lang\en.csv` and — when the add-on's tree is present —
+  `lang\en_ant.csv` into the language folder the game reads its translations from: the files a
+  translation starts from, so a player can begin one without a developer checkout. Nothing of it is
+  shipped; every word comes out of the player's own discs, the same way the data does. Only a file
+  that is not there is written (a translator's copy is never overwritten), and `--langsource <dir>`
+  writes both into a given folder (the check seam). Because an id *is* the English text, what the
+  game writes and what `tools\lang-export.ps1` writes for the development tree have to be the same
+  bytes — `tools\lang-check.ps1` asserts exactly that, for both games.
 
 **What is asserted** is not "the game starts": the extracted tree is byte-identical to what
 `tools\extract.ps1` writes — 78 files and the 185 752-byte `dshell.img` (`hunk` flattening included:
@@ -1166,8 +1175,9 @@ is that its claim is exact, and that English is untouched.
   means: a non-empty translation for every line of the interface's own vocabulary (`lang.c`'s
   `g_interface`: the engine's menus, the map's places, the boot's messages, the save/load screen,
   the port's own screens, and the formats of the messages the program builds itself, with the same
-  `%` marks), plus — when `lang\en.csv` is there, which is the development tree but not a release —
-  every id it lists, i.e. the game's own script. A file that fails is left out of the row and named
+  `%` marks), plus — when `lang\en.csv` is there, which the first start writes from the player's
+  own data (a folder the game cannot write keeps the interface-only rule) — every id it lists, i.e.
+  the game's own script. A file that fails is left out of the row and named
   on the console with the number of missing lines; a `[GAME] language` naming it keeps the run in
   English. `lang\de.work.csv` is not a two-letter code, so a translator's work file is never taken
   for a language.
@@ -1231,9 +1241,10 @@ machine state is record-for-record identical up to the first translated line; a 
 is the file's German (`Karte öffnen`, `Anrufen`, `Schlafen` — through `FUN_00004F0A`, so the wrap
 and the spacing are the engine's); a later row keyed by the English text overrides the row keyed by
 its id *and* a story record keyed by its id is drawn, while the translator's middle column never is;
-a file without a `[GAME]` entry runs in English; and the `--langdump` the exporter builds the source
-from is the English text with either language selected. The room screen needs the intro played
-through; the script taps fire every 60 frames.
+a file without a `[GAME]` entry runs in English; the `--langdump` seam is the English text with
+either language selected; and the source text the *game* writes from the extracted data
+(`--langsource`) is byte-identical to what `tools\lang-export.ps1` writes, the add-on's half
+included. The room screen needs the intro played through; the script taps fire every 60 frames.
 
 ## The translation file: `lang\de.csv`
 
@@ -1248,7 +1259,8 @@ narration live in `<code>_ant.csv` (`de_ant.csv`). The loader reads `<code>.csv`
 overlay on top of it: the interface and every line the two games share stay in one file, and only
 what the add-on alone draws needs the second. The half is optional (without it the add-on's text is
 English) and, when `lang\en_ant.csv` names the add-on's source, complete against the ids `en.csv`
-does not cover. `tools\lang-export.ps1 -Ant` writes both sides of it, the add-on's clock line
+does not cover. The game writes both source files itself from the extracted data (above);
+`tools\lang-export.ps1 -Ant` does the same for a development tree, the add-on's clock line
 (`January %d, 1956 - %02d:%02d %s`) being a format of its own beside the 1989 one.
 
 | | |
@@ -1280,8 +1292,15 @@ repository:
 | file | content | committed |
 |---|---|---|
 | `lang\en.csv` | `<id>;<English>` — every text the game can draw | no |
+| `lang\en_ant.csv` | `<id>;<English>` — the add-on's own lines (the shared ones are in `en.csv`) | no |
 | `lang\de.work.csv` | `<id>;<English>;<German>` — the translator's file | no |
 | `lang\de.csv` | `<id>;<German>` — the translation | yes |
+| `lang\de_ant.csv` | `<id>;<German>` — the add-on's half | yes |
+
+The two English files are written where they are needed and never distributed: the game writes them
+from the player's own extracted data at the first start (`src\runtime\lang_source.c`, above), and
+`tools\lang-export.ps1` writes the same bytes for the development tree. A translator takes the one
+that is in their folder and fills in the second column.
 
 ```
 powershell -ExecutionPolicy Bypass -File tools\lang-export.ps1            # -> lang\en.csv
@@ -1307,21 +1326,27 @@ that last question; keeping it out of the repo and offering it as a separate fil
 
 ### The source text
 
-**`tools\lang-export.ps1` writes it**, every English string the game can draw:
+**The game writes it from the player's own data**, and `tools\lang-export.ps1` writes the same bytes
+for the development tree (`src\runtime\lang_source.c` is the portable copy; `tools\lang-check.ps1`
+asserts the two agree). The rows come from three places:
 
-* the interface's own vocabulary, `lang.c`'s `g_interface` printed by **`--langkeys`** — the lines
-  the engine draws from its program (the room menus, the map's place names, the boot's messages, the
-  save/load screen) and the ones the port's screens draw (the title, the settings, the save slots,
-  the OSD), which no data file holds. The formats of the formatted messages are part of it;
-* a scripted run with `--langdump`, which records every string the engine hands to a text routine —
-  the load screen, the intro's narration pages, the room menus, the travel lines. Those live in
-  memory only (the intro's bundle is compressed), so nothing else finds them. The run stays English
-  while it dumps, whatever `[GAME] language` says, so a record is always the original's text;
-* `desert.dat`, the rooms' script bank: its records are `<00> <length> <text>` (and
-  `<00 1A> <u32> <u16 length> <text>` for the long narration pages), and the engine hands the text
-  after the `^`-markers to the layout routines, so that is the record;
+* the interface's own vocabulary, `lang.c`'s `g_interface` — the lines the engine draws from its
+  program (the room menus, the map's place names, the boot's messages, the save/load screen) and the
+  ones the port's screens draw (the title, the settings, the save slots, the OSD), which no data
+  file holds. The formats of the formatted messages are part of it;
+* `desert.dat`, the rooms' script bank (`<00> <length> <text>`, the long narration pages
+  `<00 1A> <u32> <u16 length> <text>` and the speech records `<u32 nameLen><name><u16 length><text>`)
+  and the program image `dshell.img`, whose NUL-terminated strings are the narration, radio,
+  telephone and ending text the engine draws from its own data segment. The bank's command prefixes
+  (`/1Accept Treatment`) and note markers (`#*Note: ...`) are stripped, the way the engine strips
+  them; a record reached through its length is text, a printable run that reads like prose is;
 * `PHONE.DAT`, whose lines are `<speaker>:<text>` — the speaker picks a portrait and is never drawn,
   the text after the colon is the record.
+
+The scan is deterministic and needs no run of the game: every row is a function of the extracted
+tree plus the compiled-in interface list. (An earlier exporter took a scripted run with `--langdump`
+for the intro and the menus on top of that; the program scan above covers those ids, and a run only
+re-classified rows.)
 
 The engine re-wraps and re-centres the translated text with its own font, so a translation that is
 much longer than the English line will not fit the same box. Times and the messages the program
