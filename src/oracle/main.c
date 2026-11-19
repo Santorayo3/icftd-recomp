@@ -307,10 +307,13 @@ int main(int argc, char **argv)
     if (g_window)
     {
         int fs = 0;
+        int curtains;
         fs = rt_config_bool("VIDEO", "fullscreen", 1);
+        curtains = rt_config_bool("VIDEO", "curtains", 1);
         plat_set_fullscreen((u32)fs);
-        printf("emu: video %s, fullscreen=%d\n",
-               rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs);
+        plat_set_border((u32)curtains);
+        printf("emu: video %s, fullscreen=%d, curtains=%d\n",
+               rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs, curtains);
     }
     if (g_window && !plat_init("It Came from the Desert (recomp)"))
     {

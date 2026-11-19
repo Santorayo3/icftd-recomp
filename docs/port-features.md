@@ -843,6 +843,15 @@ input pixel at `x*W/w, y*H/h`, so an interpolating scale fails on the first non-
 and (3) on 16:9 and 16:10 the bars are 100 % curtain instead of black. It SKIPs without the
 picture (user-supplied) or without Open Watcom.
 
+The art is the default and the ini can put the black back: `[VIDEO] curtains=true` is in the
+windowed default `icftd.ini` (`plat_default_ini`) with the other video settings, and the host
+reads it once before `plat_init` into `plat_set_border`. `curtains=false` makes `border_paint`
+fill the bars with 0 instead of the art — the table is not even decoded — and the true-colour
+presenter skips its border quad, leaving the swapchain's own black clear. Old files without the
+key get the art (`rt_config_bool`'s fallback is 1), which is what every build before the key
+showed. Nothing else changes: the picture, its rectangle and the pointer mapping are the same
+either way, and DOS ignores the call (VGA has no bars).
+
 The art itself is the port's, so `assets\border.png` is one of the few tracked files in `assets\`;
 the generated header is tracked next to `crosshair_art.h` and `title_art.h`, so a build never
 needs the PNG.
@@ -876,7 +885,8 @@ being nailed to the picture. Three rules, and the rest follows from them:
   made it 6.5% wider and 6.6% taller than the screen, over the curtains. Fitted into the screen
   instead, the whole picture stays visible (no column or row dropped) and every scene has the same
   pixel shape.
-* **The bars are the border art.** Windowed and fullscreen share one present path: a 32-bit frame is
+* **The bars are the border art** (black, in the same places, when `[VIDEO] curtains=false`).
+  Windowed and fullscreen share one present path: a 32-bit frame is
   filled with `border_paint` at the client's size, the picture is stretched over its own rectangle,
   and the window gets exactly one `BitBlt` of it. The 320x200 window is the screen at 1:1 - no bars,
   and the 8-bit DIB goes to the window as before - so the border only becomes visible when the window

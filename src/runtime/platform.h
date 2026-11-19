@@ -85,6 +85,13 @@ const char *plat_default_ini(void);
  * is not, a call after plat_init switches the window there and then (the title menu's settings). */
 void plat_set_fullscreen(u32 on);
 
+/* The port's own artwork in the bars beside the picture, from icftd.ini [VIDEO] curtains; call
+ * before plat_init.  On - the default, and what a file without the key gets - fills them with the
+ * platform's border art; off leaves them black, as they were before the art.  A platform whose
+ * display has no bars (DOS: VGA mode 13h owns the whole screen) has no such setting and ignores
+ * it. */
+void plat_set_border(u32 on);
+
 /* The client size windowed mode uses, in desktop pixels; 0x0 (or not calling it at all) is the
  * picture at 1:1.  Call before plat_init.  Windows keeps no size for an application's own window,
  * so the host keeps it: it reads [VIDEO] window_width / window_height and writes them back with

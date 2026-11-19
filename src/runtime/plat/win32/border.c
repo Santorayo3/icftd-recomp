@@ -10,6 +10,9 @@
  * and blitted over this art, and this file only fills the bars. The image is scaled with point
  * sampling, because it is pixel art and any smoothing turns the folds to mush.
  *
+ * `[VIDEO] curtains=false` in icftd.ini puts the black back (border_set_enabled): the front end
+ * reads the key and hands it to the platform like the window mode.
+ *
  * The table is run-length encoded (count, R, G, B), because the shading has thousands of colours
  * and an 8-bit palette would band it; it is decoded once into a static image and scaled from
  * there.
@@ -22,6 +25,7 @@
 
 static u32 g_borderImg[BORDER_PIXELS];
 static int g_borderReady;
+static int g_borderOn = 1;              /* [VIDEO] curtains: on until the front end says otherwise */
 
 static void border_decode(void)
 {
@@ -40,11 +44,29 @@ static void border_decode(void)
     g_borderReady = 1;
 }
 
+void border_set_enabled(int on)
+{
+    g_borderOn = on ? 1 : 0;
+}
+
+int border_enabled(void)
+{
+    return g_borderOn;
+}
+
 void border_paint(u32 *dst, int w, int h)
 {
     int x, y;
 
     if (dst == 0 || w <= 0 || h <= 0) return;
+    if (!g_borderOn) {
+        /* The bars the art replaced: black, and the table stays undecoded. */
+        for (y = 0; y < h; y++) {
+            u32 *row = dst + (u32)y * (u32)w;
+            for (x = 0; x < w; x++) row[x] = 0;
+        }
+        return;
+    }
     if (!g_borderReady) border_decode();
     for (y = 0; y < h; y++) {
         const u32 *src = g_borderImg + ((u32)y * BORDER_H / (u32)h) * BORDER_W;
@@ -58,5 +80,5 @@ void border_paint(u32 *dst, int w, int h)
  * presenter's own thread, docs\display-rate.md phase 3) only reads the decoded table. */
 void border_prepare(void)
 {
-    if (!g_borderReady) border_decode();
+    if (g_borderOn && !g_borderReady) border_decode();
 }

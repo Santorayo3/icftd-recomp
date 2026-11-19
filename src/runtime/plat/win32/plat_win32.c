@@ -787,6 +787,13 @@ u32 plat_has_fullscreen(void)
     return 1;                                    /* the windowed build has a mode to choose */
 }
 
+/* [VIDEO] curtains, from icftd.ini: the port's art in the bars, or the black they were before it.
+ * Called before plat_init, so the art is decoded (or not) once and the first frame is right. */
+void plat_set_border(u32 on)
+{
+    border_set_enabled(on ? 1 : 0);
+}
+
 /* A size a previous run left behind, or none at all: make_window uses the picture at 1:1. */
 void plat_set_window_size(u32 w, u32 h)
 {
@@ -845,6 +852,9 @@ const char *plat_default_ini(void)
            "; true = fullscreen, the whole 4:3 picture scaled up to fit with the border art\r\n"
            ";            either side (a scene with a screen of its own is letterboxed inside it).\r\n"
            "fullscreen=true\r\n"
+           "; The port's own artwork (curtains either side) in the bars a window wider than the\r\n"
+           "; picture or fullscreen leaves beside it; false leaves those bars black.\r\n"
+           "curtains=true\r\n"
            "\r\n"
            "[AUDIO]\r\n"
            "; Volume 0..10, 0 = off, 10 = full.\r\n"
@@ -1419,7 +1429,8 @@ static int d3d_present(const u32 *bits, int w, int h)
     if (IDirect3DDevice9Ex_Clear(g_d3dDev, 0, 0, D3DCLEAR_TARGET, 0x00000000, 1.0f, 0) < 0)
         return d3d_fail();
     if (IDirect3DDevice9Ex_BeginScene(g_d3dDev) < 0) return 0;   /* the last frame is not presented */
-    if (px > 0 || py > 0 || px + pw < cw || py + ph < ch) {
+    if (border_enabled() && (px > 0 || py > 0 || px + pw < cw || py + ph < ch)) {
+        /* The clear above is the black the bars fall back to ([VIDEO] curtains=false). */
         if (d3d_border_texture(cw, ch))
             d3d_draw_quad(g_d3dBorder, 0, 0, cw, ch);
     }

@@ -2078,14 +2078,18 @@ int main(int argc, char **argv)
     if (g_window)
     {
         int fs = 0;
+        int curtains;
         int ww, wh;
         fs = rt_config_bool("VIDEO", "fullscreen", 1);
+        /* The bars beside the picture: the port's border art, or black ([VIDEO] curtains). */
+        curtains = rt_config_bool("VIDEO", "curtains", 1);
         /* The window's own size, as the last run left it (the platform has it applied before the
          * window is created, so a windowed start comes back at the size the player chose). */
         ww = rt_config_int("VIDEO", "window_width", 0, 0, 16384);
         wh = rt_config_int("VIDEO", "window_height", 0, 0, 16384);
         if (ww > 0 && wh > 0) plat_set_window_size((u32)ww, (u32)wh);
         plat_set_fullscreen((u32)fs);
+        plat_set_border((u32)curtains);
         if (!plat_init("It Came from the Desert (recomp)"))
         {
             printf("recomp: cannot open a window\n");
@@ -2098,9 +2102,9 @@ int main(int argc, char **argv)
         {
             u32 cw = 0, ch = 0;
             if (plat_window_size(&cw, &ch))
-                printf("recomp: video %s, fullscreen=%d, window %lux%lu\n",
+                printf("recomp: video %s, fullscreen=%d, curtains=%d, window %lux%lu\n",
                        rt_config_path()[0] != 0 ? rt_config_path() : "(no icftd.ini)", fs,
-                       (unsigned long)cw, (unsigned long)ch);
+                       curtains, (unsigned long)cw, (unsigned long)ch);
         }
         rt_audio_set_gain(&m, rt_config_int("AUDIO", "sound", 10, 0, 10),
                               rt_config_int("AUDIO", "music", 10, 0, 10));

@@ -9,6 +9,12 @@
  * that size, point-sampled. */
 void border_paint(u32 *dst, int w, int h);
 
+/* Whether border_paint fills the bars with the art, from icftd.ini [VIDEO] curtains (on when the
+ * key is absent). Off fills them black instead - the bars as they were before the art - and the
+ * table is never decoded. */
+void border_set_enabled(int on);
+int  border_enabled(void);
+
 /* Decodes the art on the calling thread. border_paint decodes it lazily on first use, which is fine
  * while one thread paints; the true-colour presenter paints on its own thread (docs\display-rate.md,
  * phase 3), so the front end calls this once before that thread starts and every later paint only

@@ -553,6 +553,12 @@ u32 plat_has_fullscreen(void)
     return 0;                                   /* no window mode: no [VIDEO] settings either */
 }
 
+/* No bars to fill: VGA mode 13h is the screen, so the border art has nothing to paint on. */
+void plat_set_border(u32 on)
+{
+    (void)on;
+}
+
 /* No window and no mode to choose, so there is no size to set or to write back. */
 void plat_set_window_size(u32 w, u32 h)
 {

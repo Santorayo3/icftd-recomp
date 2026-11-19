@@ -16,6 +16,7 @@
 #   3. On a widescreen window the bars are curtain, not black: at 16:9 and 16:10 every bar pixel
 #      comes from the artwork's curtain. (A 21:9 window honestly reports the fraction instead: the
 #      artwork's own black centre shows next to the picture there, by the way it was drawn.)
+#   4. [VIDEO] curtains=false turns the art off: the same paint call fills the bars black.
 #
 # Claim 2 runs the real C: border.c is compiled with the build scripts' flags and a generated
 # driver dumps the frame the platform would put on the screen. SKIPs when the picture or Open
@@ -209,6 +210,29 @@ public static class BorderCheck
                                         "pixel(s) are curtain", w, h, share, bar));
         return sb.ToString();
     }
+
+    // One dumped frame for [VIDEO] curtains=false: the bars are the black the art replaced.
+    public static string Black(string rgbPath)
+    {
+        StringBuilder sb = new StringBuilder();
+        byte[] raw = File.ReadAllBytes(rgbPath);
+        long bad = 0;
+        int first = -1;
+        for (int i = 0; i < raw.Length; i++)
+            if (raw[i] != 0)
+            {
+                if (first < 0) first = i;
+                bad++;
+            }
+        if (bad != 0)
+            sb.AppendLine(string.Format("FAIL border: [VIDEO] curtains=false still paints the art - " +
+                                        "{0} non-black byte(s), first at {1}",
+                                        bad, first));
+        else
+            sb.AppendLine(string.Format("border: [VIDEO] curtains=false paints the bars black ({0} bytes)",
+                                        raw.Length));
+        return sb.ToString();
+    }
 }
 '@ -ReferencedAssemblies System.Drawing
 
@@ -248,6 +272,8 @@ int main(int argc, char **argv)
     if (!f) return 3;
     buf = (u32 *)malloc((size_t)w * (size_t)h * sizeof(u32));
     if (buf == 0) { fclose(f); return 4; }
+    /* An optional fourth argument is [VIDEO] curtains=false. */
+    if (argc > 4 && argv[4][0] == 'o') border_set_enabled(0);
     border_paint(buf, w, h);
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++)
@@ -294,6 +320,15 @@ int main(int argc, char **argv)
             }
             $min = if ($null -eq $s.min) { 0.0 } else { [double]$s.min }
             [void]$report.Append([BorderCheck]::Paint($rgb, [int]$s.w, [int]$s.h, $min))
+        }
+        # [VIDEO] curtains=false turns the art off: the same paint call has to stay black.
+        $rgb = Join-Path (Resolve-Path $Work).Path '1920x1080-off.rgb'
+        if (Test-Path $rgb) { Remove-Item $rgb -Force }
+        & (Join-Path (Resolve-Path $Work).Path 'border-check.exe') 1920 1080 $rgb off | Out-Null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $rgb)) {
+            [void]$report.AppendLine('FAIL border: no frame for [VIDEO] curtains=false')
+        } else {
+            [void]$report.Append([BorderCheck]::Black($rgb))
         }
     }
 }

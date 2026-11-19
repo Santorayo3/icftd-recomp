@@ -89,6 +89,7 @@ reads it and hands the result to the platform layer, so the ini format never rea
 ```ini
 [VIDEO]
 fullscreen=true     ; false = 320x200 window at 1:1, resizable; true = whole screen, scaled 4:3, border art in the bars
+curtains=true       ; false = the bars beside the picture are black instead of the port's border art
 window_width=320    ; written when the game closes: the size a windowed start comes back to
 window_height=200   ;   (a cross the desktop cannot show is shrunk to fit)
 
@@ -105,7 +106,9 @@ a key the file lacks is added under its section header; a file too large for its
 exactly as it was instead of being half written. The values are applied at once, not on the next
 start: the fullscreen toggle calls `plat_set_fullscreen` (the Win32 layer restyles the live window)
 and the volumes call `rt_audio_set_gain`. `plat_has_fullscreen` says whether a platform has a window
-mode at all, which is what keeps the toggle out of the DOS build's menu.
+mode at all, which is what keeps the toggle out of the DOS build's menu. `[VIDEO] curtains` is the
+exception among these: the front end reads it once before `plat_init` (`plat_set_border`) and never
+writes it, so the file is the only place the border art is switched.
 
 **Alt+Enter** is the same switch anywhere, without the menu: the front end's frame hook
 (`host_input`) and the title's own loop ask the same helper the settings toggle uses
