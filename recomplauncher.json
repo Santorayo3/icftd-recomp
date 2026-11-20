@@ -1,0 +1,94 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "It Came from the Desert",
+  "repo": "Santorayo3/icftd-recomp",
+
+  "game": {
+    "kind": "folder",
+    "label": "The folder with your three original Amiga disk images of It Came from the Desert (Disk 1, 2 and 3). Plain .adf files, whatever they are called. The add-on's three disks in the same folder are used too."
+  },
+
+  "start": {
+    "program": ["It Came from the Desert.exe"]
+  },
+
+  "prepare": {
+    "program": ["It Came from the Desert.exe"],
+    "args": ["--prepare", "--disks", "{game}", "--data", "{install}/export"],
+    "label": "The game's files from your three disks",
+    "timeout": 300,
+    "done": ["{install}/export/code/dshell4k/dshell.img"]
+  },
+
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [{ "path": "{install}/icftd.ini" }]
+    }
+  ],
+
+  "settings": [
+    {
+      "id": "window",
+      "label": "Window",
+      "help": "Fullscreen fills your screen with the game's 4:3 picture. Windowed gives you a window you can resize and leave at the size you like.",
+      "choices": [
+        { "label": "Fullscreen", "set": { "VIDEO/fullscreen": "1" } },
+        { "label": "Windowed", "set": { "VIDEO/fullscreen": "0" } }
+      ],
+      "defaults": { "VIDEO/fullscreen": "1" }
+    },
+    {
+      "id": "music",
+      "label": "Music",
+      "help": "How loud the game's music is, from 0 (off) to 10.",
+      "slider": { "key": "AUDIO/music", "min": 0, "max": 10, "step": 1, "format": "%d" }
+    },
+    {
+      "id": "sound",
+      "label": "Sound effects",
+      "help": "How loud the game's sound effects and voices are, from 0 (off) to 10.",
+      "slider": { "key": "AUDIO/sound", "min": 0, "max": 10, "step": 1, "format": "%d" }
+    },
+    {
+      "id": "language",
+      "label": "Language",
+      "help": "The language of the game's own text. English is the original's; German is the translation that ships with it.",
+      "choices": [
+        { "label": "English", "set": { "GAME/language": "en" } },
+        { "label": "German", "set": { "GAME/language": "de" } }
+      ],
+      "defaults": { "GAME/language": "en" }
+    },
+    {
+      "id": "curtains",
+      "label": "Side curtains",
+      "advanced": true,
+      "help": "The port's own curtains in the bars beside the picture when the window is wider than the game's 4:3 screen. Off leaves those bars black.",
+      "choices": [
+        { "label": "Shown", "set": { "VIDEO/curtains": "1" } },
+        { "label": "Black", "set": { "VIDEO/curtains": "0" } }
+      ],
+      "defaults": { "VIDEO/curtains": "1" }
+    }
+  ],
+
+  "saves": ["{install}/saves", "{install}/icftd.ini"],
+
+  "folders": {
+    "saves": [{ "path": "{install}/saves" }],
+    "logs": [{ "path": "{install}" }]
+  },
+
+  "actions": [
+    { "id": "saves", "label": "Saves", "help": "The ten save slots and your settings.", "open": "saves" },
+    { "id": "log", "label": "Run log", "help": "The state of the last run that did not end by itself.", "open": "logs" }
+  ],
+
+  "looks": {
+    "allowed": false,
+    "reason": "It Came from the Desert draws through Windows GDI, which ReShade cannot filter."
+  }
+}

@@ -10,6 +10,17 @@ build — see [`docs\dos-parity.md`](docs/dos-parity.md)).
 decoded from them (`assets/`, `export/`, `re/`, `ref/`); `.gitignore` keeps all of it out of git.
 You supply the images; the tools decode them locally.
 
+<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
+**How to play.** Take the three original Amiga disk images of *It Came from the Desert* (Disk 1, 2
+and 3 — `.adf`, or any raw image of the three floppies) and do one of these two things:
+
+* install the recomp from [RecompLauncher](https://recomplauncher.com) and point its setup at the
+  folder that holds all three — the launcher runs the extraction for you and Play starts the game;
+* or unzip the release anywhere, put the three images in the `disks\` folder next to
+  `It Came from the Desert.exe` and start it: the first start extracts them into `export\` and
+  boots, and later starts never look at `disks\` again.
+
 ## RULE 0 — a bug is a DIFFERENCE, never a symptom
 
 Every fix is a diff against the original — for bugs of any kind: picture, sound, crash, hang, wrong
@@ -95,14 +106,24 @@ that ran (`<entry> <calls>`, and `<pc> <instructions>` for code the core execute
 
 ## The Windows release
 
-A release is **the executable plus three empty folders** — no game data is distributed:
+A release is **the executable, the launcher's file and three empty folders** — no game data is
+distributed:
 
 ```
 It Came from the Desert.exe   the translated game
+recomplauncher.json           RecompLauncher's setup file (see below)
 export\                       empty: filled on the first start
 disks\                        empty: the player's three original Amiga floppy images go here
 saves\                        empty: the ten save slots
 ```
+
+`recomplauncher.json` is how [RecompLauncher](https://recomplauncher.com) installs and starts the
+recomp: it asks the player for the folder that holds their three images, runs the game's own
+extraction there and then (`--prepare --disks <folder> --data <install>\export`, which reports its
+work as `progress <0..1> <text>` lines instead of a window), and shows the `icftd.ini` settings on
+the game's page — window mode, the music and sound volumes, the language and the side curtains — so
+Play starts the game without anyone editing a file. Without a launcher nothing changes: the file is
+inert, and the `disks\` first start above is the whole setup.
 
 The executable's icon and version page (`It Came from the Desert`, `Copyright © 2026 Tim Rachor`)
 are compiled into it from `src\runtime\plat\win32\icftd.rc`; the icon is the port's own
@@ -112,7 +133,9 @@ window carries it too — the title bar and Alt+Tab show the game's picture, not
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\win32-pack.ps1
 #   -> bin\win32\game  (what a release is)
-#   -> bin\win32\icftd-win32.zip
+#   -> bin\win32\ItCameFromTheDesert-<version>-windows-x86.zip  (named the way RecompLauncher
+#      reads a release: the system and the processor in the file name; the version is the
+#      executable's own version page, or -Version <x.y.z>)
 ```
 
 Double-clicking `It Came from the Desert.exe` plays the game: the console window the executable is
@@ -262,7 +285,7 @@ docs/                  architecture, plan, program model
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
 | `tools\build-recomp.ps1` | build `bin\win32\recomp-check.exe`: runtime + `src\recomp`, no 68000 core |
-| `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (`It Came from the Desert.exe` + empty `export\`, `disks\`, `saves\`) and zip it |
+| `tools\win32-pack.ps1` | stage the Windows release in `bin\win32\game` (`It Came from the Desert.exe`, `recomplauncher.json` + empty `export\`, `disks\`, `saves\`) and zip it as `<name>-<version>-windows-x86.zip` |
 | `tools\mkappicon.ps1` | the executable's icon: `assets\app_icon.png` → `bin\win32\res\icftd.ico` (build output, linked in by `tools\build-host.ps1`) |
 | `tools\build-dos.ps1` | build `bin\dos\ICFTD.EXE`: the game for MS-DOS (DOS/32A extender) |
 | `tools\dos-pack.ps1` | stage the DOS release in `bin\dos\game` (ICFTD.EXE, empty `DISKS\`/`SAVES\`, `ICFTD.CONF`); `-Data <dir>` stages the extracted 8.3 tree the first start writes (the check's reference) |
