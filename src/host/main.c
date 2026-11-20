@@ -1789,6 +1789,7 @@ int main(int argc, char **argv)
     const char *dataDir = 0;
     const char *diskDir = 0;
     int extractOnly = 0;
+    int prepareStep = 0;
     const char *statePrefix = 0;
     const char *ramFrames = 0;
     const char *ramStop = 0;
@@ -1958,6 +1959,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) { dataDir = argv[++i]; continue; }
         if (strcmp(argv[i], "--disks") == 0 && i + 1 < argc) { diskDir = argv[++i]; continue; }
         if (strcmp(argv[i], "--extract") == 0) { extractOnly = 1; continue; }
+        /* The same extraction, for a launcher's setup screen: no window, and the work reported as
+         * `progress <0..1> <text>` lines (src\runtime\assets.c, rt_assets_set_progress). */
+        if (strcmp(argv[i], "--prepare") == 0) { extractOnly = 1; prepareStep = 1; continue; }
         if (strcmp(argv[i], "--slot") == 0 && i + 1 < argc)
         {
             slot = (int)strtol(argv[++i], 0, 0);
@@ -2044,8 +2048,10 @@ int main(int argc, char **argv)
     if (argc == 1) { g_window = 1; runForever = 1; }
     /* A run that will show the game's window hides the console window it owns - the black window a
      * double click gives it - before anything is written to it, so the player sees the game and
-     * nothing else (see plat_console_hide_own). A run started from a terminal keeps its console. */
-    if (g_window) plat_console_hide_own();
+     * nothing else (see plat_console_hide_own). A run started from a terminal keeps its console.
+     * A launcher's setup step owns the console it is given the same way, and shows the player
+     * nothing but the launcher's own screen. */
+    if (g_window || prepareStep) plat_console_hide_own();
 
     /* The settings file, written with its defaults when this is the first start, and the language
      * it selects - before the first message the player can see and before the program boots. */
@@ -2078,10 +2084,14 @@ int main(int argc, char **argv)
     }
     {   /* First start: fill `export\` from the player's `disks\`, or say what is missing. */
         char msg[600];
+        rt_assets_set_progress(prepareStep);
         if (rt_assets_ensure(dataDir, diskDir, RT_ASSETS_WINDOWS, msg, (u32)sizeof msg) !=
             RT_ASSETS_OK)
         {
             printf("recomp: %s\n", rt_lang_text(msg));
+            /* The launcher keeps the last progress line under the step it is running, and that is
+             * the only place its setup screen has for the reason the copy was refused. */
+            if (prepareStep) printf("progress 0.99 %s\n", rt_lang_text(msg));
             if (g_window) plat_message("It Came from the Desert", rt_lang_text(msg));
             return 1;
         }

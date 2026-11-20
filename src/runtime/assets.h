@@ -38,6 +38,10 @@ enum {
  * are written before the game's own screen exists - see plat_console_line in platform.h. */
 #define RT_ASSETS_MSG_DISKS \
     "Please put the three original 'It Came from the Desert' disk images in the 'disks' folder and restart."
+/* The same for a launcher's setup step, which is handed the folder the player picked: naming the
+ * game's own 'disks' folder there would send them to a folder that has nothing to do with it. */
+#define RT_ASSETS_MSG_NO_COPY \
+    "This folder does not hold the three original 'It Came from the Desert' Amiga disk images. Pick the folder that has all three in it."
 #define RT_ASSETS_MSG_EXTRACTING "Please wait... extracting resources from disk images"
 
 /* 1 when dataDir holds a complete extraction for `layout` (the disk folders and the flattened game
@@ -57,5 +61,10 @@ u32 rt_assets_addon_ready(const char *dataDir, int layout);
  * (when not null) holds the line to show the player. Does nothing and returns RT_ASSETS_OK when
  * both trees are already there. */
 int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char *msg, u32 max);
+
+/* Reports the work to a launcher's setup screen: `progress <0..1> <text>` lines on stdout, one per
+ * disk, the closing one when the tree is ready (and for a tree that was already there). Off unless
+ * asked for, because a player's own start has no setup screen to read them. */
+void rt_assets_set_progress(int on);
 
 #endif /* ICFTD_ASSETS_H */

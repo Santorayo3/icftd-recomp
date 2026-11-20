@@ -1172,7 +1172,10 @@ startup, before the machine boots, and asks one question: is there an extracted 
   and `disks\` next to the executable when the executable has an `export\` folder — the release
   layout, started from anywhere — and plain working-directory-relative `export\`/`disks` otherwise,
   which is how a run out of the repository root finds the developer's tree. `--data` and `--disks`
-  override both, and `--extract` only fills the tree (the check seam).
+  override both, and `--extract` only fills the tree (the check seam). `--prepare` is the same
+  extraction for a launcher's setup screen: no window, `progress <0..1> <text>` lines on stdout
+  instead (`rt_assets_set_progress`), and for a copy that is refused the line `rt_assets_ensure`
+  returns — the launcher keeps the step's last progress line, so that is where the reason goes.
 * **The player's own copy of the source text.** Once the tree is there, `rt_lang_source_write`
   (`src\runtime\lang_source.c`) writes `lang\en.csv` and — when the add-on's tree is present —
   `lang\en_ant.csv` into the language folder the game reads its translations from: the files a
@@ -1194,6 +1197,20 @@ alone changes no byte of the game's tree, and a folder that gets the add-on's di
 `ant1..3`, `ant\code\dshell4k\dshell.img` and the add-on's name-map entries without touching the
 game's. A run of `--program ant` from the extracted tree is instruction- and register-identical to
 the oracle's (`docs\antheads.md` §4).
+
+**RecompLauncher's setup step** is that same function and nothing else. `recomplauncher.json` at the
+top of the release (`tools\win32-pack.ps1` copies it there from the repository root) has the
+launcher ask for the folder that holds the player's three images and run
+`--prepare --disks <folder> --data <install>\export` before the first Play, then start the game with
+no arguments at all. What the step owes is what a player gets by hand: the same tree, byte for byte —
+`--prepare` and `--extract` are one path, so the identity above covers both — plus a way to see it
+happen and a refusal that can be read. Its `progress` lines are one per disk (a six-disk folder
+reaches `0.90` before the program image, `1.00 Ready` after it), a tree that is already complete says
+`Already set up`, and a folder without the three images is refused with `progress 0.99 <reason>` and
+exit 1. The file it lists as `done` — `export\code\dshell4k\dshell.img`, written last — is the same
+completeness marker `rt_assets_ready` reads, so a release the player extracted by hand is never
+extracted twice. Nothing in `start` takes the player's copy: once the tree is there the game runs
+from `export\`, exactly as it does for a player who never opened the launcher.
 
 The DOS front end calls the same `rt_assets_ensure`, with a second layout (`RT_ASSETS_DOS`): the
 release tree there is `DISK1..3\` under 8.3 names, `NAMES.TXT` recording long=short (which is what

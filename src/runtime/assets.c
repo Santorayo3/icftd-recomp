@@ -876,6 +876,37 @@ static int asset_fail(int code, char *msg, u32 max, const char *text)
     return code;
 }
 
+/* --- the launcher's setup step ------------------------------------------------------------------
+ * A launcher runs the extraction without a window (`--prepare`) and reads `progress <0..1> <text>`
+ * lines from stdout, one per step, to show under the step while it runs. The lines are printed
+ * only when the caller asks for them: a player's own first start keeps the console output it had. */
+static int g_progress;
+static int g_progressDone;          /* disks of the set already in */
+static int g_progressTotal;
+
+void rt_assets_set_progress(int on)
+{
+    g_progress = on;
+}
+
+static void progress_line(int hundredths, const char *what)
+{
+    if (!g_progress) return;
+    if (hundredths < 0) hundredths = 0;
+    if (hundredths > 100) hundredths = 100;
+    printf("progress %d.%02d %s\n", hundredths / 100, hundredths % 100, what);
+    fflush(stdout);
+}
+
+/* One disk just went in: its share of the bar, the last tenth kept for the program image and the
+ * closing line. Whole hundredths, so the line reads `0.90` and no floating point comes into a build
+ * that also targets a 486. */
+static void progress_step(const char *what)
+{
+    if (g_progressDone < g_progressTotal) g_progressDone++;
+    progress_line(g_progressTotal > 0 ? 90 * g_progressDone / g_progressTotal : 90, what);
+}
+
 /* Extracts one build's three disks into its own folders. Returns the number of files written, or
  * RT_ASSETS_FAILED with `msg` set. */
 static int extract_set(const char *dataDir, int layout, int build,
@@ -898,6 +929,12 @@ static int extract_set(const char *dataDir, int layout, int build,
                               "executable to extract its data into.", byVol[vol]->path);
             return asset_fail(RT_ASSETS_FAILED, msg, max,
                               g_nameError[0] != 0 ? g_nameError : text);
+        }
+        if (g_progress) {
+            char line[64];
+            sprintf(line, build == DISK_BUILD_ADDON ? "Reading the add-on, disk %d of 3"
+                                                   : "Reading the game, disk %d of 3", vol);
+            progress_step(line);
         }
     }
     return files;
@@ -971,7 +1008,10 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
         return asset_fail(RT_ASSETS_FAILED, msg, max, "No game data folder was given.");
     needOriginal = !tree_ready(dataDir, layout, DISK_BUILD_ORIGINAL);
     needAddon = !tree_ready(dataDir, layout, DISK_BUILD_ADDON);
-    if (!needOriginal && !needAddon) return RT_ASSETS_OK;
+    if (!needOriginal && !needAddon) {
+        progress_line(100, "Already set up");
+        return RT_ASSETS_OK;
+    }
     g_nameCount = 0;
     g_nameError[0] = 0;
     if (layout == RT_ASSETS_DOS) read_names(dataDir);   /* one map for both trees, kept across starts */
@@ -1006,7 +1046,8 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
     if (needOriginal && (bySet[DISK_BUILD_ORIGINAL][1] == 0 ||
                          bySet[DISK_BUILD_ORIGINAL][2] == 0 ||
                          bySet[DISK_BUILD_ORIGINAL][3] == 0)) {
-        code = asset_fail(RT_ASSETS_NO_DISKS, msg, max, RT_ASSETS_MSG_DISKS);
+        code = asset_fail(RT_ASSETS_NO_DISKS, msg, max,
+                          g_progress ? RT_ASSETS_MSG_NO_COPY : RT_ASSETS_MSG_DISKS);
         goto done;
     }
     /* The add-on is optional and never half-used: it is extracted only when all three of its disks
@@ -1014,6 +1055,11 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
     haveAddon = bySet[DISK_BUILD_ADDON][1] != 0 && bySet[DISK_BUILD_ADDON][2] != 0 &&
                 bySet[DISK_BUILD_ADDON][3] != 0;
     wrote = 0;
+
+    g_progressDone = 0;
+    g_progressTotal = (needOriginal ? RT_ASSETS_DISK_COUNT : 0) +
+                      (needAddon && haveAddon ? RT_ASSETS_DISK_COUNT : 0);
+    if (needOriginal || (needAddon && haveAddon)) progress_line(0, "Reading the disk images");
 
     /* Something is about to be read and written: tell the player, once, before the work starts -
      * the console line is all an unbooted game can show, and this is the only moment it is true. */
@@ -1063,6 +1109,7 @@ int rt_assets_ensure(const char *dataDir, const char *diskDir, int layout, char 
         if (!flatten_program(in, out, dir))
             printf("assets: %s could not be flattened (the add-on is ignored)\n", out);
     }
+    progress_line(100, "Ready");
     code = RT_ASSETS_OK;
 
 done:
