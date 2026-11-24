@@ -3,7 +3,7 @@
 A *port feature* is code the original game does not have: save slots, the OSD, the title screen,
 the situation map's mouse cursor (and the room screens' pointer), the Ctrl+W minigame cheat, the
 Ctrl+T clock freeze, the
-window/present backend, host input plumbing, our own tooling. There is nothing to diff it against, so RULE 0
+window/present backend, host input plumbing (the pad included), our own tooling. There is nothing to diff it against, so RULE 0
 (`.github/copilot-instructions.md`) cannot decide it —
 but RULE 0 still governs everything the original *does* have, and a port feature may not disturb it.
 This page is what a session reads *before* writing one: where a feature attaches, the trap that has
@@ -20,7 +20,7 @@ Everything below is measured, not remembered, unless it says otherwise.
 
 | point | where | use it when |
 |---|---|---|
-| **Platform input** | `input_state` (`src\runtime\platform.h`), filled by `plat_win32.c` and `plat_dos.c` (the DOS layer reads the mouse through INT 33h) | the feature is an input the game never had: a pointer, a button, a key. Add the field to the struct, set it in the platform layer, and let the front end read it. Never read the OS inside game-side code. |
+| **Platform input** | `input_state` (`src\runtime\platform.h`), filled by `plat_win32.c` and `plat_dos.c` (the DOS layer reads the mouse through INT 33h) | the feature is an input the game never had: a pointer, a button, a key. Add the field to the struct, set it in the platform layer, and let the front end read it. Never read the OS inside game-side code. The gamepad is the worked example of the raw side (`pad_x`/`pad_y` and four buttons, nothing decided) with the meaning kept where the knowledge is (`src\host\pad.c`, which alone knows whether the screen has a cursor). |
 | **Frame boundary** | `rt_machine::on_frame` (`src\runtime\amiga\machine.h`), installed by the front end (`m.on_frame = host_input`) | the work is once per emulated frame and does not care *which* game function is running: sampling the pointer, overlaying the OSD, pacing. |
 | **Per-screen code** | `rc_entryHook` (`src\recomp\cpu.c`, null by default in `src\recomp\hooks.c`) | the work has to happen at a known point *inside* the game's own code — one per update of a script, one per scene loop — and the frame boundary is too coarse. The map's cursor (`host_entry` in `src\host\main.c`) and the room screens' pointer/hover (`line_record`, `menu_flip` there) are the worked examples. |
 | **Engine service** | `rt_os_call` shims (`src\runtime\amiga\machine.c`) | the engine already makes the library call and the runtime answers it: fix or extend the shim. Never special-case the engine's callers — the call census (`--lvo`) is the checklist. |
@@ -1165,6 +1165,71 @@ posts the `WM_KEYDOWN`/`WM_KEYUP` messages a player produces, and compares what 
 The DOS layer takes the same two-keys-per-direction state machine (there the directions arrive as
 scan codes 0x48/0x50/0x4B/0x4D in two forms, plus 0x11/0x1E/0x1F/0x20 for W/A/S/D); it is covered
 by its build, and by the same argument, since a DOSBox run cannot be scripted from this check.
+
+## The gamepad (Windows)
+
+The original's only control is a one-button stick, and the port adds a pointer — so a pad stands in
+for both, and the mapping is the one a player of the Amiga game expects:
+
+| the pad | what the game sees |
+|---|---|
+| the d-pad | the four directions, on every screen — the same `KEY_UP..KEY_RIGHT` the arrow cluster and W/A/S/D produce, and the same joy word built from them |
+| **any** of the four face buttons | `/FIRE` — and the pointer's left button, which is what the port's own buttons, the save picker and the Escape question answer. A pad has one button; all four are it |
+| Start (PlayStation's Options, Xbox's Menu) | Escape — the Escape question in a played game, and nothing on the title, which has always ignored Escape (its Quit Game button is the way out) |
+| the left stick, no cursor on the screen | the same four directions, past a deadzone of about a quarter of the travel |
+| the left stick, a screen **with** a cursor | the pointer, at a speed that follows the deflection — a nudge is a crawl of a few pixels a second, half the travel crosses the picture in about four seconds, full deflection in about one |
+
+"With a cursor" is decided by the front end, which is the only part that knows the screen: the
+situation map's own cursor, the phone book's arrow, the aiming scenes (the giant-ant fight, the fire
+game, the add-on's "Fight Ant Head") and the port's own popups and title. A **room** screen is not
+one of them: its control is the original's action menu, which the d-pad and the stick work exactly
+as they always did, and the arrow the port draws there stays the mouse's.
+
+The pointer's speed is `[INPUT] pad_sensitivity` in `icftd.ini`: per cent of the pad's full speed,
+`10..200`, default `50` (6 px a frame at full deflection, so the picture is crossed in about a
+second; the setting is written with the defaults and added to a settings file written by a build
+that did not have it, so the knob is in the file the player already edits). There is no row for it
+in the title's settings view — a speed only a pad's owner wants is not worth a line the mouse has no
+use for.
+
+The split is the platform contract's: `plat_win32.c` reports what the pad *is* (`input_state`'s
+`pad_x`/`pad_y`, `pad_up..pad_right`, `pad_fire`, `pad_start`), and `src\host\pad.c` decides what
+that means. Two Windows APIs are behind the read, because one does not see every pad:
+
+* **XInput** (`xinput1_4`/`1_3`/`9_1_0`, loaded by name; `xinput.h` is not in Open Watcom's headers,
+  so the state and the button bits are declared where they are used) is the documented one for the
+  Xbox family: the stick in `-32768..32767`, the d-pad and Start on fixed bits, the four face
+  buttons in `0xF000`. A pad it reports is the one used.
+* **DirectInput8** is what sees a PlayStation pad natively. Measured on this machine with a
+  DualShock 4: XInput does not report it at all, and the legacy joystick API (`joyGetPosEx`) answers
+  `JOYERR_PARMS` for it, while DirectInput8 gives its left stick as axis instances 0/1, its d-pad as
+  POV 0, and its face buttons as buttons 0..3. The data format asks for exactly those objects, and
+  the axes are put in XInput's range, so the deadzone and the speed are the same on every pad.
+
+The one thing the two families disagree about is Start: the PlayStation pads report Share and
+Options *after* the two trigger clicks (measured: button 9 is Options, which SDL's device mapping
+agrees with), the Xbox pads report Back and Start straight after the two shoulders (button 7). The
+product name decides, and the button count decides for a name the code has never seen. The read
+happens once per frame in `plat_pump`, only while the window has the focus — the rule `WM_KILLFOCUS`
+already applies to the keys, so a button left down while switching away cannot keep playing.
+
+`tools\pad-check.ps1` (gate step 18b) is the measurement. A pad's buttons cannot be scripted, so it
+measures the two halves separately:
+
+| claim | measured |
+|---|---|
+| the d-pad is those four directions | each direction sets its `KEY_*` down and pressed, a held d-pad is one press, and a re-press is a new one |
+| any face button is `/FIRE` and one click | `KEY_FIRE` down/pressed plus `mouse_left`/`mouse_left_pressed`, once per press; a held button is one press |
+| Start is Escape | `KEY_ESCAPE` down and pressed, once per press |
+| the stick is the pointer at a speed that follows the deflection | at the default sensitivity, 20 frames of a full push move it 120 px, a half push 28 px, a nudge past the deadzone 1 px; it starts where the mouse is, x is right and y down, it stays where the stick left it when the stick is let go, and it stops at 319,199 / 0,0 |
+| the ini's `[INPUT] pad_sensitivity` scales that speed | 100 is twice the default (240 px in 20 frames), 200 four times it, a value outside `10..200` is clamped |
+| the stick inside its deadzone is nothing | no pointer move, no direction |
+| the stick's directions are the joy word's | left 4, right 8, up 1, down 2, up-right 9 |
+| the shipped platform finds a pad this machine has | with a pad attached (enumerated by the check's own DirectInput code, so "none attached" is a SKIP and not a pass): `plat_pump` reports it, and the stick at rest reports no direction |
+
+A measurement run is untouched: with `--input` the front end returns before the game's fire and
+stick are written (the script owns them), so a recorded session replays identically with a pad
+plugged in.
 
 ## The first start: the game data comes from the player's own disks
 

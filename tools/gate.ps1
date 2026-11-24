@@ -64,6 +64,12 @@
                                 a slot holding the add-on's ICFTD2 is a saved slot)
      18. WASD keys             (tools\keys-check.ps1 - A/S/D/W are the same input the arrow
                                 cluster produces, and a direction outlives a release of either key)
+    18b. gamepad              (tools\pad-check.ps1 - the pad's d-pad is those same four directions,
+                                any face button is /FIRE and the port's click, Start is Escape, and
+                                the stick is the pointer on a cursor screen: a small push moves it
+                                less than a full one, and [INPUT] pad_sensitivity scales the speed;
+                                with a pad attached, the shipped platform layer has to report it,
+                                and its stick at rest no direction)
      19. title quit notice     (tools\quit-check.ps1 - a click on Quit Game shows the two requested
                                 lines on black for ten seconds, then the application closes; the
                                 screen is sampled where a desktop gives the game a window)
@@ -95,9 +101,9 @@
     own surfaces - the presenter, the title menu and its settings and farewell, the Escape
     confirmation, the map cursor, the
     save picker, the room pointer, the fight's crosshair, the fullscreen border, the loading line,
-    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys, the Ctrl+T
-    clock freeze and the language - which have no counterpart in the original to diff against; they
-    can only fail on their own terms.
+    the two aims, the Ctrl+W cheat, the hospital's camera, the art tables, the keys, the gamepad, the
+    Ctrl+T clock freeze and the language - which have no counterpart in the original to diff
+    against; they can only fail on their own terms.
 
     The window presenter has a check of its own, tools\window-check.ps1, and it is deliberately
     *not* in the table: it needs a desktop, it drives the real pointer (Alt+Tab, a corner drag, the
@@ -208,6 +214,7 @@ $all = @(
     @{ Name = 'minigame cheat (Ctrl+W)';              Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\cheat-check.ps1 } },
     @{ Name = 'hospital camera (follow)';             Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\camera-check.ps1 } },
     @{ Name = 'WASD keys (aliases)';                  Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\keys-check.ps1 } },
+    @{ Name = 'gamepad (pad mapping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\pad-check.ps1 } },
     @{ Name = 'art tables (shipping)';                Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\art-check.ps1 } },
     @{ Name = 'title quit notice (farewell)';         Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-check.ps1 } },
     @{ Name = 'escape confirmation (popup)';          Port = $true;  Build = $false; Body = { powershell -NoProfile -ExecutionPolicy Bypass -File tools\quit-confirm-check.ps1 } },

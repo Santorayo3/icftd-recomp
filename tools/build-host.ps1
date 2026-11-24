@@ -86,6 +86,7 @@ $sources = @(
     (Join-Path $hs 'save_button.c'),
     (Join-Path $hs 'save_ui.c'),
     (Join-Path $hs 'quit_confirm.c'),
+    (Join-Path $hs 'pad.c'),
     (Join-Path $or 'cpu.c'),
     (Join-Path $or 'state.c'),
     (Join-Path $or 'input.c'),

@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File tools\ghidra\run-ghidra.ps1
 powershell -ExecutionPolicy Bypass -File tools\gate.ps1
 #    -Full adds the port's own checks (presenter, title menu, settings, quit notice, pointer,
 #    crosshair, aim, border, loading line, the Ctrl+W minigame cheat, the Ctrl+T clock freeze, the
-#    hospital escape's camera, the WASD aliases, the art tables), -Only <step> runs one of them while working on that surface
+#    hospital escape's camera, the WASD aliases, the gamepad, the art tables), -Only <step> runs one of them while working on that surface
 ```
 
 ## Running the original (Phase A)
@@ -173,6 +173,13 @@ screenshot, is what the feature is checked against (`docs\port-features.md`, "Th
 **Controls.** The stick is the keyboard: the arrow cluster, or W/A/S/D for the same four
 directions. Space (or the left mouse button) fires, Esc restarts the game, F1–F4 pick a save slot
 and F5 steps to the next one, and the title screen's `1`–`7` and `W`/`C`/`T` start its scenes.
+A gamepad works too: its d-pad is those four directions, its left stick is the four directions (or,
+on a screen that shows a cursor — the situation map, the phone book, the aiming scenes, the title
+and the port's popups — the pointer, more slowly the less it is pushed), each of the four face
+buttons is fire, and Start is Esc. Xbox pads are read through XInput and PlayStation pads through
+DirectInput, so either family works as it is, plugged in; the pointer's speed is
+`[INPUT] pad_sensitivity` in `icftd.ini` (per cent, `10..200`, default `50` — half the pad's full
+speed, which is what playing with it asked for) (`docs\port-features.md`, "The gamepad").
 The title's own menu is clicked with the pointer: New Game, Load Game (the ten save slots), Settings
 (the fullscreen toggle, the two volume rows and the language row, which all take effect at once and
 are written back to `icftd.ini`) and Quit Game, which shows a ten-second notice naming the successor
@@ -282,7 +289,7 @@ docs/                  architecture, plan, program model
 
 | tool | purpose |
 |---|---|
-| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, title settings, quit notice, map pointer, save picker, room pointer, crosshair, ant-head aim, border, loading line, pointer aim, minigame cheat, clock freeze, hospital camera, WASD keys, art tables), `-Only <step>` runs one |
+| `tools\gate.ps1` | the gate, tiered: by default the translation core (exporter build, oracle build, interpreter fixtures, translated vs interpreted); `-Full` adds the port's own checks (presenter, title menu, title settings, quit notice, map pointer, save picker, room pointer, crosshair, ant-head aim, border, loading line, pointer aim, minigame cheat, clock freeze, hospital camera, WASD keys, gamepad, art tables), `-Only <step>` runs one |
 | `tools\build-oracle.ps1` | build `bin\win32\icftd-oracle.exe` (runtime + Musashi front end) |
 | `tools\oracle-run.ps1` | run the oracle with a hard timeout, log to `out\` |
 | `tools\state-diff.ps1` | first divergent frame between two `--state` dumps, and the RAM byte ranges |
@@ -319,6 +326,7 @@ docs/                  architecture, plan, program model
 | `tools\time-freeze-check.ps1` | the Ctrl+T clock freeze: the engine's date, time, printed hour and pause gate do not move while frozen and do again after the second press, a whole travel adds 27 minutes with the clock running and none while it is held, the real keys do it in the game window, a save that carries the pause word loads running, and a run with no key is the plain run frame for frame |
 | `tools\camera-check.ps1` | the hospital escape's camera: the character's screen position stays at the middle of the window while it walks (the picture follows from one update to the next), and the same script played as a measurement still shows the original's camera |
 | `tools\keys-check.ps1` | the four directions on two keys each: a press of A/S/D/W hands the front end the same `input_state` its arrow does, a direction stays down until both its keys are released, and an arrow press is not the title's W |
+| `tools\pad-check.ps1` | the gamepad: the d-pad is those four directions (one press edge per press), any face button is `/FIRE` and one click, Start is Escape, the stick is the pointer at a speed that follows its deflection (6 px a frame at full deflection at the default sensitivity, a nudge one pixel in twenty frames), `[INPUT] pad_sensitivity` scales it, and — with a pad attached to the machine — the shipped platform layer reports it with its stick at rest inside the deadzone |
 | `tools\mkcrosshair.ps1` | PNG → `src\runtime\amiga\crosshair_art.h`, the aiming aid the fight draws |
 | `tools\mkborder.ps1` | PNG → `src\runtime\plat\win32\border_art.h`, the art the Windows fullscreen paints behind the 4:3 picture |
 | `tools\mkportraitbox.ps1` | PNG → `src\host\portrait_box_art.h`, the box the map's save-slot picker draws |

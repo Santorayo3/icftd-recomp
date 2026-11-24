@@ -101,6 +101,7 @@
 #include "save_button.h"
 #include "save_ui.h"
 #include "quit_confirm.h"
+#include "pad.h"
 #include "programs.h"
 #include "seams.h"
 #include "lang_dump.h"
@@ -510,6 +511,8 @@ static int  g_ptrKnown;                /* a pointer position is available */
 static int  g_ptrActive;               /* the pointer owns the map cursor */
 static int  g_hoverOwn;                /* the pointer owns the menu line under it */
 static s16  g_ptrX, g_ptrY;            /* framebuffer coordinates */
+static int  g_ptrPad;                  /* the pad, not the mouse, put the pointer where it is */
+static host_pad g_pad;                 /* the pad's pointer and its buttons' last frame (pad.c) */
 
 /* --mouse <file>: "<frame> <x> <y> [<button>]" per line, the pointer's positions and left-button
  * state as the platform would report them. A dev seam like --input: the same state, so the feature
@@ -1457,9 +1460,16 @@ static void host_saves(rt_machine *m)
 
 /* The title menu runs its own loop, so the frame hooks above do not run while it is up: a --mouse
  * script reaches its buttons through this (see title.h). A windowed game has no script - and a
- * player's own pointer arrives through plat_pump - so the pitch is the platform's. */
+ * player's own pointer arrives through plat_pump - so the pitch is the platform's.
+ *
+ * The pad is worked here too, before the script: the title is a pointer screen, so the stick is the
+ * pointer, a face button is a click on the button under it (and the same /FIRE that starts the
+ * game), and Start is Escape - which the menu ignores, as it always has (Quit Game is its way out).
+ */
 int host_title_pointer(rt_machine *m, input_state *in)
 {
+    host_pad_buttons(&g_pad, in);
+    host_pad_cursor(&g_pad, in);
     if (g_ptrScriptCount == 0) return 0;
     pointer_script_tick(m);
     if (!g_ptrKnown) {
@@ -1484,13 +1494,36 @@ static void host_esc_frame(rt_machine *m)
     escape_seam(m);
 }
 
+/* The screens that show a cursor, and therefore the ones the pad's stick steers instead of
+ * reporting the four directions: the situation map's own cursor, the phone book's arrow, the
+ * aiming scenes' gun and extinguisher, and the port's own pointer (its popups). A room screen is
+ * not one of them: its control is the original's menu, which the stick and the d-pad work exactly
+ * as they always did, and the arrow the port draws there stays the mouse's.
+ *
+ * The frames are the ones the per-screen seams recorded, so this is the previous frame's answer -
+ * which is the one that keeps a screen's first frame consistent with the frame before it. A
+ * measurement run installs none of those seams, so every test is false there and the stick reports
+ * the four directions - and the front end returns before the stick is used at all. */
+static int pointer_screen(rt_machine *m)
+{
+    if (port_owns_input(m)) return 1;      /* the save picker and the Escape question */
+    if (g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES) return 1;
+    if (g_phoneFrame != 0 && m->frame - g_phoneFrame <= MAP_IDLE_FRAMES) return 1;
+    return aim_live(m);
+}
+
 static void host_input(rt_machine *m)
 {
     input_state in;
     u16 joy;
+    int dirs, cursorScreen, mouseMoved;
 
     escape_seam(m);
     if (!plat_pump(&in)) m->stop = 1;
+    /* The pad, before anything reads the keys: its d-pad is the four directions, a face button is
+     * /FIRE (and the port's click), and Start is Escape. */
+    host_pad_buttons(&g_pad, &in);
+    mouseMoved = in.mouse_moved;           /* the platform's pointer, before the stick's */
     if (in.pressed[KEY_ESCAPE]) escape_pressed(m);
     /* Alt+Enter, on every screen the game itself puts up: the window switches now and the ini keeps
      * the choice for the next start. The title's own loop asks the same helper (title.c). */
@@ -1508,13 +1541,22 @@ static void host_input(rt_machine *m)
     host_time_freeze_input(m, &in,
                            g_mapFrame != 0 && m->frame - g_mapFrame <= MAP_IDLE_FRAMES);
     host_cheat_frame(m);
-    joy = g_joyDirs[(in.down[KEY_UP]    ? 1u : 0u) | (in.down[KEY_DOWN]  ? 2u : 0u) |
-                    (in.down[KEY_LEFT]  ? 4u : 0u) | (in.down[KEY_RIGHT] ? 8u : 0u)];
+    /* The four directions: the arrow cluster and W/A/S/D always, and the pad's left stick wherever
+     * the screen has no cursor - on one that has, the stick is the pointer below instead. */
+    cursorScreen = pointer_screen(m);
+    dirs = (in.down[KEY_UP]    ? 1 : 0) | (in.down[KEY_DOWN]  ? 2 : 0) |
+           (in.down[KEY_LEFT]  ? 4 : 0) | (in.down[KEY_RIGHT] ? 8 : 0);
+    if (!cursorScreen) dirs |= host_pad_dirs(&in);
+    joy = g_joyDirs[dirs];
     if (g_portArm)
     {
         int moved, click;
+        /* The stick of a pointer screen moves the pointer as the mouse would - more slowly the less
+         * it is pushed - and the arrow follows it. */
+        if (cursorScreen && host_pad_cursor(&g_pad, &in)) g_ptrPad = 1;
+        else if (mouseMoved) g_ptrPad = 0;
         /* A scripted stick (--input) counts like a held direction key: the pointer yields to it. */
-        if (g_ptrScriptCount > 0) moved = pointer_script_tick(m) > 0;
+        if (g_ptrScriptCount > 0) { moved = pointer_script_tick(m) > 0; g_ptrPad = 0; }
         else { pointer_input(&in, joy != 0 || m->joy0 != 0); moved = in.mouse_moved != 0; }
         /* The left button's press edge: the platform reports it, and a --mouse script has it as
          * the level change. Only a click opens the picker or chooses a line. */
@@ -1690,7 +1732,8 @@ static void shot_write(const char *path)
  * *means* (the menu line under it, the slot it would click) stays where the frame boundary put it,
  * because that writes guest state and the guest samples it once per frame. While the picker is up
  * its own arrow is drawn from its 50 Hz state, so the lead is suspended: two arrows a frame apart
- * would be two arrows. */
+ * would be two arrows. A pointer the pad moved is not asked of the platform: the platform's
+ * position is the mouse's, and the stick's 50 Hz position is already where it belongs. */
 static void host_overlay_draw(u8 *dst, u32 stride, int w, int h)
 {
     rt_surface s;
@@ -1699,8 +1742,8 @@ static void host_overlay_draw(u8 *dst, u32 stride, int w, int h)
     /* Only while the game's own picture is what the platform holds: the title and the farewell own
      * the screen (and their own pointer), and m->on_present is 0 for exactly those frames. */
     if (g_m == 0 || dst == 0 || g_m->on_present != host_present) return;
-    if (g_window && g_portArm && s_ptrVisible && !g_saveUi.open && !g_quitConfirm.open &&
-        plat_pointer_position(&px, &py))
+    if (g_window && g_portArm && s_ptrVisible && !g_ptrPad &&
+        !g_saveUi.open && !g_quitConfirm.open && plat_pointer_position(&px, &py))
         rt_pointer_at(px, py);
     s.dst = dst;
     s.stride = stride;
@@ -2085,6 +2128,15 @@ int main(int argc, char **argv)
      * it selects - before the first message the player can see and before the program boots. */
     rt_config_ensure();
     host_lang_load();
+    /* The pad's cursor speed, before the title or a scene reads a stick: the ini's own setting, so
+     * a player who finds the pointer too quick (or too slow) does not have to rebuild anything. A
+     * settings file written by a build that did not have the entry gets it, so the knob is in the
+     * file the player is already editing - only a run with the game's window writes it, so a
+     * headless measurement leaves the file alone. */
+    host_pad_sensitivity(rt_config_int("INPUT", "pad_sensitivity", PAD_SENSITIVITY_DEFAULT,
+                                       PAD_SENSITIVITY_MIN, PAD_SENSITIVITY_MAX));
+    if (g_window && rt_config_get("INPUT", "pad_sensitivity") == 0)
+        rt_config_save_int("INPUT", "pad_sensitivity", PAD_SENSITIVITY_DEFAULT);
     if (langDumpPath != 0) { host_lang_dump(langDumpPath); atexit(host_lang_dump_end); }
 
     /* The data folder, the folder the player's floppy images go in, and the image inside the data

@@ -1581,6 +1581,13 @@ u32 plat_pump(input_state *in)
     in->mouse_left_pressed = (u8)((g_mouseButtons & 1u) && !(g_mousePrevButtons & 1u));
     in->mouse_present = (u8)(g_mouse == 1);
     in->mouse_moved = (u8)(g_mouseMoves != g_mouseMovesSeen);
+    /* No pad on this platform: the front end's gamepad code (src\host\pad.c) sees none. */
+    in->pad_x = 0;
+    in->pad_y = 0;
+    in->pad_present = 0;
+    in->pad_up = in->pad_down = in->pad_left = in->pad_right = 0;
+    in->pad_fire = 0;
+    in->pad_start = 0;
     g_mousePrevButtons = g_mouseButtons;
     g_mouseMovesSeen = g_mouseMoves;
     return 1;

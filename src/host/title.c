@@ -779,10 +779,18 @@ static int title_play(rt_machine *m)
         }
         else
         {
+            /* A click on a button is that button's, and the fire key's shortcut below is not taken
+             * in the same frame: a pad's face button is /FIRE *and* the pointer's left button (one
+             * press, one action), and without this a press over Settings opened the view and then
+             * started a new game on the same edge. The keyboard's Space never clicked anything,
+             * which is why the two were never the same press before. */
+            int clicked = 0;
+
             if (in.mouse_left_pressed && menu.hover >= 0)
             {
                 const title_button *b = &menu.buttons[menu.hover];
 
+                clicked = 1;
                 if (b->action == TITLE_ACTION_NEW_GAME) pick = TITLE_PICK_INTRO;
                 else if (b->action == TITLE_ACTION_LOAD_GAME)
                 {
@@ -835,7 +843,7 @@ static int title_play(rt_machine *m)
                 }
                 if (pick >= 0) g_fromMenu = 1;
             }
-            if (pick < 0 && (in.pressed[KEY_FIRE] || in.pressed[KEY_0])) /* fire and 0 are New Game */
+            if (pick < 0 && !clicked && (in.pressed[KEY_FIRE] || in.pressed[KEY_0])) /* fire and 0 start it */
             {
                 pick = TITLE_PICK_INTRO;
                 g_fromMenu = 1;

@@ -61,6 +61,15 @@ typedef struct {
     u8  mouse_left_pressed;/* 1 for the frame the left button went down */
     u8  mouse_present;     /* 1 = the pointer has an absolute position (mouse_x/y are live) */
     u8  mouse_moved;       /* 1 = it moved since the previous plat_pump */
+    /* The gamepad, reported as what the pad *is*: the left stick, the d-pad, the four face buttons
+     * and Start. Which of them is a direction and which is the pointer is the front end's decision
+     * (src\host\pad.c): only it knows whether the screen in front of the player has a cursor. A
+     * platform without a pad reports pad_present 0 and never touches the rest. */
+    s16 pad_x, pad_y;      /* the left stick, -32768..32767; the screen's axes: x right, y down */
+    u8  pad_present;       /* 1 = a pad is connected and the fields below are live */
+    u8  pad_up, pad_down, pad_left, pad_right;   /* the d-pad */
+    u8  pad_fire;          /* any of the four face buttons */
+    u8  pad_start;         /* Start (the PlayStation's Options, the Xbox's Menu) */
 } input_state;
 
 /* Returns non-zero on success.  The core draws into plat_framebuffer(). */

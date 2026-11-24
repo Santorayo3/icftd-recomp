@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <d3d9.h>
+#include <dinput.h>
 #include "types.h"
 #include "platform.h"
 #include "border.h"
@@ -267,6 +268,380 @@ static void dir_key(int dir, int wasd, int down)
     /* The press edge is latched here, not diffed at the pump: a tap that goes down and up again
      * before the boundary leaves g_keys as it was (see g_pressLatch). */
     if (down) g_pressLatch[KEY_UP + dir] = 1;
+}
+
+/* --- the gamepad (a port feature: host input plumbing) --------------------------------------
+ * The game's only control is a one-button stick, and the port adds a pointer on the screens that
+ * show a cursor. A pad stands in for both: the platform reports what the pad *is* - the left
+ * stick's two axes, the d-pad, the four face buttons and Start - and the front end decides what
+ * that means (src\host\pad.c), because only it knows whether the screen in front of the player
+ * has a cursor. A pad reports at the game's own frame rate (plat_pump), like the keys do.
+ *
+ * Two APIs, because one does not see every pad. XInput is the documented one for the Xbox family:
+ * its buttons have fixed bits (A/B/X/Y, Start) and its stick is -32768..32767. DirectInput8 is the
+ * one that sees a PlayStation pad natively - measured with a DualShock 4 on this machine: XInput
+ * did not report it at all and the legacy joystick API (joyGetPosEx) answered JOYERR_PARMS for it,
+ * while DirectInput8 gave its left stick as axis instances 0/1, its d-pad as POV 0 and its face
+ * buttons as buttons 0..3. A pad XInput reports is the one used; otherwise the DirectInput device.
+ *
+ * The four face buttons are the first four in both families, but Start is not: the PlayStation
+ * pads report Share and Options *after* the two trigger clicks (measured: button 9 is Options on a
+ * DS4, which SDL's device mapping agrees with), while the Xbox pads report Back and Start straight
+ * after the two shoulders (button 7). The product name says which family the pad is; the button
+ * count decides for a name this project has never seen (a PlayStation pad carries two more).
+ *
+ * The pad is read only while the window has the focus, the rule WM_KILLFOCUS applies to the keys:
+ * a button the player left down when switching away must not keep playing. */
+#define PAD_XI_DPAD_UP     0x0001
+#define PAD_XI_DPAD_DOWN   0x0002
+#define PAD_XI_DPAD_LEFT   0x0004
+#define PAD_XI_DPAD_RIGHT  0x0008
+#define PAD_XI_START       0x0010
+#define PAD_XI_FACE        0xF000   /* A, B, X and Y */
+#define PAD_HID_BUTTONS    16       /* the most the DirectInput format below asks for */
+
+/* XINPUT_STATE, as the API documents it: xinput.h is not in Open Watcom's headers. */
+typedef struct {
+    WORD  buttons;
+    BYTE  leftTrigger;
+    BYTE  rightTrigger;
+    SHORT x, y, rx, ry;
+} pad_xinput_gamepad;
+
+typedef struct {
+    DWORD             packet;
+    pad_xinput_gamepad pad;
+} pad_xinput_state;
+
+typedef DWORD (WINAPI *pad_xinput_getstate_fn)(DWORD, pad_xinput_state *);
+typedef HRESULT (WINAPI *pad_di8create_fn)(HINSTANCE, DWORD, REFIID, LPVOID *, LPUNKNOWN);
+
+/* The pad as one pump sees it, filled by whichever API answered. */
+typedef struct {
+    int present;
+    int x, y;                       /* -32768..32767, y positive down */
+    int up, down, left, right;      /* the d-pad */
+    int fire;                       /* any of the four face buttons */
+    int start;
+} pad_raw;
+
+/* Which device the enumeration found. */
+typedef struct {
+    DIDEVICEINSTANCEA inst;
+    int found;
+} pad_enum;
+
+/* IID_IDirectInput8A lives in dinput8.lib on the Microsoft toolchain; Open Watcom's dinput.h
+ * carries the interfaces only. */
+static const GUID g_padIidDirectInput8A =
+    { 0xBF798030, 0x483A, 0x4DA2, { 0xAA, 0x99, 0x5D, 0x64, 0xED, 0x36, 0x97, 0x00 } };
+
+static pad_xinput_getstate_fn g_padGetState;   /* 0 = XInput not loaded (or not there) */
+static int                    g_padXiTried;
+static LPDIRECTINPUT8A        g_padDi;
+static LPDIRECTINPUTDEVICE8A  g_padDev;
+static DIOBJECTDATAFORMAT     g_padOdf[3 + PAD_HID_BUTTONS];
+static DIDATAFORMAT           g_padFmt;
+static LONG                   g_padLox = -32768, g_padHix = 32767;
+static LONG                   g_padLoy = -32768, g_padHiy = 32767;
+static int                    g_padStartBtn = 7;
+static u32                    g_padRetry;      /* pumps left before the next DirectInput attempt */
+static int                    g_padXiSlot = -1;/* the XInput slot being read, for the log line */
+static int                    g_padReported;   /* the DirectInput pad's log line was printed */
+
+static void pad_xinput_open(void)
+{
+    static const char *dlls[3] = { "xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll" };
+    int i;
+
+    g_padXiTried = 1;
+    for (i = 0; i < 3 && g_padGetState == 0; i++)
+    {
+        HMODULE lib = LoadLibraryA(dlls[i]);
+
+        if (lib != 0)
+            g_padGetState = (pad_xinput_getstate_fn)GetProcAddress(lib, "XInputGetState");
+    }
+}
+
+static int pad_xinput_read(pad_raw *raw)
+{
+    pad_xinput_state st;
+    int slot, buttons;
+
+    if (g_padGetState == 0) return 0;
+    for (slot = 0; slot < 4; slot++)
+    {
+        memset(&st, 0, sizeof st);
+        if (g_padGetState((DWORD)slot, &st) != 0) continue;      /* ERROR_SUCCESS is 0 */
+        buttons = (int)st.pad.buttons;
+        if (slot != g_padXiSlot)
+        {
+            g_padXiSlot = slot;
+            printf("recomp: gamepad: XInput controller %d\n", slot);
+        }
+        memset(raw, 0, sizeof *raw);
+        raw->present = 1;
+        raw->x = st.pad.x;
+        raw->y = st.pad.y;
+        raw->up    = (buttons & PAD_XI_DPAD_UP) != 0;
+        raw->down  = (buttons & PAD_XI_DPAD_DOWN) != 0;
+        raw->left  = (buttons & PAD_XI_DPAD_LEFT) != 0;
+        raw->right = (buttons & PAD_XI_DPAD_RIGHT) != 0;
+        raw->fire  = (buttons & PAD_XI_FACE) != 0;
+        raw->start = (buttons & PAD_XI_START) != 0;
+        return 1;
+    }
+    g_padXiSlot = -1;
+    return 0;
+}
+
+static BOOL CALLBACK pad_enum_cb(LPCDIDEVICEINSTANCEA inst, LPVOID ctx)
+{
+    pad_enum *e = (pad_enum *)ctx;
+
+    e->inst = *inst;
+    e->found = 1;
+    return DIENUM_STOP;
+}
+
+/* Does `name` contain `part`, case-insensitively? The product name is the driver's own string. */
+static int pad_name_has(const char *name, const char *part)
+{
+    int i, j;
+
+    for (i = 0; name[i] != 0; i++)
+    {
+        for (j = 0; part[j] != 0; j++)
+        {
+            char c = name[i + j];
+
+            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+            if (c != part[j]) break;
+        }
+        if (part[j] == 0) return 1;
+    }
+    return 0;
+}
+
+/* Which button index Start has in the DirectInput report (see the section above). */
+static int pad_start_index(const char *name, int buttons)
+{
+    if (pad_name_has(name, "xbox")) return 7;
+    if (pad_name_has(name, "wireless controller") || pad_name_has(name, "dualsense") ||
+        pad_name_has(name, "dualshock") || pad_name_has(name, "playstation") ||
+        pad_name_has(name, "ps3") || pad_name_has(name, "ps4") || pad_name_has(name, "ps5"))
+        return 9;
+    return buttons >= 12 ? 9 : 7;
+}
+
+/* One axis range on the device: the range XInput reports, so the front end's deadzone and speed
+ * do not depend on the pad; a device that refuses the range keeps its own, and the values are
+ * scaled from it instead. */
+static void pad_hid_range(DWORD ofs, LONG *lo, LONG *hi)
+{
+    DIPROPRANGE r, have;
+
+    memset(&r, 0, sizeof r);
+    r.diph.dwSize = sizeof r;
+    r.diph.dwHeaderSize = sizeof(DIPROPHEADER);
+    r.diph.dwObj = ofs;
+    r.diph.dwHow = DIPH_BYOFFSET;
+    r.lMin = -32768;
+    r.lMax = 32767;
+    *lo = r.lMin;
+    *hi = r.lMax;
+    if (!FAILED(IDirectInputDevice8_SetProperty(g_padDev, DIPROP_RANGE, &r.diph))) return;
+
+    memset(&have, 0, sizeof have);
+    have.diph = r.diph;
+    if (!FAILED(IDirectInputDevice8_GetProperty(g_padDev, DIPROP_RANGE, &have.diph)))
+    {
+        *lo = have.lMin;
+        *hi = have.lMax;
+    }
+}
+
+/* The object's device value, in the -32768..32767 the rest of the code works in. */
+static int pad_hid_scale(LONG v, LONG lo, LONG hi)
+{
+    __int64 n;
+
+    if (hi <= lo) return 0;
+    n = ((__int64)(v - lo) * 65535) / (hi - lo) - 32768;
+    if (n < -32768) n = -32768;
+    if (n >  32767) n =  32767;
+    return (int)n;
+}
+
+static void pad_hid_close(void)
+{
+    if (g_padDev != 0)
+    {
+        IDirectInputDevice8_Unacquire(g_padDev);
+        IDirectInputDevice8_Release(g_padDev);
+        g_padDev = 0;
+    }
+    if (g_padDi != 0)
+    {
+        IDirectInput8_Release(g_padDi);
+        g_padDi = 0;
+    }
+    g_padReported = 0;
+}
+
+/* Finds the first attached game controller and prepares it: the objects the game uses as a data
+ * format, the two stick axes' range, and a cooperative level that ties the pad to this window.
+ * The device is not acquired here - pad_hid_read does that, because the window only holds the
+ * foreground some of the time. */
+static int pad_hid_open(void)
+{
+    pad_enum e;
+    DIDEVCAPS caps;
+    pad_di8create_fn create;
+    HMODULE dll;
+    HRESULT hr;
+    u32 n = 0, i;
+
+    if (g_padDi == 0)
+    {
+        CoInitialize(0);                       /* DirectInput is a COM in-proc server */
+        dll = LoadLibraryA("dinput8.dll");
+        if (dll == 0) return 0;
+        create = (pad_di8create_fn)GetProcAddress(dll, "DirectInput8Create");
+        if (create == 0) return 0;
+        hr = create(GetModuleHandle(0), 0x0800, &g_padIidDirectInput8A, (LPVOID *)&g_padDi, 0);
+        if (FAILED(hr) || g_padDi == 0) { g_padDi = 0; return 0; }
+    }
+    memset(&e, 0, sizeof e);
+    e.inst.dwSize = sizeof e.inst;
+    IDirectInput8_EnumDevices(g_padDi, DI8DEVCLASS_GAMECTRL, pad_enum_cb, &e, DIEDFL_ATTACHEDONLY);
+    if (!e.found) return 0;
+    if (FAILED(IDirectInput8_CreateDevice(g_padDi, &e.inst.guidInstance, &g_padDev, 0)) || g_padDev == 0)
+    {
+        g_padDev = 0;
+        return 0;
+    }
+    memset(&caps, 0, sizeof caps);
+    caps.dwSize = sizeof caps;
+    if (FAILED(IDirectInputDevice8_GetCapabilities(g_padDev, &caps))) { pad_hid_close(); return 0; }
+
+    /* The objects the game uses, at the offsets the standard joystick state has them: the left
+     * stick (axis instances 0 and 1), the d-pad (POV 0) and the buttons. GetDeviceState then
+     * fills a DIJOYSTATE2 that pad_hid_read reads like any other. */
+    memset(&g_padOdf, 0, sizeof g_padOdf);
+    g_padOdf[n].pguid = 0; g_padOdf[n].dwOfs = FIELD_OFFSET(DIJOYSTATE2, lX);
+    g_padOdf[n].dwType = DIDFT_ABSAXIS | DIDFT_MAKEINSTANCE(0); n++;
+    g_padOdf[n].pguid = 0; g_padOdf[n].dwOfs = FIELD_OFFSET(DIJOYSTATE2, lY);
+    g_padOdf[n].dwType = DIDFT_ABSAXIS | DIDFT_MAKEINSTANCE(1); n++;
+    g_padOdf[n].pguid = 0; g_padOdf[n].dwOfs = FIELD_OFFSET(DIJOYSTATE2, rgdwPOV[0]);
+    g_padOdf[n].dwType = DIDFT_POV | DIDFT_MAKEINSTANCE(0); n++;
+    for (i = 0; i < caps.dwButtons && i < PAD_HID_BUTTONS; i++)
+    {
+        g_padOdf[n].pguid = 0; g_padOdf[n].dwOfs = FIELD_OFFSET(DIJOYSTATE2, rgbButtons[i]);
+        g_padOdf[n].dwType = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE(i); n++;
+    }
+    memset(&g_padFmt, 0, sizeof g_padFmt);
+    g_padFmt.dwSize = sizeof g_padFmt;
+    g_padFmt.dwObjSize = sizeof g_padOdf[0];
+    g_padFmt.dwFlags = DIDF_ABSAXIS;
+    g_padFmt.dwDataSize = sizeof(DIJOYSTATE2);
+    g_padFmt.dwNumObjs = (DWORD)n;
+    g_padFmt.rgodf = g_padOdf;
+    if (FAILED(IDirectInputDevice8_SetDataFormat(g_padDev, &g_padFmt))) { pad_hid_close(); return 0; }
+
+    pad_hid_range(FIELD_OFFSET(DIJOYSTATE2, lX), &g_padLox, &g_padHix);
+    pad_hid_range(FIELD_OFFSET(DIJOYSTATE2, lY), &g_padLoy, &g_padHiy);
+
+    /* Background, non-exclusive: DirectInput's own foreground rule would tie the acquisition to
+     * whichever window the shell calls foreground, which a game whose console window still has it
+     * does not control. The gate that matters is pad_poll's: the pad is read only while this window
+     * has the focus, the rule WM_KILLFOCUS applies to the keys. */
+    if (FAILED(IDirectInputDevice8_SetCooperativeLevel(g_padDev, g_hwnd,
+                                                      DISCL_BACKGROUND | DISCL_NONEXCLUSIVE)))
+    {
+        pad_hid_close();
+        return 0;
+    }
+    g_padStartBtn = pad_start_index(e.inst.tszProductName, (int)caps.dwButtons);
+    if (!g_padReported)
+    {
+        g_padReported = 1;
+        printf("recomp: gamepad: '%s' (DirectInput, %lu button(s), Start is button %d)\n",
+               e.inst.tszProductName, (unsigned long)caps.dwButtons, g_padStartBtn);
+    }
+    return 1;
+}
+
+static int pad_hid_read(pad_raw *raw)
+{
+    DIJOYSTATE2 js;
+    DWORD pov;
+    int i;
+
+    if (g_padDev == 0) return 0;
+    memset(&js, 0, sizeof js);
+    IDirectInputDevice8_Poll(g_padDev);
+    if (FAILED(IDirectInputDevice8_GetDeviceState(g_padDev, sizeof js, &js)))
+    {
+        if (FAILED(IDirectInputDevice8_Acquire(g_padDev))) return 0;
+        if (FAILED(IDirectInputDevice8_GetDeviceState(g_padDev, sizeof js, &js))) return 0;
+    }
+    memset(raw, 0, sizeof *raw);
+    raw->present = 1;
+    raw->x = pad_hid_scale(js.lX, g_padLox, g_padHix);
+    raw->y = pad_hid_scale(js.lY, g_padLoy, g_padHiy);
+    pov = js.rgdwPOV[0];
+    if (pov <= 35999)                        /* -1 (0xFFFFFFFF) is the centred hat */
+    {
+        raw->up    = (pov >= 31500 || pov <= 4500) ? 1 : 0;
+        raw->right = (pov >=  4500 && pov <= 13500) ? 1 : 0;
+        raw->down  = (pov >= 13500 && pov <= 22500) ? 1 : 0;
+        raw->left  = (pov >= 22500 && pov <= 31500) ? 1 : 0;
+    }
+    for (i = 0; i < 4; i++)                  /* the four face buttons are the first four */
+        if (js.rgbButtons[i] != 0) raw->fire = 1;
+    if (g_padStartBtn >= 0 && g_padStartBtn < PAD_HID_BUTTONS && js.rgbButtons[g_padStartBtn] != 0)
+        raw->start = 1;
+    return 1;
+}
+
+/* What this pump sees of the pad, into the input state. */
+static void pad_poll(input_state *in)
+{
+    pad_raw raw;
+    int ok = 0;
+
+    in->pad_x = 0;
+    in->pad_y = 0;
+    in->pad_present = 0;
+    in->pad_up = in->pad_down = in->pad_left = in->pad_right = 0;
+    in->pad_fire = 0;
+    in->pad_start = 0;
+    if (!g_hasFocus) return;
+
+    if (!g_padXiTried) pad_xinput_open();
+    if (g_padGetState != 0) ok = pad_xinput_read(&raw);
+    if (!ok)
+    {
+        if (g_padDev == 0)
+        {
+            /* Enumerating the devices costs more than reading one: ask again about once a second,
+             * which is what makes a pad plugged in during a session usable. */
+            if (g_padRetry != 0) { g_padRetry--; return; }
+            if (!pad_hid_open()) { g_padRetry = 50; return; }
+        }
+        if (!pad_hid_read(&raw)) { pad_hid_close(); g_padRetry = 50; return; }
+    }
+    in->pad_present = 1;
+    in->pad_x = (s16)raw.x;
+    in->pad_y = (s16)raw.y;
+    in->pad_up = (u8)raw.up;
+    in->pad_down = (u8)raw.down;
+    in->pad_left = (u8)raw.left;
+    in->pad_right = (u8)raw.right;
+    in->pad_fire = (u8)raw.fire;
+    in->pad_start = (u8)raw.start;
 }
 
 /* The windowed frame: a caption, a close box, and the resizable border the picture is scaled
@@ -864,6 +1239,15 @@ const char *plat_default_ini(void)
            "; Volume 0..10, 0 = off, 10 = full.\r\n"
            "sound=10\r\n"
            "music=10\r\n"
+           "\r\n"
+           "[INPUT]\r\n"
+           "; The gamepad's left stick is the pointer on the screens that show a cursor (the\r\n"
+           "; situation map, the phone book, the aiming scenes, the title) and the four directions\r\n"
+           "; everywhere else. This is the pointer's speed at full deflection, in per cent, 10..200:\r\n"
+           "; 50 is the default, 100 moves twice as far per frame (the picture is crossed in about\r\n"
+           "; half a second), 10 is a slow crawl. A stick pushed halfway moves proportionally less\r\n"
+           "; whatever this says.\r\n"
+           "pad_sensitivity=50\r\n"
            "\r\n"
            "[GAME]\r\n"
            "; The language of the game's own text: en = the original's English (the default).\r\n"
@@ -2234,6 +2618,7 @@ u32 plat_pump(input_state *in)
     in->mouse_present = 1;
     in->mouse_moved = (u8)(g_mouse_motion != g_mouse_motion_seen);
     g_mouse_motion_seen = g_mouse_motion;
+    pad_poll(in);
     return (u32)(!g_quit);
 }
 
