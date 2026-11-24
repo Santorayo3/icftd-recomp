@@ -1200,7 +1200,8 @@ The pointer's speed is `[INPUT] pad_sensitivity` in `icftd.ini`: per cent of the
 second; the setting is written with the defaults and added to a settings file written by a build
 that did not have it, so the knob is in the file the player already edits). There is no row for it
 in the title's settings view — a speed only a pad's owner wants is not worth a line the mouse has no
-use for.
+use for. The release's `recomplauncher.json` does offer it, as the advanced setting "Gamepad pointer
+speed", so a player who installed through RecompLauncher sets it on the game's page instead.
 
 The split is the platform contract's: `plat_win32.c` reports what the pad *is* (`input_state`'s
 `pad_x`/`pad_y`, `pad_up..pad_right`, `pad_fire`, `pad_start`), and `src\host\pad.c` decides what

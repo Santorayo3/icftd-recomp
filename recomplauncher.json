@@ -72,6 +72,13 @@
         { "label": "Black", "set": { "VIDEO/curtains": "0" } }
       ],
       "defaults": { "VIDEO/curtains": "1" }
+    },
+    {
+      "id": "pad_speed",
+      "label": "Gamepad pointer speed",
+      "advanced": true,
+      "help": "How fast a controller's stick moves the pointer on the screens that show one - the situation map, the phone book, the aiming scenes, the title screen and the port's popups. 50 is the default; higher is faster, lower is slower. The keyboard and mouse are not affected.",
+      "slider": { "key": "INPUT/pad_sensitivity", "min": 10, "max": 200, "step": 10, "format": "%d" }
     }
   ],
 

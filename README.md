@@ -121,9 +121,10 @@ saves\                        empty: the ten save slots
 recomp: it asks the player for the folder that holds their three images, runs the game's own
 extraction there and then (`--prepare --disks <folder> --data <install>\export`, which reports its
 work as `progress <0..1> <text>` lines instead of a window), and shows the `icftd.ini` settings on
-the game's page — window mode, the music and sound volumes, the language and the side curtains — so
-Play starts the game without anyone editing a file. Without a launcher nothing changes: the file is
-inert, and the `disks\` first start above is the whole setup.
+the game's page — window mode, the music and sound volumes, the language, the side curtains and,
+under the advanced options, the gamepad pointer's speed — so Play starts the game without anyone
+editing a file. Without a launcher nothing changes: the file is inert, and the `disks\` first start
+above is the whole setup.
 
 The executable's icon and version page (`It Came from the Desert`, `Copyright © 2026 Tim Rachor`)
 are compiled into it from `src\runtime\plat\win32\icftd.rc`; the icon is the port's own

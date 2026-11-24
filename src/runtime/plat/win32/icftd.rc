@@ -16,8 +16,8 @@
 1 ICON "icftd.ico"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     1,0,1,0
+PRODUCTVERSION  1,0,1,0
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0x0L
 FILEOS          VOS_NT_WINDOWS32
@@ -30,12 +30,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Tim Rachor"
             VALUE "FileDescription",  "It Came from the Desert"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.0.1.0"
             VALUE "InternalName",     "It Came from the Desert"
             VALUE "LegalCopyright",   "Copyright © 2026 Tim Rachor"
             VALUE "OriginalFilename", "It Came from the Desert.exe"
             VALUE "ProductName",      "It Came from the Desert"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.0.1.0"
         END
     END
     BLOCK "VarFileInfo"
