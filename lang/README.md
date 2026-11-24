@@ -62,6 +62,10 @@ possible to ship a translation without shipping the original's script.
 | `lang\de.csv` | `<id>;<German>` — the translation | **yes** |
 | `lang\de_ant.csv` | `<id>;<German>` — the add-on's half | **yes** |
 
+Two translations ship this way, with nothing but the code in the name to tell them apart: German as
+`de.csv`/`de_ant.csv` and Italian as `it.csv`/`it_ant.csv` (ASCII only, since the font has no
+accented letters beyond the six umlauts).
+
 `en.csv`, `en_ant.csv` and `*.work.csv` are in `.gitignore`; every `<code>.csv` and `<code>_ant.csv`
 is meant to be committed. The ids do not change as long as the English text does not, so a
 translation stays valid when the source is regenerated. A work file is not a language name

@@ -262,6 +262,18 @@ static const char *const g_titleNotice[] =
 
 #define TITLE_NOTICE_LINES ((int)(sizeof g_titleNotice / sizeof g_titleNotice[0]))
 
+/* The picture is 320 pixels wide and each line is centred on it, so a line wider than the picture
+ * runs off both edges - and a translation is regularly longer than the English it was made from.
+ * The requested lines are therefore broken at spaces to fit a margin (title_notice_wrap), and the
+ * block of lines is centred as a whole. A word wider than the picture, which no translation has,
+ * is cut where it stops fitting so that a line can never run off the edge. */
+#define TITLE_NOTICE_MARGIN    8
+#define TITLE_NOTICE_TEXT_MAX  256
+#define TITLE_NOTICE_MAX_LINES 12
+
+static char g_noticeLines[TITLE_NOTICE_MAX_LINES][TITLE_NOTICE_TEXT_MAX];
+static int g_noticeLineCount;
+
 /* A scripted run's menu and settings view are clicked through by its own --mouse script (Back, or
  * Quit Game); this is how long one may stay up before the run gives up on it, so a script that
  * misses cannot hold a check for ever. */
@@ -475,6 +487,87 @@ static void title_draw(rt_machine *m, const title_menu *menu, const title_slots 
     else title_menu_draw(m, menu, dst, stride, SCREEN_W, SCREEN_H);
 }
 
+/* Breaks one requested line into as many lines as the picture's width needs, and returns how many
+ * it wrote (0 when the text is empty). A break happens at a space, so a word is never split; the
+ * spaces a line ends on are dropped, and the next line starts on the first non-space after them. */
+static int title_notice_wrap(rt_machine *m, const char *text, int maxWidth,
+                             char (*lines)[TITLE_NOTICE_TEXT_MAX], int maxLines)
+{
+    char buf[TITLE_NOTICE_TEXT_MAX];
+    int len;
+    int pos = 0;
+    int count = 0;
+
+    if (text == 0) return 0;
+    len = (int)strlen(text);
+    if (len > TITLE_NOTICE_TEXT_MAX - 1) len = TITLE_NOTICE_TEXT_MAX - 1;
+    memcpy(buf, text, (size_t)len);
+    buf[len] = 0;
+
+    while (pos < len && count < maxLines)
+    {
+        int fit;                             /* one past the last character that fits */
+        int cut;                             /* ... and where this line is cut */
+        int i;
+
+        while (pos < len && buf[pos] == ' ') pos++;
+        if (pos >= len) break;
+
+        fit = pos;
+        for (i = pos + 1; i <= len; i++)
+        {
+            char saved = buf[i];
+            s32 w;
+
+            buf[i] = 0;
+            w = rt_font_text_width(m, buf + pos);
+            buf[i] = saved;
+            if (w > maxWidth) break;
+            fit = i;
+        }
+        if (fit <= pos) fit = pos + 1;       /* one character, or the loop cannot advance */
+        cut = fit;
+        if (cut < len)
+        {
+            for (i = cut; i > pos; i--)
+                if (buf[i] == ' ') { cut = i; break; }
+            if (i <= pos) cut = fit;         /* one word wider than the picture */
+        }
+        while (cut > pos && buf[cut - 1] == ' ') cut--;
+        memcpy(lines[count], buf + pos, (size_t)(cut - pos));
+        lines[count][cut - pos] = 0;
+        count++;
+        pos = cut;
+    }
+    return count;
+}
+
+/* Lays the requested lines out once, so the block the drawing centres is the block that is drawn,
+ * and returns the widest line in pixels - which the console report repeats, so a run can be held to
+ * the claim that nothing runs off the picture. */
+static int title_notice_layout(rt_machine *m)
+{
+    int widest = 0;
+    int i;
+
+    g_noticeLineCount = 0;
+    for (i = 0; i < TITLE_NOTICE_LINES; i++)
+    {
+        if (g_noticeLineCount >= TITLE_NOTICE_MAX_LINES) break;
+        g_noticeLineCount += title_notice_wrap(m, rt_lang_text(g_titleNotice[i]),
+                                               SCREEN_W - 2 * TITLE_NOTICE_MARGIN,
+                                               g_noticeLines + g_noticeLineCount,
+                                               TITLE_NOTICE_MAX_LINES - g_noticeLineCount);
+    }
+    for (i = 0; i < g_noticeLineCount; i++)
+    {
+        s32 w = rt_font_text_width(m, g_noticeLines[i]);
+
+        if ((int)w > widest) widest = (int)w;
+    }
+    return widest;
+}
+
 /* Quit Game's farewell: a black screen with the successor's name, drawn in the game's own disk
  * font and centred on the picture. It is the port's own screen, so it is drawn straight into the
  * platform framebuffer and costs the machine nothing. */
@@ -485,7 +578,7 @@ static void title_notice_draw(rt_machine *m)
     u32 stride = plat_set_framebuffer_size(SCREEN_W, SCREEN_H);
     u8 *dst = plat_framebuffer();
     int height = rt_font_height(m);
-    int block = height + TITLE_NOTICE_LINE_STEP * (TITLE_NOTICE_LINES - 1);
+    int block = height + TITLE_NOTICE_LINE_STEP * (g_noticeLineCount > 1 ? g_noticeLineCount - 1 : 0);
     int top = (SCREEN_H - block) / 2;
     int x, y, i;
 
@@ -494,14 +587,14 @@ static void title_notice_draw(rt_machine *m)
     plat_set_palette(0, 1, black);
     plat_set_palette(TITLE_BUTTON_PEN_TEXT, 1, white);
     for (y = 0; y < SCREEN_H; y++) memset(dst + (u32)y * stride, 0, SCREEN_W);
-    for (i = 0; i < TITLE_NOTICE_LINES; i++)
+    for (i = 0; i < g_noticeLineCount; i++)
     {
-        const char *line = rt_lang_text(g_titleNotice[i]);
-        s32 w = rt_font_text_width(m, line);
+        s32 w = rt_font_text_width(m, g_noticeLines[i]);
 
         x = (SCREEN_W - (int)w) / 2;
+        if (x < 0) x = 0;
         rt_font_text_draw(m, dst, stride, SCREEN_W, SCREEN_H, x,
-                          top + i * TITLE_NOTICE_LINE_STEP, line,
+                          top + i * TITLE_NOTICE_LINE_STEP, g_noticeLines[i],
                           TITLE_BUTTON_PEN_TEXT);
     }
 }
@@ -512,12 +605,16 @@ static void title_quit_notice(rt_machine *m)
 {
     input_state in;
     long start = (long)m->frame;
+    int widest;
     int i;
 
     printf("title: quit game: showing the notice for %d frame(s) (frame %lu)\n",
            TITLE_NOTICE_FRAMES, (unsigned long)m->frame);
     for (i = 0; i < TITLE_NOTICE_LINES; i++)
         printf("title: quit game: line %d: %s\n", i + 1, g_titleNotice[i]);
+    widest = title_notice_layout(m);
+    printf("title: quit game: the %d-pixel picture takes %d line(s), widest %d of %d\n",
+           SCREEN_W, g_noticeLineCount, widest, SCREEN_W - 2 * TITLE_NOTICE_MARGIN);
     for (i = 0; i < TITLE_NOTICE_FRAMES; i++)
     {
         if (!plat_pump(&in)) break;              /* the window was closed */

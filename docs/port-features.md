@@ -688,32 +688,42 @@ language's (`Anrufen`, `Schlafen`) and not the English one.
 
 ## The title's Quit Game farewell
 
-Quit Game no longer ends the process on the click. It replaces the menu with a black screen and two
-lines in the game's own disk font, centred on the 320x200 picture:
+Quit Game no longer ends the process on the click. It replaces the menu with a black screen and the
+two requested lines in the game's own disk font, centred on the 320x200 picture:
 
 ```
 Check out my spiritual successor "It Returned to the Desert"
 Available on Steam and itch.io
 ```
 
+The picture is 320 pixels wide and a line drawn whole would be wider than that - the German and the
+Italian translations by a lot - so each requested line is broken at spaces where it would run off the
+picture (`title_notice_wrap`): the break is chosen with the font's own advance widths, no word is
+split, an over-long word is cut where it stops fitting, and the block of resulting lines is centred
+as a whole. The console reports the layout (`the 320-pixel picture takes 3 line(s), widest 302 of
+304`), so a language that ever needed more than the picture allows would say so.
+
 The notice is held for 500 frames - ten seconds of the machine's own 50 Hz - and only then does
 `title_play` return its quit, which stops the run as the button always did.
 
-Where it attaches: the title's own per-screen loop. `title_quit_notice` (`src\host\title.c`) draws
-every frame with `title_notice_draw` into the platform framebuffer (palette entry 0 black, the menu's
-white text pen), ticks the machine through `title_tick` so the map's score keeps playing while it is
-up, presents, and paces with `plat_frame_sync`. `plat_pump` still runs every frame, so closing the
-window ends the notice early. Only the button's own click sets the flag: a closed window, a
-`--titlekey` fallback or a `TITLE_SCRIPT_FRAMES` timeout still ends the run at once - those are not
-Quit Game.
+Where it attaches: the title's own per-screen loop. `title_quit_notice` (`src\host\title.c`) lays
+the text out once, then draws every frame with `title_notice_draw` into the platform framebuffer
+(palette entry 0 black, the menu's white text pen), ticks the machine through `title_tick` so the
+map's score keeps playing while it is up, presents, and paces with `plat_frame_sync`. `plat_pump`
+still runs every frame, so closing the window ends the notice early. Only the button's own click
+sets the flag: a closed window, a `--titlekey` fallback or a `TITLE_SCRIPT_FRAMES` timeout still ends
+the run at once - those are not Quit Game.
 
 Measured with `tools\quit-check.ps1` (gate step 19). Headless, the click logs frames 40 to 540 -
 500 frames, ten seconds - the two requested lines, and `title: quit game: closing`; the run spends
 more than nine seconds of wall time on it, so the frames are the machine's paced 50 Hz and not a
-loop run as fast as the host can. A run without `--titlekey` logs none of it. Where a desktop gives
-the game a window, the check samples the client area while the notice is up: **98.8 % black, 746
-white text pixels, their bounding box centred at 159,99 of the 320x200 picture, all four corners
-black** - the title art is gone and the text is where the feature says it is.
+loop run as fast as the host can. The check runs it once per offered language and holds each to the
+picture: **en 3 lines, widest 267 of 304; de 2 lines, widest 283; it 3 lines, widest 302**. A run
+without `--titlekey` logs none of it. Where a desktop gives the game a window, the check samples the
+client area while the notice is up, in the language whose line came closest to the margin:
+**98.7 % black, 827 white text pixels, their bounding box centred at 160,99 of the 320x200 picture
+and spanning x 10..309 (inside the 8-pixel margin), all four corners black** - the title art is gone
+and the text fits where the feature says it is.
 
 ## Escape asks before it leaves the game
 
