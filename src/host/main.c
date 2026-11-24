@@ -1268,6 +1268,13 @@ static void aim_spray(rt_machine *m)
  * runtime's OSD text: it is armed here, at the frame boundary before the present, and re-armed
  * every frame the load runs. Nothing of the machine is written, and a measurement run never
  * installs the seam (g_portArm).
+ *
+ * The same detection also lets the load run at host speed: for as long as the screen shows that
+ * unchanged picture the platform is told not to hold each emulated frame to the 20 ms wall clock
+ * (plat_set_fast_forward). The guest keeps its 141,875 cycles per frame and every interrupt in
+ * them, so this is a delivery change and not a content one - the transition simply takes host time
+ * instead of frame time. It is on for load work and for the title's announced transition, which
+ * counts from its first frame rather than after LOAD_SHOW_FRAMES of work.
  */
 /* The load-only code's ranges are per program: the SMS loader and its unpacker, the bank directory
  * search, the bank opener, the asset lookup inside a bank, the read helper, and the LZ decruncher's
@@ -1283,6 +1290,7 @@ static int g_loadOn;               /* a load has run within LOAD_IDLE_FRAMES    
 static int g_loadShown;            /* the line is up (the log's edge)           */
 static int g_loadHold;             /* frames left on an announced transition    */
 static int g_loadHoldSeen;         /* load work has run since the hold was armed */
+static int s_loadFast;             /* the platform is running this frame fast   */
 
 static int load_pc(u32 pc)
 {
@@ -1314,7 +1322,8 @@ static void loading_frame(rt_machine *m)
 {
     int busy, up;
 
-    if (!g_portArm) return;
+    /* A measurement run never installs the seams - and never changes the platform's pacing. */
+    if (!g_portArm) { plat_set_fast_forward(0); s_loadFast = 0; return; }
     busy = load_pc(m->pc) || g_loadSeen == m->frame;
     if (busy)
     {
@@ -1330,6 +1339,15 @@ static void loading_frame(rt_machine *m)
         else if (g_loadHoldSeen && !g_loadOn) g_loadHold = 0;   /* the load it waited for ended */
         else g_loadHold--;
     }
+
+    /* The load's frames are dead time: the previous picture stays up for all of them, so the front
+     * end stops holding them to the 50 Hz wall clock (plat_set_fast_forward). The machine's frames,
+     * their cycle budget and every interrupt in them are unchanged - a paced and an unpaced run end
+     * byte-identical - so this is delivery only, never content: the loader takes a fraction of the
+     * wall time and the player reaches the new screen sooner (docs\port-features.md). The
+     * announced transition counts from its first frame, before load work is detected. */
+    s_loadFast = busy || g_loadHold > 0;
+    plat_set_fast_forward(s_loadFast);
 
     up = g_loadHold > 0 || (g_loadOn && m->frame - g_loadStart >= LOAD_SHOW_FRAMES);
     if (up != g_loadShown)
@@ -1712,6 +1730,11 @@ static void host_present(rt_machine *m)
     int x, y, cw;
     int capture = shotPath != 0 ||
                   (dumpPrefix != 0 && dumpIndex < dumpCount && m->frame >= dumpFrom);
+    /* While the loader fast-forwards, the picture is the previous screen and does not change; the
+     * platform is drawing the port's overlay (loading line included) itself at the panel's rate,
+     * so there is nothing per frame to hand over. When it is not, the overlay lives in the picture
+     * and every frame must still be presented. */
+    int fast = g_window && s_loadFast && plat_overlay_armed() != 0;
 
     /* --osd keeps a line (or "save" for the icon) up, so a headless --shot can be checked by
      * pixel instead of by eye. Armed here so it works without a window. */
@@ -1720,14 +1743,19 @@ static void host_present(rt_machine *m)
         if (strcmp(osdText, "save") == 0) rt_osd_icon(m, EMU_OSD_FRAMES);
         else rt_osd_text(m, osdText, EMU_OSD_FRAMES);
     }
-    if (g_window)
+    if (g_window && !fast)
     {
         /* The picture is the screen the copper list programs - 320x200, or 368x216 while the
          * chicken race's narration page is up, because that page lays its text out across the
          * overscan. The platform takes it at that size, so every column and row reaches the
          * screen; sampling it into the 320x200 mode instead dropped one column in eight, which
          * garbled the letters. It is handed over *without* the port's overlay: the platform draws
-         * that per display frame, on top of this picture (docs\display-rate.md). */
+         * that per display frame, on top of this picture (docs\display-rate.md).
+         *
+         * Not while the loader is fast-forwarding: the picture is the previous screen and does not
+         * change, so the last one handed over stays up (with a fresh overlay, the loading line
+         * included, at the panel's rate). The upload and the palette are what a fast stretch would
+         * otherwise spend its saved wall time on. */
         stride = plat_set_framebuffer_size((u32)w, (u32)h);
         dst = plat_framebuffer();
         if (stride != 0)
@@ -1777,7 +1805,7 @@ static void host_present(rt_machine *m)
         dumpIndex++;
         shot_write(path);
     }
-    if (g_window) plat_present();
+    if (g_window && !fast) plat_present();
     (void)m;
 }
 
@@ -2509,6 +2537,8 @@ int main(int argc, char **argv)
             g_loadHold = g_loadHoldSeen = 0;
             g_loadOn = g_loadShown = 0;
             g_loadSeen = g_loadStart = 0;
+            s_loadFast = 0;
+            plat_set_fast_forward(0);
             /* A played game shows the title again. A headless run (the --titlekey seam) has no
              * keyboard, so ask the menu for its scripted choice: a boot the menu asked for starts
              * that game at once (the menu's New Game was taken before this), and an Esc restart

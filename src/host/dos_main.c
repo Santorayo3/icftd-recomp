@@ -1162,7 +1162,8 @@ static void loading_frame(rt_machine *m)
 {
     int busy, up;
 
-    if (!g_portArm) return;
+    /* A measurement run never installs the seams - and never changes the platform's pacing. */
+    if (!g_portArm) { plat_set_fast_forward(0); return; }
     busy = load_pc(m->pc) || g_loadSeen == m->frame;
     if (busy)
     {
@@ -1178,6 +1179,11 @@ static void loading_frame(rt_machine *m)
         else if (g_loadHoldSeen && !g_loadOn) g_loadHold = 0;   /* the load it waited for ended */
         else g_loadHold--;
     }
+
+    /* The load's frames are dead time - the previous picture stays up for all of them - so the
+     * platform stops holding them to the 50 Hz wall clock (src\host\main.c has the full note).
+     * The machine's frames and every interrupt in them are unchanged; this is delivery only. */
+    plat_set_fast_forward(busy || g_loadHold > 0);
 
     up = g_loadHold > 0 || (g_loadOn && m->frame - g_loadStart >= LOAD_SHOW_FRAMES);
     if (up != g_loadShown)
@@ -1999,6 +2005,7 @@ int main(int argc, char **argv)
             g_loadHold = g_loadHoldSeen = 0;
             g_loadOn = g_loadShown = 0;
             g_loadSeen = g_loadStart = 0;
+            plat_set_fast_forward(0);
             /* A restart starts the measurement again: close the window, and the next boundary that
              * passes --perfafter opens a fresh one with every counter at zero. */
             m.perfOn = 0;

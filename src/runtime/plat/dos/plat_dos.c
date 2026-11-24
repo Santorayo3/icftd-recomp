@@ -55,6 +55,9 @@ static u32  g_lastPit;                      /* pit_clock_read() at the last pit_
 static u32  g_pitAcc;                       /* counts since the last frame boundary */
 static u32  g_ms, g_msFrac;                 /* plat_ticks_ms accumulator */
 static u32  g_frameHz = 50;
+/* The loader's fast-forward (platform.h): no wall-clock wait between frames, and no audio queued
+ * for wall time the run is not spending. The machine's frames are untouched. */
+static int  g_fastForward;
 
 static u8   g_irq1Masked, g_irq1Old;
 static u8   g_keys[KEY_COUNT];
@@ -1459,6 +1462,9 @@ void plat_audio_write(const s16 *frames, u32 count)
     u32 out, i, k, step;
 
     if (!g_sb.open || frames == 0 || count == 0) return;
+    /* The loader's fast-forward skips wall time; playing its samples later would be a burst of
+     * sound from a moment the player never spent. The machine's own audio state is untouched. */
+    if (g_fastForward) return;
 
     step = g_sb.decim;
     if (g_sb.bits == 16 && g_sb.stereo && step == 1)
@@ -1588,12 +1594,28 @@ void plat_set_frame_hz(u32 hz)
     if (g_period == 0) g_period = 1;
 }
 
+void plat_set_fast_forward(int on)
+{
+    g_fastForward = on;
+}
+
 /* Blocks until the next frame boundary on the 8254 clock. Keyboard scanning happens here too:
  * this is where the program spends its idle time, and a scancode must not be overwritten in the
  * controller's one-byte buffer while it waits. */
 void plat_frame_sync(void)
 {
     u32 lastAck = g_pitCounts;
+
+    /* A load's frames are dead time on the screen: service the keyboard and the card, then hand the
+     * next frame back at once. The 8254 accumulator is cleared so the skipped wall time cannot show
+     * up as a catch-up burst when normal pacing resumes. */
+    if (g_fastForward) {
+        pit_update();
+        g_pitAcc = 0;
+        kbd_poll();
+        sb_service();
+        return;
+    }
 
     for (;;) {
         pit_update();

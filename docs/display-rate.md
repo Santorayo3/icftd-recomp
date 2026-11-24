@@ -22,6 +22,13 @@ and it is written to be executed phase by phase, each phase verifiable on its ow
 hospital's world update at ~12.5 Hz on the Amiga, and they will run at exactly those rates
 here. There is no mechanism in this plan that could change that, and none is wanted.
 
+The one deliberate exception is the loader's fast-forward (`plat_set_fast_forward`,
+`docs\port-features.md`): while the engine is inside its load-only code the screen is a still
+picture, so the platform stops holding each frame to the 20 ms mark and the wall time of a
+transition shrinks. That is still delivery, not content — the guest's frames, their cycle budget
+and every interrupt in them are unchanged, and a paced and an unpaced run end byte-identical. No
+scene's update rate moves; only the wait before it starts does.
+
 ## Content rate vs delivery rate
 
 The distinction the whole plan rests on:

@@ -466,7 +466,8 @@ a headless run says where the character is.
 The original waits for a screen's data with the previous picture still up, so a long transition (the
 map into a location, a room into the map, the intro, a loaded save's first screen) is a stretch of
 frames in which nothing moves. The port says so: `Loading` in the OSD, top left, in the game's own
-font.
+font. The same detection lets those frames run at host speed instead of the 50 Hz wall clock, since
+the screen cannot change during them (see "The loader's fast-forward" below).
 
 The trigger is the engine's own load-only code, not a timer. A frame counts as load work when one of
 these was entered during it, or when the instruction the frame boundary lands on is inside one (a
@@ -510,6 +511,43 @@ The DOS front end installs the same seam (`load_pc`, `loading_frame`, `host_load
 runs 42..136 and the injected world loop's picture-bank load 387..447, each with the line up and
 down at those frames; the title's Load Game arms the hold on frame 37 and the line gives way at 403
 when the screen it waited for is up. A DOS measurement run (no `--mouse`) logs no line at all.
+
+### The loader's fast-forward
+
+The load's frames are dead time: the previous picture stays up for every one of them, and on the
+Amiga the wait *is* the loader's own 68000 time. The port keeps the machine's time and drops the
+wall-time wait: for as long as `loading_frame` sees load work (or the title's announced transition),
+it calls `plat_set_fast_forward(1)`, and the platform's `plat_frame_sync` returns at once instead of
+holding the frame to its 20 ms deadline (`src\runtime\platform.h`). It is a **delivery** switch and
+nothing else:
+
+* the guest still gets its 141,875 cycles per vblank and every interrupt in it - a paced and an
+  unpaced run of the same input end byte-identical over all 2 MB of RAM (measured at frame 389 and
+  at frame 687 of `--titlekey 11 --slot 1`: 0 differing bytes against the `--mouse` run's dump);
+* the display is still serviced at the panel's rate, so the window stays live and the platform's
+  overlay - the loading line included - keeps being drawn; while fast-forwarding the front end skips
+  its per-frame hand-over of the (unchanged) picture, because the platform already has it;
+* the wall time the skip omits is not played: `plat_audio_write` drops the samples it is handed, so
+  a load does not turn into a burst of sound. The machine's Paula state is untouched (the mixer
+  keeps advancing exactly as before); a score playing across a transition skips with it;
+* the title's own loop clears the flag when it takes the screen, and the first frame after a fast
+  stretch re-anchors the frame clock instead of catching up in a burst. A measurement run never
+  enables it, and the DOS front end uses the same flag but keeps presenting every frame (its overlay
+  lives in the picture).
+
+Measured on `--titlekey 11 --slot 1` (the 361-frame load 37..398; the window's own frames 0..687 are
+20 ms each except the load's):
+
+| | before | after |
+|---|---|---|
+| wall time of frames 0..687 (windowed) | 13.9 s | 6.7 s |
+| the load itself (361 frames) | 7.2 s | ~0.4 s |
+| machine frames/s over frames 0..1794 (`--displaystat`, windowed) | 50.0 | 62.4 |
+
+The post-load frames are still exactly 20 ms (29 s of the 29 s run is pacing, not load); only the
+transition compressed. `--titlekey 12`'s boot load (frames 42..142) compresses the same way, and so
+does its New Game load (507 frames, 2121..2628, 10.1 s paced): the windowed run reached frame 2576 -
+455 of those load frames - after 40.8 s, where 51.5 s of frames would be paced.
 
 ## The title's Load Game slot list
 

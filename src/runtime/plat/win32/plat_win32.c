@@ -67,6 +67,10 @@ static int           g_quit;
 static u32           g_fullscreen;
 static u32           g_start_ms;
 static u32           g_frame_ms = 20;    /* 50 Hz, the Amiga frame rate */
+/* The loader's fast-forward (platform.h): no wall-clock wait between frames, and no audio queued
+ * for wall time the run is not spending. The machine's frames are untouched. */
+static int           g_fastForward;
+static int           g_fastRearm;        /* the deadline is stale after a fast stretch */
 static u8            g_keys[KEY_COUNT];
 static u8            g_pressed[KEY_COUNT];
 /* A key that went down and up again between two plat_pump calls leaves g_keys unchanged, so the
@@ -2126,6 +2130,9 @@ static void audio_drain(void)
 void plat_audio_write(const s16 *frames, u32 count)
 {
     if (count == 0 || frames == 0) return;
+    /* The loader's fast-forward skips wall time; playing its samples later would be a burst of
+     * sound from a moment the player never spent. The machine's own audio state is untouched. */
+    if (g_fastForward) return;
     if (g_alost) audio_reopen();
     if (!g_aopen) return;
     if (count > AUDIO_FRAMES) count = AUDIO_FRAMES;
@@ -2254,13 +2261,25 @@ void plat_set_frame_hz(u32 hz)
     frame_ticks_recalc();
 }
 
+void plat_set_fast_forward(int on)
+{
+    if (!on && g_fastForward) g_fastRearm = 1;
+    g_fastForward = on;
+}
+
 void plat_frame_sync(void)
 {
     __int64 now;
 
+    /* A load's frames are not the player's time: the screen shows the previous picture for all of
+     * them. Deliver the panel's frame (which also drains its messages) but do not hold the
+     * emulation to the 20 ms clock; the machine itself is identical either way. */
+    if (g_fastForward) { plat_display_service(); return; }
+
     /* The emulated frame is 141,875 of 7,093,790 clocks, i.e. exactly 20 ms, and the period is
      * counted on the performance counter rather than on GetTickCount - the 15.6 ms tick cannot
      * express 20 ms, so the old loop alternated 15/31 ms and the picture paced unevenly. */
+    if (g_fastRearm) { g_fastRearm = 0; g_nextFrame = qpc_now(); }
     if (g_frame_ticks == 0) { Sleep(g_frame_ms); return; }
     g_nextFrame += g_frame_ticks;
     for (;;) {

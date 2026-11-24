@@ -682,6 +682,10 @@ static int title_play(rt_machine *m)
     }
     m->on_frame = 0;                     /* the title owns the keyboard ... */
     m->on_present = 0;                   /* ... and the screen */
+    /* ... and its frames are paced like the game's: the game's frame hook (which owns the loader's
+     * fast-forward) does not run while the title is up, so the flag is cleared here rather than
+     * inherited from whatever frame the title interrupted. */
+    plat_set_fast_forward(0);
     while (pick < 0)
     {
         int i;

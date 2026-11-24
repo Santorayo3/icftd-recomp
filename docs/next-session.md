@@ -11,6 +11,31 @@ Before writing a port feature (code the original does not have — save slots, O
 pointer), read `docs/port-features.md`: the five attachment points, the `rc_stream` trap, the scene
 presets and what "done" means without an oracle to diff against.
 
+## Loading times: the loader runs at host speed (2026-11-24)
+
+Asked for, after the loading line: the transitions take the time they always took, can they be
+shorter? They can, and the fix is a delivery switch, not a content one. The `Loading` seam already
+knows every frame in which the engine is inside its load-only code; `loading_frame`
+(`src\host\main.c`) now also calls `plat_set_fast_forward(1)` for those frames (and for the title's
+announced transition, which counts from its first frame). `plat_frame_sync` then returns at once
+instead of holding the frame to the 20 ms wall clock, and `plat_audio_write` drops the samples for
+wall time the run is not spending. The guest is untouched: still 141,875 cycles per vblank, every
+interrupt in it, same machine state. While the load runs the front end also skips its per-frame
+hand-over of the (unchanged) picture, because the platform's display service already has it and
+draws the overlay - the loading line included - at the panel's rate.
+
+Measured (windowed, `--titlekey 11 --slot 1`, the 361-frame load at 37..398): frames 0..687 go from
+13.9 s to 6.7 s, the load itself from 7.2 s to ~0.4 s; frames 398..687 are still exactly 20 ms. In
+the New Game flow (`--titlekey 12`) the 507-frame load at 2121..2628 is 10.1 s paced; the windowed
+run reached frame 2576 after 40.8 s, where 51.5 s of frames would be paced. The windowed run's RAM
+at frame 389 is byte-identical to the unpaced `--mouse` run's over all 2 MB (at frame 687, identical
+to the pre-change dump too), and a windowed, paced run with the flag disabled differs from the
+unpaced run by the same single dead stack byte at frame 302 that it differs by with the flag on -
+pre-existing, not the feature. The title loop clears the flag when it takes the screen, and a
+measurement run never turns it on. DOS uses the same platform flag but keeps presenting every frame
+(its overlay lives in the picture). Full note: `docs\port-features.md`, "The loader's fast-forward";
+the invariant note is in `docs\display-rate.md`.
+
 **MS-DOS parity (started 2026-11-16).** The Windows feature set is being brought to the DOS build.
 The full plan, the current state (the platform mouse, the pointer seams, the save picker, the
 loading line and the first start are in and measured) and the remaining task - the documentation and

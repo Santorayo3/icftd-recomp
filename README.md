@@ -237,7 +237,9 @@ situation map the game's own cursor follows it — pushed past the travel window
 and the SAVE GAME mark holds the window still while the pointer is over it. The room screens' arrow,
 the menu-line hover, the fight's crosshair and the two minigame aims are installed as well, and a
 click on the map's SAVE GAME mark opens the same ten-slot picker Windows has. The engine's long
-screen transitions say `Loading` while the game's own loader runs, as on Windows.
+screen transitions say `Loading` while the game's own loader runs, as on Windows, and their frames
+are not held to the 50 Hz clock: a transition takes host time (docs\port-features.md, "The loader's
+fast-forward").
 
 **A first start extracts itself.** `play_dos.cmd` hands the game the repository's `disks\` folder
 (`--disks`), so the first run in a freshly staged `bin\dos\game` fills it with the tree above and

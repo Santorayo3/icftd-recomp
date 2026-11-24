@@ -183,6 +183,15 @@ u32  plat_pump(input_state *in);
 /* Blocks until the next 50 Hz game tick (the Amiga frame rate). */
 void plat_frame_sync(void);
 
+/* The loader's fast-forward, on while the engine is inside its load-only code. It is a *delivery*
+ * switch only: the machine keeps its 141,875 cycles per frame and every interrupt lands where it
+ * did, so a run's machine state is identical either way - what changes is that the platform stops
+ * holding each frame to the wall clock for as long as the screen shows the same (previous) picture.
+ * Audio the skipped wall time would have played is dropped rather than queued as a burst, and the
+ * display is still serviced at the panel's rate, so the window stays live and the OSD line arrives.
+ * See docs\port-features.md, "The loading line" - it is never a content change. */
+void plat_set_fast_forward(int on);
+
 /* --- display rate -------------------------------------------------------------------------
  * The machine's frame stays the 20 ms it is (docs\display-rate.md): what these calls add is the
  * *delivery* of that picture - and of the port's own overlay - at the panel's refresh rate, from
